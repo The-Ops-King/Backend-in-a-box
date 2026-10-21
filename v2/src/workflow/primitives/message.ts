@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Duration } from "../duration";
+import { Predicate } from "../predicate";
 import { ContentKey, ContentRef, PostRef, SlackTarget, Template, contentKeysOf, nodeBase } from "./common";
 import { definePrimitive } from "./spec";
 
@@ -27,7 +28,8 @@ export const Validity = z.union([
  * To the contact: `kind` human waits for the send window, transactional (a receipt) follows the workflow's rule for
  * receipts; `validity` and `whenStale` say what happens once it is too late (skip it, or send other content instead).
  * To Slack: `thread` replies under an earlier post (`threadOnly`: nothing when that post is not there), `remember`
- * keeps this post under a tag other runs can find, `buttons` are platform actions whose labels are in the content.
+ * keeps this post under a tag other runs can find, `buttons` are platform actions whose labels are in the content, each
+ * shown only when its `when` holds.
  */
 export const Message1 = z.object({
   ...nodeBase,
@@ -40,7 +42,8 @@ export const Message1 = z.object({
   thread: PostRef.optional(),
   threadOnly: z.boolean().optional(),
   remember: Template.min(1).optional(),
-  buttons: z.array(z.object({ action: z.enum(SLACK_BUTTON_ACTIONS), value: Template.min(1), style: z.enum(["primary", "danger"]).optional() }).strict()).min(1).max(5).optional(),
+  /** `when`: the button is shown only when this holds at the moment of posting ("Link the payment" only for an unlinked one). */
+  buttons: z.array(z.object({ action: z.enum(SLACK_BUTTON_ACTIONS), value: Template.min(1), style: z.enum(["primary", "danger"]).optional(), when: Predicate.optional() }).strict()).min(1).max(5).optional(),
 }).strict().superRefine((n, ctx) => {
   const toContact = "contact" in n.to;
   const only = (field: keyof typeof n, who: string) => { if (n[field] !== undefined) ctx.addIssue({ code: "custom", path: [field], message: `${field} is only for a message to ${who}` }); };

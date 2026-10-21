@@ -8,16 +8,20 @@ import { type Context, evaluateExpr, parseTemplate, render, wholeExpr } from "./
  *
  * An operand that is exactly one `{{…}}` is that value with its type kept (a boolean compares as a boolean, a number as a
  * number). A string with other text around a `{{…}}` is rendered and compares as text. Anything else is a literal.
- * `exists` takes a bare path and holds when the value is there and not empty.
+ * `exists` takes a bare path and holds when the value is there and not empty. `within` compares two numbers with a
+ * tolerance: `{ within: ["{{payment.total}}", "{{deal.contract_value}}", 0.01] }` holds when they are at most a cent
+ * apart (and never when either is not a number).
  */
 export type Predicate =
   | { eq: [unknown, unknown] } | { ne: [unknown, unknown] }
   | { gt: [unknown, unknown] } | { gte: [unknown, unknown] } | { lt: [unknown, unknown] } | { lte: [unknown, unknown] }
   | { in: [unknown, unknown] } | { has: [unknown, unknown] } | { exists: string }
+  | { within: [unknown, unknown, unknown] }
   | { and: Predicate[] } | { or: Predicate[] } | { not: Predicate };
 
 const Operand = z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.union([z.string(), z.number(), z.boolean()]))]);
 const Pair = z.tuple([Operand, Operand]);
+const Tolerance = z.union([z.number().nonnegative(), z.string().refine((t) => !!wholeExpr(t), { message: "a tolerance is a number or one {{…}}" })]);
 const strictObj = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
 export const Predicate: z.ZodType<Predicate> = z.lazy(() =>
@@ -25,6 +29,7 @@ export const Predicate: z.ZodType<Predicate> = z.lazy(() =>
     strictObj({ eq: Pair }), strictObj({ ne: Pair }),
     strictObj({ gt: Pair }), strictObj({ gte: Pair }), strictObj({ lt: Pair }), strictObj({ lte: Pair }),
     strictObj({ in: Pair }), strictObj({ has: Pair }),
+    strictObj({ within: z.tuple([Operand, Operand, Tolerance]) }),
     strictObj({ exists: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/, { message: "exists takes a bare path, without {{ }}" }) }),
     strictObj({ and: z.array(Predicate).min(1) }), strictObj({ or: z.array(Predicate).min(1) }), strictObj({ not: Predicate }),
   ]),
@@ -63,6 +68,12 @@ export function holds(p: Predicate, ctx: Context, env: RenderEnv): boolean {
   if ("or" in p) return p.or.some((q) => holds(q, ctx, env));
   if ("not" in p) return !holds(p.not, ctx, env);
   if ("exists" in p) return !isAbsent(evaluateExpr({ path: p.exists, root: p.exists.split(".")[0]!, filters: [], source: p.exists }, ctx, env).value);
+  if ("within" in p) {
+    const a = asNumber(operand(p.within[0], ctx, env)), b = asNumber(operand(p.within[1], ctx, env)), tol = asNumber(operand(p.within[2], ctx, env));
+    if (a === undefined || b === undefined || tol === undefined || tol < 0) return false;
+    // a few ulps of slack, so 0.1 + 0.2 is within 0.1 of 0.2
+    return Math.abs(a - b) <= tol + 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+  }
   const [op, pair] = Object.entries(p)[0] as [string, [unknown, unknown]];
   const a = operand(pair[0], ctx, env), b = operand(pair[1], ctx, env);
   switch (op) {

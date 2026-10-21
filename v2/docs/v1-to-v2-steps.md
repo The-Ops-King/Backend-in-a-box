@@ -44,12 +44,12 @@ Three rules change how things are written, everywhere:
 | `wait_for_event` `{ event, match, about, since, until, into, respect_send_window }` | `wait@1` `event: { type, match, about, since }`, `timeout?`, `until?`, `into`, `fitSendWindow`; leaves by `arrived` / `timeout` |
 | `wait_for_reaction` blocking, on a post this run made | `ask@1` with `answers.reactions` (or `buttons`) and `then: "wait"`; or `ask@1 then: "go_on"` followed later by `wait@1 answer: { ask }` |
 | `wait_for_reaction` `blocking: false` (the listener) + `until` | `ask@1 then: "listen"`, deadline `until`; `tap` edge → `on: "answered"`, `until` edge → `on: "expired"` |
-| `wait_for_reaction` `of: "tag:<tag>"` on a post another run made | **GAP 1** |
+| `wait_for_reaction` `of: "tag:<tag>"` on a post another run made | `wait@1 answer: { tag: "decision:{{appointment.id}}", since? }`: the answer to an ask any run remembered under that tag (`remember`); leaves by `arrived` / `timeout`. Every answer is also a fact, `ask.answered` |
 | `resume` | an edge to `"$resume"` at the end of a listener's path |
 | `branch` | `branch@1` |
 | `check` `{ when, else_exit }` | `branch@1` with a `when` edge on and an `else` edge to `end@1 { reason }` |
-| `check` `retry: { every, for }` | a `wait@1` for the event that would make it true, with a `timeout` (e.g. `event: contact.linked`, `timeout: 1h`); or a loop of `branch` → `wait for` back to the branch. A bounded retry count is **GAP 2** |
-| `check` `else_pause` | **GAP 3** (no "pause for a person" end) |
+| `check` `retry: { every, for }` | `wait@1 check: { holds, every }` with `timeout: <for>` (or an `until`): looks again every `every`, leaves by `arrived` once it holds, by `timeout` when the deadline comes first; the `timeout` edge goes to the `end@1 { reason }`. Or a `wait@1` for the event that would make it true |
+| `check` `else_pause` | a `branch@1` whose else edge goes to `wait@1 person: { reason }`: the run is paused for a person until an operator resumes it (`on: resumed`) or ends it |
 | `set_var` `{ key, value }` | `set@1` `{ var, value }` |
 | `set_var` `pick` / `when` + `else_value` | `set@1` value `{ $pick, cases, else }` / `{ $if, then, else }`. Words chosen this way move to `message` `content: { pick, cases, else }` so they stay approved content |
 | `lookup` `{ query, params, into }` | `action@1 facts.lookup` `{ query, params }`, `into` |
@@ -64,7 +64,7 @@ Three rules change how things are written, everywhere:
 | `slack_post` `react` (on the parent), `react_on`, `unreact` | separate steps: `action@1 slack.react` / `slack.unreact` with `post: { node } \| { tag }` |
 | `slack_post` `offer` (reactions for people to tap) | `ask@1` `answers: { reactions }` |
 | `slack_post` `edit` | `action@1 slack.update_post` |
-| `slack_post` `buttons` (alert_retry, alert_resolve, link_*, agreement_*) | `message@1` `buttons: [{ action, value, style }]`; labels in the content; `only_if` per button is **GAP 7** |
+| `slack_post` `buttons` (alert_retry, alert_resolve, link_*, agreement_*) | `message@1` `buttons: [{ action, value, style, when? }]`; labels in the content; `only_if` per button is `when`, a condition checked at the moment of posting |
 | `slack_post` `label` (mode marks) | none: the delivery gate marks and reroutes sandbox posts |
 | `slack_post` `quiet_when_empty` | `branch@1` on `{{vars.<report>.empty}}` (and `{{setting.reports.quiet_when_empty}}`) before the `message` |
 | `notify_owner` `{ template, fallback_channel, task, as }` | **split (H3)**: `message@1` to `{ slack: { dm: "{{contact.owner.slack_id}}", fallbackChannel } }`, then `action@1 crm.create_task` |
@@ -103,7 +103,8 @@ Three rules change how things are written, everywhere:
 ## Templates and conditions
 
 Conditions keep v1's shape: `eq`, `ne` (v1 `neq`), `gt`, `gte`, `lt`, `lte`, `in`, `has`, `exists`, `and`, `or`, `not`. Two
-date-times now compare as instants. Filters are a fixed set of 18:
+date-times now compare as instants. New in v2: `within: [a, b, tolerance]`, two numbers at most `tolerance` apart.
+Filters are a fixed set of 20:
 
 | v1 filter | v2 |
 |---|---|
@@ -111,6 +112,7 @@ date-times now compare as instants. Filters are a fixed set of 18:
 | `date:<luxon format>` | `date:<format name>`: long, medium, day, short_day, time, time_zone, weekday, iso_date (contact's zone). Arbitrary patterns are **GAP 10** |
 | `date_company` | `offer_date:<format name>` |
 | `date:HH` used in conditions | `hour` (a number) |
+| (none: v1 had `timeParam` offsets inside a few step params) | `plus:<duration>` / `minus:<duration>`: a date-time moved, as an ISO time, anywhere a template goes (params, conditions, `since`, and a wait anchor written as one `{{…}}`) |
 | `default:` (empty, "may be absent") | `optional` |
 | `tz`, `words`, `json`, `lines`, `bullets`, `each`, `first`, `plural`, `nonzero`, `then`, `suffix`, `duration`, `fixed`, `option` | dropped; list layouts belong to report definitions. **GAP 11** for Slack posts that list things outside a report, and for `option` (per-offer picklist keys) |
 
@@ -125,9 +127,9 @@ send.
 | E1 Typeform contact write | In "New from Typeform": `crm.find_or_create_contact`, then `crm.update_contact` (fields, UTMs) |
 | E2 scope tag on a booking | In Call booked: `crm.add_tag` with `{{setting.scope.tag}}` |
 | E3 setter-booked call with no setter | `branch` on the setter, then a `message` to the alerts channel setting |
-| E4 setter attribution | `facts.lookup calls_for_contact` within the window, `set`, `crm.update_contact`; the re-read every 5 minutes is a `wait for` loop. The window "booked minus N minutes" needs time arithmetic in params: **GAP 12** |
+| E4 setter attribution | `facts.lookup calls_for_contact` with `since: "{{appointment.booked_at \| minus:30m}}"`, `set`, `crm.update_contact`; the re-read every 5 minutes is a `wait@1 check` loop |
 | E5 / E6 opportunity opened (with the default contract value) | `facts.record deal.opened` with `contract_value: "{{setting.deal.contract_value_default}}"` |
-| E7 paid in full (within a cent) | a `branch` on the payment's running total against the contract value, then `facts.record payment.paid_in_full` with `startsWorkflows`. "Within a cent" needs arithmetic: **GAP 13** (or the payments projection gives `remaining`) |
+| E7 paid in full (within a cent) | a `branch` with `{ within: ["{{payment.total}}", "{{deal.contract_value}}", 0.01] }` (the running total comes from the payments projection), then `facts.record payment.paid_in_full` with `startsWorkflows` |
 | E8 relinking earlier unlinked payments | **GAP 14** (identity matching; for Tyler: platform or step) |
 | E9 deposit names unchecked | `branch` on the payment's product names, then a `message` |
 | E10 what counts as a new lead | the CRM port's `contact.created`, with a trigger `match`; the drift sweep no longer starts it silently |
@@ -150,21 +152,21 @@ identities and the delivery gate · H18 `runs.pause_others`.
 
 ## Gaps for Tyler
 
-1. **Waiting on another run's post** (`wait_for_reaction of: "tag:<tag>"`): an ask's answer is only readable by the
-   workflow that asked. Proposal: the answer becomes a fact (`ask.answered`) that other workflows trigger on.
-2. **A bounded retry loop** (`check` `retry: { every, for }`): a loop can be drawn, but there is no counter or time
-   arithmetic to stop it after `for`. Waiting for the event with a timeout covers the known case (the CRM id).
-3. **Pause for a person** (`check` `else_pause`): v2 has `end` but no "pause this run for a person" step.
+1. ~~**Waiting on another run's post**~~ Closed in piece 2: `wait@1 answer: { tag }`, and every answer is an
+   `ask.answered` fact.
+2. ~~**A bounded retry loop**~~ Closed in piece 2: `wait@1 check: { holds, every }` with a deadline.
+3. ~~**Pause for a person**~~ Closed in piece 2: `wait@1 person: { reason }`, left by `resumed`.
 4. **The CRM's own snippet wins** (`ghl_template`): not carried; copy is v2 content only.
 5. **`on_stale: escalate`**: only skip and send-other-content exist.
 6. **Fallback channel for an unbound channel**: v2 blocks enabling instead of falling back silently.
-7. **A button shown only when a condition holds** (`buttons[].only_if`).
+7. ~~**A button shown only when a condition holds**~~ Closed in piece 2: `buttons[].when`.
 8. **`keep` on a tag step** (tags never removed even if named): write the remove list exactly instead.
 9. **Health and drift repairs** (H5, H6): pulling contacts in, retiring duplicate ids, switching a primary id. They need
    verbs (or stay platform) by Tyler's call.
 10. **Free date patterns**: only the eight named formats.
 11. **List layouts in Slack posts** (`each`, `bullets`, `lines`, `plural`) outside a report definition, and per-offer
     picklist keys (`option`).
-12. **Time arithmetic in params** ("the booking time minus 30 minutes" for a lookup window).
-13. **Arithmetic in conditions** ("total within a cent of the contract value").
+12. ~~**Time arithmetic in params**~~ Closed in piece 2: the `plus` / `minus` filters, and a wait anchor may be one
+    `{{…}}` expression.
+13. ~~**Arithmetic in conditions**~~ Closed in piece 2: `within: [a, b, tolerance]`.
 14. **Relinking unlinked payments** (E8).

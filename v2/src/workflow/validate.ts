@@ -48,7 +48,8 @@ function* stringsIn(v: unknown, path: (string | number)[]): Generator<{ s: strin
 /** The conditions a node holds, which also test bare paths (`exists`). */
 function predicatesOf(n: Node): Predicate[] {
   if (n.type === "trigger@1" && "event" in n.on && n.on.event && n.on.match) return [n.on.match];
-  if (n.type === "wait@1" && n.event?.match) return [n.event.match];
+  if (n.type === "wait@1") return [...(n.event?.match ? [n.event.match] : []), ...(n.check ? [n.check.holds] : [])];
+  if (n.type === "message@1") return (n.buttons ?? []).flatMap((b) => (b.when ? [b.when] : []));
   if (n.type === "set@1") {
     const out: Predicate[] = [];
     const walk = (v: Value): void => {
@@ -67,7 +68,7 @@ function predicatesOf(n: Node): Predicate[] {
 /** Paths a node names without braces: a time rule's anchor, what a message's validity is measured against. */
 function barePathsOf(n: Node): string[] {
   const out: string[] = [];
-  const rule = (r?: { anchor: string }) => { if (r && r.anchor !== "now") out.push(r.anchor); };
+  const rule = (r?: { anchor: string }) => { if (r && r.anchor !== "now" && !r.anchor.includes("{{")) out.push(r.anchor); };
   if (n.type === "wait@1" || n.type === "ask@1") rule(n.until);
   if (n.type === "message@1" && n.validity) out.push("before" in n.validity ? n.validity.before : n.validity.after);
   return out;

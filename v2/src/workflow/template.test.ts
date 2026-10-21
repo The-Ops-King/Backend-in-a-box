@@ -115,9 +115,21 @@ describe("blank detection (the blank-variable hold reads this)", () => {
 describe("filters", () => {
   it("has the fixed set and no more", () => {
     expect(Object.keys(FILTERS).sort()).toEqual([
-      "abs", "date", "default", "first_name", "hour", "hours_until", "join", "line", "link", "lower", "money", "offer_date",
-      "oneof", "optional", "prefix", "relative", "truncate", "upper",
+      "abs", "date", "default", "first_name", "hour", "hours_until", "join", "line", "link", "lower", "minus", "money",
+      "offer_date", "oneof", "optional", "plus", "prefix", "relative", "truncate", "upper",
     ]);
+  });
+
+  it("plus and minus move a date-time by a duration, for time arithmetic", () => {
+    const ctx = { appointment: { starts_at: "2026-10-22T21:00:00Z", booked_at: "2026-10-20T09:00:00.000Z" } };
+    expect(text("{{appointment.starts_at | minus:30m}}", ctx)).toBe("2026-10-22T20:30:00.000Z");
+    expect(text("{{appointment.booked_at | plus:1d}}", ctx)).toBe("2026-10-21T09:00:00.000Z");
+    expect(text("{{appointment.starts_at | minus:2h | date:time}}", ctx)).toBe("12:00 PM");
+    expect(parseTemplate("{{appointment.starts_at | minus:30 minutes}}").errors[0]).toContain("duration");
+    expect(parseTemplate("{{appointment.starts_at | plus}}").errors[0]).toContain("needs an argument");
+    const r = render("{{appointment.ends_at | minus:30m}}", ctx, env);
+    expect(r.blanks.map((b) => b.path)).toEqual(["appointment.ends_at"]);
+    expect(render("{{appointment.call_type | minus:30m}}", { appointment: { call_type: "closing" } }, env).errors[0]).toContain("not a date");
   });
 
   it("lower, upper, first_name, truncate", () => {

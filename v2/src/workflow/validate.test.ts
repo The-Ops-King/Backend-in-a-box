@@ -182,6 +182,40 @@ describe("a listening ask and $resume", () => {
   });
 });
 
+describe("the format gaps closed in piece 2", () => {
+  it("waits for an answer by tag, which names no node of this workflow", () => {
+    const w = { id: "w1", type: "wait@1", title: "Wait for the decision", answer: { tag: "decision:{{appointment.id}}" }, timeout: "2h", into: "decision" };
+    const r = validateWorkflow(wf([trigger(), w, post(), end()], [{ from: "t1", to: "w1" }, { from: "w1", to: "n1", on: "arrived" }, { from: "w1", to: "x1", on: "timeout" }, { from: "n1", to: "x1" }]));
+    expect(r.problems).toEqual([]);
+  });
+  it("checks the condition a recheck loop looks at", () => {
+    const w = (holds: N) => ({ id: "w1", type: "wait@1", title: "Look again for a phone", check: { holds, every: "1h" }, timeout: "24h" });
+    const edges = [{ from: "t1", to: "w1" }, { from: "w1", to: "n1", on: "arrived" }, { from: "w1", to: "x1", on: "timeout" }, { from: "n1", to: "x1" }];
+    expect(validateWorkflow(wf([trigger(), w({ exists: "contact.phone" }), post(), end()], edges)).problems).toEqual([]);
+    expectOnly(wf([trigger(), w({ exists: "company.phone" }), post(), end()], edges), "bad_template");
+    expectOnly(wf([trigger(), w({ eq: ["{{vars.nope}}", 1] }), post(), end()], edges), "unknown_var");
+  });
+  it("needs the resumed edge of a wait for a person", () => {
+    const w = { id: "w1", type: "wait@1", title: "A person looks at it", person: { reason: "no_phone" } };
+    expect(validateWorkflow(wf([trigger(), w, post(), end()], [{ from: "t1", to: "w1" }, { from: "w1", to: "n1", on: "resumed" }, { from: "n1", to: "x1" }])).problems).toEqual([]);
+    expect(codes(wf([trigger(), w, post(), end()], [{ from: "t1", to: "w1" }, { from: "w1", to: "n1" }, { from: "n1", to: "x1" }]))).toEqual(["unknown_outcome", "missing_outcome_edge"]);
+  });
+  it("checks a button's condition", () => {
+    const flow = (when: N) => wf([trigger(), post("n1", { buttons: [{ action: "link_payment", value: "{{payment.id}}", when }] }), end()], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]);
+    expect(validateWorkflow(flow({ not: { exists: "payment.contact_id" } })).problems).toEqual([]);
+    expectOnly(flow({ not: { exists: "pay.contact_id" } }), "bad_template");
+  });
+  it("checks a templated anchor and a within", () => {
+    const w = (anchor: string) => ({ id: "w1", type: "wait@1", title: "Until then", until: { anchor, zone: "contact" } });
+    expect(validateWorkflow(wf([trigger(), w("{{appointment.starts_at | minus:30m}}"), end()], [{ from: "t1", to: "w1" }, { from: "w1", to: "x1" }])).problems).toEqual([]);
+    expectOnly(wf([trigger(), w("{{appointment.starts_at | minus:soon}}"), end()], [{ from: "t1", to: "w1" }, { from: "w1", to: "x1" }]), "bad_template");
+    const nodes = [trigger(), branch("b1"), post(), end()];
+    const edges = (when: N) => [{ from: "t1", to: "b1" }, { from: "b1", to: "n1", when }, { from: "b1", to: "x1", else: true }, { from: "n1", to: "x1" }];
+    expect(validateWorkflow(wf(nodes, edges({ within: ["{{payment.total}}", "{{deal.contract_value}}", 0.01] }))).problems).toEqual([]);
+    expectOnly(wf(nodes, edges({ within: ["{{payment.total}}", "{{dealz.contract_value}}", 0.01] })), "bad_template");
+  });
+});
+
 describe("references", () => {
   it("refuses a Slack thread under a node that is not a Slack post in this workflow", () => {
     expect(expectOnly(wf([trigger(), post("n1", { thread: { node: "nope" } }), end()], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]), "unknown_node_ref").message).toContain('"nope"');

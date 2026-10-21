@@ -81,7 +81,8 @@ describe("wait@1", () => {
     refuse({ type: "wait@1", until: { ...until, offset: "week_before@19:00" } });
     refuse({ type: "wait@1", until: { ...until, earliest: "21:00", latest: "08:00" } }, "earliest must be before latest");
     refuse({ type: "wait@1", until: { ...until, guard: { minLead: "2h", fallback: "-15m" } } }, "fallback is a time after now");
-    refuse({ type: "wait@1", until: { ...until, anchor: "{{appointment.starts_at}}" } }, "anchor");
+    refuse({ type: "wait@1", until: { ...until, anchor: "{{appointment.starts_at}} or so" } }, "anchor");
+    refuse({ type: "wait@1", until: { ...until, anchor: "the call" } }, "anchor");
     refuse({ type: "wait@1", for: "2h", fitSendWindow: true }, "fitSendWindow goes with until");
   });
   it("waits for an event, a reply or an answer, with a deadline", () => {
@@ -92,6 +93,33 @@ describe("wait@1", () => {
     refuse({ type: "wait@1", reply: { channel: "sms" } }, "needs a timeout or an until");
     refuse({ type: "wait@1", event: { type: "agreement.signed" } });
     refuse({ type: "wait@1", reply: { channel: "whatsapp" }, timeout: "1h" });
+  });
+  it("takes one {{…}} expression as an anchor, for time arithmetic", () => {
+    accept({ type: "wait@1", until: { anchor: "{{appointment.booked_at | plus:5m}}", zone: "contact" } });
+    accept({ type: "wait@1", until: { anchor: "{{vars.deadline}}", offset: "-1h", zone: "offer" } });
+  });
+  it("waits for the answer to a post any run remembered under a tag", () => {
+    accept({ type: "wait@1", answer: { tag: "decision:{{appointment.id}}" }, timeout: "2h", into: "decision" });
+    accept({ type: "wait@1", answer: { tag: "decision:{{appointment.id}}", since: "{{appointment.booked_at}}" }, into: "decision" });
+    refuse({ type: "wait@1", answer: { tag: "" }, into: "decision" });
+    refuse({ type: "wait@1", answer: { ask: "q1", tag: "x" } });
+    expect(outcomes({ type: "wait@1", answer: { tag: "t:{{appointment.id}}" }, timeout: "1h" })).toEqual({ required: ["arrived", "timeout"] });
+  });
+  it("looks again at a condition every so often, up to a deadline", () => {
+    accept({ type: "wait@1", check: { holds: { exists: "contact.phone" }, every: "1h" }, timeout: "24h" });
+    accept({ type: "wait@1", check: { holds: { exists: "contact.phone" }, every: "15m" }, until: { anchor: "appointment.starts_at", offset: "-1h", zone: "contact" } });
+    refuse({ type: "wait@1", check: { holds: { exists: "contact.phone" }, every: "1h" } }, "needs a timeout or an until");
+    refuse({ type: "wait@1", check: { holds: { exists: "contact.phone" } }, timeout: "1d" });
+    refuse({ type: "wait@1", check: { holds: { exists: "contact.phone" }, every: "1h" }, timeout: "1d", into: "x" }, "into goes with");
+    expect(outcomes({ type: "wait@1", check: { holds: { exists: "contact.phone" }, every: "1h" }, timeout: "24h" })).toEqual({ required: ["arrived", "timeout"] });
+  });
+  it("pauses the run for a person, who resumes or ends it", () => {
+    accept({ type: "wait@1", person: { reason: "no_phone" } });
+    refuse({ type: "wait@1", person: { reason: "No phone!" } }, "lowercase");
+    refuse({ type: "wait@1", person: { reason: "no_phone" }, timeout: "1d" }, "timeout goes with");
+    refuse({ type: "wait@1", person: { reason: "no_phone" }, until }, "no deadline");
+    refuse({ type: "wait@1", person: { reason: "no_phone" }, for: "1h" }, "one thing");
+    expect(outcomes({ type: "wait@1", person: { reason: "no_phone" } })).toEqual({ required: ["resumed"] });
   });
   it("waits for one thing at a time", () => {
     refuse({ type: "wait@1" }, "a wait needs");
@@ -140,6 +168,10 @@ describe("message@1", () => {
     accept({ type: "message@1", to: { slack: { channel: "{{setting.slack.channel.payments}}" } }, content: "payment_failed.slack_alert", remember: "pay:{{payment.id}}", buttons: [{ action: "alert_resolve", value: "{{event.alert_id}}" }] });
     accept({ type: "message@1", to: { slack: { dm: "{{contact.owner.slack_id}}", fallbackChannel: "{{setting.slack.channel.alerts}}" } }, content: "owner.nudge", thread: { tag: "booking:{{appointment.id}}" }, threadOnly: true });
     accept({ type: "message@1", to: { slack: { channel: "{{setting.slack.channel.calls}}" } }, content: { pick: "{{event.level}}", cases: { error: "alerts.error" }, else: "alerts.warning" } });
+  });
+  it("shows a button only when its condition holds", () => {
+    accept({ type: "message@1", to: { slack: { channel: "{{setting.slack.channel.payments}}" } }, content: "payments.unlinked", buttons: [{ action: "link_payment", value: "{{payment.id}}", when: { not: { exists: "payment.contact_id" } } }, { action: "alert_resolve", value: "{{payment.id}}" }] });
+    refuse({ type: "message@1", to: { slack: { channel: "{{setting.slack.channel.payments}}" } }, content: "payments.unlinked", buttons: [{ action: "link_payment", value: "{{payment.id}}", when: { exists: "{{payment.contact_id}}" } }] });
   });
   it("never takes words inline, nor a channel written in", () => {
     refuse({ type: "message@1", to: { contact: "sms" }, content: "Hi {{contact.first_name}}, see you soon!" }, "content key");

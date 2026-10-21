@@ -1,4 +1,5 @@
 import { DATE_FORMATS, type DateFormat, formatDate, localHour, relativeWords, toInstant } from "./dates";
+import { toMs } from "./duration";
 
 /** What a render needs besides the context: the clock, and the zones dates are written in. */
 export type RenderEnv = {
@@ -34,6 +35,9 @@ const number = (v: unknown): number | undefined => (isAbsent(v) || typeof v === 
 const contactZone = (env: RenderEnv) => env.contactZone ?? env.offerZone;
 const checkDateFormat = (arg: string) => ((DATE_FORMATS as readonly string[]).includes(arg) ? undefined : `date format is one of ${DATE_FORMATS.join(", ")}`);
 const checkNumber = (arg: string) => (/^\d+$/.test(arg) ? undefined : "takes a whole number");
+const checkDuration = (arg: string) => (/^[1-9]\d*(s|m|h|d|w)$/.test(arg) ? undefined : 'takes a duration: "30m", "2h", "1d"');
+/** A date-time moved by a duration, as an ISO time: for time arithmetic in params, conditions and wait anchors. */
+const shift = (sign: 1 | -1) => (v: unknown, arg: string | undefined) => (isAbsent(v) ? v : new Date(instant(v).getTime() + sign * toMs(arg!)).toISOString());
 
 /**
  * The fixed set of filters a template may use, `{{path | name:arg}}`. Every date filter passes an absent value through,
@@ -77,6 +81,10 @@ export const FILTERS: Record<string, FilterDef> = {
   } },
   /** Hours from now until that time, one decimal, negative once it has passed: a number, for conditions. */
   hours_until: { arg: "none", apply: (v, _arg, env) => (isAbsent(v) ? undefined : Math.round(((instant(v).getTime() - env.now.getTime()) / 3_600_000) * 10) / 10) },
+  /** That time plus a duration, as an ISO time: {{appointment.booked_at | plus:5m}}. */
+  plus: { arg: "required", checkArg: checkDuration, apply: shift(1) },
+  /** That time minus a duration, as an ISO time: {{appointment.starts_at | minus:30m}}. */
+  minus: { arg: "required", checkArg: checkDuration, apply: shift(-1) },
   /** The hour of the day (0 to 23) of that time in the contact's zone: a number, for conditions ("a call at 9am or later"). */
   hour: { arg: "none", apply: (v, _arg, env) => (isAbsent(v) ? undefined : localHour(instant(v), contactZone(env))) },
   /** A labelled value, or nothing at all: {{contact.setter.name | prefix:"*Setter:*"}} → "*Setter:* Luis". */

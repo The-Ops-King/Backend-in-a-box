@@ -57,6 +57,10 @@ export type SlackTarget = z.infer<typeof SlackTarget>;
 export const PostRef = z.union([z.object({ node: NodeId }).strict(), z.object({ tag: Template.min(1) }).strict()]);
 export type PostRef = z.infer<typeof PostRef>;
 
+const ANCHOR_PATH = /^[a-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
+/** One `{{…}}` and nothing around it; what is inside is checked by the validator like any template. */
+const ONE_EXPR = /^\{\{(?:(?!\{\{|\}\}).)+\}\}$/;
+
 /** "day_before@19:00", "day_of@08:00", "day_after@09:00": that clock time on the anchor's day, or the day either side. */
 export const DayAt = z.string().regex(/^day_(before|of|after)@([01]\d|2[0-3]):[0-5]\d$/, { message: 'a day rule is "day_before@HH:MM", "day_of@HH:MM" or "day_after@HH:MM"' });
 
@@ -68,8 +72,13 @@ export const Zone = z.enum(["contact", "offer"]);
  * now". It is recomputed whenever the anchor moves (a rescheduled call moves its reminders).
  */
 export const TimeRule = z.object({
-  /** "now" (when the step is reached), or the path of a date-time in the context: "appointment.starts_at". */
-  anchor: z.union([z.literal("now"), z.string().regex(/^[a-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/, { message: 'anchor is "now" or a path such as "appointment.starts_at"' })]),
+  /**
+   * "now" (when the step is reached), the path of a date-time in the context ("appointment.starts_at"), or one whole
+   * `{{…}}` expression that gives one, for time arithmetic: "{{appointment.booked_at | plus:5m}}".
+   */
+  anchor: z.string().refine((a) => a === "now" || ANCHOR_PATH.test(a) || ONE_EXPR.test(a), {
+    message: 'anchor is "now", a path such as "appointment.starts_at", or one {{…}} expression',
+  }),
   /** A shift from the anchor ("-24h") or a clock time on its day or a day either side ("day_before@19:00"). Unset: the anchor itself. */
   offset: z.union([Offset, DayAt]).optional(),
   /** Which zone clock times and earliest / latest are read in. */
