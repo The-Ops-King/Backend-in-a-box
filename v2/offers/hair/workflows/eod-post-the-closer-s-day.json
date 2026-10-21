@@ -1,0 +1,92 @@
+{
+  "schema": 2,
+  "id": "eod-post-the-closer-s-day",
+  "name": "EOD: post the closer's day",
+  "description": "A closer filed their end-of-day form: what happened on each call is posted in the EOD channel, and the closer gets a ✅ under their reminder.",
+  "origin": {
+    "template": "eod-filed",
+    "version": 5
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "A closer filed their end-of-day form",
+      "on": {
+        "event": "eod.filed"
+      }
+    },
+    {
+      "id": "n_summary",
+      "type": "message@1",
+      "title": "Post what happened on each call",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.eod}}"
+        }
+      },
+      "content": "eod_post_the_closer_s_day.n_summary",
+      "remember": "eod-summary:{{event.user_id}}:{{event.day}}"
+    },
+    {
+      "id": "n_ack",
+      "type": "message@1",
+      "title": "React ✅ on the reminder",
+      "to": {
+        "slack": {
+          "dm": "{{person.slack_user_id}}"
+        }
+      },
+      "content": "eod_post_the_closer_s_day.n_ack",
+      "thread": {
+        "tag": "eod-reminder:{{event.user_id}}:{{event.day}}"
+      },
+      "remember": "eod-ack:{{event.user_id}}:{{event.day}}"
+    },
+    {
+      "id": "n_ack_react",
+      "type": "action@1",
+      "title": "React :white_check_mark: on the post it replies under",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "eod-reminder:{{event.user_id}}:{{event.day}}"
+        },
+        "emojis": [
+          "white_check_mark"
+        ]
+      }
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n_summary"
+    },
+    {
+      "from": "n_summary",
+      "to": "n_ack"
+    },
+    {
+      "from": "n_ack",
+      "to": "n_ack_react"
+    },
+    {
+      "from": "n_ack_react",
+      "to": "x_done"
+    }
+  ]
+}

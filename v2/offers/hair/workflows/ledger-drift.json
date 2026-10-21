@@ -1,0 +1,161 @@
+{
+  "schema": 2,
+  "id": "ledger-drift",
+  "name": "Ledger drift",
+  "description": "Repairs a GHL Sales Call the health sweep found drifting: marks it cancelled, or links it to its contact and closer card.",
+  "origin": {
+    "template": "ledger-drift",
+    "version": 1
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t_cancel",
+      "type": "trigger@1",
+      "title": "A Sales Call in GHL needs marking cancelled (its booking was cancelled)",
+      "on": {
+        "event": "drift.sales_call_cancelled"
+      }
+    },
+    {
+      "id": "t_link",
+      "type": "trigger@1",
+      "title": "A Sales Call in GHL needs linking to its contact or closer card",
+      "on": {
+        "event": "drift.sales_call_unlinked"
+      }
+    },
+    {
+      "id": "b1",
+      "type": "branch@1",
+      "title": "Which repair?"
+    },
+    {
+      "id": "r_cancel",
+      "type": "action@1",
+      "title": "Set the Sales Call cancelled in GHL",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "{{setting.crm.object_sales_call}}",
+        "properties": {
+          "outcome": "{{event.cancelled_value}}"
+        },
+        "ifMissing": "create",
+        "recordId": "{{event.record_id}}"
+      }
+    },
+    {
+      "id": "r_link",
+      "type": "action@1",
+      "title": "Link the Sales Call to its contact and closer card",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "{{setting.crm.object_sales_call}}",
+        "properties": {
+          "contact_id": "{{event.contact_field | optional}}",
+          "opportunity_id": "{{event.card_id | optional}}"
+        },
+        "ifMissing": "create",
+        "recordId": "{{event.record_id}}"
+      },
+      "into": "r_link_record",
+      "onFailure": "skip"
+    },
+    {
+      "id": "r_link_written",
+      "type": "branch@1",
+      "title": "Was the record written? (its links need its id)"
+    },
+    {
+      "id": "r_link_rel1",
+      "type": "action@1",
+      "title": "Link the record (1 of 2)",
+      "action": "crm.relate_records",
+      "params": {
+        "association": "{{setting.crm.assoc_sales_call_contact | optional}}",
+        "first": "{{event.contact_field | optional}}",
+        "second": "{{event.record_id}}"
+      }
+    },
+    {
+      "id": "r_link_rel2",
+      "type": "action@1",
+      "title": "Link the record (2 of 2)",
+      "action": "crm.relate_records",
+      "params": {
+        "association": "{{setting.crm.assoc_sales_call_opportunity | optional}}",
+        "first": "{{event.record_id}}",
+        "second": "{{event.card_id | optional}}"
+      }
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Stop: repaired",
+      "reason": "repaired"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_cancel",
+      "to": "b1"
+    },
+    {
+      "from": "t_link",
+      "to": "b1"
+    },
+    {
+      "from": "b1",
+      "to": "r_cancel",
+      "label": "cancelled before the call",
+      "when": {
+        "eq": [
+          "{{event.type}}",
+          "drift.sales_call_cancelled"
+        ]
+      }
+    },
+    {
+      "from": "b1",
+      "to": "r_link",
+      "label": "not linked",
+      "else": true
+    },
+    {
+      "from": "r_cancel",
+      "to": "x1"
+    },
+    {
+      "from": "r_link",
+      "to": "r_link_written"
+    },
+    {
+      "from": "r_link_written",
+      "to": "r_link_rel1",
+      "when": {
+        "exists": "vars.r_link_record.id"
+      },
+      "label": "written"
+    },
+    {
+      "from": "r_link_written",
+      "to": "x1",
+      "else": true,
+      "label": "not written: no links"
+    },
+    {
+      "from": "r_link_rel1",
+      "to": "r_link_rel2"
+    },
+    {
+      "from": "r_link_rel2",
+      "to": "x1"
+    }
+  ]
+}

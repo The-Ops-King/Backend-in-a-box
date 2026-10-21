@@ -1,0 +1,1977 @@
+{
+  "schema": 2,
+  "id": "setter-call-logged",
+  "name": "Setter call logged",
+  "description": "A connected dialer call of a minute or more with a transcript: Jev reads its kind; a closing call goes to Sales call recorded; a setting or confirmation call gets AI notes, Jev's read of what it achieved (a booking through a setter link makes it Set), a Discovery Call record, a CRM note and a post, and, when Jev is unsure, a question to the team; then the follow-up task, DQ tag and lost cards when acting is on.",
+  "origin": {
+    "template": "setter-call-logged",
+    "version": 9
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "A dialer call came in from GHL — kind of recording is a phone call and the call connected",
+      "on": {
+        "event": "call.logged",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{recording.kind}}",
+                "phone"
+              ]
+            },
+            {
+              "eq": [
+                "{{recording.connected}}",
+                true
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "v1",
+      "type": "set@1",
+      "title": "Remember min seconds = 60",
+      "var": "min_seconds",
+      "value": 60
+    },
+    {
+      "id": "l_conv",
+      "type": "action@1",
+      "title": "The whole conversation: the same setter's calls to them, each starting within the company's gap (15 minutes) of the last one ending",
+      "action": "facts.lookup",
+      "params": {
+        "query": "call_conversation",
+        "params": {
+          "gap_min": "{{setting.calls.conversation_gap_min}}",
+          "recording_id": "{{recording.id}}"
+        }
+      },
+      "into": "convo"
+    },
+    {
+      "id": "c1",
+      "type": "branch@1",
+      "title": "Check the whole conversation's length (seconds) is at least the minimum call length (seconds)"
+    },
+    {
+      "id": "c1_x",
+      "type": "end@1",
+      "title": "Stop: too_short",
+      "reason": "too_short"
+    },
+    {
+      "id": "c2",
+      "type": "branch@1",
+      "title": "Check there is a transcript"
+    },
+    {
+      "id": "c2_x",
+      "type": "end@1",
+      "title": "Stop: no_transcript",
+      "reason": "no_transcript"
+    },
+    {
+      "id": "a1",
+      "type": "action@1",
+      "title": "Jev: setting, confirmation or closing call?",
+      "action": "ai.classify",
+      "params": {
+        "input": "{{vars.convo.transcript_text}}",
+        "prompt": "prompts.setter_call_logged.a1",
+        "options": [
+          "other",
+          "closing",
+          "setting",
+          "confirmation"
+        ],
+        "threshold": 0.8,
+        "ambiguityMax": 0.8,
+        "unclear": "other"
+      },
+      "into": "call_type"
+    },
+    {
+      "id": "b_kind",
+      "type": "branch@1",
+      "title": "What kind of call?"
+    },
+    {
+      "id": "l_book",
+      "type": "action@1",
+      "title": "Their booked call with this closer, starting within an hour of the call",
+      "action": "facts.lookup",
+      "params": {
+        "query": "appointments_for_contact",
+        "params": {
+          "kind": "closing",
+          "order": "starts_at",
+          "closer": "{{recording.caller.ghl_user_id | optional}}",
+          "status_not": "cancelled",
+          "starts_since": "{{vars.convo.first.started_at | minus:60m}}",
+          "starts_until": "{{vars.convo.first.started_at | plus:60m}}"
+        }
+      },
+      "into": "closing_booking"
+    },
+    {
+      "id": "a2",
+      "type": "action@1",
+      "title": "AI reads the whole conversation's transcript with the “setter call notes” prompt",
+      "action": "ai.summarize",
+      "params": {
+        "prompt": "prompts.setter_call_notes",
+        "input": "{{vars.convo.transcript_text}}",
+        "format": "json"
+      },
+      "into": "notes"
+    },
+    {
+      "id": "x_other",
+      "type": "end@1",
+      "title": "Stop: not a setting call",
+      "reason": "not_a_setting_call"
+    },
+    {
+      "id": "v_link",
+      "type": "set@1",
+      "title": "Exactly one booking lines up (none or several: the closer's workflow asks which)",
+      "var": "booking_id",
+      "value": {
+        "$if": {
+          "eq": [
+            "{{vars.closing_booking.count}}",
+            1
+          ]
+        },
+        "then": "{{vars.closing_booking.first.id}}",
+        "else": ""
+      }
+    },
+    {
+      "id": "v_parts",
+      "type": "set@1",
+      "title": "A call in parts says so",
+      "var": "parts_line",
+      "value": {
+        "$if": {
+          "gt": [
+            "{{vars.convo.count}}",
+            1
+          ]
+        },
+        "then": " ({{vars.convo.count}} parts)",
+        "else": ""
+      }
+    },
+    {
+      "id": "rec_close",
+      "type": "action@1",
+      "title": "A closing call: Sales call recorded takes it from here",
+      "action": "facts.record",
+      "params": {
+        "type": "call.closing",
+        "data": {
+          "parts": "{{vars.convo.count}}",
+          "closer": "{{recording.caller.name | optional}}",
+          "linked": "{{vars.booking_id | optional}}",
+          "external_id": "{{recording.external_id}}",
+          "conversation": "{{vars.convo.key}}",
+          "recording_id": "{{recording.id}}"
+        },
+        "startsWorkflows": true,
+        "appointment": "{{vars.booking_id | optional}}"
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "b_type",
+      "type": "branch@1",
+      "title": "A setting call: what did it achieve?"
+    },
+    {
+      "id": "x_close",
+      "type": "end@1",
+      "title": "Stop: closing call",
+      "reason": "closing_call"
+    },
+    {
+      "id": "a3",
+      "type": "action@1",
+      "title": "Jev: set, follow up, DQ or not interested?",
+      "action": "ai.classify",
+      "params": {
+        "input": "{{vars.convo.transcript_text}}",
+        "prompt": "prompts.setter_call_logged.a3",
+        "options": [
+          "dq",
+          "set",
+          "follow_up",
+          "not_interested",
+          "unclear"
+        ],
+        "threshold": 0.7,
+        "ambiguityMax": 0.8,
+        "unclear": "unclear"
+      },
+      "into": "setter_result"
+    },
+    {
+      "id": "v_cline",
+      "type": "set@1",
+      "title": "Remember outcome line = Confirmation call (no result read)",
+      "var": "outcome_line",
+      "value": "Confirmation call (no result read)"
+    },
+    {
+      "id": "v_conf",
+      "type": "set@1",
+      "title": "Remember jev confidence = [reply intent confidence]",
+      "var": "jev_confidence",
+      "value": "{{vars.setter_result.confidence}}"
+    },
+    {
+      "id": "l_now",
+      "type": "action@1",
+      "title": "Has a later part of this conversation come in meanwhile?",
+      "action": "facts.lookup",
+      "params": {
+        "query": "call_conversation",
+        "params": {
+          "gap_min": "{{setting.calls.conversation_gap_min}}",
+          "recording_id": "{{recording.id}}"
+        }
+      },
+      "into": "convo_now"
+    },
+    {
+      "id": "v_guess",
+      "type": "set@1",
+      "title": "Remember jev guesses = [top guesses]",
+      "var": "jev_guesses",
+      "value": "{{vars.setter_result.guesses}}"
+    },
+    {
+      "id": "c_latest",
+      "type": "branch@1",
+      "title": "Check there are no later parts already in"
+    },
+    {
+      "id": "c_latest_x",
+      "type": "end@1",
+      "title": "Stop: read_with_a_later_part",
+      "reason": "read_with_a_later_part"
+    },
+    {
+      "id": "w_post",
+      "type": "wait@1",
+      "title": "Post as soon as a booking lands through a setter link (one made during the call counts at once), else 15 minutes after hang-up",
+      "event": {
+        "type": "appointment.booked",
+        "about": "contact",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.appointment.booking_source}}",
+                "setter"
+              ]
+            },
+            {
+              "lte": [
+                "{{event.appointment.booked_at}}",
+                "{{recording.set_until}}"
+              ]
+            }
+          ]
+        },
+        "since": "{{vars.convo.first.started_at}}"
+      },
+      "into": "booked",
+      "until": {
+        "anchor": "recording.ended_at",
+        "offset": "+15m",
+        "zone": "offer"
+      },
+      "fitSendWindow": false
+    },
+    {
+      "id": "w_post_matched",
+      "type": "set@1",
+      "title": "Whether a booking through a setter link came",
+      "var": "booked_matched",
+      "value": {
+        "$if": {
+          "exists": "vars.booked.type"
+        },
+        "then": true,
+        "else": false
+      }
+    },
+    {
+      "id": "r1",
+      "type": "action@1",
+      "title": "The Discovery Call record (one per conversation)",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "custom_objects.discovery_call",
+        "properties": {
+          "setter": "{{recording.caller.name | optional}}",
+          "outcome": "{{recording.status}}",
+          "direction": "{{recording.direction}}",
+          "contact_id": "{{contact.ghl_contact_id | optional}}",
+          "call_result": "{{vars.result_key | optional}}",
+          "external_id": "{{vars.convo.key}}",
+          "occurred_at": "{{vars.convo.first.started_at | offer_date:medium}}",
+          "duration_sec": "{{vars.convo.total_sec}}",
+          "display_label": "{{contact.name | default:Unknown}} — {{vars.convo.first.started_at | offer_date:medium}}{{vars.parts_line | optional}}",
+          "recording_url": "{{recording.url | optional}}"
+        },
+        "ifMissing": "create",
+        "key": "{{vars.convo.key}}",
+        "owner": "{{recording.caller.ghl_user_id | optional}}"
+      },
+      "into": "r1_record",
+      "onFailure": "skip"
+    },
+    {
+      "id": "r1_written",
+      "type": "branch@1",
+      "title": "Was the record written? (its links need its id)"
+    },
+    {
+      "id": "r1_rel1",
+      "type": "action@1",
+      "title": "Link the record (1 of 1)",
+      "action": "crm.relate_records",
+      "params": {
+        "association": "{{setting.crm.assoc_discovery_call_contact}}",
+        "first": "{{contact.ghl_contact_id | optional}}",
+        "second": "{{vars.r1_record.id}}"
+      }
+    },
+    {
+      "id": "v_by",
+      "type": "set@1",
+      "title": "Without a booking, Jev's read (a Set read with no booking goes to the team)",
+      "var": "decided_by",
+      "value": {
+        "$if": {
+          "in": [
+            "{{vars.setter_result.value}}",
+            [
+              "follow_up",
+              "dq",
+              "not_interested"
+            ]
+          ]
+        },
+        "then": "jev",
+        "else": ""
+      }
+    },
+    {
+      "id": "m1",
+      "type": "action@1",
+      "title": "Leave an internal note",
+      "action": "crm.add_note",
+      "params": {
+        "content": "setter_call_logged.m1"
+      }
+    },
+    {
+      "id": "v_by30",
+      "type": "set@1",
+      "title": "A booking through a setter link: Set, whatever Jev read",
+      "var": "decided_by",
+      "value": {
+        "$if": {
+          "eq": [
+            "{{vars.booked_matched}}",
+            true
+          ]
+        },
+        "then": "booking",
+        "else": "{{vars.decided_by | optional}}"
+      }
+    },
+    {
+      "id": "s1",
+      "type": "message@1",
+      "title": "Post the setter call in Slack (a later part edits the same post)",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.setter_calls}}"
+        }
+      },
+      "content": "setter_call_logged.s1",
+      "remember": "setter-call:{{vars.convo.key}}"
+    },
+    {
+      "id": "v_res",
+      "type": "set@1",
+      "title": "Remember result, picked by [who decided the result]",
+      "var": "result",
+      "value": {
+        "$pick": "{{vars.decided_by | optional}}",
+        "cases": {
+          "jev": "{{vars.setter_result.value}}",
+          "booking": "set"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "w_late",
+      "type": "wait@1",
+      "title": "Until the Set window closes (the company's 30 minutes after hang-up): a booking through a setter link makes it Set",
+      "event": {
+        "type": "appointment.booked",
+        "about": "contact",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.appointment.booking_source}}",
+                "setter"
+              ]
+            },
+            {
+              "lte": [
+                "{{event.appointment.booked_at}}",
+                "{{recording.set_until}}"
+              ]
+            }
+          ]
+        },
+        "since": "{{vars.convo.first.started_at}}"
+      },
+      "into": "late",
+      "until": {
+        "anchor": "recording.set_until",
+        "zone": "offer"
+      },
+      "fitSendWindow": false
+    },
+    {
+      "id": "w_late_matched",
+      "type": "set@1",
+      "title": "Whether a booking through a setter link came in the Set window",
+      "var": "late_matched",
+      "value": {
+        "$if": {
+          "exists": "vars.late.type"
+        },
+        "then": true,
+        "else": false
+      }
+    },
+    {
+      "id": "v_agree",
+      "type": "set@1",
+      "title": "Remember jev agreed = true",
+      "var": "jev_agreed",
+      "value": {
+        "$if": {
+          "eq": [
+            "{{vars.setter_result.value}}",
+            "{{vars.result | optional}}"
+          ]
+        },
+        "then": true,
+        "else": false
+      }
+    },
+    {
+      "id": "l_now2",
+      "type": "action@1",
+      "title": "Has a later part of this conversation come in meanwhile?",
+      "action": "facts.lookup",
+      "params": {
+        "query": "call_conversation",
+        "params": {
+          "gap_min": "{{setting.calls.conversation_gap_min}}",
+          "recording_id": "{{recording.id}}"
+        }
+      },
+      "into": "convo_now"
+    },
+    {
+      "id": "v_ask",
+      "type": "set@1",
+      "title": "Remember asking = true",
+      "var": "asking",
+      "value": {
+        "$if": {
+          "eq": [
+            "{{vars.decided_by | optional}}",
+            ""
+          ]
+        },
+        "then": true,
+        "else": false
+      }
+    },
+    {
+      "id": "c_latest2",
+      "type": "branch@1",
+      "title": "A later part's run has the whole conversation (its post, its record, its question)"
+    },
+    {
+      "id": "c_latest2_x",
+      "type": "end@1",
+      "title": "Stop: read_with_a_later_part",
+      "reason": "read_with_a_later_part"
+    },
+    {
+      "id": "a4",
+      "type": "action@1",
+      "title": "Jev: why disqualified?",
+      "action": "ai.classify",
+      "params": {
+        "input": "{{vars.convo.transcript_text}}",
+        "prompt": "prompts.setter_call_logged.a4",
+        "options": [
+          "age",
+          "geo",
+          "other",
+          "budget",
+          "medical",
+          "timeline",
+          "competitor",
+          "no_problem",
+          "bad_contact"
+        ],
+        "threshold": 0.6,
+        "ambiguityMax": 0.8,
+        "unclear": "other"
+      },
+      "into": "dq_reason",
+      "onFailure": "skip"
+    },
+    {
+      "id": "b_late",
+      "type": "branch@1",
+      "title": "Did a booking through a setter link land in the Set window?"
+    },
+    {
+      "id": "v_dqtag",
+      "type": "set@1",
+      "title": "Remember dq tag, picked by [Jev's DQ reason]",
+      "var": "dq_tag",
+      "value": {
+        "$pick": "{{vars.dq_reason.value | optional}}",
+        "cases": {
+          "age": "dq-age",
+          "geo": "dq-geo",
+          "budget": "dq-budget",
+          "medical": "dq-medical",
+          "timeline": "dq-timeline",
+          "competitor": "dq-competitor",
+          "no_problem": "dq-no-problem",
+          "bad_contact": "dq-bad-contact"
+        },
+        "else": "dq"
+      }
+    },
+    {
+      "id": "lt_res",
+      "type": "set@1",
+      "title": "Remember result = set",
+      "var": "result",
+      "value": "set"
+    },
+    {
+      "id": "b_ask",
+      "type": "branch@1",
+      "title": "Was Jev sure?"
+    },
+    {
+      "id": "rec_read",
+      "type": "action@1",
+      "title": "Log Jev's read, to score it later",
+      "action": "facts.record",
+      "params": {
+        "type": "setter_call.result",
+        "data": {
+          "acts": "{{setting.setter_result.act}}",
+          "parts": "{{vars.convo.count}}",
+          "result": "{{vars.result | optional}}",
+          "setter": "{{recording.caller.name | optional}}",
+          "booked_at": "{{vars.booked.appointment.booked_at | optional}}",
+          "dq_reason": "{{vars.dq_reason.value | optional}}",
+          "predicted": "{{vars.setter_result.value}}",
+          "decided_by": "{{vars.decided_by | optional}}",
+          "jev_agreed": "{{vars.jev_agreed}}",
+          "external_id": "{{vars.convo.key}}",
+          "top_guesses": "{{vars.jev_guesses}}",
+          "recording_id": "{{vars.convo.first.id}}",
+          "set_by_booking": "{{vars.booked_matched | default:false}}",
+          "predicted_confidence": "{{vars.jev_confidence}}"
+        },
+        "startsWorkflows": false
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "lt_by",
+      "type": "set@1",
+      "title": "Remember decided by = booking",
+      "var": "decided_by",
+      "value": "booking"
+    },
+    {
+      "id": "q1",
+      "type": "ask@1",
+      "title": "Ask the setters: set, follow up, DQ or not interested?",
+      "to": {
+        "channel": "{{setting.slack.channel.setter_calls}}"
+      },
+      "content": "setter_call_logged.q1",
+      "answers": {
+        "reactions": [
+          "white_check_mark",
+          "repeat",
+          "x",
+          "no_entry_sign"
+        ]
+      },
+      "into": "reaction",
+      "then": "listen",
+      "until": {
+        "anchor": "now",
+        "offset": "+2d",
+        "zone": "offer"
+      },
+      "remember": "setter-result:{{vars.convo.key}}",
+      "onFailure": "skip"
+    },
+    {
+      "id": "k_task",
+      "type": "branch@1",
+      "title": "When is the next business day?"
+    },
+    {
+      "id": "k_task_3d",
+      "type": "action@1",
+      "title": "Open the call-back task, due in 3d",
+      "action": "crm.create_task",
+      "params": {
+        "title": "setter_call_logged.k_task.title",
+        "body": "setter_call_logged.k_task.body",
+        "due": "3d",
+        "assignTo": "{{recording.caller.ghl_user_id | optional}}"
+      }
+    },
+    {
+      "id": "k_task_2d",
+      "type": "action@1",
+      "title": "Open the call-back task, due in 2d",
+      "action": "crm.create_task",
+      "params": {
+        "title": "setter_call_logged.k_task.title",
+        "body": "setter_call_logged.k_task.body",
+        "due": "2d",
+        "assignTo": "{{recording.caller.ghl_user_id | optional}}"
+      }
+    },
+    {
+      "id": "k_task_1d",
+      "type": "action@1",
+      "title": "Open the call-back task, due in 1d",
+      "action": "crm.create_task",
+      "params": {
+        "title": "setter_call_logged.k_task.title",
+        "body": "setter_call_logged.k_task.body",
+        "due": "1d",
+        "assignTo": "{{recording.caller.ghl_user_id | optional}}"
+      }
+    },
+    {
+      "id": "v_due",
+      "type": "set@1",
+      "title": "Next business day",
+      "var": "task_due",
+      "value": {
+        "$pick": "{{now | offer_date:weekday}}",
+        "cases": {
+          "Friday": "+3d",
+          "Saturday": "+2d"
+        },
+        "else": "+1d"
+      }
+    },
+    {
+      "id": "lt_agree",
+      "type": "set@1",
+      "title": "Remember jev agreed = true",
+      "var": "jev_agreed",
+      "value": {
+        "$if": {
+          "eq": [
+            "{{vars.setter_result.value}}",
+            "set"
+          ]
+        },
+        "then": true,
+        "else": false
+      }
+    },
+    {
+      "id": "k_tag",
+      "type": "action@1",
+      "title": "Tags “+[the DQ tag]”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "{{vars.dq_tag}}"
+        ]
+      }
+    },
+    {
+      "id": "v_mode",
+      "type": "set@1",
+      "title": "Remember act word = *Next:*",
+      "var": "act_word",
+      "value": {
+        "$if": {
+          "eq": [
+            "{{setting.setter_result.act}}",
+            true
+          ]
+        },
+        "then": "*Next:*",
+        "else": "*Would have (actions are off):*"
+      }
+    },
+    {
+      "id": "lt_ask",
+      "type": "set@1",
+      "title": "Remember asking = false",
+      "var": "asking",
+      "value": false
+    },
+    {
+      "id": "w_hold",
+      "type": "wait@1",
+      "title": "Keep the question open two days",
+      "until": {
+        "anchor": "now",
+        "offset": "+2d",
+        "zone": "offer"
+      }
+    },
+    {
+      "id": "tv_res",
+      "type": "set@1",
+      "title": "Remember result, picked by [the tap]",
+      "var": "result",
+      "value": {
+        "$pick": "{{vars.reaction.value | optional}}",
+        "cases": {
+          "x": "dq",
+          "repeat": "follow_up",
+          "no_entry_sign": "not_interested",
+          "white_check_mark": "set"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "ru1",
+      "type": "action@1",
+      "title": "Record that nobody answered in two days",
+      "action": "facts.record",
+      "params": {
+        "type": "intent.unanswered",
+        "data": {
+          "domain": "setter_call_result",
+          "predicted": "{{vars.setter_result.value}}",
+          "top_guesses": "{{vars.jev_guesses}}",
+          "recording_id": "{{vars.convo.first.id}}",
+          "predicted_confidence": "{{vars.jev_confidence}}"
+        },
+        "startsWorkflows": false
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "k_lost_dq",
+      "type": "action@1",
+      "title": "Setter card lost (DQ)",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "stage": "{{setting.crm.stage_setter_dq | optional}}",
+        "ifMissing": "skip",
+        "pick": "open"
+      }
+    },
+    {
+      "id": "k_lost_dq_status",
+      "type": "action@1",
+      "title": "Mark that card lost",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "status": "lost"
+      }
+    },
+    {
+      "id": "v_key",
+      "type": "set@1",
+      "title": "Remember result key, picked by [the result]",
+      "var": "result_key",
+      "value": {
+        "$pick": "{{vars.result | optional}}",
+        "cases": {
+          "dq": "{{setting.picklist.discovery_call_result.dq}}",
+          "set": "{{setting.picklist.discovery_call_result.set}}",
+          "follow_up": "{{setting.picklist.discovery_call_result.follow_up}}",
+          "not_interested": "{{setting.picklist.discovery_call_result.not_interested}}"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "lt_key",
+      "type": "set@1",
+      "title": "Remember result key = [set]",
+      "var": "result_key",
+      "value": "{{setting.picklist.discovery_call_result.set}}"
+    },
+    {
+      "id": "r2",
+      "type": "action@1",
+      "title": "Write the team's answer on the Discovery Call record",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "custom_objects.discovery_call",
+        "properties": {
+          "call_result": "{{vars.result_key | optional}}"
+        },
+        "ifMissing": "skip",
+        "key": "{{vars.convo.key}}"
+      }
+    },
+    {
+      "id": "tv_by",
+      "type": "set@1",
+      "title": "Remember decided by = human",
+      "var": "decided_by",
+      "value": "human"
+    },
+    {
+      "id": "ru2",
+      "type": "message@1",
+      "title": "Close the question in its thread",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.setter_calls}}"
+        }
+      },
+      "content": "setter_call_logged.ru2",
+      "thread": {
+        "tag": "setter-result:{{vars.convo.key}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "ru2_unreact",
+      "type": "action@1",
+      "title": "Take the app's reactions off that post",
+      "action": "slack.unreact",
+      "params": {
+        "post": {
+          "tag": "setter-result:{{vars.convo.key}}"
+        },
+        "emojis": [
+          "white_check_mark",
+          "repeat",
+          "x",
+          "no_entry_sign"
+        ]
+      }
+    },
+    {
+      "id": "k_lost_ni",
+      "type": "action@1",
+      "title": "Setter card lost (not interested)",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "stage": "{{setting.crm.stage_setter_not_interested | optional}}",
+        "ifMissing": "skip",
+        "pick": "open"
+      }
+    },
+    {
+      "id": "k_lost_ni_status",
+      "type": "action@1",
+      "title": "Mark that card lost",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "status": "lost"
+      }
+    },
+    {
+      "id": "v_words",
+      "type": "set@1",
+      "title": "Remember result words, picked by [the result]",
+      "var": "result_words",
+      "value": {
+        "$pick": "{{vars.result | optional}}",
+        "cases": {
+          "dq": "DQ",
+          "set": "Set",
+          "follow_up": "Follow up",
+          "not_interested": "Not interested"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "lt_words",
+      "type": "set@1",
+      "title": "Remember result words = Set",
+      "var": "result_words",
+      "value": "Set"
+    },
+    {
+      "id": "q_reply",
+      "type": "message@1",
+      "title": "Say who decided, in the question's thread",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.setter_calls}}"
+        }
+      },
+      "content": "setter_call_logged.q_reply",
+      "thread": {
+        "tag": "setter-result:{{vars.convo.key}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "q_reply_unreact",
+      "type": "action@1",
+      "title": "Take the app's reactions off that post",
+      "action": "slack.unreact",
+      "params": {
+        "post": {
+          "tag": "setter-result:{{vars.convo.key}}"
+        },
+        "emojis": [
+          "white_check_mark",
+          "repeat",
+          "x",
+          "no_entry_sign"
+        ]
+      }
+    },
+    {
+      "id": "tv_agree",
+      "type": "set@1",
+      "title": "Remember jev agreed = true",
+      "var": "jev_agreed",
+      "value": {
+        "$if": {
+          "eq": [
+            "{{vars.setter_result.value}}",
+            "{{vars.result | optional}}"
+          ]
+        },
+        "then": true,
+        "else": false
+      }
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Stop: posted",
+      "reason": "posted"
+    },
+    {
+      "id": "v_act",
+      "type": "set@1",
+      "title": "Remember act line, picked by [the result]",
+      "var": "act_line",
+      "value": {
+        "$pick": "{{vars.result | optional}}",
+        "cases": {
+          "dq": "{{vars.act_word}} tag {{vars.dq_tag}} and mark the setter card lost.",
+          "follow_up": "{{vars.act_word}} a task for {{recording.caller.name | default:the setter}} to call back {{contact.name | default:them}}, due next business day.",
+          "not_interested": "{{vars.act_word}} mark the setter card lost."
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "lt_act",
+      "type": "set@1",
+      "title": "Remember act line =",
+      "var": "act_line",
+      "value": ""
+    },
+    {
+      "id": "tv_ask",
+      "type": "set@1",
+      "title": "Remember asking = false",
+      "var": "asking",
+      "value": false
+    },
+    {
+      "id": "v_when",
+      "type": "set@1",
+      "title": "Remember booked when = during the call",
+      "var": "booked_when",
+      "value": {
+        "$if": {
+          "lte": [
+            "{{vars.booked.appointment.booked_at}}",
+            "{{recording.ended_at}}"
+          ]
+        },
+        "then": "during the call",
+        "else": "after the call"
+      }
+    },
+    {
+      "id": "lt_line",
+      "type": "set@1",
+      "title": "Remember outcome line = Set — booked through a setter link after the call (Jev read: [Jev's read of the result], [how sure Jev was]% sure)",
+      "var": "outcome_line",
+      "value": "Set — booked through a setter link after the call (Jev read: {{vars.setter_result.value}}, {{vars.jev_confidence}}% sure)"
+    },
+    {
+      "id": "rec_rev",
+      "type": "action@1",
+      "title": "Score Jev: what the team said the call achieved",
+      "action": "facts.record",
+      "params": {
+        "type": "intent.reviewed",
+        "data": {
+          "agreed": "{{vars.jev_agreed}}",
+          "domain": "setter_call_result",
+          "decided": "{{vars.result | optional}}",
+          "predicted": "{{vars.setter_result.value}}",
+          "decided_by": "{{vars.reaction.person}}",
+          "recording_id": "{{vars.convo.first.id}}",
+          "predicted_confidence": "{{vars.jev_confidence}}"
+        },
+        "startsWorkflows": false
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "v_unsure",
+      "type": "set@1",
+      "title": "Remember unsure line, picked by [Jev's read of the result]",
+      "var": "unsure_line",
+      "value": {
+        "$pick": "{{vars.setter_result.value}}",
+        "cases": {
+          "set": "Jev read Set ({{vars.jev_confidence}}% sure), but no booking came through a setter link"
+        },
+        "else": "Jev isn't sure (its guesses: {{vars.jev_guesses}})"
+      }
+    },
+    {
+      "id": "rec_late",
+      "type": "action@1",
+      "title": "Log the result again: Set by the booking",
+      "action": "facts.record",
+      "params": {
+        "type": "setter_call.result",
+        "data": {
+          "acts": "{{setting.setter_result.act}}",
+          "parts": "{{vars.convo.count}}",
+          "result": "set",
+          "setter": "{{recording.caller.name | optional}}",
+          "booked_at": "{{vars.late.appointment.booked_at | optional}}",
+          "dq_reason": "{{vars.dq_reason.value | optional}}",
+          "predicted": "{{vars.setter_result.value}}",
+          "decided_by": "booking",
+          "jev_agreed": "{{vars.jev_agreed}}",
+          "external_id": "{{vars.convo.key}}",
+          "top_guesses": "{{vars.jev_guesses}}",
+          "recording_id": "{{vars.convo.first.id}}",
+          "set_by_booking": "true",
+          "predicted_confidence": "{{vars.jev_confidence}}"
+        },
+        "startsWorkflows": false
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "tv_key",
+      "type": "set@1",
+      "title": "Remember result key, picked by [the result]",
+      "var": "result_key",
+      "value": {
+        "$pick": "{{vars.result | optional}}",
+        "cases": {
+          "dq": "{{setting.picklist.discovery_call_result.dq}}",
+          "set": "{{setting.picklist.discovery_call_result.set}}",
+          "follow_up": "{{setting.picklist.discovery_call_result.follow_up}}",
+          "not_interested": "{{setting.picklist.discovery_call_result.not_interested}}"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "v_line",
+      "type": "set@1",
+      "title": "Remember outcome line, picked by [who decided the result]",
+      "var": "outcome_line",
+      "value": {
+        "$pick": "{{vars.decided_by | optional}}",
+        "cases": {
+          "jev": "{{vars.result_words | optional}} (Jev is {{vars.jev_confidence}}% sure)",
+          "booking": "Set — booked through a setter link {{vars.booked_when}} (Jev read: {{vars.setter_result.value}}, {{vars.jev_confidence}}% sure)"
+        },
+        "else": "{{vars.unsure_line}}; the team is asked"
+      }
+    },
+    {
+      "id": "r_late",
+      "type": "action@1",
+      "title": "The Discovery Call record becomes Set",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "custom_objects.discovery_call",
+        "properties": {
+          "call_result": "{{vars.result_key | optional}}"
+        },
+        "ifMissing": "skip",
+        "key": "{{vars.convo.key}}"
+      }
+    },
+    {
+      "id": "tv_words",
+      "type": "set@1",
+      "title": "Remember result words, picked by [the result]",
+      "var": "result_words",
+      "value": {
+        "$pick": "{{vars.result | optional}}",
+        "cases": {
+          "dq": "DQ",
+          "set": "Set",
+          "follow_up": "Follow up",
+          "not_interested": "Not interested"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "s_late",
+      "type": "message@1",
+      "title": "Edit the post to Set",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.setter_calls}}"
+        }
+      },
+      "content": "setter_call_logged.s_late",
+      "remember": "setter-call:{{vars.convo.key}}"
+    },
+    {
+      "id": "tv_act",
+      "type": "set@1",
+      "title": "Remember act line, picked by [the result]",
+      "var": "act_line",
+      "value": {
+        "$pick": "{{vars.result | optional}}",
+        "cases": {
+          "dq": "{{vars.act_word}} tag {{vars.dq_tag}} and mark the setter card lost.",
+          "follow_up": "{{vars.act_word}} a task for {{recording.caller.name | default:the setter}} to call back {{contact.name | default:them}}, due next business day.",
+          "not_interested": "{{vars.act_word}} mark the setter card lost."
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "w_late_if",
+      "type": "branch@1",
+      "title": "Only if: Until the Set window closes (the company's 30 minutes after hang-up): a booking through a setter link makes it Set"
+    },
+    {
+      "id": "a4_if",
+      "type": "branch@1",
+      "title": "Only if: Jev: why disqualified?"
+    },
+    {
+      "id": "k_task_if",
+      "type": "branch@1",
+      "title": "Only if: Call back {{contact.name | default:the lead}}"
+    },
+    {
+      "id": "k_tag_if",
+      "type": "branch@1",
+      "title": "Only if: Tags “+[the DQ tag]”"
+    },
+    {
+      "id": "w_hold_if",
+      "type": "branch@1",
+      "title": "Only if: Keep the question open two days"
+    },
+    {
+      "id": "k_lost_dq_if",
+      "type": "branch@1",
+      "title": "Only if: Setter card lost (DQ)"
+    },
+    {
+      "id": "r2_if",
+      "type": "branch@1",
+      "title": "Only if: Write the team's answer on the Discovery Call record"
+    },
+    {
+      "id": "k_lost_ni_if",
+      "type": "branch@1",
+      "title": "Only if: Setter card lost (not interested)"
+    },
+    {
+      "id": "q_reply_if",
+      "type": "branch@1",
+      "title": "Only if: Say who decided, in the question's thread"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "v1"
+    },
+    {
+      "from": "v1",
+      "to": "l_conv"
+    },
+    {
+      "from": "l_conv",
+      "to": "c1"
+    },
+    {
+      "from": "c1",
+      "to": "c2",
+      "when": {
+        "gte": [
+          "{{vars.convo.total_sec}}",
+          "{{vars.min_seconds}}"
+        ]
+      }
+    },
+    {
+      "from": "c1",
+      "to": "c1_x",
+      "else": true,
+      "label": "too_short"
+    },
+    {
+      "from": "c2",
+      "to": "a1",
+      "when": {
+        "eq": [
+          "{{recording.has_transcript}}",
+          true
+        ]
+      }
+    },
+    {
+      "from": "c2",
+      "to": "c2_x",
+      "else": true,
+      "label": "no_transcript"
+    },
+    {
+      "from": "a1",
+      "to": "b_kind"
+    },
+    {
+      "from": "b_kind",
+      "to": "l_book",
+      "label": "closing call",
+      "when": {
+        "eq": [
+          "{{vars.call_type.value}}",
+          "closing"
+        ]
+      }
+    },
+    {
+      "from": "b_kind",
+      "to": "a2",
+      "label": "setting or confirmation call",
+      "when": {
+        "in": [
+          "{{vars.call_type.value}}",
+          [
+            "setting",
+            "confirmation"
+          ]
+        ]
+      }
+    },
+    {
+      "from": "b_kind",
+      "to": "x_other",
+      "label": "anything else",
+      "else": true
+    },
+    {
+      "from": "l_book",
+      "to": "v_link"
+    },
+    {
+      "from": "a2",
+      "to": "v_parts"
+    },
+    {
+      "from": "v_link",
+      "to": "rec_close"
+    },
+    {
+      "from": "v_parts",
+      "to": "b_type"
+    },
+    {
+      "from": "rec_close",
+      "to": "x_close"
+    },
+    {
+      "from": "b_type",
+      "to": "a3",
+      "label": "setting call",
+      "when": {
+        "eq": [
+          "{{vars.call_type.value}}",
+          "setting"
+        ]
+      }
+    },
+    {
+      "from": "b_type",
+      "to": "v_cline",
+      "label": "confirmation call: post as soon as it is read",
+      "else": true
+    },
+    {
+      "from": "a3",
+      "to": "v_conf"
+    },
+    {
+      "from": "v_cline",
+      "to": "l_now"
+    },
+    {
+      "from": "v_conf",
+      "to": "v_guess"
+    },
+    {
+      "from": "l_now",
+      "to": "c_latest"
+    },
+    {
+      "from": "v_guess",
+      "to": "w_post"
+    },
+    {
+      "from": "c_latest",
+      "to": "r1",
+      "when": {
+        "eq": [
+          "{{vars.convo_now.later_ready}}",
+          0
+        ]
+      }
+    },
+    {
+      "from": "c_latest",
+      "to": "c_latest_x",
+      "else": true,
+      "label": "read_with_a_later_part"
+    },
+    {
+      "from": "w_post",
+      "to": "w_post_matched",
+      "on": "arrived",
+      "label": "a booking came"
+    },
+    {
+      "from": "w_post",
+      "to": "w_post_matched",
+      "on": "timeout",
+      "label": "15 minutes after hang-up"
+    },
+    {
+      "from": "w_post_matched",
+      "to": "v_by"
+    },
+    {
+      "from": "r1",
+      "to": "r1_written"
+    },
+    {
+      "from": "r1_written",
+      "to": "r1_rel1",
+      "when": {
+        "exists": "vars.r1_record.id"
+      },
+      "label": "written"
+    },
+    {
+      "from": "r1_written",
+      "to": "m1",
+      "else": true,
+      "label": "not written: no links"
+    },
+    {
+      "from": "r1_rel1",
+      "to": "m1"
+    },
+    {
+      "from": "v_by",
+      "to": "v_by30"
+    },
+    {
+      "from": "m1",
+      "to": "s1"
+    },
+    {
+      "from": "v_by30",
+      "to": "v_res"
+    },
+    {
+      "from": "s1",
+      "to": "w_late_if"
+    },
+    {
+      "from": "v_res",
+      "to": "v_agree"
+    },
+    {
+      "from": "w_late",
+      "to": "w_late_matched",
+      "on": "arrived",
+      "label": "a booking came"
+    },
+    {
+      "from": "w_late",
+      "to": "w_late_matched",
+      "on": "timeout",
+      "label": "the Set window closed"
+    },
+    {
+      "from": "w_late_matched",
+      "to": "l_now2"
+    },
+    {
+      "from": "v_agree",
+      "to": "v_ask"
+    },
+    {
+      "from": "l_now2",
+      "to": "c_latest2"
+    },
+    {
+      "from": "v_ask",
+      "to": "a4_if"
+    },
+    {
+      "from": "c_latest2",
+      "to": "b_late",
+      "when": {
+        "eq": [
+          "{{vars.convo_now.later_ready}}",
+          0
+        ]
+      }
+    },
+    {
+      "from": "c_latest2",
+      "to": "c_latest2_x",
+      "else": true,
+      "label": "read_with_a_later_part"
+    },
+    {
+      "from": "a4",
+      "to": "v_dqtag"
+    },
+    {
+      "from": "b_late",
+      "to": "lt_res",
+      "label": "booked: Set",
+      "when": {
+        "eq": [
+          "{{vars.late_matched}}",
+          true
+        ]
+      }
+    },
+    {
+      "from": "b_late",
+      "to": "b_ask",
+      "label": "no booking in the window",
+      "else": true
+    },
+    {
+      "from": "v_dqtag",
+      "to": "rec_read"
+    },
+    {
+      "from": "lt_res",
+      "to": "lt_by"
+    },
+    {
+      "from": "b_ask",
+      "to": "q1",
+      "label": "Jev unsure: ask the team",
+      "when": {
+        "eq": [
+          "{{vars.asking}}",
+          true
+        ]
+      }
+    },
+    {
+      "from": "b_ask",
+      "to": "k_task_if",
+      "label": "result known",
+      "else": true
+    },
+    {
+      "from": "rec_read",
+      "to": "v_due"
+    },
+    {
+      "from": "lt_by",
+      "to": "lt_agree"
+    },
+    {
+      "from": "q1",
+      "to": "w_hold_if",
+      "label": "the run goes on"
+    },
+    {
+      "from": "q1",
+      "to": "tv_res",
+      "on": "answered"
+    },
+    {
+      "from": "q1",
+      "to": "ru1",
+      "on": "expired"
+    },
+    {
+      "from": "k_task",
+      "to": "k_task_3d",
+      "when": {
+        "eq": [
+          "{{vars.task_due}}",
+          "+3d"
+        ]
+      },
+      "label": "due in 3d"
+    },
+    {
+      "from": "k_task",
+      "to": "k_task_2d",
+      "when": {
+        "eq": [
+          "{{vars.task_due}}",
+          "+2d"
+        ]
+      },
+      "label": "due in 2d"
+    },
+    {
+      "from": "k_task",
+      "to": "k_task_1d",
+      "else": true,
+      "label": "due tomorrow"
+    },
+    {
+      "from": "k_task_3d",
+      "to": "k_tag_if"
+    },
+    {
+      "from": "k_task_2d",
+      "to": "k_tag_if"
+    },
+    {
+      "from": "k_task_1d",
+      "to": "k_tag_if"
+    },
+    {
+      "from": "v_due",
+      "to": "v_mode"
+    },
+    {
+      "from": "lt_agree",
+      "to": "lt_ask"
+    },
+    {
+      "from": "k_tag",
+      "to": "k_lost_dq_if"
+    },
+    {
+      "from": "v_mode",
+      "to": "v_key"
+    },
+    {
+      "from": "lt_ask",
+      "to": "lt_key"
+    },
+    {
+      "from": "w_hold",
+      "to": "r2_if"
+    },
+    {
+      "from": "tv_res",
+      "to": "tv_by"
+    },
+    {
+      "from": "ru1",
+      "to": "ru2"
+    },
+    {
+      "from": "k_lost_dq",
+      "to": "k_lost_dq_status"
+    },
+    {
+      "from": "k_lost_dq_status",
+      "to": "k_lost_ni_if"
+    },
+    {
+      "from": "v_key",
+      "to": "v_words"
+    },
+    {
+      "from": "lt_key",
+      "to": "lt_words"
+    },
+    {
+      "from": "r2",
+      "to": "q_reply_if"
+    },
+    {
+      "from": "tv_by",
+      "to": "tv_agree"
+    },
+    {
+      "from": "ru2",
+      "to": "ru2_unreact"
+    },
+    {
+      "from": "ru2_unreact",
+      "to": "$resume"
+    },
+    {
+      "from": "k_lost_ni",
+      "to": "k_lost_ni_status"
+    },
+    {
+      "from": "k_lost_ni_status",
+      "to": "x1"
+    },
+    {
+      "from": "v_words",
+      "to": "v_act"
+    },
+    {
+      "from": "lt_words",
+      "to": "lt_act"
+    },
+    {
+      "from": "q_reply",
+      "to": "q_reply_unreact"
+    },
+    {
+      "from": "q_reply_unreact",
+      "to": "k_task_if"
+    },
+    {
+      "from": "tv_agree",
+      "to": "tv_ask"
+    },
+    {
+      "from": "v_act",
+      "to": "v_when"
+    },
+    {
+      "from": "lt_act",
+      "to": "lt_line"
+    },
+    {
+      "from": "tv_ask",
+      "to": "rec_rev"
+    },
+    {
+      "from": "v_when",
+      "to": "v_unsure"
+    },
+    {
+      "from": "lt_line",
+      "to": "rec_late"
+    },
+    {
+      "from": "rec_rev",
+      "to": "tv_key"
+    },
+    {
+      "from": "v_unsure",
+      "to": "v_line"
+    },
+    {
+      "from": "rec_late",
+      "to": "r_late"
+    },
+    {
+      "from": "tv_key",
+      "to": "tv_words"
+    },
+    {
+      "from": "v_line",
+      "to": "l_now"
+    },
+    {
+      "from": "r_late",
+      "to": "s_late"
+    },
+    {
+      "from": "tv_words",
+      "to": "tv_act"
+    },
+    {
+      "from": "s_late",
+      "to": "b_ask"
+    },
+    {
+      "from": "tv_act",
+      "to": "$resume"
+    },
+    {
+      "from": "w_late_if",
+      "to": "w_late",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{vars.call_type.value}}",
+              "setting"
+            ]
+          },
+          {
+            "ne": [
+              "{{vars.result | optional}}",
+              "set"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "w_late_if",
+      "to": "l_now2",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a4_if",
+      "to": "a4",
+      "when": {
+        "in": [
+          "{{vars.result | optional}}",
+          [
+            "dq",
+            ""
+          ]
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a4_if",
+      "to": "v_dqtag",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "k_task_if",
+      "to": "k_task",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{setting.setter_result.act}}",
+              true
+            ]
+          },
+          {
+            "eq": [
+              "{{vars.result | optional}}",
+              "follow_up"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "k_task_if",
+      "to": "k_tag_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "k_tag_if",
+      "to": "k_tag",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{setting.setter_result.act}}",
+              true
+            ]
+          },
+          {
+            "eq": [
+              "{{vars.result | optional}}",
+              "dq"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "k_tag_if",
+      "to": "k_lost_dq_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "w_hold_if",
+      "to": "w_hold",
+      "when": {
+        "eq": [
+          "{{vars.asking}}",
+          true
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "w_hold_if",
+      "to": "r2_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "k_lost_dq_if",
+      "to": "k_lost_dq",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{setting.setter_result.act}}",
+              true
+            ]
+          },
+          {
+            "eq": [
+              "{{vars.result | optional}}",
+              "dq"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "k_lost_dq_if",
+      "to": "k_lost_ni_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "r2_if",
+      "to": "r2",
+      "when": {
+        "eq": [
+          "{{vars.decided_by | optional}}",
+          "human"
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "r2_if",
+      "to": "q_reply_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "k_lost_ni_if",
+      "to": "k_lost_ni",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{setting.setter_result.act}}",
+              true
+            ]
+          },
+          {
+            "eq": [
+              "{{vars.result | optional}}",
+              "not_interested"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "k_lost_ni_if",
+      "to": "x1",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "q_reply_if",
+      "to": "q_reply",
+      "when": {
+        "eq": [
+          "{{vars.decided_by | optional}}",
+          "human"
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "q_reply_if",
+      "to": "k_task_if",
+      "else": true,
+      "label": "it does not: skipped"
+    }
+  ]
+}

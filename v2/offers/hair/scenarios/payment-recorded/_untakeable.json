@@ -1,0 +1,9 @@
+{
+  "_note": "Edges no run can take, with why. The scenario test requires every other edge to be taken.",
+  "edges": [
+    {
+      "edge": "g1_if → n4 (else)",
+      "why": "g1's v1 condition (only on a refund) is the same as the branch edge that leads to it (n3: refund), so it always holds there"
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+{
+  "name": "paid and signed, with a Sales Call",
+  "description": "They signed after paying in full: stat-customer, both cards won, the Sales Call marked closed won, the welcome email and text, the AI cheer line, the post in the deals channel.",
+  "workflow": "deal-closed",
+  "start": "2026-10-26T14:00:00Z",
+  "offer": {
+    "zone": "America/New_York",
+    "settings": {
+      "crm.location_id": "LOC-HAIR",
+      "crm.pipeline_setter": "PIPE-SETTER",
+      "crm.pipeline_closer": "PIPE-CLOSER",
+      "crm.stage_setter_new_lead": "ST-SETTER-NEW",
+      "crm.stage_setter_direct_booked": "ST-SETTER-DIRECT",
+      "crm.stage_setter_appointment_set": "ST-SETTER-SET",
+      "crm.stage_setter_cancelled": "ST-SETTER-CANCELLED",
+      "crm.stage_setter_showed": "ST-SETTER-SHOWED",
+      "crm.stage_closer_scheduled": "ST-CLOSER-SCHEDULED",
+      "crm.stage_closer_cancelled": "ST-CLOSER-CANCELLED",
+      "crm.stage_closer_closed_won": "ST-CLOSER-WON",
+      "crm.stage_closer_agreement_sent": "ST-CLOSER-AGREEMENT",
+      "crm.stage_closer_follow_up": "ST-CLOSER-FOLLOW-UP",
+      "crm.stage_closer_lost": "ST-CLOSER-LOST",
+      "crm.stage_closer_disqualified": "ST-CLOSER-DQ",
+      "crm.stage_closer_deposit": "ST-CLOSER-DEPOSIT",
+      "crm.object_sales_call": "custom_objects.sales_call",
+      "crm.object_payment": "custom_objects.payment",
+      "crm.assoc_sales_call_contact": "ASSOC-SC-CONTACT",
+      "crm.assoc_sales_call_opportunity": "ASSOC-SC-OPP",
+      "crm.assoc_payment_contact": "ASSOC-PAY-CONTACT",
+      "crm.assoc_payment_opportunity": "ASSOC-PAY-OPP",
+      "crm.assoc_discovery_call_contact": "ASSOC-DC-CONTACT",
+      "crm.agreement_template": "TPL-AGREEMENT",
+      "crm.agreement_sender": "USER-SENDER",
+      "calendar.booking.url": "https://book.example.com/hair",
+      "calendar.closer_call.url": "https://book.example.com/hair-closer",
+      "slack.channel.bookings": "C-BOOKINGS",
+      "slack.channel.payments": "C-PAYMENTS",
+      "slack.channel.deals": "C-DEALS",
+      "slack.channel.alerts": "C-ALERTS",
+      "slack.channel.ops": "C-OPS",
+      "slack.channel.calls": "C-CALLS",
+      "slack.channel.attention": "C-ATTENTION",
+      "slack.channel.setter_calls": "C-SETTER-CALLS",
+      "slack.channel.eod": "C-EOD",
+      "slack.channel.no_link_alerts": "C-NO-LINK",
+      "slack.channel.team_reports": "C-TEAM-REPORTS",
+      "slack.channel.engine_alerts": "C-ENGINE-ALERTS",
+      "slack.channel.test": "C-TEST",
+      "platform.base_url": "https://app.example.com",
+      "bot.escalate_to": "U-TYLER",
+      "picklist.sales_call_outcome.scheduled": "scheduled",
+      "picklist.sales_call_outcome.showed": "showed",
+      "picklist.sales_call_outcome.noshow": "noshow",
+      "picklist.sales_call_outcome.cancelled": "cancelled",
+      "picklist.sales_call_outcome.rescheduled": "rescheduled",
+      "picklist.sales_call_outcome.on_call": "rescheduled",
+      "picklist.sales_call_booking_source.setter": "setter_set",
+      "picklist.sales_call_booking_source.self": "self_booked",
+      "picklist.discovery_call_result.set": "set",
+      "picklist.discovery_call_result.follow_up": "follow_up",
+      "picklist.discovery_call_result.dq": "dq",
+      "picklist.discovery_call_result.not_interested": "not_interested",
+      "setter_result.act": true,
+      "calls.conversation_gap_min": 15,
+      "crm.stage_setter_dq": "ST-SETTER-DQ",
+      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+    }
+  },
+  "delivery": "live",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c1",
+      "phone": "+15550100001",
+      "email": "ana@example.com",
+      "timezone": "America/New_York"
+    }
+  ],
+  "fixtures": {
+    "summarize": [
+      "Luis turned Ana around in six days, $2,999 in."
+    ]
+  },
+  "steps": [
+    {
+      "at": "+0m",
+      "type": "agreement.signed",
+      "contact": "c1",
+      "payload": {
+        "contact": {
+          "first_name": "Ana",
+          "name": "Ana Lopez",
+          "ghl_contact_id": "ghl-c1",
+          "phone": "+15550100001",
+          "email": "ana@example.com",
+          "timezone": "America/New_York",
+          "paid_non_deposit": true,
+          "agreement_signed": true,
+          "tags": [
+            "stat-booked"
+          ],
+          "closer": {
+            "mention": "<@U-LUIS>",
+            "name": "Luis Ortega"
+          },
+          "cash_collected": 2999,
+          "revenue": 2999,
+          "first_booked_at": "2026-10-20T18:00:00Z",
+          "days_to_close": 6,
+          "source": "Facebook ads",
+          "records": {
+            "sales_call": {
+              "key": "cal-123",
+              "id": "sc-1"
+            }
+          }
+        },
+        "agreement": {
+          "name": "Purchase agreement"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "outbox": [
+      "+0m sent crm.add_tag",
+      "+0m sent crm.move_deal",
+      "+0m sent crm.set_deal_status",
+      "+0m sent crm.set_deal_status",
+      "+0m sent crm.upsert_record",
+      "+0m sent deal_closed.e1",
+      "+0m sent deal_closed.e2",
+      "+0m sent ai.summarize",
+      "+0m sent deal_closed.s1"
+    ],
+    "ends": [
+      "closed"
+    ]
+  }
+}

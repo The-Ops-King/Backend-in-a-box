@@ -1,0 +1,129 @@
+{
+  "name": "the closer files a no-show",
+  "description": "A no-show, first answer: stat-no-show, the setter card lost in No-Show, the closer card to No Show (open), the Sales Call no-show. The booking-thread line and its reactions are suppressed: no booking post is remembered in this scenario.",
+  "workflow": "call-outcome-filed",
+  "start": "2026-10-26T14:00:00Z",
+  "offer": {
+    "zone": "America/New_York",
+    "settings": {
+      "crm.location_id": "LOC-HAIR",
+      "crm.pipeline_setter": "PIPE-SETTER",
+      "crm.pipeline_closer": "PIPE-CLOSER",
+      "crm.stage_setter_new_lead": "ST-SETTER-NEW",
+      "crm.stage_setter_direct_booked": "ST-SETTER-DIRECT",
+      "crm.stage_setter_appointment_set": "ST-SETTER-SET",
+      "crm.stage_setter_cancelled": "ST-SETTER-CANCELLED",
+      "crm.stage_setter_showed": "ST-SETTER-SHOWED",
+      "crm.stage_closer_scheduled": "ST-CLOSER-SCHEDULED",
+      "crm.stage_closer_cancelled": "ST-CLOSER-CANCELLED",
+      "crm.stage_closer_closed_won": "ST-CLOSER-WON",
+      "crm.stage_closer_agreement_sent": "ST-CLOSER-AGREEMENT",
+      "crm.stage_closer_follow_up": "ST-CLOSER-FOLLOW-UP",
+      "crm.stage_closer_lost": "ST-CLOSER-LOST",
+      "crm.stage_closer_disqualified": "ST-CLOSER-DQ",
+      "crm.stage_closer_deposit": "ST-CLOSER-DEPOSIT",
+      "crm.object_sales_call": "custom_objects.sales_call",
+      "crm.object_payment": "custom_objects.payment",
+      "crm.assoc_sales_call_contact": "ASSOC-SC-CONTACT",
+      "crm.assoc_sales_call_opportunity": "ASSOC-SC-OPP",
+      "crm.assoc_payment_contact": "ASSOC-PAY-CONTACT",
+      "crm.assoc_payment_opportunity": "ASSOC-PAY-OPP",
+      "crm.assoc_discovery_call_contact": "ASSOC-DC-CONTACT",
+      "crm.agreement_template": "TPL-AGREEMENT",
+      "crm.agreement_sender": "USER-SENDER",
+      "calendar.booking.url": "https://book.example.com/hair",
+      "calendar.closer_call.url": "https://book.example.com/hair-closer",
+      "slack.channel.bookings": "C-BOOKINGS",
+      "slack.channel.payments": "C-PAYMENTS",
+      "slack.channel.deals": "C-DEALS",
+      "slack.channel.alerts": "C-ALERTS",
+      "slack.channel.ops": "C-OPS",
+      "slack.channel.calls": "C-CALLS",
+      "slack.channel.attention": "C-ATTENTION",
+      "slack.channel.setter_calls": "C-SETTER-CALLS",
+      "slack.channel.eod": "C-EOD",
+      "slack.channel.no_link_alerts": "C-NO-LINK",
+      "slack.channel.team_reports": "C-TEAM-REPORTS",
+      "slack.channel.engine_alerts": "C-ENGINE-ALERTS",
+      "slack.channel.test": "C-TEST",
+      "platform.base_url": "https://app.example.com",
+      "bot.escalate_to": "U-TYLER",
+      "picklist.sales_call_outcome.scheduled": "scheduled",
+      "picklist.sales_call_outcome.showed": "showed",
+      "picklist.sales_call_outcome.noshow": "noshow",
+      "picklist.sales_call_outcome.cancelled": "cancelled",
+      "picklist.sales_call_outcome.rescheduled": "rescheduled",
+      "picklist.sales_call_outcome.on_call": "rescheduled",
+      "picklist.sales_call_booking_source.setter": "setter_set",
+      "picklist.sales_call_booking_source.self": "self_booked",
+      "picklist.discovery_call_result.set": "set",
+      "picklist.discovery_call_result.follow_up": "follow_up",
+      "picklist.discovery_call_result.dq": "dq",
+      "picklist.discovery_call_result.not_interested": "not_interested",
+      "setter_result.act": true,
+      "calls.conversation_gap_min": 15,
+      "crm.stage_setter_dq": "ST-SETTER-DQ",
+      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+    }
+  },
+  "delivery": "live",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c1",
+      "phone": "+15550100001",
+      "email": "ana@example.com",
+      "timezone": "America/New_York"
+    }
+  ],
+  "steps": [
+    {
+      "at": "+0m",
+      "type": "appointment.outcome",
+      "contact": "c1",
+      "appointment": "a1",
+      "deal": "d1",
+      "payload": {
+        "contact": {
+          "first_name": "Ana",
+          "name": "Ana Lopez",
+          "ghl_contact_id": "ghl-c1",
+          "phone": "+15550100001",
+          "email": "ana@example.com",
+          "timezone": "America/New_York"
+        },
+        "outcome": "noshow",
+        "outcome_source": "disposition",
+        "appointment": {
+          "starts_at": "2026-10-26T13:00:00Z",
+          "term": {
+            "category": "closing"
+          },
+          "closer": {
+            "name": "Luis Ortega"
+          },
+          "slot_key": "cal-123",
+          "call_outcome": null
+        },
+        "deal": {
+          "status": "open"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "outbox": [
+      "+0m suppressed call_outcome_filed.g1",
+      "+0m suppressed slack.react",
+      "+0m sent crm.add_tag",
+      "+0m sent crm.move_deal",
+      "+0m sent crm.set_deal_status",
+      "+0m sent crm.move_deal",
+      "+0m sent crm.set_deal_status",
+      "+0m sent crm.upsert_record"
+    ],
+    "ends": [
+      "noted"
+    ]
+  }
+}

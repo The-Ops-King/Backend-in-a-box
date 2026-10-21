@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "id": "monthly-wrap-up",
+  "name": "Monthly wrap-up",
+  "description": "At 8am on the 1st, last month's numbers are posted.",
+  "origin": {
+    "template": "monthly-wrap-up",
+    "version": 1
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t_monthly",
+      "type": "trigger@1",
+      "title": "On a schedule: at 8:00 AM on day 1 of the month",
+      "on": {
+        "schedule": {
+          "at": "08:00",
+          "dayOfMonth": 1,
+          "for": "offer"
+        }
+      }
+    },
+    {
+      "id": "n_build",
+      "type": "report@1",
+      "title": "Read the numbers and word the wrap-up (the layout: sections, lines, headings)",
+      "report": "reports.monthly_wrap_up",
+      "period": "just_ended",
+      "into": "report"
+    },
+    {
+      "id": "n_post",
+      "type": "message@1",
+      "title": "Post the wrap-up in Slack",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.team_reports}}"
+        }
+      },
+      "content": "monthly_wrap_up.n_post"
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_monthly",
+      "to": "n_build"
+    },
+    {
+      "from": "n_build",
+      "to": "n_post"
+    },
+    {
+      "from": "n_post",
+      "to": "x_done"
+    }
+  ]
+}

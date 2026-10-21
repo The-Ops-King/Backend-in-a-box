@@ -1,0 +1,1350 @@
+{
+  "schema": 2,
+  "id": "call-outcome-filed",
+  "name": "Call outcome filed",
+  "description": "The closer filed how a closing call went (or it was marked no-show): the tags, the booking post's reactions and thread line, the setter and closer cards, the Sales Call record and the deal follow the answer, and a changed answer takes back what the earlier one did.",
+  "origin": {
+    "template": "call-outcome",
+    "version": 11
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "The call's outcome is filed — the source is a closer's form and call type is closing call",
+      "on": {
+        "event": "appointment.outcome",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.outcome_source}}",
+                "disposition"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "t2",
+      "type": "trigger@1",
+      "title": "An appointment's status changed — new status is no-show and call type is closing call",
+      "on": {
+        "event": "appointment.status_changed",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.status.to}}",
+                "noshow"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "u1_key",
+      "type": "set@1",
+      "title": "What the call's earlier answer tagged: the key to look up",
+      "var": "tags_before_key",
+      "value": "{{event.previous_outcome | optional}}:{{event.previous_call_outcome | optional}}"
+    },
+    {
+      "id": "u1",
+      "type": "set@1",
+      "title": "What the call's earlier answer tagged",
+      "var": "tags_before",
+      "value": {
+        "$pick": "{{vars.tags_before_key}}",
+        "cases": {
+          "noshow:": [
+            "stat-no-show",
+            "stat-possible-cancel"
+          ],
+          "showed:": [
+            "stat-showed"
+          ],
+          "showed:lost": [
+            "stat-showed",
+            "stat-lost"
+          ],
+          "showed:closed": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:deposit": [
+            "stat-showed",
+            "stat-deposit"
+          ],
+          "showed:pending": [
+            "stat-showed"
+          ],
+          "showed:follow_up": [
+            "stat-showed",
+            "stat-follow-up"
+          ],
+          "showed:unqualified": [
+            "stat-showed",
+            "stat-disqualified"
+          ]
+        },
+        "else": []
+      }
+    },
+    {
+      "id": "g1",
+      "type": "message@1",
+      "title": "React 👻 on the booking post",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": "call_outcome_filed.g1",
+      "thread": {
+        "tag": "appointment:{{appointment.id}}"
+      },
+      "threadOnly": true,
+      "remember": "outcome:{{appointment.id}}"
+    },
+    {
+      "id": "g1_react",
+      "type": "action@1",
+      "title": "React :ghost: on the post it replies under",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "ghost"
+        ]
+      }
+    },
+    {
+      "id": "g1_undo",
+      "type": "branch@1",
+      "title": "Which reaction does the earlier answer take back?"
+    },
+    {
+      "id": "g1_undo_white_check_mark",
+      "type": "action@1",
+      "title": "Take :white_check_mark: off the booking post",
+      "action": "slack.unreact",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "white_check_mark"
+        ]
+      }
+    },
+    {
+      "id": "u2_key",
+      "type": "set@1",
+      "title": "What this answer tags: the key to look up",
+      "var": "tags_now_key",
+      "value": "{{event.outcome}}:{{appointment.call_outcome | optional}}"
+    },
+    {
+      "id": "u2",
+      "type": "set@1",
+      "title": "What this answer tags",
+      "var": "tags_now",
+      "value": {
+        "$pick": "{{vars.tags_now_key}}",
+        "cases": {
+          "noshow:": [
+            "stat-no-show"
+          ],
+          "showed:": [
+            "stat-showed"
+          ],
+          "showed:lost": [
+            "stat-showed",
+            "stat-lost"
+          ],
+          "showed:closed": [
+            "stat-showed",
+            "stat-closed-won"
+          ],
+          "showed:deposit": [
+            "stat-showed",
+            "stat-deposit"
+          ],
+          "showed:pending": [
+            "stat-showed"
+          ],
+          "showed:follow_up": [
+            "stat-showed",
+            "stat-follow-up"
+          ],
+          "showed:unqualified": [
+            "stat-showed",
+            "stat-disqualified"
+          ]
+        },
+        "else": []
+      }
+    },
+    {
+      "id": "g2",
+      "type": "action@1",
+      "title": "Add tag “stat-no-show”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-no-show"
+        ]
+      }
+    },
+    {
+      "id": "u3_key",
+      "type": "set@1",
+      "title": "The reaction the earlier answer left that this one takes back: the key to look up",
+      "var": "undo_emoji_key",
+      "value": "{{event.previous_outcome | optional}}>{{event.outcome}}"
+    },
+    {
+      "id": "u3",
+      "type": "set@1",
+      "title": "The reaction the earlier answer left that this one takes back",
+      "var": "undo_emoji",
+      "value": {
+        "$pick": "{{vars.undo_emoji_key}}",
+        "cases": {
+          "noshow>showed": "ghost",
+          "showed>noshow": "white_check_mark",
+          "noshow>rescheduled": "ghost",
+          "showed>rescheduled": "white_check_mark"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "gn1",
+      "type": "action@1",
+      "title": "Setter card → No-Show / Cancel / Reschedule, marked lost (the setter pipeline is won on a show, lost on a no-show; the next booking makes a fresh setter card)",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "stage": "{{setting.crm.stage_setter_cancelled}}",
+        "ifMissing": "skip",
+        "pick": "latest"
+      }
+    },
+    {
+      "id": "gn1_status",
+      "type": "action@1",
+      "title": "Mark that card lost",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "status": "lost"
+      }
+    },
+    {
+      "id": "u4",
+      "type": "action@1",
+      "title": "A changed answer: take off what the earlier answer tagged and this one does not",
+      "action": "crm.remove_tag",
+      "params": {
+        "tags": [
+          "{{vars.tags_before}}"
+        ]
+      }
+    },
+    {
+      "id": "gn2",
+      "type": "action@1",
+      "title": "Closer card → No Show / Cancelled (move only: they can rebook)",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_cancelled}}",
+        "ifMissing": "skip",
+        "pick": "latest"
+      }
+    },
+    {
+      "id": "gn2_status",
+      "type": "action@1",
+      "title": "Mark that card open",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "status": "open"
+      }
+    },
+    {
+      "id": "o_reopen",
+      "type": "branch@1",
+      "title": "Is the deal lost?"
+    },
+    {
+      "id": "o_reopen_rec",
+      "type": "action@1",
+      "title": "A changed answer takes the loss back: the opportunity is open again",
+      "action": "facts.record",
+      "params": {
+        "type": "deal.reopened",
+        "data": {
+          "status": "open",
+          "from_status": "{{deal.status | optional}}"
+        },
+        "startsWorkflows": true
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "g3",
+      "type": "action@1",
+      "title": "Record the no-show after an unanswered cancel or reschedule read",
+      "action": "facts.record",
+      "params": {
+        "type": "intent.unanswered_no_show",
+        "data": {
+          "asked_at": "{{appointment.pending_read.at}}",
+          "predicted": "{{appointment.pending_read.intent}}",
+          "appointment_id": "{{appointment.id}}",
+          "predicted_confidence": "{{appointment.pending_read.confidence}}"
+        },
+        "startsWorkflows": false
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "b1",
+      "type": "branch@1",
+      "title": "Did they show?"
+    },
+    {
+      "id": "g4",
+      "type": "action@1",
+      "title": "Tag stat-possible-cancel: we were pretty sure they cancelled and the slot was never opened",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-possible-cancel"
+        ]
+      }
+    },
+    {
+      "id": "s1",
+      "type": "message@1",
+      "title": "React ✅ on the booking post",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": "call_outcome_filed.s1",
+      "thread": {
+        "tag": "appointment:{{appointment.id}}"
+      },
+      "threadOnly": true,
+      "remember": "outcome:{{appointment.id}}"
+    },
+    {
+      "id": "s1_react",
+      "type": "action@1",
+      "title": "React :white_check_mark: on the post it replies under",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "white_check_mark"
+        ]
+      }
+    },
+    {
+      "id": "s1_undo",
+      "type": "branch@1",
+      "title": "Which reaction does the earlier answer take back?"
+    },
+    {
+      "id": "s1_undo_ghost",
+      "type": "action@1",
+      "title": "Take :ghost: off the booking post",
+      "action": "slack.unreact",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "ghost"
+        ]
+      }
+    },
+    {
+      "id": "r3s",
+      "type": "message@1",
+      "title": "A changed answer: the thread line says rescheduled and the earlier reaction comes off",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": "call_outcome_filed.r3s",
+      "thread": {
+        "tag": "appointment:{{appointment.id}}"
+      },
+      "threadOnly": true,
+      "remember": "outcome:{{appointment.id}}"
+    },
+    {
+      "id": "r3s_undo",
+      "type": "branch@1",
+      "title": "Which reaction does the earlier answer take back?"
+    },
+    {
+      "id": "r3s_undo_ghost",
+      "type": "action@1",
+      "title": "Take :ghost: off the booking post",
+      "action": "slack.unreact",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "ghost"
+        ]
+      }
+    },
+    {
+      "id": "r3s_undo_white_check_mark",
+      "type": "action@1",
+      "title": "Take :white_check_mark: off the booking post",
+      "action": "slack.unreact",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "white_check_mark"
+        ]
+      }
+    },
+    {
+      "id": "x0",
+      "type": "end@1",
+      "title": "Stop: nothing to mark",
+      "reason": "nothing_to_mark"
+    },
+    {
+      "id": "r2",
+      "type": "action@1",
+      "title": "Sales Call record: no-show (what a held call carried is emptied)",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "{{setting.crm.object_sales_call | default:custom_objects.sales_call}}",
+        "properties": {
+          "outcome": "{{setting.picklist.sales_call_outcome.noshow}}",
+          "external_id": "{{appointment.slot_key}}"
+        },
+        "ifMissing": "match",
+        "key": "{{appointment.slot_key}}",
+        "clear": [
+          "disposition",
+          "cash_collected",
+          "objection_primary",
+          "next_step",
+          "next_step_date",
+          "payment_terms"
+        ]
+      }
+    },
+    {
+      "id": "s2",
+      "type": "action@1",
+      "title": "Add tag “stat-showed”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-showed"
+        ]
+      }
+    },
+    {
+      "id": "r3",
+      "type": "action@1",
+      "title": "Sales Call record: rescheduled or cancelled on the call (what a held call carried is emptied)",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "{{setting.crm.object_sales_call | default:custom_objects.sales_call}}",
+        "properties": {
+          "outcome": "{{setting.picklist.sales_call_outcome.on_call}}",
+          "external_id": "{{appointment.slot_key}}"
+        },
+        "ifMissing": "match",
+        "key": "{{appointment.slot_key}}",
+        "clear": [
+          "disposition",
+          "cash_collected",
+          "objection_primary",
+          "next_step",
+          "next_step_date",
+          "payment_terms"
+        ]
+      }
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Stop: noted",
+      "reason": "noted"
+    },
+    {
+      "id": "sc1",
+      "type": "action@1",
+      "title": "Setter card → Showed, won (as the recording path does; a no-op when it is already there)",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "stage": "{{setting.crm.stage_setter_showed}}",
+        "ifMissing": "skip",
+        "pick": "latest"
+      }
+    },
+    {
+      "id": "sc1_status",
+      "type": "action@1",
+      "title": "Mark that card won",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "status": "won"
+      }
+    },
+    {
+      "id": "v_disp",
+      "type": "set@1",
+      "title": "The closer's answer as the CRM's disposition, in the company's own option (sales_call.dispositions): a deposit is its Deposit option, never closed won",
+      "var": "disposition",
+      "value": "{{appointment.call_outcome | optional}}"
+    },
+    {
+      "id": "r1",
+      "type": "action@1",
+      "title": "Sales Call record: showed, with the disposition",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "{{setting.crm.object_sales_call | default:custom_objects.sales_call}}",
+        "properties": {
+          "outcome": "{{setting.picklist.sales_call_outcome.showed}}",
+          "disposition": "{{vars.disposition | optional}}",
+          "external_id": "{{appointment.slot_key}}"
+        },
+        "ifMissing": "match",
+        "key": "{{appointment.slot_key}}",
+        "clear": [
+          "disposition"
+        ]
+      }
+    },
+    {
+      "id": "b2",
+      "type": "branch@1",
+      "title": "How did the call go?"
+    },
+    {
+      "id": "c1",
+      "type": "action@1",
+      "title": "Add tag “stat-closed-won”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-closed-won"
+        ]
+      }
+    },
+    {
+      "id": "c5",
+      "type": "action@1",
+      "title": "Add tag “stat-deposit”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-deposit"
+        ]
+      }
+    },
+    {
+      "id": "c2",
+      "type": "action@1",
+      "title": "Add tag “stat-follow-up”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-follow-up"
+        ]
+      }
+    },
+    {
+      "id": "c3",
+      "type": "action@1",
+      "title": "Add tag “stat-lost”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-lost"
+        ]
+      }
+    },
+    {
+      "id": "c4",
+      "type": "action@1",
+      "title": "Add tag “stat-disqualified”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-disqualified"
+        ]
+      }
+    },
+    {
+      "id": "kc",
+      "type": "action@1",
+      "title": "A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified / Deposit for Scheduled (Payment recorded and Deal closed move it on)",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_scheduled}}",
+        "ifMissing": "skip",
+        "pick": "latest"
+      }
+    },
+    {
+      "id": "kc_status",
+      "type": "action@1",
+      "title": "Mark that card open",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "status": "open"
+      }
+    },
+    {
+      "id": "kd",
+      "type": "action@1",
+      "title": "Closer card → Deposit (a deposit is not a close: the card waits there for the rest of the payment; skipped when the board has no Deposit stage bound)",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_deposit | optional}}",
+        "ifMissing": "skip",
+        "pick": "latest"
+      }
+    },
+    {
+      "id": "kd_status",
+      "type": "action@1",
+      "title": "Mark that card open",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "status": "open"
+      }
+    },
+    {
+      "id": "k2",
+      "type": "action@1",
+      "title": "Closer card → Follow Up",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_follow_up}}",
+        "ifMissing": "skip",
+        "pick": "latest"
+      }
+    },
+    {
+      "id": "k2_status",
+      "type": "action@1",
+      "title": "Mark that card open",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "status": "open"
+      }
+    },
+    {
+      "id": "k3",
+      "type": "action@1",
+      "title": "Closer card → Lost, marked lost",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_lost}}",
+        "ifMissing": "skip",
+        "pick": "latest"
+      }
+    },
+    {
+      "id": "k3_status",
+      "type": "action@1",
+      "title": "Mark that card lost",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "status": "lost"
+      }
+    },
+    {
+      "id": "k4",
+      "type": "action@1",
+      "title": "Closer card → Disqualified, marked lost",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_disqualified}}",
+        "ifMissing": "skip",
+        "pick": "latest"
+      }
+    },
+    {
+      "id": "k4_status",
+      "type": "action@1",
+      "title": "Mark that card lost",
+      "action": "crm.set_deal_status",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "status": "lost"
+      }
+    },
+    {
+      "id": "o_lost",
+      "type": "branch@1",
+      "title": "Is the deal open?"
+    },
+    {
+      "id": "o_lost_rec",
+      "type": "action@1",
+      "title": "Opportunity lost",
+      "action": "facts.record",
+      "params": {
+        "type": "deal.lost",
+        "data": {
+          "status": "lost",
+          "from_status": "{{deal.status | optional}}"
+        },
+        "startsWorkflows": true
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "u4_if",
+      "type": "branch@1",
+      "title": "Only if: A changed answer: take off what the earlier answer tagged and this one does not"
+    },
+    {
+      "id": "o_reopen_if",
+      "type": "branch@1",
+      "title": "Only if: A changed answer takes the loss back: the opportunity is open again"
+    },
+    {
+      "id": "g3_if",
+      "type": "branch@1",
+      "title": "Only if: Record the no-show after an unanswered cancel or reschedule read"
+    },
+    {
+      "id": "g4_if",
+      "type": "branch@1",
+      "title": "Only if: Tag stat-possible-cancel: we were pretty sure they cancelled and the slot was never opened"
+    },
+    {
+      "id": "r3s_if",
+      "type": "branch@1",
+      "title": "Only if: A changed answer: the thread line says rescheduled and the earlier reaction comes off"
+    },
+    {
+      "id": "kc_if",
+      "type": "branch@1",
+      "title": "Only if: A changed answer to closed: the closer card leaves No Show / Follow Up / Lost / Disqualified / Deposit for Scheduled (Payment recorded and Deal closed move it on)"
+    },
+    {
+      "id": "kd_if",
+      "type": "branch@1",
+      "title": "Only if: Closer card → Deposit (a deposit is not a close: the card waits there for the rest of the payment; skipped when the board has no Deposit stage bound)"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "u1_key"
+    },
+    {
+      "from": "t2",
+      "to": "g1"
+    },
+    {
+      "from": "u1_key",
+      "to": "u1"
+    },
+    {
+      "from": "u1",
+      "to": "u2_key"
+    },
+    {
+      "from": "g1",
+      "to": "g1_react"
+    },
+    {
+      "from": "g1_react",
+      "to": "g1_undo"
+    },
+    {
+      "from": "g1_undo",
+      "to": "g1_undo_white_check_mark",
+      "when": {
+        "eq": [
+          "{{vars.undo_emoji}}",
+          "white_check_mark"
+        ]
+      },
+      "label": "white_check_mark"
+    },
+    {
+      "from": "g1_undo",
+      "to": "g2",
+      "else": true,
+      "label": "nothing to take back"
+    },
+    {
+      "from": "g1_undo_white_check_mark",
+      "to": "g2"
+    },
+    {
+      "from": "u2_key",
+      "to": "u2"
+    },
+    {
+      "from": "u2",
+      "to": "u3_key"
+    },
+    {
+      "from": "g2",
+      "to": "gn1"
+    },
+    {
+      "from": "u3_key",
+      "to": "u3"
+    },
+    {
+      "from": "u3",
+      "to": "u4_if"
+    },
+    {
+      "from": "gn1",
+      "to": "gn1_status"
+    },
+    {
+      "from": "gn1_status",
+      "to": "gn2"
+    },
+    {
+      "from": "u4",
+      "to": "o_reopen_if"
+    },
+    {
+      "from": "gn2",
+      "to": "gn2_status"
+    },
+    {
+      "from": "gn2_status",
+      "to": "g3_if"
+    },
+    {
+      "from": "o_reopen",
+      "to": "o_reopen_rec",
+      "when": {
+        "in": [
+          "{{deal.status}}",
+          [
+            "lost"
+          ]
+        ]
+      },
+      "label": "the deal is lost"
+    },
+    {
+      "from": "o_reopen",
+      "to": "b1",
+      "else": true,
+      "label": "not lost: left as it is"
+    },
+    {
+      "from": "o_reopen_rec",
+      "to": "b1"
+    },
+    {
+      "from": "g3",
+      "to": "g4_if"
+    },
+    {
+      "from": "b1",
+      "to": "g1",
+      "label": "no-show",
+      "when": {
+        "eq": [
+          "{{event.outcome}}",
+          "noshow"
+        ]
+      }
+    },
+    {
+      "from": "b1",
+      "to": "s1",
+      "label": "showed",
+      "when": {
+        "eq": [
+          "{{event.outcome}}",
+          "showed"
+        ]
+      }
+    },
+    {
+      "from": "b1",
+      "to": "r3s_if",
+      "label": "rescheduled or cancelled on the call",
+      "when": {
+        "eq": [
+          "{{event.outcome}}",
+          "rescheduled"
+        ]
+      }
+    },
+    {
+      "from": "b1",
+      "to": "x0",
+      "label": "anything else: nothing to mark",
+      "else": true
+    },
+    {
+      "from": "g4",
+      "to": "r2"
+    },
+    {
+      "from": "s1",
+      "to": "s1_react"
+    },
+    {
+      "from": "s1_react",
+      "to": "s1_undo"
+    },
+    {
+      "from": "s1_undo",
+      "to": "s1_undo_ghost",
+      "when": {
+        "eq": [
+          "{{vars.undo_emoji}}",
+          "ghost"
+        ]
+      },
+      "label": "ghost"
+    },
+    {
+      "from": "s1_undo",
+      "to": "s2",
+      "else": true,
+      "label": "nothing to take back"
+    },
+    {
+      "from": "s1_undo_ghost",
+      "to": "s2"
+    },
+    {
+      "from": "r3s",
+      "to": "r3s_undo"
+    },
+    {
+      "from": "r3s_undo",
+      "to": "r3s_undo_ghost",
+      "when": {
+        "eq": [
+          "{{vars.undo_emoji}}",
+          "ghost"
+        ]
+      },
+      "label": "ghost"
+    },
+    {
+      "from": "r3s_undo",
+      "to": "r3s_undo_white_check_mark",
+      "when": {
+        "eq": [
+          "{{vars.undo_emoji}}",
+          "white_check_mark"
+        ]
+      },
+      "label": "white_check_mark"
+    },
+    {
+      "from": "r3s_undo",
+      "to": "r3",
+      "else": true,
+      "label": "nothing to take back"
+    },
+    {
+      "from": "r3s_undo_ghost",
+      "to": "r3"
+    },
+    {
+      "from": "r3s_undo_white_check_mark",
+      "to": "r3"
+    },
+    {
+      "from": "r2",
+      "to": "x1"
+    },
+    {
+      "from": "s2",
+      "to": "sc1"
+    },
+    {
+      "from": "r3",
+      "to": "x1"
+    },
+    {
+      "from": "sc1",
+      "to": "sc1_status"
+    },
+    {
+      "from": "sc1_status",
+      "to": "v_disp"
+    },
+    {
+      "from": "v_disp",
+      "to": "r1"
+    },
+    {
+      "from": "r1",
+      "to": "b2"
+    },
+    {
+      "from": "b2",
+      "to": "c1",
+      "label": "closed",
+      "when": {
+        "eq": [
+          "{{appointment.call_outcome}}",
+          "closed"
+        ]
+      }
+    },
+    {
+      "from": "b2",
+      "to": "c5",
+      "label": "deposit",
+      "when": {
+        "eq": [
+          "{{appointment.call_outcome}}",
+          "deposit"
+        ]
+      }
+    },
+    {
+      "from": "b2",
+      "to": "c2",
+      "label": "follow-up",
+      "when": {
+        "eq": [
+          "{{appointment.call_outcome}}",
+          "follow_up"
+        ]
+      }
+    },
+    {
+      "from": "b2",
+      "to": "c3",
+      "label": "lost",
+      "when": {
+        "eq": [
+          "{{appointment.call_outcome}}",
+          "lost"
+        ]
+      }
+    },
+    {
+      "from": "b2",
+      "to": "c4",
+      "label": "disqualified",
+      "when": {
+        "eq": [
+          "{{appointment.call_outcome}}",
+          "unqualified"
+        ]
+      }
+    },
+    {
+      "from": "b2",
+      "to": "x1",
+      "label": "no call outcome given",
+      "else": true
+    },
+    {
+      "from": "c1",
+      "to": "kc_if"
+    },
+    {
+      "from": "c5",
+      "to": "kd_if"
+    },
+    {
+      "from": "c2",
+      "to": "k2"
+    },
+    {
+      "from": "c3",
+      "to": "k3"
+    },
+    {
+      "from": "c4",
+      "to": "k4"
+    },
+    {
+      "from": "kc",
+      "to": "kc_status"
+    },
+    {
+      "from": "kc_status",
+      "to": "x1"
+    },
+    {
+      "from": "kd",
+      "to": "kd_status"
+    },
+    {
+      "from": "kd_status",
+      "to": "x1"
+    },
+    {
+      "from": "k2",
+      "to": "k2_status"
+    },
+    {
+      "from": "k2_status",
+      "to": "x1"
+    },
+    {
+      "from": "k3",
+      "to": "k3_status"
+    },
+    {
+      "from": "k3_status",
+      "to": "o_lost"
+    },
+    {
+      "from": "k4",
+      "to": "k4_status"
+    },
+    {
+      "from": "k4_status",
+      "to": "x1"
+    },
+    {
+      "from": "o_lost",
+      "to": "o_lost_rec",
+      "when": {
+        "in": [
+          "{{deal.status}}",
+          [
+            "open"
+          ]
+        ]
+      },
+      "label": "the deal is open"
+    },
+    {
+      "from": "o_lost",
+      "to": "x1",
+      "else": true,
+      "label": "not open: left as it is"
+    },
+    {
+      "from": "o_lost_rec",
+      "to": "x1"
+    },
+    {
+      "from": "u4_if",
+      "to": "u4",
+      "when": {
+        "and": [
+          {
+            "exists": "event.previous_outcome"
+          },
+          {
+            "ne": [
+              "{{event.previous_outcome | optional}}:{{event.previous_call_outcome | optional}}",
+              "{{event.outcome}}:{{appointment.call_outcome | optional}}"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "u4_if",
+      "to": "o_reopen_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "o_reopen_if",
+      "to": "o_reopen",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{event.previous_call_outcome | optional}}",
+              "lost"
+            ]
+          },
+          {
+            "ne": [
+              "{{appointment.call_outcome | optional}}",
+              "lost"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "o_reopen_if",
+      "to": "b1",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "g3_if",
+      "to": "g3",
+      "when": {
+        "in": [
+          "{{appointment.pending_read.intent}}",
+          [
+            "cancelled",
+            "reschedule_request"
+          ]
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "g3_if",
+      "to": "g4_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "g4_if",
+      "to": "g4",
+      "when": {
+        "in": [
+          "{{appointment.pending_read.intent}}",
+          [
+            "cancelled",
+            "reschedule_request"
+          ]
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "g4_if",
+      "to": "r2",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "r3s_if",
+      "to": "r3s",
+      "when": {
+        "in": [
+          "{{event.previous_outcome | optional}}",
+          [
+            "showed",
+            "noshow"
+          ]
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "r3s_if",
+      "to": "r3",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "kc_if",
+      "to": "kc",
+      "when": {
+        "or": [
+          {
+            "eq": [
+              "{{event.previous_outcome | optional}}",
+              "noshow"
+            ]
+          },
+          {
+            "in": [
+              "{{event.previous_call_outcome | optional}}",
+              [
+                "follow_up",
+                "lost",
+                "unqualified",
+                "deposit"
+              ]
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "kc_if",
+      "to": "x1",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "kd_if",
+      "to": "kd",
+      "when": {
+        "exists": "setting.crm.stage_closer_deposit"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "kd_if",
+      "to": "x1",
+      "else": true,
+      "label": "it does not: skipped"
+    }
+  ]
+}

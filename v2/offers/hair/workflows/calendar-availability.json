@@ -1,0 +1,427 @@
+{
+  "schema": 2,
+  "id": "calendar-availability",
+  "name": "Calendar availability",
+  "description": "Every hour and on every booking change, the calendars' open times are read (fewer than 3 in the next 7 days is an alert); the availability alerts are posted, followed in their thread and resolved.",
+  "origin": {
+    "template": "calendar-availability",
+    "version": 2
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t_hourly",
+      "type": "trigger@1",
+      "title": "On a schedule: every hour",
+      "on": {
+        "schedule": {
+          "every": "1h",
+          "for": "offer"
+        }
+      }
+    },
+    {
+      "id": "t_booked",
+      "type": "trigger@1",
+      "title": "Appointment booked",
+      "on": {
+        "event": "appointment.booked"
+      }
+    },
+    {
+      "id": "t_moved",
+      "type": "trigger@1",
+      "title": "Appointment rescheduled",
+      "on": {
+        "event": "appointment.rescheduled"
+      }
+    },
+    {
+      "id": "t_status",
+      "type": "trigger@1",
+      "title": "An appointment's status changed",
+      "on": {
+        "event": "appointment.status_changed"
+      }
+    },
+    {
+      "id": "t_araised",
+      "type": "trigger@1",
+      "title": "A calendar has too few open times",
+      "on": {
+        "event": "alert.raised",
+        "match": {
+          "eq": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
+      }
+    },
+    {
+      "id": "t_arepeated",
+      "type": "trigger@1",
+      "title": "…still open",
+      "on": {
+        "event": "alert.repeated",
+        "match": {
+          "eq": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
+      }
+    },
+    {
+      "id": "t_aresolved",
+      "type": "trigger@1",
+      "title": "…cleared",
+      "on": {
+        "event": "alert.resolved",
+        "match": {
+          "eq": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
+      }
+    },
+    {
+      "id": "n1",
+      "type": "report@1",
+      "title": "Check bookable slots: fewer than 3 in the next 7 days is an alert",
+      "report": "reports.availability",
+      "period": "in_progress",
+      "into": "availability",
+      "params": {
+        "min_slots": "3",
+        "days": "7"
+      }
+    },
+    {
+      "id": "a_mark",
+      "type": "set@1",
+      "title": "The mark: red for an error, yellow for a warning",
+      "var": "mark",
+      "value": {
+        "$pick": "{{event.level}}",
+        "cases": {
+          "error": "🔴",
+          "warning": "🟡"
+        },
+        "else": "🟡"
+      }
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    },
+    {
+      "id": "a_icon",
+      "type": "set@1",
+      "title": "The face by level",
+      "var": "icon",
+      "value": {
+        "$pick": "{{event.level}}",
+        "cases": {
+          "error": ":rotating_light:",
+          "warning": ":warning:"
+        },
+        "else": ":warning:"
+      }
+    },
+    {
+      "id": "a_icon2",
+      "type": "set@1",
+      "title": "The company's own alert face, when it set one",
+      "var": "icon",
+      "value": {
+        "$if": {
+          "exists": "event.as_icon"
+        },
+        "then": "{{event.as_icon}}",
+        "else": "{{vars.icon}}"
+      }
+    },
+    {
+      "id": "b_alert",
+      "type": "branch@1",
+      "title": "New, still open, or cleared?"
+    },
+    {
+      "id": "a_post",
+      "type": "message@1",
+      "title": "Post it in the alerts channel, with Resolve and Pause",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.engine_alerts}}"
+        }
+      },
+      "content": "calendar_availability.a_post",
+      "remember": "alert:{{event.alert_id}}",
+      "buttons": [
+        {
+          "action": "alert_retry",
+          "value": "{{event.alert_id}}",
+          "style": "primary",
+          "when": {
+            "eq": [
+              "{{event.kind}}",
+              "skipped"
+            ]
+          }
+        },
+        {
+          "action": "alert_resolve",
+          "value": "{{event.alert_id}}"
+        },
+        {
+          "action": "alert_pause",
+          "value": "{{event.alert_id}}"
+        }
+      ]
+    },
+    {
+      "id": "a_repeat",
+      "type": "message@1",
+      "title": "Still open: a line in its thread",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.engine_alerts}}"
+        }
+      },
+      "content": "calendar_availability.a_repeat",
+      "thread": {
+        "tag": "alert:{{event.alert_id}}"
+      }
+    },
+    {
+      "id": "a_resolve",
+      "type": "message@1",
+      "title": "Cleared: resolved in its thread, ✅ on the first post",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.engine_alerts}}"
+        }
+      },
+      "content": "calendar_availability.a_resolve",
+      "thread": {
+        "tag": "alert:{{event.alert_id}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "a_resolve_react",
+      "type": "action@1",
+      "title": "React :white_check_mark: on the post it replies under",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "alert:{{event.alert_id}}"
+        },
+        "emojis": [
+          "white_check_mark"
+        ]
+      }
+    },
+    {
+      "id": "a_thread",
+      "type": "message@1",
+      "title": "The next days' open times under it",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.engine_alerts}}"
+        }
+      },
+      "content": "calendar_availability.a_thread",
+      "thread": {
+        "node": "a_post"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "x_alert",
+      "type": "end@1",
+      "title": "Stop: said",
+      "reason": "said"
+    },
+    {
+      "id": "a_post_if",
+      "type": "branch@1",
+      "title": "Only if: Post it in the alerts channel, with Resolve and Pause"
+    },
+    {
+      "id": "a_repeat_if",
+      "type": "branch@1",
+      "title": "Only if: Still open: a line in its thread"
+    },
+    {
+      "id": "a_resolve_if",
+      "type": "branch@1",
+      "title": "Only if: Cleared: resolved in its thread, ✅ on the first post"
+    },
+    {
+      "id": "a_thread_if",
+      "type": "branch@1",
+      "title": "Only if: The next days' open times under it"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_hourly",
+      "to": "n1"
+    },
+    {
+      "from": "t_booked",
+      "to": "n1"
+    },
+    {
+      "from": "t_moved",
+      "to": "n1"
+    },
+    {
+      "from": "t_status",
+      "to": "n1"
+    },
+    {
+      "from": "t_araised",
+      "to": "a_mark"
+    },
+    {
+      "from": "t_arepeated",
+      "to": "a_mark"
+    },
+    {
+      "from": "t_aresolved",
+      "to": "a_mark"
+    },
+    {
+      "from": "n1",
+      "to": "x_done"
+    },
+    {
+      "from": "a_mark",
+      "to": "a_icon"
+    },
+    {
+      "from": "a_icon",
+      "to": "a_icon2"
+    },
+    {
+      "from": "a_icon2",
+      "to": "b_alert"
+    },
+    {
+      "from": "b_alert",
+      "to": "a_post_if",
+      "label": "new",
+      "when": {
+        "eq": [
+          "{{event.type}}",
+          "alert.raised"
+        ]
+      }
+    },
+    {
+      "from": "b_alert",
+      "to": "a_repeat_if",
+      "label": "still open",
+      "when": {
+        "eq": [
+          "{{event.type}}",
+          "alert.repeated"
+        ]
+      }
+    },
+    {
+      "from": "b_alert",
+      "to": "a_resolve_if",
+      "label": "cleared",
+      "else": true
+    },
+    {
+      "from": "a_post",
+      "to": "a_thread_if"
+    },
+    {
+      "from": "a_repeat",
+      "to": "x_alert"
+    },
+    {
+      "from": "a_resolve",
+      "to": "a_resolve_react"
+    },
+    {
+      "from": "a_resolve_react",
+      "to": "x_alert"
+    },
+    {
+      "from": "a_thread",
+      "to": "x_alert"
+    },
+    {
+      "from": "a_post_if",
+      "to": "a_post",
+      "when": {
+        "exists": "event.channel"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_post_if",
+      "to": "a_thread_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a_repeat_if",
+      "to": "a_repeat",
+      "when": {
+        "exists": "event.channel"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_repeat_if",
+      "to": "x_alert",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a_resolve_if",
+      "to": "a_resolve",
+      "when": {
+        "exists": "event.channel"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_resolve_if",
+      "to": "x_alert",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a_thread_if",
+      "to": "a_thread",
+      "when": {
+        "exists": "event.thread"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_thread_if",
+      "to": "x_alert",
+      "else": true,
+      "label": "it does not: skipped"
+    }
+  ]
+}

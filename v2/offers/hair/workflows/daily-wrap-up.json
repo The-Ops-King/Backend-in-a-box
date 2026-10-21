@@ -1,0 +1,69 @@
+{
+  "schema": 2,
+  "id": "daily-wrap-up",
+  "name": "Daily wrap-up",
+  "description": "At 7pm every day, today's numbers are posted.",
+  "origin": {
+    "template": "daily-wrap-up",
+    "version": 1
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t_daily",
+      "type": "trigger@1",
+      "title": "On a schedule: at 7:00 PM every day",
+      "on": {
+        "schedule": {
+          "at": "19:00",
+          "for": "offer"
+        }
+      }
+    },
+    {
+      "id": "n_build",
+      "type": "report@1",
+      "title": "Read the numbers and word the wrap-up (the layout: sections, lines, headings)",
+      "report": "reports.daily_wrap_up",
+      "period": "in_progress",
+      "into": "report"
+    },
+    {
+      "id": "n_post",
+      "type": "message@1",
+      "title": "Post the wrap-up in Slack",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.team_reports}}"
+        }
+      },
+      "content": "daily_wrap_up.n_post"
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_daily",
+      "to": "n_build"
+    },
+    {
+      "from": "n_build",
+      "to": "n_post"
+    },
+    {
+      "from": "n_post",
+      "to": "x_done"
+    }
+  ]
+}

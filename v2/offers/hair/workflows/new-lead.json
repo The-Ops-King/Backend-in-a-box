@@ -1,0 +1,110 @@
+{
+  "schema": 2,
+  "id": "new-lead",
+  "name": "New lead",
+  "description": "A new lead in GHL: once they have a phone number (looked for every 10 minutes for up to a day), their setter card goes to New Lead and they are tagged stat-new.",
+  "origin": {
+    "template": "new-lead",
+    "version": 3
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "A new lead is added in GHL",
+      "on": {
+        "event": "lead.created"
+      }
+    },
+    {
+      "id": "n1",
+      "type": "wait@1",
+      "title": "Check there is a phone number",
+      "check": {
+        "holds": {
+          "exists": "contact.phone"
+        },
+        "every": "10m"
+      },
+      "timeout": "24h"
+    },
+    {
+      "id": "n1_x",
+      "type": "end@1",
+      "title": "Stop: no_phone",
+      "reason": "no_phone"
+    },
+    {
+      "id": "n2",
+      "type": "action@1",
+      "title": "Create or move pipeline card “[full name] -- New”",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "stage": "{{setting.crm.stage_setter_new_lead}}",
+        "ifMissing": "create",
+        "pick": "open",
+        "name": "{{contact.name}} -- New",
+        "fields": {
+          "stage_entered": "{{now | date:iso_date}}"
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "type": "action@1",
+      "title": "Add tag “stat-new”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-new"
+        ]
+      }
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "n1_x",
+      "on": "timeout",
+      "label": "no_phone"
+    },
+    {
+      "from": "n1",
+      "to": "n2",
+      "on": "arrived"
+    },
+    {
+      "from": "n2",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "to": "x1"
+    }
+  ]
+}

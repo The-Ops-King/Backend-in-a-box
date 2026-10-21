@@ -1,0 +1,104 @@
+{
+  "schema": 2,
+  "id": "agreement-signed",
+  "name": "Agreement signed",
+  "description": "A signed agreement: the tags move to stat-agreement-signed, a CRM note says so, and it is posted in the deals channel.",
+  "origin": {
+    "template": "agreement-signed",
+    "version": 6
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "Agreement signed",
+      "on": {
+        "event": "agreement.signed"
+      }
+    },
+    {
+      "id": "g1",
+      "type": "action@1",
+      "title": "Tags “+stat-agreement-signed” “−stat-agreement-unsigned” (adds)",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-agreement-signed"
+        ]
+      }
+    },
+    {
+      "id": "g1_rm",
+      "type": "action@1",
+      "title": "Tags “+stat-agreement-signed” “−stat-agreement-unsigned” (removes)",
+      "action": "crm.remove_tag",
+      "params": {
+        "tags": [
+          "stat-agreement-unsigned"
+        ]
+      }
+    },
+    {
+      "id": "m1",
+      "type": "action@1",
+      "title": "Leave an internal note",
+      "action": "crm.add_note",
+      "params": {
+        "content": "agreement_signed.m1"
+      }
+    },
+    {
+      "id": "s1",
+      "type": "message@1",
+      "title": "Post signed agreement in Slack",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.deals}}"
+        }
+      },
+      "content": "agreement_signed.s1"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: recorded",
+      "reason": "recorded"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "g1"
+    },
+    {
+      "from": "g1",
+      "to": "g1_rm"
+    },
+    {
+      "from": "g1_rm",
+      "to": "m1"
+    },
+    {
+      "from": "m1",
+      "to": "s1"
+    },
+    {
+      "from": "s1",
+      "to": "x1"
+    }
+  ]
+}

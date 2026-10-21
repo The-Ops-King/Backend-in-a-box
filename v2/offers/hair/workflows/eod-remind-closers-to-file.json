@@ -1,0 +1,184 @@
+{
+  "schema": 2,
+  "id": "eod-remind-closers-to-file",
+  "name": "EOD: remind closers to file",
+  "description": "At 6pm and 9am, for each closer with days still to file, Tyler is DMed the closer's link (closer reminders are off until launch); calls blank in GHL for two days are told to the operator.",
+  "origin": {
+    "template": "eod-reminder",
+    "version": 4
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t_evening",
+      "type": "trigger@1",
+      "title": "On a schedule: at 6:00 PM every day, one run per closer",
+      "on": {
+        "schedule": {
+          "at": "18:00",
+          "for": {
+            "role": "closer"
+          }
+        }
+      }
+    },
+    {
+      "id": "t_morning",
+      "type": "trigger@1",
+      "title": "On a schedule: at 9:00 AM every day, one run per closer",
+      "on": {
+        "schedule": {
+          "at": "09:00",
+          "for": {
+            "role": "closer"
+          }
+        }
+      }
+    },
+    {
+      "id": "v_evening",
+      "type": "report@1",
+      "title": "Today and every earlier day still to file (the ledger and GHL's Sales Calls)",
+      "report": "reports.eod_due",
+      "period": "in_progress",
+      "into": "due",
+      "params": {
+        "period": "evening",
+        "lookback_days": "7",
+        "include_today": "true",
+        "overdue_after_days": "2"
+      }
+    },
+    {
+      "id": "v_morning",
+      "type": "report@1",
+      "title": "Every earlier day still to file",
+      "report": "reports.eod_due",
+      "period": "in_progress",
+      "into": "due",
+      "params": {
+        "period": "morning",
+        "lookback_days": "7",
+        "include_today": "false",
+        "overdue_after_days": "none"
+      }
+    },
+    {
+      "id": "c_due",
+      "type": "branch@1",
+      "title": "Check there are days still to file"
+    },
+    {
+      "id": "n_dm",
+      "type": "message@1",
+      "title": "DM Tyler the closer's link (until launch; the closer gets nothing yet)",
+      "to": {
+        "slack": {
+          "dm": "{{setting.bot.escalate_to}}"
+        }
+      },
+      "content": "eod_remind_closers_to_file.n_dm",
+      "remember": "eod-reminder:{{person.id}}:{{person.eod.day}}"
+    },
+    {
+      "id": "n_op",
+      "type": "message@1",
+      "title": "Tell the operator about calls blank for two days",
+      "to": {
+        "slack": {
+          "dm": "{{setting.bot.escalate_to}}"
+        }
+      },
+      "content": "eod_remind_closers_to_file.n_op"
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    },
+    {
+      "id": "x_nothing",
+      "type": "end@1",
+      "title": "Stop: nothing to file",
+      "reason": "nothing_to_file"
+    },
+    {
+      "id": "n_op_if",
+      "type": "branch@1",
+      "title": "Only if: Tell the operator about calls blank for two days"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_evening",
+      "to": "v_evening"
+    },
+    {
+      "from": "t_morning",
+      "to": "v_morning"
+    },
+    {
+      "from": "v_evening",
+      "to": "c_due"
+    },
+    {
+      "from": "v_morning",
+      "to": "c_due"
+    },
+    {
+      "from": "c_due",
+      "to": "n_dm",
+      "when": {
+        "gt": [
+          "{{vars.due.count}}",
+          0
+        ]
+      }
+    },
+    {
+      "from": "c_due",
+      "to": "x_nothing",
+      "else": true,
+      "label": "nothing_to_file"
+    },
+    {
+      "from": "n_dm",
+      "to": "n_op_if"
+    },
+    {
+      "from": "n_op",
+      "to": "x_done"
+    },
+    {
+      "from": "n_op_if",
+      "to": "n_op",
+      "when": {
+        "and": [
+          {
+            "exists": "setting.bot.escalate_to"
+          },
+          {
+            "gt": [
+              "{{vars.due.overdue_count}}",
+              0
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "n_op_if",
+      "to": "x_done",
+      "else": true,
+      "label": "it does not: skipped"
+    }
+  ]
+}

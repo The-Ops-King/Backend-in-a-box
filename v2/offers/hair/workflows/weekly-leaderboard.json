@@ -1,0 +1,75 @@
+{
+  "schema": 2,
+  "id": "weekly-leaderboard",
+  "name": "Weekly leaderboard",
+  "description": "At 9am every Monday, last week's closers by cash and setters by sets are posted.",
+  "origin": {
+    "template": "weekly-leaderboard",
+    "version": 1
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t_weekly",
+      "type": "trigger@1",
+      "title": "On a schedule: at 9:00 AM on Mon",
+      "on": {
+        "schedule": {
+          "at": "09:00",
+          "days": [
+            1
+          ],
+          "for": "offer"
+        }
+      }
+    },
+    {
+      "id": "n_board",
+      "type": "report@1",
+      "title": "Rank last week's closers by cash and setters by sets",
+      "report": "reports.leaderboard",
+      "period": "just_ended",
+      "into": "board",
+      "params": {
+        "period": "last week"
+      }
+    },
+    {
+      "id": "n_post",
+      "type": "message@1",
+      "title": "Post the leaderboard in Slack",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.team_reports}}"
+        }
+      },
+      "content": "weekly_leaderboard.n_post"
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_weekly",
+      "to": "n_board"
+    },
+    {
+      "from": "n_board",
+      "to": "n_post"
+    },
+    {
+      "from": "n_post",
+      "to": "x_done"
+    }
+  ]
+}

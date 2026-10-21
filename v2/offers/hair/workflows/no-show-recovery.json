@@ -1,0 +1,239 @@
+{
+  "schema": 2,
+  "id": "no-show-recovery",
+  "name": "No-show recovery",
+  "description": "Off in v1. Ten minutes after a no-show, unless they rebooked: a text and an email with the rebooking link; a day later, with no reply and still no booking, one more email.",
+  "origin": {
+    "template": "no-show-recovery",
+    "version": 4
+  },
+  "reentry": {
+    "policy": "once_per_appointment"
+  },
+  "premise": {
+    "label": "The booking is still real",
+    "holds": {
+      "and": [
+        {
+          "exists": "appointment.id"
+        },
+        {
+          "ne": [
+            "{{appointment.status}}",
+            "invalid"
+          ]
+        }
+      ]
+    },
+    "endReason": "appointment_gone"
+  },
+  "sendWindow": {
+    "zone": "contact",
+    "opens": "08:00",
+    "closes": "20:00",
+    "outside": "next_open",
+    "transactional": "any_hour"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "An appointment's status changed — new status is no-show",
+      "on": {
+        "event": "appointment.status_changed",
+        "match": {
+          "eq": [
+            "{{event.status.to}}",
+            "noshow"
+          ]
+        }
+      }
+    },
+    {
+      "id": "t2",
+      "type": "trigger@1",
+      "title": "The call's outcome is filed — outcome is no-show",
+      "on": {
+        "event": "appointment.outcome",
+        "match": {
+          "eq": [
+            "{{event.outcome}}",
+            "noshow"
+          ]
+        }
+      }
+    },
+    {
+      "id": "n1",
+      "type": "wait@1",
+      "title": "Wait 10 minutes",
+      "until": {
+        "anchor": "now",
+        "offset": "+10m",
+        "zone": "contact"
+      },
+      "fitSendWindow": false
+    },
+    {
+      "id": "c1",
+      "type": "branch@1",
+      "title": "Still no new call booked?"
+    },
+    {
+      "id": "c1_x",
+      "type": "end@1",
+      "title": "Stop: rebooked",
+      "reason": "rebooked"
+    },
+    {
+      "id": "n2",
+      "type": "message@1",
+      "title": "Text the rebooking link",
+      "to": {
+        "contact": "sms"
+      },
+      "content": "no_show_recovery.n2",
+      "kind": "human",
+      "validity": {
+        "after": "appointment.starts_at",
+        "maxLag": "3d"
+      },
+      "whenStale": "skip"
+    },
+    {
+      "id": "n3",
+      "type": "message@1",
+      "title": "Send email: “We missed you”",
+      "to": {
+        "contact": "email"
+      },
+      "content": "no_show_recovery.n3",
+      "kind": "human",
+      "validity": {
+        "after": "appointment.starts_at",
+        "maxLag": "3d"
+      },
+      "whenStale": "skip"
+    },
+    {
+      "id": "n4",
+      "type": "wait@1",
+      "title": "Wait for a reply",
+      "reply": {
+        "channel": "any",
+        "settle": "90s"
+      },
+      "timeout": "24h"
+    },
+    {
+      "id": "c2",
+      "type": "branch@1",
+      "title": "Still no new call booked?"
+    },
+    {
+      "id": "c2_x",
+      "type": "end@1",
+      "title": "Stop: rebooked",
+      "reason": "rebooked"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: they replied",
+      "reason": "replied"
+    },
+    {
+      "id": "n6",
+      "type": "message@1",
+      "title": "Send email: “Want to reschedule?”",
+      "to": {
+        "contact": "email"
+      },
+      "content": "no_show_recovery.n6",
+      "kind": "human",
+      "validity": {
+        "after": "appointment.starts_at",
+        "maxLag": "7d"
+      },
+      "whenStale": "skip"
+    },
+    {
+      "id": "x2",
+      "type": "end@1",
+      "title": "Done: no reply",
+      "reason": "no_reply"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n1"
+    },
+    {
+      "from": "t2",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "c1"
+    },
+    {
+      "from": "c1",
+      "to": "n2",
+      "when": {
+        "eq": [
+          "{{contact.has_upcoming_call}}",
+          false
+        ]
+      }
+    },
+    {
+      "from": "c1",
+      "to": "c1_x",
+      "else": true,
+      "label": "rebooked"
+    },
+    {
+      "from": "n2",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "to": "n4"
+    },
+    {
+      "from": "n4",
+      "to": "c2",
+      "on": "timeout"
+    },
+    {
+      "from": "n4",
+      "to": "x1",
+      "on": "arrived"
+    },
+    {
+      "from": "c2",
+      "to": "n6",
+      "when": {
+        "eq": [
+          "{{contact.has_upcoming_call}}",
+          false
+        ]
+      }
+    },
+    {
+      "from": "c2",
+      "to": "c2_x",
+      "else": true,
+      "label": "rebooked"
+    },
+    {
+      "from": "n6",
+      "to": "x2"
+    }
+  ]
+}

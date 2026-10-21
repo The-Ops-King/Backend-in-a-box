@@ -1,0 +1,137 @@
+{
+  "schema": 2,
+  "id": "send-agreement-manually",
+  "name": "Send agreement manually",
+  "description": "The tag sys-send-agreement-manually sends the purchase agreement (unless already signed), tags stat-agreement-sent, takes the trigger tag off and notes it in the CRM.",
+  "origin": {
+    "template": "agreement-send-manually",
+    "version": 2
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "Tag added — tag is “sys send agreement manually”",
+      "on": {
+        "event": "tag.added",
+        "match": {
+          "eq": [
+            "{{event.tag}}",
+            "sys-send-agreement-manually"
+          ]
+        }
+      }
+    },
+    {
+      "id": "c1",
+      "type": "branch@1",
+      "title": "Check they have not signed the agreement"
+    },
+    {
+      "id": "c1_x",
+      "type": "end@1",
+      "title": "Stop: already_signed",
+      "reason": "already_signed"
+    },
+    {
+      "id": "d1",
+      "type": "action@1",
+      "title": "Send the agreement template for signature",
+      "action": "esign.send",
+      "params": {
+        "template": "{{setting.crm.agreement_template}}",
+        "sender": "{{setting.crm.agreement_sender | optional}}",
+        "name": "Purchase agreement"
+      }
+    },
+    {
+      "id": "g1",
+      "type": "action@1",
+      "title": "Tags “+stat-agreement-sent” “−sys-send-agreement-manually” (adds)",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-agreement-sent"
+        ]
+      }
+    },
+    {
+      "id": "g1_rm",
+      "type": "action@1",
+      "title": "Tags “+stat-agreement-sent” “−sys-send-agreement-manually” (removes)",
+      "action": "crm.remove_tag",
+      "params": {
+        "tags": [
+          "sys-send-agreement-manually"
+        ]
+      }
+    },
+    {
+      "id": "m1",
+      "type": "action@1",
+      "title": "Leave an internal note",
+      "action": "crm.add_note",
+      "params": {
+        "content": "send_agreement_manually.m1"
+      }
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: sent",
+      "reason": "sent"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "c1"
+    },
+    {
+      "from": "c1",
+      "to": "d1",
+      "when": {
+        "eq": [
+          "{{contact.agreement_signed}}",
+          false
+        ]
+      }
+    },
+    {
+      "from": "c1",
+      "to": "c1_x",
+      "else": true,
+      "label": "already_signed"
+    },
+    {
+      "from": "d1",
+      "to": "g1"
+    },
+    {
+      "from": "g1",
+      "to": "g1_rm"
+    },
+    {
+      "from": "g1_rm",
+      "to": "m1"
+    },
+    {
+      "from": "m1",
+      "to": "x1"
+    }
+  ]
+}

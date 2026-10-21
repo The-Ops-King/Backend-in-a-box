@@ -1,0 +1,231 @@
+{
+  "schema": 2,
+  "id": "call-cancelled",
+  "name": "Call cancelled",
+  "description": "A closing call cancelled before it starts: both cards to Cancelled, the appointment date cleared, a rebook task for the closer, the tags moved, the Sales Call logged cancelled, and ❌ with a note in the booking post's thread.",
+  "origin": {
+    "template": "call-cancelled",
+    "version": 7
+  },
+  "reentry": {
+    "policy": "once_per_appointment"
+  },
+  "premise": {
+    "label": "The booking is still real",
+    "holds": {
+      "and": [
+        {
+          "exists": "appointment.id"
+        },
+        {
+          "ne": [
+            "{{appointment.status}}",
+            "invalid"
+          ]
+        }
+      ]
+    },
+    "endReason": "appointment_gone"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "An appointment's status changed — new status is “cancelled” and call type is closing call and before start",
+      "on": {
+        "event": "appointment.status_changed",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.status.to}}",
+                "cancelled"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            },
+            {
+              "ne": [
+                "{{event.before_start}}",
+                false
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n1",
+      "type": "action@1",
+      "title": "Create or move pipeline card “[full name] -- Cancelled”",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "stage": "{{setting.crm.stage_setter_cancelled}}",
+        "ifMissing": "create",
+        "pick": "open",
+        "name": "{{contact.name}} -- Cancelled"
+      }
+    },
+    {
+      "id": "n2",
+      "type": "action@1",
+      "title": "Create or move pipeline card “[full name] -- Cancelled”",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_cancelled}}",
+        "ifMissing": "create",
+        "pick": "open",
+        "name": "{{contact.name}} -- Cancelled"
+      }
+    },
+    {
+      "id": "n3",
+      "type": "action@1",
+      "title": "Update the contact in the CRM",
+      "action": "crm.update_contact",
+      "params": {
+        "clear": [
+          "appointment_date"
+        ]
+      }
+    },
+    {
+      "id": "n4",
+      "type": "action@1",
+      "title": "Open a CRM task",
+      "action": "crm.create_task",
+      "params": {
+        "title": "call_cancelled.n4.title",
+        "due": "1d",
+        "body": "call_cancelled.n4.body",
+        "assignTo": "{{appointment.closer.ghl_user_id | optional}}"
+      }
+    },
+    {
+      "id": "n5",
+      "type": "action@1",
+      "title": "Tags “+stat-cancelled” “−stat-booked” “−stat-self-booked” “−stat-set” “−stat-confirmed” (adds)",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-cancelled"
+        ]
+      }
+    },
+    {
+      "id": "n5_rm",
+      "type": "action@1",
+      "title": "Tags “+stat-cancelled” “−stat-booked” “−stat-self-booked” “−stat-set” “−stat-confirmed” (removes)",
+      "action": "crm.remove_tag",
+      "params": {
+        "tags": [
+          "stat-booked",
+          "stat-self-booked",
+          "stat-set",
+          "stat-confirmed"
+        ]
+      }
+    },
+    {
+      "id": "n6",
+      "type": "action@1",
+      "title": "Sales Call record: cancelled (logged, never deleted or reused)",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "custom_objects.sales_call",
+        "properties": {
+          "outcome": "{{setting.picklist.sales_call_outcome.cancelled}}",
+          "external_id": "{{appointment.slot_key}}"
+        },
+        "ifMissing": "match",
+        "key": "{{appointment.slot_key}}"
+      }
+    },
+    {
+      "id": "n7",
+      "type": "message@1",
+      "title": "React ❌, reply in the booking thread",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": "call_cancelled.n7",
+      "thread": {
+        "tag": "appointment:{{appointment.id}}"
+      }
+    },
+    {
+      "id": "n7_react",
+      "type": "action@1",
+      "title": "React :x: on the post it replies under",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "x"
+        ]
+      }
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: cancellation recorded",
+      "reason": "cancelled_recorded"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "to": "n4"
+    },
+    {
+      "from": "n4",
+      "to": "n5"
+    },
+    {
+      "from": "n5",
+      "to": "n5_rm"
+    },
+    {
+      "from": "n5_rm",
+      "to": "n6"
+    },
+    {
+      "from": "n6",
+      "to": "n7"
+    },
+    {
+      "from": "n7",
+      "to": "n7_react"
+    },
+    {
+      "from": "n7_react",
+      "to": "x1"
+    }
+  ]
+}

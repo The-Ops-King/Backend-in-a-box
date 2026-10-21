@@ -1,0 +1,72 @@
+{
+  "schema": 2,
+  "id": "weekly-wrap-up",
+  "name": "Weekly wrap-up",
+  "description": "At 8am every Monday, last week's numbers are posted.",
+  "origin": {
+    "template": "weekly-wrap-up",
+    "version": 1
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t_weekly",
+      "type": "trigger@1",
+      "title": "On a schedule: at 8:00 AM on Mon",
+      "on": {
+        "schedule": {
+          "at": "08:00",
+          "days": [
+            1
+          ],
+          "for": "offer"
+        }
+      }
+    },
+    {
+      "id": "n_build",
+      "type": "report@1",
+      "title": "Read the numbers and word the wrap-up (the layout: sections, lines, headings)",
+      "report": "reports.weekly_wrap_up",
+      "period": "just_ended",
+      "into": "report"
+    },
+    {
+      "id": "n_post",
+      "type": "message@1",
+      "title": "Post the wrap-up in Slack",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.team_reports}}"
+        }
+      },
+      "content": "weekly_wrap_up.n_post"
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_weekly",
+      "to": "n_build"
+    },
+    {
+      "from": "n_build",
+      "to": "n_post"
+    },
+    {
+      "from": "n_post",
+      "to": "x_done"
+    }
+  ]
+}

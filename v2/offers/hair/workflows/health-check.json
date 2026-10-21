@@ -1,0 +1,519 @@
+{
+  "schema": 2,
+  "id": "health-check",
+  "name": "Health check",
+  "description": "Every hour the health sweep reads the offer's findings (raised as alerts); every other alert is posted with Resolve and Pause, followed in its thread while open, and marked resolved.",
+  "origin": {
+    "template": "health-check",
+    "version": 6
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "On a schedule: every hour",
+      "on": {
+        "schedule": {
+          "every": "1h",
+          "for": "offer"
+        }
+      }
+    },
+    {
+      "id": "t_raised",
+      "type": "trigger@1",
+      "title": "An alert is raised: something broke — topic is not “availability”",
+      "on": {
+        "event": "alert.raised",
+        "match": {
+          "ne": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
+      }
+    },
+    {
+      "id": "t_repeated",
+      "type": "trigger@1",
+      "title": "An alert is still open (said again every hour until it is fixed) — topic is not “availability”",
+      "on": {
+        "event": "alert.repeated",
+        "match": {
+          "ne": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
+      }
+    },
+    {
+      "id": "t_resolved",
+      "type": "trigger@1",
+      "title": "An alert is fixed (cleared) — topic is not “availability”",
+      "on": {
+        "event": "alert.resolved",
+        "match": {
+          "ne": [
+            "{{event.topic}}",
+            "availability"
+          ]
+        }
+      }
+    },
+    {
+      "id": "n1",
+      "type": "report@1",
+      "title": "Run the health checks",
+      "report": "reports.health_check",
+      "period": "in_progress",
+      "into": "health",
+      "params": {
+        "slots_days": "7",
+        "fathom_silent_days": "14",
+        "drift_days": "7",
+        "poll_lag_min": "30"
+      }
+    },
+    {
+      "id": "a_mark",
+      "type": "set@1",
+      "title": "The mark: red for an error, yellow for a warning",
+      "var": "mark",
+      "value": {
+        "$pick": "{{event.level}}",
+        "cases": {
+          "error": "🔴",
+          "warning": "🟡"
+        },
+        "else": "🟡"
+      }
+    },
+    {
+      "id": "x_done",
+      "type": "end@1",
+      "title": "Done",
+      "reason": "done"
+    },
+    {
+      "id": "a_icon",
+      "type": "set@1",
+      "title": "The face by level",
+      "var": "icon",
+      "value": {
+        "$pick": "{{event.level}}",
+        "cases": {
+          "error": ":rotating_light:",
+          "warning": ":warning:"
+        },
+        "else": ":warning:"
+      }
+    },
+    {
+      "id": "a_icon2",
+      "type": "set@1",
+      "title": "The company's own alert face, when it set one",
+      "var": "icon",
+      "value": {
+        "$if": {
+          "exists": "event.as_icon"
+        },
+        "then": "{{event.as_icon}}",
+        "else": "{{vars.icon}}"
+      }
+    },
+    {
+      "id": "a_head",
+      "type": "set@1",
+      "title": "The headline for each kind of alert",
+      "var": "head",
+      "value": {
+        "$pick": "{{event.kind}}",
+        "cases": {
+          "auth": "Token rejected",
+          "held": "Run paused on a step",
+          "poll": "Polling",
+          "engine": "Engine",
+          "failed": "Run failed",
+          "health": "Health check",
+          "paused": "Run needs a hand",
+          "blocked": "Step could not run",
+          "skipped": "Step skipped"
+        },
+        "else": "Engine"
+      }
+    },
+    {
+      "id": "a_were",
+      "type": "set@1",
+      "title": "Ledger drift: one record fixed or several",
+      "var": "drift_were",
+      "value": {
+        "$pick": "{{event.detail.fixed}}",
+        "cases": {
+          "1": "it's"
+        },
+        "else": "they've"
+      }
+    },
+    {
+      "id": "a_dhead",
+      "type": "set@1",
+      "title": "Ledger drift: how the questions start",
+      "var": "drift_head",
+      "value": {
+        "$pick": "{{event.detail.shape}}",
+        "cases": {
+          "one": "One thing in the engine doesn't match GHL and I have a question about it:",
+          "many": "{{event.detail.count}} things in the engine don't match GHL, which I have questions about:",
+          "fixed_one": "{{event.detail.fixed}} in the engine didn't match GHL over the last {{event.detail.days}} days; {{vars.drift_were}} been updated from GHL.\nExcept this one, which I have a question about:",
+          "fixed_many": "{{event.detail.fixed}} in the engine didn't match GHL over the last {{event.detail.days}} days; {{vars.drift_were}} been updated from GHL.\nExcept these, which I have questions about:"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "a_body",
+      "type": "set@1",
+      "title": "What the alert says (the ledger drift questions, worded here)",
+      "var": "body",
+      "value": {
+        "$if": {
+          "ne": [
+            "{{event.key}}",
+            "health:ledger_drift"
+          ]
+        },
+        "then": "{{event.text}}",
+        "else": "{{vars.drift_head | optional}}"
+      }
+    },
+    {
+      "id": "b_alert",
+      "type": "branch@1",
+      "title": "New, still open, or cleared?"
+    },
+    {
+      "id": "a_post",
+      "type": "message@1",
+      "title": "Post the alert",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.engine_alerts}}"
+        }
+      },
+      "content": "health_check.a_post",
+      "remember": "alert:{{event.alert_id}}",
+      "buttons": [
+        {
+          "action": "alert_retry",
+          "value": "{{event.alert_id}}",
+          "style": "primary",
+          "when": {
+            "eq": [
+              "{{event.kind}}",
+              "skipped"
+            ]
+          }
+        },
+        {
+          "action": "alert_resolve",
+          "value": "{{event.alert_id}}"
+        },
+        {
+          "action": "alert_pause",
+          "value": "{{event.alert_id}}"
+        }
+      ]
+    },
+    {
+      "id": "a_repeat",
+      "type": "message@1",
+      "title": "Still open: a line in its thread",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.engine_alerts}}"
+        }
+      },
+      "content": "health_check.a_repeat",
+      "thread": {
+        "tag": "alert:{{event.alert_id}}"
+      }
+    },
+    {
+      "id": "a_resolve",
+      "type": "message@1",
+      "title": "Cleared: resolved in its thread, ✅ on the first post",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.engine_alerts}}"
+        }
+      },
+      "content": "health_check.a_resolve",
+      "thread": {
+        "tag": "alert:{{event.alert_id}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "a_resolve_react",
+      "type": "action@1",
+      "title": "React :white_check_mark: on the post it replies under",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "alert:{{event.alert_id}}"
+        },
+        "emojis": [
+          "white_check_mark"
+        ]
+      }
+    },
+    {
+      "id": "a_thread",
+      "type": "message@1",
+      "title": "The detail under it (the next days' availability)",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.engine_alerts}}"
+        }
+      },
+      "content": "health_check.a_thread",
+      "thread": {
+        "node": "a_post"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "x_alert",
+      "type": "end@1",
+      "title": "Stop: said",
+      "reason": "said"
+    },
+    {
+      "id": "a_were_if",
+      "type": "branch@1",
+      "title": "Only if: Ledger drift: one record fixed or several"
+    },
+    {
+      "id": "a_dhead_if",
+      "type": "branch@1",
+      "title": "Only if: Ledger drift: how the questions start"
+    },
+    {
+      "id": "a_post_if",
+      "type": "branch@1",
+      "title": "Only if: Post the alert"
+    },
+    {
+      "id": "a_repeat_if",
+      "type": "branch@1",
+      "title": "Only if: Still open: a line in its thread"
+    },
+    {
+      "id": "a_resolve_if",
+      "type": "branch@1",
+      "title": "Only if: Cleared: resolved in its thread, ✅ on the first post"
+    },
+    {
+      "id": "a_thread_if",
+      "type": "branch@1",
+      "title": "Only if: The detail under it (the next days' availability)"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n1"
+    },
+    {
+      "from": "t_raised",
+      "to": "a_mark"
+    },
+    {
+      "from": "t_repeated",
+      "to": "a_mark"
+    },
+    {
+      "from": "t_resolved",
+      "to": "a_mark"
+    },
+    {
+      "from": "n1",
+      "to": "x_done"
+    },
+    {
+      "from": "a_mark",
+      "to": "a_icon"
+    },
+    {
+      "from": "a_icon",
+      "to": "a_icon2"
+    },
+    {
+      "from": "a_icon2",
+      "to": "a_head"
+    },
+    {
+      "from": "a_head",
+      "to": "a_were_if"
+    },
+    {
+      "from": "a_were",
+      "to": "a_dhead_if"
+    },
+    {
+      "from": "a_dhead",
+      "to": "a_body"
+    },
+    {
+      "from": "a_body",
+      "to": "b_alert"
+    },
+    {
+      "from": "b_alert",
+      "to": "a_post_if",
+      "label": "new",
+      "when": {
+        "eq": [
+          "{{event.type}}",
+          "alert.raised"
+        ]
+      }
+    },
+    {
+      "from": "b_alert",
+      "to": "a_repeat_if",
+      "label": "still open",
+      "when": {
+        "eq": [
+          "{{event.type}}",
+          "alert.repeated"
+        ]
+      }
+    },
+    {
+      "from": "b_alert",
+      "to": "a_resolve_if",
+      "label": "cleared",
+      "else": true
+    },
+    {
+      "from": "a_post",
+      "to": "a_thread_if"
+    },
+    {
+      "from": "a_repeat",
+      "to": "x_alert"
+    },
+    {
+      "from": "a_resolve",
+      "to": "a_resolve_react"
+    },
+    {
+      "from": "a_resolve_react",
+      "to": "x_alert"
+    },
+    {
+      "from": "a_thread",
+      "to": "x_alert"
+    },
+    {
+      "from": "a_were_if",
+      "to": "a_were",
+      "when": {
+        "eq": [
+          "{{event.key}}",
+          "health:ledger_drift"
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_were_if",
+      "to": "a_dhead_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a_dhead_if",
+      "to": "a_dhead",
+      "when": {
+        "eq": [
+          "{{event.key}}",
+          "health:ledger_drift"
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_dhead_if",
+      "to": "a_body",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a_post_if",
+      "to": "a_post",
+      "when": {
+        "exists": "event.channel"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_post_if",
+      "to": "a_thread_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a_repeat_if",
+      "to": "a_repeat",
+      "when": {
+        "exists": "event.channel"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_repeat_if",
+      "to": "x_alert",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a_resolve_if",
+      "to": "a_resolve",
+      "when": {
+        "exists": "event.channel"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_resolve_if",
+      "to": "x_alert",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "a_thread_if",
+      "to": "a_thread",
+      "when": {
+        "exists": "event.thread"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "a_thread_if",
+      "to": "x_alert",
+      "else": true,
+      "label": "it does not: skipped"
+    }
+  ]
+}

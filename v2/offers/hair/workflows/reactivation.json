@@ -1,0 +1,132 @@
+{
+  "schema": 2,
+  "id": "reactivation",
+  "name": "Reactivation",
+  "description": "Off in v1. The tag reactivate starts three check-ins with the booking link over a week (email, text after 3 days, email after 4 more), at most once per contact per 90 days.",
+  "origin": {
+    "template": "reactivation",
+    "version": 3
+  },
+  "reentry": {
+    "policy": "once_per_contact_per_window",
+    "window": "90d"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "sendWindow": {
+    "zone": "contact",
+    "opens": "08:00",
+    "closes": "20:00",
+    "outside": "next_open",
+    "transactional": "any_hour"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "Tag added — tag is “reactivate”",
+      "on": {
+        "event": "tag.added",
+        "match": {
+          "eq": [
+            "{{event.tag}}",
+            "reactivate"
+          ]
+        }
+      }
+    },
+    {
+      "id": "n1",
+      "type": "message@1",
+      "title": "Send email: “Checking in”",
+      "to": {
+        "contact": "email"
+      },
+      "content": "reactivation.n1",
+      "kind": "human"
+    },
+    {
+      "id": "n2",
+      "type": "wait@1",
+      "title": "Wait 3 days",
+      "until": {
+        "anchor": "now",
+        "offset": "+3d",
+        "zone": "contact"
+      },
+      "fitSendWindow": false
+    },
+    {
+      "id": "n3",
+      "type": "message@1",
+      "title": "Check-in text",
+      "to": {
+        "contact": "sms"
+      },
+      "content": "reactivation.n3",
+      "kind": "human"
+    },
+    {
+      "id": "n4",
+      "type": "wait@1",
+      "title": "Wait 4 days",
+      "until": {
+        "anchor": "now",
+        "offset": "+4d",
+        "zone": "contact"
+      },
+      "fitSendWindow": false
+    },
+    {
+      "id": "n5",
+      "type": "message@1",
+      "title": "Send email: “Last one from me”",
+      "to": {
+        "contact": "email"
+      },
+      "content": "reactivation.n5",
+      "kind": "human"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: sequence finished",
+      "reason": "sequence_done"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "to": "n4"
+    },
+    {
+      "from": "n4",
+      "to": "n5"
+    },
+    {
+      "from": "n5",
+      "to": "x1"
+    }
+  ]
+}

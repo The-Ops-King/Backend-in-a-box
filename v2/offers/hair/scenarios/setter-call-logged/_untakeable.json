@@ -1,0 +1,9 @@
+{
+  "_note": "Edges no run can take, with why. The scenario test requires every other edge to be taken.",
+  "edges": [
+    {
+      "edge": "w_hold_if → r2_if (else)",
+      "why": "w_hold is only reached just after the question to the team is posted, which happens only when vars.asking is true (b_ask); v1 also tested an engine-internal \"a listener is armed\" (vars.__listen), always true there"
+    }
+  ]
+}

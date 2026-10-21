@@ -1,0 +1,13 @@
+{
+  "_note": "Edges no run can take, with why. The scenario test requires every other edge to be taken.",
+  "edges": [
+    {
+      "edge": "kd_if → x1 (else)",
+      "why": "v1 skipped the Deposit move when crm.stage_closer_deposit was unbound; v2 will not enable a workflow while a setting it reads is unbound (GAP 6), so in v2 the setting is always there"
+    },
+    {
+      "edge": "r3s_undo → r3 (else)",
+      "why": "r3s is reached only when the earlier answer was showed or no-show (r3s_if), and then u3 always names the reaction to take back (ghost or white_check_mark)"
+    }
+  ]
+}

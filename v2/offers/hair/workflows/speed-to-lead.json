@@ -1,0 +1,202 @@
+{
+  "schema": 2,
+  "id": "speed-to-lead",
+  "name": "Speed to lead",
+  "description": "Off in v1. A new lead seen in time gets an email and a text with the booking link, then a nudge email if they neither reply nor book within two hours; one seen late is handed to the team in Slack.",
+  "origin": {
+    "template": "speed-to-lead",
+    "version": 5
+  },
+  "reentry": {
+    "policy": "once_per_contact"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "sendWindow": {
+    "zone": "contact",
+    "opens": "08:00",
+    "closes": "20:00",
+    "outside": "next_open",
+    "transactional": "any_hour"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "A new lead is added in GHL",
+      "on": {
+        "event": "lead.created"
+      }
+    },
+    {
+      "id": "v_late",
+      "type": "set@1",
+      "title": "Too late for a first text after this many minutes",
+      "var": "late_after_min",
+      "value": 60
+    },
+    {
+      "id": "b_late",
+      "type": "branch@1",
+      "title": "Did the engine see this lead in time?"
+    },
+    {
+      "id": "n1",
+      "type": "message@1",
+      "title": "Send email: “Got your info”",
+      "to": {
+        "contact": "email"
+      },
+      "content": "speed_to_lead.n1",
+      "kind": "human"
+    },
+    {
+      "id": "s_late",
+      "type": "message@1",
+      "title": "Tell the team to follow up by hand",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.ops}}"
+        }
+      },
+      "content": "speed_to_lead.s_late"
+    },
+    {
+      "id": "n2",
+      "type": "message@1",
+      "title": "First-touch text",
+      "to": {
+        "contact": "sms"
+      },
+      "content": "speed_to_lead.n2",
+      "kind": "human"
+    },
+    {
+      "id": "x_late",
+      "type": "end@1",
+      "title": "Stop: late",
+      "reason": "late"
+    },
+    {
+      "id": "n3",
+      "type": "wait@1",
+      "title": "Wait for a reply",
+      "reply": {
+        "channel": "any",
+        "settle": "90s"
+      },
+      "timeout": "2h"
+    },
+    {
+      "id": "c1",
+      "type": "branch@1",
+      "title": "Still nothing booked?"
+    },
+    {
+      "id": "c1_x",
+      "type": "end@1",
+      "title": "Stop: booked",
+      "reason": "booked"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: they replied",
+      "reason": "replied"
+    },
+    {
+      "id": "n5",
+      "type": "message@1",
+      "title": "Send email: “Still want to talk?”",
+      "to": {
+        "contact": "email"
+      },
+      "content": "speed_to_lead.n5",
+      "kind": "human"
+    },
+    {
+      "id": "x2",
+      "type": "end@1",
+      "title": "Done: no reply",
+      "reason": "no_reply"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "v_late"
+    },
+    {
+      "from": "v_late",
+      "to": "b_late"
+    },
+    {
+      "from": "b_late",
+      "to": "n1",
+      "label": "in time",
+      "when": {
+        "lte": [
+          "{{event.minutes_late | default:0}}",
+          "{{vars.late_after_min}}"
+        ]
+      }
+    },
+    {
+      "from": "b_late",
+      "to": "s_late",
+      "label": "too late",
+      "else": true
+    },
+    {
+      "from": "n1",
+      "to": "n2"
+    },
+    {
+      "from": "s_late",
+      "to": "x_late"
+    },
+    {
+      "from": "n2",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "to": "c1",
+      "on": "timeout"
+    },
+    {
+      "from": "n3",
+      "to": "x1",
+      "on": "arrived"
+    },
+    {
+      "from": "c1",
+      "to": "n5",
+      "when": {
+        "eq": [
+          "{{contact.has_upcoming_call}}",
+          false
+        ]
+      }
+    },
+    {
+      "from": "c1",
+      "to": "c1_x",
+      "else": true,
+      "label": "booked"
+    },
+    {
+      "from": "n5",
+      "to": "x2"
+    }
+  ]
+}

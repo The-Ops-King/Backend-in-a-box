@@ -1,0 +1,770 @@
+{
+  "_note": "UNSIGNED draft. Hair's words, by key, copied from spec/hair. Only what is inside {{ }} is written in v2's roots and filters; where it differs, `v1` (and `v1_subject`) keep the exact v1 text. `as` is the Slack persona's name; `icons` are v1's persona icons, which v2 content does not use yet (GAP 15); `labels` are button labels by action.",
+  "agreement_signed.m1": {
+    "channel": "crm",
+    "body": "AGREEMENT SIGNED — {{agreement.signed_at | offer_date:medium}} · {{agreement.name | default:agreement}}",
+    "v1": "AGREEMENT SIGNED — {{agreement.signed_at | date_company}} · {{agreement.name | default:agreement}}"
+  },
+  "agreement_signed.s1": {
+    "channel": "slack",
+    "body": "*Agreement signed:*\n*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>",
+    "as": "Agreement signed",
+    "icons": [
+      ":memo:",
+      ":pencil:",
+      ":page_with_curl:",
+      ":lower_left_fountain_pen:"
+    ],
+    "v1": "*Agreement signed:*\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>"
+  },
+  "calendar_availability.a_post": {
+    "channel": "slack",
+    "body": "{{vars.mark}} *{{event.company}} · Calendar availability*\n{{event.text}}{{event.link | link:Open | line}}",
+    "as": "{{event.as_name | default:Engine alerts}}",
+    "icons": [
+      "{{vars.icon}}"
+    ],
+    "labels": {
+      "alert_retry": "Retry",
+      "alert_resolve": "Resolve",
+      "alert_pause": "Pause"
+    },
+    "v1": "{{vars.mark}} *{{event.company}} · Calendar availability*\n{{event.text}}{{event.link | link:Open | line}}{{event.fix_link | each:\" · <{{item}}|{{event.fix_label}}>\"}}{{event.extra_link | each:\"{{event.link | then:\\\" · \\\" | default:\\\"\\\\n\\\"}}<{{item}}|{{event.extra_label | default:Open}}>\"}}"
+  },
+  "calendar_availability.a_repeat": {
+    "channel": "slack",
+    "body": "{{vars.mark}} Still open after {{event.open_for}}: {{event.text | truncate:300}}{{event.thread | line}}",
+    "as": "{{event.as_name | default:Engine alerts}}",
+    "icons": [
+      "{{vars.icon}}"
+    ]
+  },
+  "calendar_availability.a_resolve": {
+    "channel": "slack",
+    "body": "✅ Resolved after {{event.open_for}}: {{event.text | truncate:200}}",
+    "as": "{{event.as_name | default:Engine alerts}}",
+    "icons": [
+      "{{vars.icon}}"
+    ]
+  },
+  "calendar_availability.a_thread": {
+    "channel": "slack",
+    "body": "{{event.thread}}",
+    "as": "{{event.as_name | default:Engine alerts}}",
+    "icons": [
+      "{{vars.icon}}"
+    ]
+  },
+  "call_booked.k3.body": {
+    "channel": "crm",
+    "body": "Booked for {{appointment.starts_at | offer_date:medium}}. A quick personal video before the call.",
+    "v1": "Booked for {{appointment.starts_at | date_company}}. A quick personal video before the call."
+  },
+  "call_booked.k3.title": {
+    "channel": "crm",
+    "body": "Send {{contact.first_name}} a personalized video"
+  },
+  "call_booked.n4": {
+    "channel": "slack",
+    "body": "*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line | optional}}\n*Appointment time:* {{appointment.starts_at | offer_date:medium}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | optional}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}",
+    "as": "New call booked",
+    "icons": [
+      ":telephone_receiver:",
+      ":calendar:",
+      ":date:",
+      ":spiral_calendar_pad:"
+    ],
+    "v1": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | default:}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}"
+  },
+  "call_booked.n4_rescheduled": {
+    "channel": "slack",
+    "body": "*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line | optional}}\n*Appointment time:* {{appointment.starts_at | offer_date:medium}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | optional}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}",
+    "as": "Call rescheduled",
+    "icons": [
+      ":repeat:"
+    ],
+    "v1": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}\n*Hair loss:* {{contact.fields.hair_loss | default:—}} {{contact.fields.hair_loss_stage | default:}}\n*Noticing for:* {{contact.fields.noticing_for | default:—}}\n*Commit to routine:* {{contact.fields.commit_routine | default:—}}\n*Work situation:* {{contact.fields.work_situation | default:—}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}"
+  },
+  "call_booked.n_dnd": {
+    "channel": "slack",
+    "body": "⚠️ {{contact.first_name | default:They}} {{vars.no_text_reason | optional}}, so no texts will reach them. Call or email instead.",
+    "as": "Texts off",
+    "icons": [
+      ":warning:"
+    ],
+    "v1": "⚠️ {{contact.first_name | default:They}} {{vars.no_text_reason}}, so no texts will reach them. Call or email instead."
+  },
+  "call_booked.n_nolink_alert": {
+    "channel": "slack",
+    "body": "{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s call {{appointment.starts_at | offer_date:medium}} has no meeting link in Calendly. Please send them the link.",
+    "as": "No meeting link",
+    "icons": [
+      ":link:"
+    ],
+    "v1": "{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s call {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link."
+  },
+  "call_booked.n_nolink_note": {
+    "channel": "slack",
+    "body": "🔗 No meeting link in Calendly for this call. {{appointment.closer.mention | default:Closer}}, please send them the link.",
+    "as": "No meeting link",
+    "icons": [
+      ":link:"
+    ]
+  },
+  "call_cancelled.n4.body": {
+    "channel": "crm",
+    "body": "Cancelled by {{appointment.cancelled_by | default:the invitee}}. Reason: {{appointment.cancel_reason | default:none given}}."
+  },
+  "call_cancelled.n4.title": {
+    "channel": "crm",
+    "body": "Rebook {{contact.name}} — cancelled"
+  },
+  "call_cancelled.n7": {
+    "channel": "slack",
+    "body": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} · {{appointment.starts_at | offer_date:medium}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:—}}\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}",
+    "as": "Call cancelled",
+    "icons": [
+      ":x:",
+      ":calendar:",
+      ":no_entry_sign:"
+    ],
+    "v1": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} · {{appointment.starts_at | date_company}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:—}}\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}"
+  },
+  "call_outcome_filed.g1": {
+    "channel": "slack",
+    "body": "👻 No-show for the call {{appointment.starts_at | offer_date:medium}} with {{appointment.closer.name | default:the closer}}.",
+    "as": "No-show",
+    "icons": [
+      ":ghost:"
+    ],
+    "v1": "👻 No-show for the call {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:the closer}}."
+  },
+  "call_outcome_filed.r3s": {
+    "channel": "slack",
+    "body": "🔁 Rescheduled or cancelled on the call, per {{appointment.closer.name | default:the closer}}.",
+    "as": "Rescheduled",
+    "icons": [
+      ":repeat:"
+    ]
+  },
+  "call_outcome_filed.s1": {
+    "channel": "slack",
+    "body": "✅ Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | default:no call outcome given}}.",
+    "as": "Showed",
+    "icons": [
+      ":white_check_mark:"
+    ],
+    "v1": "✅ Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | words | default:no call outcome given}}."
+  },
+  "cancellation_rebook.n1": {
+    "channel": "sms",
+    "body": "Hey {{contact.first_name | default:there}}, saw the call got cancelled. If you want to pick a new time, here you go: {{setting.calendar.closer_call.url}}",
+    "v1": "Hey {{contact.first_name | default:there}}, saw the call got cancelled. If you want to pick a new time, here you go: {{calendar.closer_call.url}}"
+  },
+  "cancellation_rebook.n2": {
+    "channel": "email",
+    "body": "<p>Hey {{contact.first_name | default:there}},</p><p>Saw the call got cancelled. No problem at all. If you'd like to pick a new time, here's the link: {{setting.calendar.closer_call.url}}</p>",
+    "subject": "Pick a new time?",
+    "v1": "<p>Hey {{contact.first_name | default:there}},</p><p>Saw the call got cancelled. No problem at all. If you'd like to pick a new time, here's the link: {{calendar.closer_call.url}}</p>"
+  },
+  "card_moved_by_hand.n_line": {
+    "channel": "slack",
+    "body": "{{vars.line}}",
+    "as": "Card moved",
+    "icons": [
+      ":card_index_dividers:"
+    ]
+  },
+  "daily_wrap_up.n_post": {
+    "channel": "slack",
+    "body": "{{vars.report.body}}",
+    "as": "Wrap-up",
+    "icons": [
+      ":bar_chart:",
+      ":chart_with_upwards_trend:",
+      ":clipboard:"
+    ]
+  },
+  "deal_closed.e1": {
+    "channel": "email",
+    "body": "<p>Hi {{contact.first_name}},</p><p>Welcome, and congratulations on taking action early. Catching hair changes in their earliest stages is one of the biggest advantages you can give yourself, and I'm glad to be your coach through this.</p><p>First, an important note about what this is (and isn't)</p><p>I want to be completely clear from the start: this is a lifestyle and wellness coaching relationship. I am your coach, not your doctor. Our work together does not create a doctor-patient relationship, I do not diagnose medical conditions, and I do not prescribe or manage medications. My role is to guide you toward the habits, nutrition, stress management, and tracking practices that support the healthiest possible hair — and to help you become an informed, organized partner in your own care.</p><p>As a coach, I am not able to prescribe medications. However, as we have discussed, your enrollment includes a $2,000 program credit that can be applied toward the cost of any treatments you may ultimately need. Whether any such treatments are appropriate for you is a decision made between you and a licensed clinician. During our first one-on-one coaching session, we will review your goals and circumstances together that are customized to you and your specific stage. From here I will help guide you toward reputable resources—including over-the-counter options and licensed telehealth providers—so you can obtain exactly what you need from the appropriate source.</p><p>Here are your next steps before our first call coming up...</p><p>To make our first session as productive as possible, please complete as many of the following as you can:</p><p>1. Complete your intake questionnaire. This is the single most important step — it tells me about your history, lifestyle, and goals so we don't spend our call gathering basics. https://saveyourhairtoday.com/in-take</p><p>2. Take your baseline \"before\" photos. Use consistent lighting (same spot, same time of day), the same distance, and capture four views: front/hairline, top/crown looking down, and both sides. Keep the same phone and angle each time so future photos are truly comparable. We'll use these to track progress objectively over the months ahead. Take those photos and send directly to me via telegram at the telegram account below</p><p>3. Make a list of everything you currently take. Include all prescription medications, over-the-counter products, vitamins, and supplements — with doses. Some common medications and supplements can affect hair, and your clinician will want an accurate list too. Send that to me in our 1-on-1 thread in the telegram below</p><p>4. Note any recent major life events or health changes in the last 6–12 months — significant stress, illness, rapid weight change, dietary changes, or new medications. These often matter for the timeline of hair changes. Send that to me in our 1-on-1 thread in the telegram below</p><p>5. Do a quick honest audit of four lifestyle anchors: sleep (hours and quality), nutrition (especially protein and overall diet quality), stress level, and smoking/alcohol use. Just jot down where you honestly stand — no judgment, this is our starting point. Send that to me in our 1-on-1 thread in the telegram below</p><p>6. Think about your goals and your \"why.\" What does success look like to you in 6 and 12 months? Being specific helps us set realistic, honest expectations together. Send that to me in our 1-on-1 thread in the telegram below</p><p>7. Set aside a private, quiet 45–60 minutes for our first call, with your photos and lists in front of you. Book your call here https://calendly.com/allan-saveyourhairtoday</p><p>A word on expectations</p><p>Hair responds slowly. Meaningful changes from lifestyle work and any medical treatments can take time. Our goal is by weeks 2 to 4, you'll see less hair coming out in the shower. This is the first sign the protocol is active. By month 6, most clients see 30 to 50% less scalp visibility in their progress photos. By weeks 12 to 24, existing follicles that were thinning start producing visibly thicker hair. So your consistency matters far more than intensity. We'll set clear, realistic milestones together on our first call so you always know what \"on track\" looks like.</p><p>If you have any questions before we talk, just reply to this email or text me in our telegram thread</p><p>Looking forward to getting started,</p><p>Dr. Allan Parungao</p><p>-The Hair Surgeon's Scorecard</p><p>Telegram: @DrEastside</p><p>This message is for general wellness and educational coaching purposes only. It is not medical advice, does not establish a doctor-patient relationship, and is not a substitute for care from a licensed healthcare provider.</p>",
+    "subject": "Welcome — Let's Get You Ready for Your First Coaching Call"
+  },
+  "deal_closed.e2": {
+    "channel": "sms",
+    "body": "Congrats on taking action to save your hair.\n\nYour next steps have been emailed to you, please make sure to check your email for the subject line \"Welcome -- Let's get you ready for your first coaching call\" from Allan P.\n\nPlease follow the instructions in that email, and let us know if you have any issues"
+  },
+  "deal_closed.s1": {
+    "channel": "slack",
+    "body": "*NEW CLOSE!* Well done {{contact.closer.mention | default:team}}!\n*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>{{contact.setter.mention | line:*Setter:*}}\n*Cash Collected:* ${{contact.cash_collected | money}}\n*Revenue Generated:* ${{contact.revenue | money | default:—}}\n\n*First Booking:* {{contact.first_booked_at | offer_date:short_day | default:—}}\n*Days to Close:* {{contact.days_to_close | default:—}}\n\n*Source:* {{contact.source | default:—}}{{vars.cheer | line}}",
+    "as": "NEW CLOSE",
+    "icons": [
+      ":tada:",
+      ":boom:",
+      ":partying_face:",
+      ":bomb:",
+      ":mirror_ball:",
+      ":man_dancing:",
+      ":dancer:",
+      ":fire:",
+      ":rocket:",
+      ":champagne:"
+    ],
+    "v1": "*NEW CLOSE!* Well done {{contact.closer.mention | default:team}}!\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{contact.setter.mention | line:*Setter:*}}\n*Cash Collected:* ${{contact.cash_collected | money}}\n*Revenue Generated:* ${{contact.revenue | money | default:—}}\n\n*First Booking:* {{contact.first_booked_at | date_company:ccc LLL d | default:—}}\n*Days to Close:* {{contact.days_to_close | default:—}}\n\n*Source:* {{contact.source | default:—}}{{vars.cheer | line:}}"
+  },
+  "eod_post_the_closer_s_day.n_ack": {
+    "channel": "slack",
+    "body": "✅ Got it. {{event.totals_line}}.",
+    "as": "End of day",
+    "icons": [
+      ":clipboard:"
+    ]
+  },
+  "eod_post_the_closer_s_day.n_summary": {
+    "channel": "slack",
+    "body": "📝 *{{person.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.day_answers_lines | line}}",
+    "as": "End of day",
+    "icons": [
+      ":clipboard:"
+    ],
+    "v1": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.calls | each:\"\\n• {{item.contact}}: {{item.outcome_label | default:no answer}}{{item.cash | nonzero | then:\\\" · $\\\"}}{{item.cash | nonzero | money:0 | suffix:\\\" collected\\\"}}{{item.revenue | nonzero | then:\\\" · $\\\"}}{{item.revenue | nonzero | money:0 | suffix:\\\" revenue\\\"}}{{item.next_date | then:\\\" · next \\\"}}{{item.next_date | date:\\\"ccc LLL d\\\"}}{{item.dq_reason | then:\\\" · \\\"}}{{item.dq_reason}}{{item.lost_reason | then:\\\" · \\\"}}{{item.lost_reason}}\" | join:\"\"}}{{event.day_answers_lines | line}}"
+  },
+  "eod_remind_closers_to_file.n_dm": {
+    "channel": "slack",
+    "body": "For {{person.name}} (not sent to them yet: closer reminders are off until launch):\nHey {{person.first_name}}, your end-of-day is waiting:\n\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.",
+    "as": "End of day",
+    "icons": [
+      ":clipboard:"
+    ],
+    "v1": "For {{user.name}} (not sent to them yet: closer reminders are off until launch):\nHey {{user.first_name}}, your end-of-day is waiting:\n{{vars.due.days | each:\"• <{{item.url}}|{{item.when}}>: {{item.calls | nonzero | plural:call}}{{item.both | then:\\\", \\\"}}{{item.ghl_blank | nonzero | plural:call | suffix:\\\" with no outcome in GHL\\\"}}\" | join:\"\\n\"}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit."
+  },
+  "eod_remind_closers_to_file.n_op": {
+    "channel": "slack",
+    "body": "{{person.name}} still has Sales Calls with no outcome in GHL after two days:\n",
+    "as": "End of day",
+    "icons": [
+      ":clipboard:"
+    ],
+    "v1": "{{user.name}} still has Sales Calls with no outcome in GHL after two days:\n{{vars.due.overdue | each:\"• {{item.label}}: {{item.names | join}}\" | join:\"\\n\"}}"
+  },
+  "health_check.a_post": {
+    "channel": "slack",
+    "body": "{{vars.mark}} *{{event.company}} · {{vars.head}}*\n{{vars.body}}{{event.link | link:Open | line}}",
+    "as": "{{event.as_name | default:Engine alerts}}",
+    "icons": [
+      "{{vars.icon}}"
+    ],
+    "labels": {
+      "alert_retry": "Retry",
+      "alert_resolve": "Resolve",
+      "alert_pause": "Pause"
+    },
+    "v1": "{{vars.mark}} *{{event.company}} · {{vars.head}}*\n{{vars.body}}{{event.link | link:Open | line}}{{event.fix_link | each:\" · <{{item}}|{{event.fix_label}}>\"}}{{event.extra_link | each:\"{{event.link | then:\\\" · \\\" | default:\\\"\\\\n\\\"}}<{{item}}|{{event.extra_label | default:Open}}>\"}}"
+  },
+  "health_check.a_repeat": {
+    "channel": "slack",
+    "body": "{{vars.mark}} Still open after {{event.open_for}}: {{vars.body | truncate:300}}{{event.thread | line}}",
+    "as": "{{event.as_name | default:Engine alerts}}",
+    "icons": [
+      "{{vars.icon}}"
+    ]
+  },
+  "health_check.a_resolve": {
+    "channel": "slack",
+    "body": "✅ Resolved after {{event.open_for}}: {{event.text | truncate:200}}",
+    "as": "{{event.as_name | default:Engine alerts}}",
+    "icons": [
+      "{{vars.icon}}"
+    ]
+  },
+  "health_check.a_thread": {
+    "channel": "slack",
+    "body": "{{event.thread}}",
+    "as": "{{event.as_name | default:Engine alerts}}",
+    "icons": [
+      "{{vars.icon}}"
+    ]
+  },
+  "monthly_wrap_up.n_post": {
+    "channel": "slack",
+    "body": "{{vars.report.body}}",
+    "as": "Wrap-up",
+    "icons": [
+      ":bar_chart:",
+      ":chart_with_upwards_trend:",
+      ":clipboard:"
+    ]
+  },
+  "no_show_recovery.n2": {
+    "channel": "sms",
+    "body": "Hey {{contact.first_name | default:there}}, looks like we missed each other. Here's the link to grab a new time with {{appointment.closer.first_name}}: {{setting.calendar.closer_call.url}}",
+    "v1": "Hey {{contact.first_name | default:there}}, looks like we missed each other. Here's the link to grab a new time with {{appointment.closer.first_name}}: {{calendar.closer_call.url}}"
+  },
+  "no_show_recovery.n3": {
+    "channel": "email",
+    "body": "<p>Hey {{contact.first_name | default:there}},</p><p>Looks like we missed each other for the call with {{appointment.closer.first_name}}. Things come up. If you still want to talk, pick a new time here: {{setting.calendar.closer_call.url}}</p>",
+    "subject": "We missed you",
+    "v1": "<p>Hey {{contact.first_name | default:there}},</p><p>Looks like we missed each other for the call with {{appointment.closer.first_name}}. Things come up. If you still want to talk, pick a new time here: {{calendar.closer_call.url}}</p>"
+  },
+  "no_show_recovery.n6": {
+    "channel": "email",
+    "body": "<p>Hey {{contact.first_name | default:there}}, one more nudge on this. If you'd like to reschedule, the link is here: {{setting.calendar.closer_call.url}}</p><p>If the timing isn't right anymore, that's fine too.</p>",
+    "subject": "Want to reschedule?",
+    "v1": "<p>Hey {{contact.first_name | default:there}}, one more nudge on this. If you'd like to reschedule, the link is here: {{calendar.closer_call.url}}</p><p>If the timing isn't right anymore, that's fine too.</p>"
+  },
+  "payment_failed.n1": {
+    "channel": "slack",
+    "body": "*Payment failed:* ${{event.amount | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.mention | default:unassigned}}, please follow up with them.{{contact.setter.name | line:*Setter:*}}",
+    "as": "Payment failed",
+    "icons": [
+      ":warning:",
+      ":credit_card:",
+      ":rotating_light:"
+    ],
+    "v1": "*Payment failed:* ${{event.amount | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.mention | default:unassigned}}, please follow up with them.{{contact.setter.name | line:*Setter:*}}"
+  },
+  "payment_recorded.m1": {
+    "channel": "crm",
+    "body": "{{vars.pay.note}} — {{event.paid_at | offer_date:medium}} · {{vars.pay.sign | optional}}${{event.amount | abs}} ({{event.kind}}) · collected {{event.running_total}} of {{event.contract_value | default:?}}",
+    "v1": "{{vars.pay.note}} — {{event.paid_at | date_company}} · {{vars.pay.sign}}${{event.amount | abs}} ({{event.kind}}) · collected {{event.running_total}} of {{event.contract_value | default:?}}"
+  },
+  "payment_recorded.n5": {
+    "channel": "slack",
+    "body": "*{{vars.pay.head}}:* {{vars.pay.sign | optional}}${{event.amount | abs | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.name | default:unassigned}}{{contact.setter.name | line:*Setter:*}}",
+    "as": "Payment received",
+    "icons": [
+      ":moneybag:",
+      ":money_with_wings:",
+      ":money_mouth_face:",
+      ":dollar:",
+      ":heavy_dollar_sign:"
+    ],
+    "v1": "*{{vars.pay.head}}:* {{vars.pay.sign}}${{event.amount | abs | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.name | default:unassigned}}{{contact.setter.name | line:*Setter:*}}"
+  },
+  "payment_recorded.n5_refund": {
+    "channel": "slack",
+    "body": "*{{vars.pay.head}}:* {{vars.pay.sign | optional}}${{event.amount | abs | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.name | default:unassigned}}{{contact.setter.name | line:*Setter:*}}",
+    "as": "Refund",
+    "icons": [
+      ":moneybag:",
+      ":money_with_wings:",
+      ":money_mouth_face:",
+      ":dollar:",
+      ":heavy_dollar_sign:"
+    ],
+    "v1": "*{{vars.pay.head}}:* {{vars.pay.sign}}${{event.amount | abs | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Closer:* {{contact.closer.name | default:unassigned}}{{contact.setter.name | line:*Setter:*}}"
+  },
+  "payment_recorded.p_book": {
+    "channel": "slack",
+    "body": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:·}}. Details in the payments channel.",
+    "as": "Payment",
+    "icons": [
+      ":dollar:"
+    ]
+  },
+  "payment_recorded.p_rev": {
+    "channel": "slack",
+    "body": "{{vars.pay.line}} ${{event.amount | abs | money}} {{event.kind | prefix:·}}.",
+    "as": "Payment",
+    "icons": [
+      ":dollar:"
+    ]
+  },
+  "post_call_follow_up.n2": {
+    "channel": "sms",
+    "body": "Hey {{contact.first_name | default:there}}, good talking yesterday. If any questions came up overnight, send them over, happy to answer."
+  },
+  "pre_call_sequence.e1": {
+    "channel": "email",
+    "body": "[placeholder — day-one email]",
+    "subject": "You're booked: {{appointment.starts_at | date:medium}} — reply to lock it in",
+    "v1_subject": "You're booked: {{appointment.starts_at | date:ccc, LLL d 'at' h:mma}} — reply to lock it in"
+  },
+  "pre_call_sequence.m1": {
+    "channel": "sms",
+    "body": "[placeholder — 1-hour text]"
+  },
+  "pre_call_sequence.m10": {
+    "channel": "sms",
+    "body": "[placeholder — 10-minute text]"
+  },
+  "pre_call_sequence.m24e": {
+    "channel": "email",
+    "body": "[placeholder — 24-hour email]",
+    "subject": "Tomorrow: your call with {{appointment.closer.first_name}}"
+  },
+  "pre_call_sequence.m24s": {
+    "channel": "sms",
+    "body": "[placeholder — 24-hour text]"
+  },
+  "pre_call_sequence.m48": {
+    "channel": "sms",
+    "body": "[placeholder — 2 days out]"
+  },
+  "pre_call_sequence.m72": {
+    "channel": "sms",
+    "body": "[placeholder — 3 days out]"
+  },
+  "pre_call_sequence.mm": {
+    "channel": "sms",
+    "body": "[placeholder — morning-of text]"
+  },
+  "pre_call_sequence.n_ask": {
+    "channel": "slack",
+    "body": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | offer_date:medium}}. {{vars.jev_read}}\n*We sent:*\n> {{contact.reply.last_outbound.body | optional}}\n*They wrote:*\n> {{reply.body}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link). The reminders keep going until you do.",
+    "as": "Keep, cancel or reschedule?",
+    "icons": [
+      ":grey_question:"
+    ],
+    "v1": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link). The reminders keep going until you do."
+  },
+  "pre_call_sequence.n_conf_slack": {
+    "channel": "slack",
+    "body": "✅ {{contact.first_name}}'s call {{appointment.starts_at | relative}} is confirmed.\n> {{reply.body}}{{vars.reaction.person | line:Decided by}}",
+    "as": "Confirmed",
+    "icons": [
+      ":white_check_mark:"
+    ],
+    "v1": "✅ {{contact.first_name}}'s call {{appointment.starts_at | relative:auto}} is confirmed.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}"
+  },
+  "pre_call_sequence.n_cx_slack": {
+    "channel": "slack",
+    "body": "❌ {{contact.first_name}}'s call is cancelled.\n> {{reply.body}}{{vars.reaction.person | line:Decided by}}",
+    "as": "Call cancelled",
+    "icons": [
+      ":x:"
+    ],
+    "v1": "❌ {{contact.first_name}}'s call is cancelled.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}"
+  },
+  "pre_call_sequence.n_rs": {
+    "channel": "sms",
+    "body": "No problem — grab a new time here: {{setting.calendar.closer_call.url}}",
+    "v1": "No problem — grab a new time here: {{calendar.closer_call.url}}"
+  },
+  "pre_call_sequence.n_rs_slack": {
+    "channel": "slack",
+    "body": "🔁 {{contact.first_name}} got the rebooking link.\n> {{reply.body}}{{vars.reaction.person | line:Decided by}}",
+    "as": "Reschedule",
+    "icons": [
+      ":repeat:"
+    ],
+    "v1": "🔁 {{contact.first_name}} got the rebooking link.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}"
+  },
+  "pre_call_sequence.n_unc_slack": {
+    "channel": "slack",
+    "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going.",
+    "as": "Not confirmed yet",
+    "icons": [
+      ":hourglass_flowing_sand:"
+    ]
+  },
+  "pre_call_sequence.s1": {
+    "channel": "sms",
+    "body": "[placeholder — immediate text]"
+  },
+  "prompts.call_review": {
+    "channel": "prompt",
+    "body": "You are the note-taker for a sales team. Read the transcript of a sales call and pull out what the team needs to remember. Use only what was actually said; never invent details. Quote the prospect's own words where they matter.  You are also the team's sales coach: score what you can hear in the transcript against the team's process; do not guess at anything the transcript does not show. Be direct and specific, and cite the moment in the call for every finding.  Answer with exactly this JSON shape: {   \"notes\": {   \"summary\": \"two or three sentences on what happened and where it landed\",   \"prospect_situation\": \"their current situation in their own terms\",   \"pain\": [\"each problem they described, in their words\"],   \"desire\": [\"what they said they want\"],   \"objections\": [{\"objection\": \"short label\", \"quote\": \"what they said\", \"handled\": true or false}],   \"disposition\": \"closed_won\" | \"follow_up\" | \"lost\" | \"dq\" | \"financing_denied\" | \"close_pending\" | \"unclear\",   \"primary_objection\": \"price\" | \"partner\" | \"timing\" | \"fear\" | \"medical\" | \"burned_before\" | \"competitor\" | \"think_about_it\" | \"\",   \"next_step\": \"the agreed next step, or empty\",   \"next_step_date\": \"YYYY-MM-DD if a date was agreed, else empty\",   \"payment_terms\": \"what was agreed about payment, or empty\",   \"quotes\": [\"up to three verbatim lines worth keeping\"] },   \"rubric\": {   \"overall_score\": 1 to 10,   \"scores\": {\"rapport\": 1 to 10, \"discovery\": 1 to 10, \"pain_depth\": 1 to 10, \"presentation\": 1 to 10, \"objection_handling\": 1 to 10, \"close_attempt\": 1 to 10},   \"strengths\": [\"what the closer did well, with the moment\"],   \"misses\": [\"what the closer missed or did poorly, with the moment\"],   \"coaching\": [\"the one to three changes that would most improve the next call\"],   \"talk_ratio\": \"closer vs prospect, roughly, if it can be judged\" } }",
+    "v1_note": "the v1 binding prompt.call_review, copied from the spec's settings table (a table cell: any line breaks read there as spaces)"
+  },
+  "prompts.close_cheer": {
+    "channel": "prompt",
+    "body": "You write one line for a sales team's Slack channel the moment a deal closes. You are given the closer's name, the client's first name, cash collected, the deal value, how many days it took from first booking to payment, and the lead source. Write ONE sentence, under 25 words, congratulating the closer by name in the team's voice: upbeat, specific to the numbers you were given, never generic. Mention the days to close only if it is impressive (under 7). No emoji, no hashtags, no quotation marks, no preamble. Answer with the sentence only.",
+    "v1_note": "the v1 binding prompt.close_cheer, copied from the spec's settings table (a table cell: any line breaks read there as spaces)"
+  },
+  "prompts.pre_call_sequence.c1": {
+    "channel": "prompt",
+    "body": "unclear: The meaning is not plain: a negative or ambiguous emoji on its own, 'maybe', 'idk', 'hmm', or an unrelated message.\nquestion: They ask something and do not confirm, cancel or ask to move the call.\ncancelled: They clearly say, in words, that they will not attend or want to cancel.\nconfirmed: They clearly confirm or accept the call: yes, ok, see you then, a thumbs up, a positive or celebratory emoji.\nreschedule_request: They ask for a different day or time.",
+    "v1_note": "v1 asked Jev \"\" with these criteria (domain reply_intent); assembled here as one prompt, words unchanged"
+  },
+  "prompts.sales_call_recorded.a1": {
+    "channel": "prompt",
+    "body": "What kind of recording is this?\nother: Anything else: a voicemail, a wrong number, a personal call, an unrelated meeting.\ninternal: Team members talking to each other: a standup, training, role-play, a vendor call.\nsales_call: A conversation between someone on the team and a prospect or customer about buying, starting, continuing or paying for the program.",
+    "v1_note": "v1 asked Jev \"What kind of recording is this?\" with these criteria (domain recording_kind); assembled here as one prompt, words unchanged"
+  },
+  "prompts.sales_call_recorded.a3": {
+    "channel": "prompt",
+    "body": "How did this sales call end?\ndq: Not a fit: the team disqualified them.\nlost: They said no.\nunclear: The transcript does not show how it ended.\nfollow_up: No decision yet; a next conversation or a think-it-over was agreed.\nclosed_won: They agreed to buy and payment was arranged or taken on the call.\nclose_pending: They agreed in principle; payment or paperwork is still to come.\nfinancing_denied: They wanted to buy but could not pay or finance.",
+    "v1_note": "v1 asked Jev \"How did this sales call end?\" with these criteria (domain sales_call_disposition); assembled here as one prompt, words unchanged"
+  },
+  "prompts.setter_call_logged.a1": {
+    "channel": "prompt",
+    "body": "What kind of phone call between someone on the sales team and a lead was this?\nother: Anything else: 'are you joining the call', 'where are you', a voicemail greeting, a wrong number, spam, a call that never got past hello, an internal or personal call, or a transcript too thin to tell.\nclosing: The booked sales call itself: a closer presents the program, its price or payment, handles objections and asks for a decision to buy.\nsetting: The setter finds out about the lead's situation, qualifies them, and works toward booking (or books) a call with a closer.\nconfirmation: The setter confirms an appointment that is already booked: time, link, what to expect, perhaps a brief re-qualification.",
+    "v1_note": "v1 asked Jev \"What kind of phone call between someone on the sales team and a lead was this?\" with these criteria (domain setter_call_type); assembled here as one prompt, words unchanged"
+  },
+  "prompts.setter_call_logged.a3": {
+    "channel": "prompt",
+    "body": "What did this setting call between a setter and a lead achieve?\ndq: The lead does not qualify: the setter or the lead established they are not a fit (budget, age, location, medical, timeline, no real problem to solve, already with a competitor, or a bad or wrong contact).\nset: A call with the closer or specialist was booked on this call: a day and time were agreed, or the setter booked it while they were on the phone.\nfollow_up: The lead is interested but nothing was booked: a callback, a later conversation or sending them information was agreed or clearly implied.\nnot_interested: The lead declined: they said they are not interested, do not want a call, or asked not to be contacted.",
+    "v1_note": "v1 asked Jev \"What did this setting call between a setter and a lead achieve?\" with these criteria (domain setter_call_result); assembled here as one prompt, words unchanged"
+  },
+  "prompts.setter_call_logged.a4": {
+    "channel": "prompt",
+    "body": "If this lead was disqualified on the call, what was the reason?\nage: They are too young or too old for the program.\ngeo: They are outside the area the company serves.\nother: Any other reason, or the transcript does not say.\nbudget: They cannot afford it or have no money for it right now.\nmedical: A medical condition or treatment rules them out.\ntimeline: Their timing does not work: not for a long while, or no urgency at all.\ncompetitor: They are already working with, or committed to, a competitor.\nno_problem: They do not actually have the problem the program solves.\nbad_contact: A wrong number, a fake or duplicate contact, or someone who never asked to be contacted.",
+    "v1_note": "v1 asked Jev \"If this lead was disqualified on the call, what was the reason?\" with these criteria (domain setter_dq_reason); assembled here as one prompt, words unchanged"
+  },
+  "prompts.setter_call_notes": {
+    "channel": "prompt",
+    "body": "You read transcripts of setter phone calls for a hair-loss coaching program that costs $3,000. Report what was said. Do not invent enthusiasm, and do not soften a bad call. If something was not discussed, say so rather than guessing.  Score fit against this rubric exactly: 10-8  named a specific hair-loss problem, gave a timeline, asked about price or next steps 7-5   engaged and answered questions, but vague on urgency or budget 4-2   polite but passive; no stated problem or timeline 1     wrong number, spam, or not a prospect at all  Answer with exactly this JSON shape: {   \"summary\": \"what the call was about and where it landed, one or two sentences\",   \"pains\": \"what is bothering them about their hair, in their words; empty string if it did not come up\",   \"goals\": \"what they want; empty string if it did not come up\",   \"triage\": \"anything that affects whether they are a fit (budget, timing, decision maker, medical, scalp condition); empty string if nothing\",   \"fit_quality\": 1 to 10 per the rubric,   \"digest\": \"the Slack-ready write-up: the summary, then a line each for Pains, Goals and Triage only when they came up, then Fit: N/10 and a few words why. A short confirmation call where nothing new was said is one line.\" }",
+    "v1_note": "the v1 binding prompt.setter_call_notes, copied from the spec's settings table (a table cell: any line breaks read there as spaces)"
+  },
+  "reactivation.n1": {
+    "channel": "email",
+    "body": "<p>Hey {{contact.first_name | default:there}},</p><p>It's been a bit since we talked. Still thinking about {{offer.name}}? If the timing is better now, grab a time here: {{setting.calendar.booking.url}}</p>",
+    "subject": "Checking in",
+    "v1": "<p>Hey {{contact.first_name | default:there}},</p><p>It's been a bit since we talked. Still thinking about {{company.name}}? If the timing is better now, grab a time here: {{calendar.booking.url}}</p>"
+  },
+  "reactivation.n3": {
+    "channel": "sms",
+    "body": "Hey {{contact.first_name | default:there}}, {{offer.name}} here. Still interested? Happy to pick things back up whenever. {{setting.calendar.booking.url}}",
+    "v1": "Hey {{contact.first_name | default:there}}, {{company.name}} here. Still interested? Happy to pick things back up whenever. {{calendar.booking.url}}"
+  },
+  "reactivation.n5": {
+    "channel": "email",
+    "body": "<p>Hey {{contact.first_name | default:there}}, last check-in from me. If now isn't the time, that's fine. If it is, the link's here: {{setting.calendar.booking.url}}</p>",
+    "subject": "Last one from me",
+    "v1": "<p>Hey {{contact.first_name | default:there}}, last check-in from me. If now isn't the time, that's fine. If it is, the link's here: {{calendar.booking.url}}</p>"
+  },
+  "sales_call_recorded.n1": {
+    "channel": "crm",
+    "body": "CALL SUMMARY — {{recording.started_at | offer_date:iso_date}}{{recording.closer.name | optional}}\n\n{{vars.review.notes}}\n\nCall review: {{vars.review.rubric.overall_score | default:?}}/10\n{{vars.review.rubric}}\n\nRecording: {{recording.share_url | default:—}}",
+    "v1": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}"
+  },
+  "sales_call_recorded.o4": {
+    "channel": "slack",
+    "body": "✅ Showed · {{vars.convo.total_min | default:?}} min{{vars.parts_line | optional}} with {{recording.closer.name | default:the closer}}. The review is in the calls channel.",
+    "as": "Showed",
+    "icons": [
+      ":white_check_mark:"
+    ],
+    "v1": "✅ Showed · {{vars.convo.total_min | default:?}} min{{vars.parts_line}} with {{recording.closer.name | default:the closer}}. The review is in the calls channel."
+  },
+  "sales_call_recorded.q_done": {
+    "channel": "slack",
+    "body": "Linked to the booking, per {{vars.reaction.person | default:the team}}; it is marked showed and the review is updated.",
+    "as": "Which booking was this call?",
+    "icons": [
+      ":grey_question:"
+    ],
+    "v1": "Linked to the booking, per {{reaction.user_name | default:the team}}; it is marked showed and the review is updated."
+  },
+  "sales_call_recorded.q_none": {
+    "channel": "slack",
+    "body": "{{vars.reaction.person | prefix:Not linked: none of these, per | default:Nobody answered in two days, so nothing was linked}}.",
+    "as": "Which booking was this call?",
+    "icons": [
+      ":grey_question:"
+    ],
+    "v1": "{{reaction.user_name | prefix:Not linked: none of these, per | default:Nobody answered in two days, so nothing was linked}}."
+  },
+  "sales_call_recorded.q_which": {
+    "channel": "slack",
+    "body": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute closing call{{vars.parts_line | optional}} by phone with <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> ({{recording.started_at | offer_date:medium}}) that lines up with none of their bookings. Which booking was it?\n\nTap 1️⃣ 2️⃣ or 3️⃣ for that booking (the first three), or ❌ if it was none of them. Nothing is marked until someone does; the question closes in two days.",
+    "as": "Which booking was this call?",
+    "icons": [
+      ":grey_question:"
+    ],
+    "v1": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute closing call{{vars.parts_line}} by phone with <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> ({{recording.started_at | date_company}}) that lines up with none of their bookings. Which booking was it?\n{{vars.options.items | each:\"{{number}}. {{item.starts_at | date_company}} with {{item.closer | default:no closer}} ({{item.status}})\" | join:\"\\n\" | default:They have no closing call booked in the two weeks around it.}}\nTap 1️⃣ 2️⃣ or 3️⃣ for that booking (the first three), or ❌ if it was none of them. Nothing is marked until someone does; the question closes in two days."
+  },
+  "sales_call_recorded.s1": {
+    "channel": "slack",
+    "body": "*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line | optional}}\n\n*Outcome:* {{vars.disposition.value | default:unclear}}\n*Pain:* {{vars.review.notes.pain | join | default:—}}\n*Goal:* {{vars.review.notes.desire | join | default:—}}\n*Objections:* {{vars.review.notes.objections | join | default:none heard}}\n*Next Steps:* {{vars.review.notes.next_step | default:—}} {{vars.review.notes.next_step_date | offer_date:short_day | prefix:by}}",
+    "as": "Sales call recorded",
+    "icons": [
+      ":studio_microphone:",
+      ":headphones:",
+      ":movie_camera:",
+      ":speech_balloon:"
+    ],
+    "v1": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}"
+  },
+  "sales_call_recorded.s2": {
+    "channel": "slack",
+    "body": "*Scorecard:* {{vars.review.rubric.overall_score | default:?}}/10\n{{vars.review.rubric}}",
+    "as": "Call review",
+    "icons": [
+      ":clipboard:",
+      ":bar_chart:",
+      ":mag:"
+    ],
+    "v1": "*Scorecard:* {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}"
+  },
+  "send_agreement_manually.m1": {
+    "channel": "crm",
+    "body": "AGREEMENT SENT — {{now | offer_date:medium}} · sent manually from {{contact.owner.name | default:the team}}",
+    "v1": "AGREEMENT SENT — {{now | date_company}} · sent manually from {{contact.owner.name | default:the team}}"
+  },
+  "setter_call_logged.k_task.body": {
+    "channel": "crm",
+    "body": "Follow-up from {{recording.caller.name | default:the setter}}'s call on {{vars.convo.first.started_at | offer_date:medium}}.\nSuggested next step: {{vars.notes.next_step | default:—}}\n\n{{vars.notes.digest | optional}}",
+    "v1": "Follow-up from {{recording.caller.name | default:the setter}}'s call on {{vars.convo.first.started_at | date_company}}.\nSuggested next step: {{vars.notes.next_step | default:—}}\n\n{{vars.notes.digest | default:}}"
+  },
+  "setter_call_logged.k_task.title": {
+    "channel": "crm",
+    "body": "Call back {{contact.name | default:the lead}}"
+  },
+  "setter_call_logged.m1": {
+    "channel": "crm",
+    "body": "SETTER CALL — {{vars.convo.first.started_at | offer_date:medium}} · {{recording.caller.name | default:setter unknown}} · {{vars.call_type.value}} · {{vars.convo.total_min}} min{{vars.parts_line | optional}}\n\n{{vars.notes.digest}}\n\nOutcome: {{vars.outcome_line}}",
+    "v1": "SETTER CALL — {{vars.convo.first.started_at | date_company}} · {{recording.caller.name | default:setter unknown}} · {{vars.classify.call_type}} · {{vars.convo.total_min}} min{{vars.parts_line}}\n\n{{vars.notes.digest}}\n\nOutcome: {{vars.outcome_line}}"
+  },
+  "setter_call_logged.q1": {
+    "channel": "slack",
+    "body": "{{recording.caller.name | default:The setter}}'s call with <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> ({{vars.convo.first.started_at | offer_date:medium}}{{vars.parts_line | optional}}): what did it achieve? {{vars.unsure_line | optional}}.\nTap ✅ Set · 🔁 Follow up · ❌ DQ · 🚫 Not interested. Nothing is written until someone does; the question closes in two days.",
+    "as": "Set, follow up or DQ?",
+    "icons": [
+      ":grey_question:"
+    ],
+    "v1": "{{recording.caller.name | default:The setter}}'s call with <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> ({{vars.convo.first.started_at | date_company}}{{vars.parts_line}}): what did it achieve? {{vars.unsure_line | default:}}.\nTap ✅ Set · 🔁 Follow up · ❌ DQ · 🚫 Not interested. Nothing is written until someone does; the question closes in two days."
+  },
+  "setter_call_logged.q_reply": {
+    "channel": "slack",
+    "body": "{{vars.result_words | optional}}, per {{vars.reaction.person | default:the team}}.{{vars.act_line | line}}",
+    "as": "Set, follow up or DQ?",
+    "icons": [
+      ":grey_question:"
+    ],
+    "v1": "{{vars.result_words}}, per {{reaction.user_name | default:the team}}.{{vars.act_line | line}}"
+  },
+  "setter_call_logged.ru2": {
+    "channel": "slack",
+    "body": "Nobody answered in two days, so no result was written for {{contact.name | default:them}}.",
+    "as": "Set, follow up or DQ?",
+    "icons": [
+      ":grey_question:"
+    ]
+  },
+  "setter_call_logged.s1": {
+    "channel": "slack",
+    "body": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> · {{vars.call_type.value}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{vars.convo.total_min}} min{{vars.parts_line | optional}} · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}{{vars.act_line | line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | optional}}|Open the conversation in GHL>",
+    "as": "Setter call",
+    "icons": [
+      ":telephone_receiver:",
+      ":speech_balloon:",
+      ":headphones:"
+    ],
+    "v1": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{vars.convo.total_min}} min{{vars.parts_line}} · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}{{vars.act_line | line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>"
+  },
+  "setter_call_logged.s_late": {
+    "channel": "slack",
+    "body": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> · {{vars.call_type.value}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{vars.convo.total_min}} min{{vars.parts_line | optional}} · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}{{vars.act_line | line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | optional}}|Open the conversation in GHL>",
+    "as": "Setter call",
+    "icons": [
+      ":telephone_receiver:",
+      ":speech_balloon:",
+      ":headphones:"
+    ],
+    "v1": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{vars.convo.total_min}} min{{vars.parts_line}} · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}{{vars.act_line | line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>"
+  },
+  "speed_to_lead.n1": {
+    "channel": "email",
+    "body": "<p>Hey {{contact.first_name | default:there}},</p><p>Thanks for reaching out. The easiest next step is a quick call so we can see if this is a fit. Grab a time here: {{setting.calendar.booking.url}}</p><p>Talk soon,<br>{{offer.name}}</p>",
+    "subject": "Got your info",
+    "v1": "<p>Hey {{contact.first_name | default:there}},</p><p>Thanks for reaching out. The easiest next step is a quick call so we can see if this is a fit. Grab a time here: {{calendar.booking.url}}</p><p>Talk soon,<br>{{company.name}}</p>"
+  },
+  "speed_to_lead.n2": {
+    "channel": "sms",
+    "body": "Hey {{contact.first_name | default:there}}, it's {{offer.name}}. Got your info, thanks. Want to grab a time to talk? {{setting.calendar.booking.url}}",
+    "v1": "Hey {{contact.first_name | default:there}}, it's {{company.name}}. Got your info, thanks. Want to grab a time to talk? {{calendar.booking.url}}"
+  },
+  "speed_to_lead.n5": {
+    "channel": "email",
+    "body": "<p>Hey {{contact.first_name | default:there}}, following up in case this got buried. If you still want to talk, here's the link: {{setting.calendar.booking.url}}</p><p>If not, no worries.</p>",
+    "subject": "Still want to talk?",
+    "v1": "<p>Hey {{contact.first_name | default:there}}, following up in case this got buried. If you still want to talk, here's the link: {{calendar.booking.url}}</p><p>If not, no worries.</p>"
+  },
+  "speed_to_lead.s_late": {
+    "channel": "slack",
+    "body": "<https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:A new lead}}> came into GHL {{event.minutes_late}} minutes before the engine saw them, so no first text or email went out. Can someone follow up by hand?",
+    "v1": "<https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:A new lead}}> came into GHL {{event.minutes_late}} minutes before the engine saw them, so no first text or email went out. Can someone follow up by hand?"
+  },
+  "unlinked_payment.n1": {
+    "channel": "slack",
+    "body": "*Unlinked payment* · ${{event.amount | abs | money:2}} {{event.status}}\nNobody in the CRM matched this buyer.\n*Email:* {{event.customer_email | default:—}} · *Phone:* {{event.customer_phone | default:—}} · *Whop member:* {{event.whop_member_id | default:—}}\nLink it: {{setting.platform.base_url}}/c/{{offer.slug}}/payments",
+    "labels": {
+      "link_payment": "Link to a contact"
+    },
+    "v1": "*Unlinked payment* · ${{event.amount | abs | fixed:2}} {{event.status}}\nNobody in the CRM matched this buyer.\n*Email:* {{event.customer_email | default:—}} · *Phone:* {{event.customer_phone | default:—}} · *Whop member:* {{event.whop_member_id | default:—}}\nLink it: {{company.base_url}}/c/{{company.slug}}/payments"
+  },
+  "unmatched_recording.n1": {
+    "channel": "slack",
+    "body": "*Unmatched recording* · {{event.title | default:untitled}} · {{event.duration_min | default:?}} min\n{{event.reason | default:no match}}\n*Attendees:* {{event.attendees | default:nobody listed}} · *Recorded by:* {{event.recorded_by | default:—}}\n{{event.share_url | optional}}\nLink it: {{setting.platform.base_url}}/c/{{offer.slug}}/recordings",
+    "labels": {
+      "link_recording": "Link to a contact"
+    },
+    "v1": "*Unmatched recording* · {{event.title | default:untitled}} · {{event.duration_min | default:?}} min\n{{event.reason | default:no match}}\n*Attendees:* {{event.attendees | default:nobody listed}} · *Recorded by:* {{event.recorded_by | default:—}}\n{{event.share_url | default:}}\nLink it: {{company.base_url}}/c/{{company.slug}}/recordings"
+  },
+  "unsigned_agreement_chase.n1": {
+    "channel": "slack",
+    "body": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected | money}} on {{contact.first_paid_at | offer_date:medium}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3.",
+    "as": "Agreement unsigned",
+    "icons": [
+      ":warning:",
+      ":memo:",
+      ":hourglass_flowing_sand:"
+    ],
+    "v1": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected | money}} on {{contact.first_paid_at | date_company}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3."
+  },
+  "unsigned_agreement_chase.n1.task": {
+    "channel": "crm",
+    "body": "Chase the unsigned agreement: {{contact.name | default:contact}}"
+  },
+  "unsigned_agreement_chase.n2": {
+    "channel": "slack",
+    "body": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected | money}} on {{contact.first_paid_at | offer_date:medium}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3.",
+    "as": "Agreement unsigned",
+    "icons": [
+      ":warning:",
+      ":memo:",
+      ":hourglass_flowing_sand:"
+    ],
+    "v1": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected | money}} on {{contact.first_paid_at | date_company}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3."
+  },
+  "unsigned_agreement_chase.n2.task": {
+    "channel": "crm",
+    "body": "Chase the unsigned agreement: {{contact.name | default:contact}}"
+  },
+  "unsigned_agreement_chase.n3": {
+    "channel": "slack",
+    "body": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected | money}} on {{contact.first_paid_at | offer_date:medium}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3.",
+    "as": "Agreement unsigned",
+    "icons": [
+      ":warning:",
+      ":memo:",
+      ":hourglass_flowing_sand:"
+    ],
+    "v1": "*Agreement still unsigned* · <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> paid ${{contact.cash_collected | money}} on {{contact.first_paid_at | date_company}} and has not signed the purchase agreement. Nudge {{vars.nudge}} of 3."
+  },
+  "unsigned_agreement_chase.n3.task": {
+    "channel": "crm",
+    "body": "Chase the unsigned agreement: {{contact.name | default:contact}}"
+  },
+  "unsigned_agreement_chase.s1": {
+    "channel": "slack",
+    "body": "*Agreement unsigned after 3 nudges:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> · paid ${{contact.cash_collected | money}} · owner {{contact.owner.name | default:unassigned}}. Tagged stat-agreement-unsigned.",
+    "as": "Agreement unsigned",
+    "icons": [
+      ":warning:",
+      ":memo:",
+      ":hourglass_flowing_sand:"
+    ],
+    "v1": "*Agreement unsigned after 3 nudges:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · paid ${{contact.cash_collected | money}} · owner {{contact.owner.name | default:unassigned}}. Tagged stat-agreement-unsigned."
+  },
+  "weekly_leaderboard.n_post": {
+    "channel": "slack",
+    "body": "{{vars.board.body}}\n_{{vars.board.period_name}} · {{vars.board.period_label}}_",
+    "as": "Leaderboard",
+    "icons": [
+      ":trophy:"
+    ]
+  },
+  "weekly_wrap_up.n_post": {
+    "channel": "slack",
+    "body": "{{vars.report.body}}",
+    "as": "Wrap-up",
+    "icons": [
+      ":bar_chart:",
+      ":chart_with_upwards_trend:",
+      ":clipboard:"
+    ]
+  }
+}

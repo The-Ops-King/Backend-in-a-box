@@ -1,0 +1,113 @@
+{
+  "schema": 2,
+  "id": "cancellation-rebook",
+  "name": "Cancellation rebook",
+  "description": "Off in v1. A closing call cancelled before it starts gets a text and an email with the rebooking link.",
+  "origin": {
+    "template": "cancellation-rebook",
+    "version": 4
+  },
+  "reentry": {
+    "policy": "once_per_appointment"
+  },
+  "premise": {
+    "label": "The booking is still real",
+    "holds": {
+      "and": [
+        {
+          "exists": "appointment.id"
+        },
+        {
+          "ne": [
+            "{{appointment.status}}",
+            "invalid"
+          ]
+        }
+      ]
+    },
+    "endReason": "appointment_gone"
+  },
+  "sendWindow": {
+    "zone": "contact",
+    "opens": "08:00",
+    "closes": "20:00",
+    "outside": "next_open",
+    "transactional": "any_hour"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "An appointment's status changed — new status is “cancelled” and call type is closing call and before start",
+      "on": {
+        "event": "appointment.status_changed",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.status.to}}",
+                "cancelled"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            },
+            {
+              "ne": [
+                "{{event.before_start}}",
+                false
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n1",
+      "type": "message@1",
+      "title": "Text the rebooking link",
+      "to": {
+        "contact": "sms"
+      },
+      "content": "cancellation_rebook.n1",
+      "kind": "human"
+    },
+    {
+      "id": "n2",
+      "type": "message@1",
+      "title": "Send email: “Pick a new time?”",
+      "to": {
+        "contact": "email"
+      },
+      "content": "cancellation_rebook.n2",
+      "kind": "human"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: sent",
+      "reason": "sent"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "to": "x1"
+    }
+  ]
+}

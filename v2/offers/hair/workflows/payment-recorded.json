@@ -1,0 +1,765 @@
+{
+  "schema": 2,
+  "id": "payment-recorded",
+  "name": "Payment recorded",
+  "description": "Every payment or refund: the running total and revenue on the contact, the payment tags, the Payment record in GHL, the agreement sent on the first payment beyond a deposit, a CRM note, the Sales Call's cash, and posts in the payments channel and the booking and call threads.",
+  "origin": {
+    "template": "payment-recorded",
+    "version": 14
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "Payment received",
+      "on": {
+        "event": "payment.received"
+      }
+    },
+    {
+      "id": "t2",
+      "type": "trigger@1",
+      "title": "Payment refunded",
+      "on": {
+        "event": "payment.refunded"
+      }
+    },
+    {
+      "id": "v1",
+      "type": "set@1",
+      "title": "Payment or refund: the words, the sign, the emoji",
+      "var": "pay",
+      "value": {
+        "$pick": "{{event.kind}}",
+        "cases": {
+          "refund": {
+            "head": "Refund",
+            "line": "💸 Refunded",
+            "note": "REFUND",
+            "sign": "−",
+            "react": "money_with_wings",
+            "status": "refunded"
+          }
+        },
+        "else": {
+          "head": "Payment received",
+          "line": "💵 Paid",
+          "note": "PAYMENT RECEIVED",
+          "sign": "",
+          "react": "dollar",
+          "status": "succeeded"
+        }
+      }
+    },
+    {
+      "id": "o_won",
+      "type": "branch@1",
+      "title": "Is the deal open?"
+    },
+    {
+      "id": "o_won_rec",
+      "type": "action@1",
+      "title": "Opportunity won on a payment beyond a deposit (D119: a deposit wins nothing; change the condition to win on paid in full, or move the step to Call outcome filed to win on the closer's answer)",
+      "action": "facts.record",
+      "params": {
+        "type": "deal.won",
+        "data": {
+          "status": "won",
+          "from_status": "{{deal.status | optional}}"
+        },
+        "startsWorkflows": true
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "n1",
+      "type": "action@1",
+      "title": "Update the contact in the CRM",
+      "action": "crm.update_contact",
+      "params": {
+        "set": {
+          "cash_collected": "{{event.running_total}}"
+        }
+      }
+    },
+    {
+      "id": "n2",
+      "type": "branch@1",
+      "title": "Which way?"
+    },
+    {
+      "id": "r1",
+      "type": "action@1",
+      "title": "Update the contact in the CRM",
+      "action": "crm.update_contact",
+      "params": {
+        "set": {
+          "revenue_generated": "{{event.contract_value | optional}}"
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "type": "branch@1",
+      "title": "Which way?"
+    },
+    {
+      "id": "g1",
+      "type": "action@1",
+      "title": "Tag pay-refunded (pay-paid-full / pay-plan-active stay as the last payment left them)",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "pay-refunded"
+        ]
+      }
+    },
+    {
+      "id": "d1",
+      "type": "action@1",
+      "title": "Tag pay-deposit (a deposit is not a payment plan; the tag stays as a record that they paid one)",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "pay-deposit"
+        ]
+      }
+    },
+    {
+      "id": "f1",
+      "type": "action@1",
+      "title": "Tags “+pay-paid-full” “−pay-plan-active” (adds)",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "pay-paid-full"
+        ]
+      }
+    },
+    {
+      "id": "f1_rm",
+      "type": "action@1",
+      "title": "Tags “+pay-paid-full” “−pay-plan-active” (removes)",
+      "action": "crm.remove_tag",
+      "params": {
+        "tags": [
+          "pay-plan-active"
+        ]
+      }
+    },
+    {
+      "id": "p1",
+      "type": "action@1",
+      "title": "Add tag “pay-plan-active”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "pay-plan-active"
+        ]
+      }
+    },
+    {
+      "id": "n4",
+      "type": "action@1",
+      "title": "Write payment record",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "{{setting.crm.object_payment | default:custom_objects.payment}}",
+        "properties": {
+          "type": "{{event.kind | oneof:deposit,balance,installment,paid_in_full,refund,chargeback}}",
+          "amount": "{{event.amount}}",
+          "closer": "{{contact.cards.closer.owner.name | optional}}",
+          "setter": "{{contact.fields.setter | optional}}",
+          "status": "{{vars.pay.status | oneof:succeeded,failed,refunded,disputed,pending}}",
+          "processor": "whop",
+          "contact_id": "{{contact.ghl_contact_id | optional}}",
+          "occurred_at": "{{event.paid_at}}",
+          "display_label": "{{vars.pay.sign | optional}}${{event.amount | abs}} · {{contact.name | default:Unknown}} · {{event.paid_at | offer_date:iso_date}}",
+          "opportunity_id": "{{contact.cards.closer.id | optional}}",
+          "transaction_id": "{{event.provider_payment_id}}"
+        },
+        "ifMissing": "create",
+        "key": "{{event.provider_payment_id}}"
+      },
+      "into": "n4_record",
+      "onFailure": "skip"
+    },
+    {
+      "id": "n4_written",
+      "type": "branch@1",
+      "title": "Was the record written? (its links need its id)"
+    },
+    {
+      "id": "n4_rel1",
+      "type": "action@1",
+      "title": "Link the record (1 of 2)",
+      "action": "crm.relate_records",
+      "params": {
+        "association": "{{setting.crm.assoc_payment_contact}}",
+        "first": "{{contact.ghl_contact_id | optional}}",
+        "second": "{{vars.n4_record.id}}"
+      }
+    },
+    {
+      "id": "n4_rel2",
+      "type": "action@1",
+      "title": "Link the record (2 of 2)",
+      "action": "crm.relate_records",
+      "params": {
+        "association": "{{setting.crm.assoc_payment_opportunity}}",
+        "first": "{{vars.n4_record.id}}",
+        "second": "{{contact.cards.closer.id | optional}}"
+      }
+    },
+    {
+      "id": "a0",
+      "type": "branch@1",
+      "title": "Which way?"
+    },
+    {
+      "id": "a1",
+      "type": "action@1",
+      "title": "Send the agreement template for signature",
+      "action": "esign.send",
+      "params": {
+        "template": "{{setting.crm.agreement_template}}",
+        "sender": "{{setting.crm.agreement_sender | optional}}",
+        "name": "Purchase agreement"
+      }
+    },
+    {
+      "id": "m1",
+      "type": "action@1",
+      "title": "Leave an internal note",
+      "action": "crm.add_note",
+      "params": {
+        "content": "payment_recorded.m1"
+      }
+    },
+    {
+      "id": "a2",
+      "type": "action@1",
+      "title": "Add tag “stat-agreement-sent”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-agreement-sent"
+        ]
+      }
+    },
+    {
+      "id": "b2",
+      "type": "branch@1",
+      "title": "Which way?"
+    },
+    {
+      "id": "a3",
+      "type": "action@1",
+      "title": "Create or move pipeline card",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_agreement_sent}}",
+        "ifMissing": "create",
+        "pick": "open"
+      }
+    },
+    {
+      "id": "r2",
+      "type": "action@1",
+      "title": "Update sales call record",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "{{setting.crm.object_sales_call | default:custom_objects.sales_call}}",
+        "properties": {
+          "cash_collected": "{{event.running_total}}"
+        },
+        "ifMissing": "skip",
+        "key": "{{contact.records.sales_call.key}}"
+      }
+    },
+    {
+      "id": "n5",
+      "type": "message@1",
+      "title": "Post the payment or refund in Slack",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.payments}}"
+        }
+      },
+      "content": {
+        "pick": "{{event.kind}}",
+        "cases": {
+          "refund": "payment_recorded.n5_refund"
+        },
+        "else": "payment_recorded.n5"
+      }
+    },
+    {
+      "id": "p_book",
+      "type": "message@1",
+      "title": "React 💵 (💸 on a refund) on the booking post",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": "payment_recorded.p_book",
+      "thread": {
+        "tag": "appointment:{{contact.latest_appointment_id | optional}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "p_book_which",
+      "type": "branch@1",
+      "title": "React 💵 (💸 on a refund) on the booking post: which reaction?"
+    },
+    {
+      "id": "p_book_money_with_wings",
+      "type": "action@1",
+      "title": "React :money_with_wings:",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "appointment:{{contact.latest_appointment_id | optional}}"
+        },
+        "emojis": [
+          "money_with_wings"
+        ]
+      }
+    },
+    {
+      "id": "p_book_dollar",
+      "type": "action@1",
+      "title": "React :dollar:",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "appointment:{{contact.latest_appointment_id | optional}}"
+        },
+        "emojis": [
+          "dollar"
+        ]
+      }
+    },
+    {
+      "id": "p_rev",
+      "type": "message@1",
+      "title": "React 💵 (💸 on a refund) on the call review",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.calls}}"
+        }
+      },
+      "content": "payment_recorded.p_rev",
+      "thread": {
+        "tag": "recording:{{contact.latest_recording_id | optional}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "p_rev_which",
+      "type": "branch@1",
+      "title": "React 💵 (💸 on a refund) on the call review: which reaction?"
+    },
+    {
+      "id": "p_rev_money_with_wings",
+      "type": "action@1",
+      "title": "React :money_with_wings:",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "recording:{{contact.latest_recording_id | optional}}"
+        },
+        "emojis": [
+          "money_with_wings"
+        ]
+      }
+    },
+    {
+      "id": "p_rev_dollar",
+      "type": "action@1",
+      "title": "React :dollar:",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "recording:{{contact.latest_recording_id | optional}}"
+        },
+        "emojis": [
+          "dollar"
+        ]
+      }
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: recorded",
+      "reason": "recorded"
+    },
+    {
+      "id": "o_won_if",
+      "type": "branch@1",
+      "title": "Only if: Opportunity won on a payment beyond a deposit (D119: a deposit wins nothing; change the condition to win on paid in full, or move the step to Call outcome filed to win on the closer's answer)"
+    },
+    {
+      "id": "g1_if",
+      "type": "branch@1",
+      "title": "Only if: Tag pay-refunded (pay-paid-full / pay-plan-active stay as the last payment left them)"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "v1"
+    },
+    {
+      "from": "t2",
+      "to": "v1"
+    },
+    {
+      "from": "v1",
+      "to": "o_won_if"
+    },
+    {
+      "from": "o_won",
+      "to": "o_won_rec",
+      "when": {
+        "in": [
+          "{{deal.status}}",
+          [
+            "open"
+          ]
+        ]
+      },
+      "label": "the deal is open"
+    },
+    {
+      "from": "o_won",
+      "to": "n1",
+      "else": true,
+      "label": "not open: left as it is"
+    },
+    {
+      "from": "o_won_rec",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "to": "r1",
+      "label": "first payment beyond a deposit: stamp revenue",
+      "when": {
+        "and": [
+          {
+            "not": {
+              "exists": "contact.fields.revenue_generated"
+            }
+          },
+          {
+            "ne": [
+              "{{event.kind}}",
+              "refund"
+            ]
+          },
+          {
+            "ne": [
+              "{{event.kind}}",
+              "deposit"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "from": "n2",
+      "to": "n3",
+      "label": "already stamped",
+      "else": true
+    },
+    {
+      "from": "r1",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "to": "g1_if",
+      "label": "refund: tags stay as the last payment left them",
+      "when": {
+        "eq": [
+          "{{event.kind}}",
+          "refund"
+        ]
+      }
+    },
+    {
+      "from": "n3",
+      "to": "d1",
+      "label": "deposit",
+      "when": {
+        "eq": [
+          "{{event.kind}}",
+          "deposit"
+        ]
+      }
+    },
+    {
+      "from": "n3",
+      "to": "f1",
+      "label": "paid in full",
+      "when": {
+        "eq": [
+          "{{event.cleared}}",
+          true
+        ]
+      }
+    },
+    {
+      "from": "n3",
+      "to": "p1",
+      "label": "still owes",
+      "else": true
+    },
+    {
+      "from": "g1",
+      "to": "n4"
+    },
+    {
+      "from": "d1",
+      "to": "n4"
+    },
+    {
+      "from": "f1",
+      "to": "f1_rm"
+    },
+    {
+      "from": "f1_rm",
+      "to": "n4"
+    },
+    {
+      "from": "p1",
+      "to": "n4"
+    },
+    {
+      "from": "n4",
+      "to": "n4_written"
+    },
+    {
+      "from": "n4_written",
+      "to": "n4_rel1",
+      "when": {
+        "exists": "vars.n4_record.id"
+      },
+      "label": "written"
+    },
+    {
+      "from": "n4_written",
+      "to": "a0",
+      "else": true,
+      "label": "not written: no links"
+    },
+    {
+      "from": "n4_rel1",
+      "to": "n4_rel2"
+    },
+    {
+      "from": "n4_rel2",
+      "to": "a0"
+    },
+    {
+      "from": "a0",
+      "to": "a1",
+      "label": "first payment beyond a deposit, agreement not signed",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{event.prior_non_deposit_total}}",
+              0
+            ]
+          },
+          {
+            "eq": [
+              "{{contact.agreement_signed}}",
+              false
+            ]
+          },
+          {
+            "not": {
+              "in": [
+                "{{event.kind}}",
+                [
+                  "refund",
+                  "deposit"
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "from": "a0",
+      "to": "m1",
+      "label": "otherwise",
+      "else": true
+    },
+    {
+      "from": "a1",
+      "to": "a2"
+    },
+    {
+      "from": "m1",
+      "to": "b2"
+    },
+    {
+      "from": "a2",
+      "to": "a3"
+    },
+    {
+      "from": "b2",
+      "to": "r2",
+      "label": "has a Sales Call record",
+      "when": {
+        "exists": "contact.records.sales_call.key"
+      }
+    },
+    {
+      "from": "b2",
+      "to": "n5",
+      "label": "no Sales Call record",
+      "else": true
+    },
+    {
+      "from": "a3",
+      "to": "m1"
+    },
+    {
+      "from": "r2",
+      "to": "n5"
+    },
+    {
+      "from": "n5",
+      "to": "p_book"
+    },
+    {
+      "from": "p_book",
+      "to": "p_book_which"
+    },
+    {
+      "from": "p_book_which",
+      "to": "p_book_money_with_wings",
+      "when": {
+        "eq": [
+          "{{event.kind}}",
+          "refund"
+        ]
+      },
+      "label": "money_with_wings"
+    },
+    {
+      "from": "p_book_which",
+      "to": "p_book_dollar",
+      "else": true,
+      "label": "dollar"
+    },
+    {
+      "from": "p_book_money_with_wings",
+      "to": "p_rev"
+    },
+    {
+      "from": "p_book_dollar",
+      "to": "p_rev"
+    },
+    {
+      "from": "p_rev",
+      "to": "p_rev_which"
+    },
+    {
+      "from": "p_rev_which",
+      "to": "p_rev_money_with_wings",
+      "when": {
+        "eq": [
+          "{{event.kind}}",
+          "refund"
+        ]
+      },
+      "label": "money_with_wings"
+    },
+    {
+      "from": "p_rev_which",
+      "to": "p_rev_dollar",
+      "else": true,
+      "label": "dollar"
+    },
+    {
+      "from": "p_rev_money_with_wings",
+      "to": "x1"
+    },
+    {
+      "from": "p_rev_dollar",
+      "to": "x1"
+    },
+    {
+      "from": "o_won_if",
+      "to": "o_won",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{event.type}}",
+              "payment.received"
+            ]
+          },
+          {
+            "ne": [
+              "{{event.kind}}",
+              "deposit"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "o_won_if",
+      "to": "n1",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "g1_if",
+      "to": "g1",
+      "when": {
+        "eq": [
+          "{{event.kind}}",
+          "refund"
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "g1_if",
+      "to": "n4",
+      "else": true,
+      "label": "it does not: skipped"
+    }
+  ]
+}

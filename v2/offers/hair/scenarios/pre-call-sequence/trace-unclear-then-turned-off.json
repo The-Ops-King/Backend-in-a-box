@@ -1,0 +1,138 @@
+{
+  "name": "trace: an unclear 👍, then the workflow was turned off",
+  "description": "From the trace (version 3, ghost, 2026-10-09): booked for Monday noon; they replied 👍 four minutes later and Jev could not tell what it meant (unclear, 0%), so the team was asked; the 72-hour reminder came due at +1h44m, and the workflow was turned off then. Today's definition does the same up to that point (here the texts go; in the trace SMS was off for the offer and the rest was ghost); the scenario stops where the trace did, with the run still waiting.",
+  "workflow": "pre-call-sequence",
+  "start": "2026-10-09T14:16:24Z",
+  "until": "+1h45m",
+  "offer": {
+    "zone": "America/New_York",
+    "settings": {
+      "crm.location_id": "LOC-HAIR",
+      "crm.pipeline_setter": "PIPE-SETTER",
+      "crm.pipeline_closer": "PIPE-CLOSER",
+      "crm.stage_setter_new_lead": "ST-SETTER-NEW",
+      "crm.stage_setter_direct_booked": "ST-SETTER-DIRECT",
+      "crm.stage_setter_appointment_set": "ST-SETTER-SET",
+      "crm.stage_setter_cancelled": "ST-SETTER-CANCELLED",
+      "crm.stage_setter_showed": "ST-SETTER-SHOWED",
+      "crm.stage_closer_scheduled": "ST-CLOSER-SCHEDULED",
+      "crm.stage_closer_cancelled": "ST-CLOSER-CANCELLED",
+      "crm.stage_closer_closed_won": "ST-CLOSER-WON",
+      "crm.stage_closer_agreement_sent": "ST-CLOSER-AGREEMENT",
+      "crm.stage_closer_follow_up": "ST-CLOSER-FOLLOW-UP",
+      "crm.stage_closer_lost": "ST-CLOSER-LOST",
+      "crm.stage_closer_disqualified": "ST-CLOSER-DQ",
+      "crm.stage_closer_deposit": "ST-CLOSER-DEPOSIT",
+      "crm.object_sales_call": "custom_objects.sales_call",
+      "crm.object_payment": "custom_objects.payment",
+      "crm.assoc_sales_call_contact": "ASSOC-SC-CONTACT",
+      "crm.assoc_sales_call_opportunity": "ASSOC-SC-OPP",
+      "crm.assoc_payment_contact": "ASSOC-PAY-CONTACT",
+      "crm.assoc_payment_opportunity": "ASSOC-PAY-OPP",
+      "crm.assoc_discovery_call_contact": "ASSOC-DC-CONTACT",
+      "crm.agreement_template": "TPL-AGREEMENT",
+      "crm.agreement_sender": "USER-SENDER",
+      "calendar.booking.url": "https://book.example.com/hair",
+      "calendar.closer_call.url": "https://book.example.com/hair-closer",
+      "slack.channel.bookings": "C-BOOKINGS",
+      "slack.channel.payments": "C-PAYMENTS",
+      "slack.channel.deals": "C-DEALS",
+      "slack.channel.alerts": "C-ALERTS",
+      "slack.channel.ops": "C-OPS",
+      "slack.channel.calls": "C-CALLS",
+      "slack.channel.attention": "C-ATTENTION",
+      "slack.channel.setter_calls": "C-SETTER-CALLS",
+      "slack.channel.eod": "C-EOD",
+      "slack.channel.no_link_alerts": "C-NO-LINK",
+      "slack.channel.team_reports": "C-TEAM-REPORTS",
+      "slack.channel.engine_alerts": "C-ENGINE-ALERTS",
+      "slack.channel.test": "C-TEST",
+      "platform.base_url": "https://app.example.com",
+      "bot.escalate_to": "U-TYLER",
+      "picklist.sales_call_outcome.scheduled": "scheduled",
+      "picklist.sales_call_outcome.showed": "showed",
+      "picklist.sales_call_outcome.noshow": "noshow",
+      "picklist.sales_call_outcome.cancelled": "cancelled",
+      "picklist.sales_call_outcome.rescheduled": "rescheduled",
+      "picklist.sales_call_outcome.on_call": "rescheduled",
+      "picklist.sales_call_booking_source.setter": "setter_set",
+      "picklist.sales_call_booking_source.self": "self_booked",
+      "picklist.discovery_call_result.set": "set",
+      "picklist.discovery_call_result.follow_up": "follow_up",
+      "picklist.discovery_call_result.dq": "dq",
+      "picklist.discovery_call_result.not_interested": "not_interested",
+      "setter_result.act": true,
+      "calls.conversation_gap_min": 15,
+      "crm.stage_setter_dq": "ST-SETTER-DQ",
+      "crm.stage_setter_not_interested": "ST-SETTER-NI"
+    }
+  },
+  "delivery": "live",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c1",
+      "phone": "+15550100001",
+      "email": "ana@example.com",
+      "timezone": "America/New_York"
+    }
+  ],
+  "fixtures": {
+    "classify": [
+      {
+        "value": "unclear",
+        "confidence": 0
+      }
+    ]
+  },
+  "steps": [
+    {
+      "at": "+0m",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "contact": {
+          "first_name": "<contact-17>",
+          "name": "<contact-18>",
+          "ghl_contact_id": "<crm-id-8>"
+        },
+        "appointment": {
+          "starts_at": "2026-10-12T16:00:00Z",
+          "status": "confirmed",
+          "term": {
+            "category": "closing"
+          },
+          "closer": {
+            "name": "<staff-3>",
+            "first_name": "<staff-3>"
+          },
+          "source": "calendly",
+          "calendar_id": "<id-73>",
+          "self_booked": true
+        }
+      }
+    },
+    {
+      "at": "+3m56s",
+      "reply": {
+        "contact": "c1",
+        "channel": "sms",
+        "body": "👍"
+      }
+    }
+  ],
+  "expect": {
+    "outbox": [
+      "+0m sent pre_call_sequence.e1",
+      "+0m sent pre_call_sequence.s1",
+      "+5m sent ai.classify",
+      "+5m sent pre_call_sequence.n_ask",
+      "+5m sent crm.add_tag",
+      "+1h43m sent pre_call_sequence.m72"
+    ],
+    "ends": [
+      "waiting"
+    ]
+  }
+}

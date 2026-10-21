@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "id": "unmatched-recording",
+  "name": "Unmatched recording",
+  "description": "A recording that matched nobody is posted in the alerts channel with a \"Link to a contact\" button.",
+  "origin": {
+    "template": "recording-unlinked",
+    "version": 3
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "A recording matched nobody",
+      "on": {
+        "event": "recording.unlinked"
+      }
+    },
+    {
+      "id": "n1",
+      "type": "message@1",
+      "title": "Tell the team a recording matched nobody",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.alerts}}"
+        }
+      },
+      "content": "unmatched_recording.n1",
+      "buttons": [
+        {
+          "action": "link_recording",
+          "value": "{{event.recording_id}}",
+          "style": "primary"
+        }
+      ]
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Stop: told",
+      "reason": "told"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "x1"
+    }
+  ]
+}

@@ -1,0 +1,898 @@
+{
+  "schema": 2,
+  "id": "call-booked",
+  "name": "Call booked",
+  "description": "A closing call booked or moved: once GHL has the person, the closer is assigned, UTMs captured, the setter and closer cards placed by how it was booked, the tags set, a video task opened, the Sales Call written, and the booking card posted, with notes when texts cannot reach them or the call has no meeting link.",
+  "origin": {
+    "template": "call-booked",
+    "version": 16
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "premise": {
+    "label": "The booking is still real",
+    "holds": {
+      "and": [
+        {
+          "exists": "appointment.id"
+        },
+        {
+          "ne": [
+            "{{appointment.status}}",
+            "invalid"
+          ]
+        }
+      ]
+    },
+    "endReason": "appointment_gone"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "Appointment booked — call type is closing call",
+      "on": {
+        "event": "appointment.booked",
+        "match": {
+          "eq": [
+            "{{appointment.term.category}}",
+            "closing"
+          ]
+        }
+      }
+    },
+    {
+      "id": "t2",
+      "type": "trigger@1",
+      "title": "Appointment rescheduled — call type is closing call",
+      "on": {
+        "event": "appointment.rescheduled",
+        "match": {
+          "eq": [
+            "{{appointment.term.category}}",
+            "closing"
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0",
+      "type": "wait@1",
+      "title": "Wait for GHL to have the person (a booking can land first)",
+      "check": {
+        "holds": {
+          "exists": "contact.ghl_contact_id"
+        },
+        "every": "2m"
+      },
+      "timeout": "1h"
+    },
+    {
+      "id": "c0_hold",
+      "type": "wait@1",
+      "title": "Paused for a person: contact has no CRM id yet: GHL did not have the person an hour after the booking",
+      "person": {
+        "reason": "no_crm_id_after_an_hour"
+      }
+    },
+    {
+      "id": "c0_again",
+      "type": "branch@1",
+      "title": "Resumed: does it hold now?"
+    },
+    {
+      "id": "n1",
+      "type": "action@1",
+      "title": "Update the contact in the CRM",
+      "action": "crm.update_contact",
+      "params": {
+        "set": {
+          "owner": "{{appointment.closer.ghl_user_id | optional}}",
+          "appointment_date": "{{appointment.starts_at | offer_date:iso_date}}"
+        }
+      }
+    },
+    {
+      "id": "u1",
+      "type": "action@1",
+      "title": "Capture the booking's UTMs on the contact where GHL has none (D78)",
+      "action": "crm.update_contact",
+      "params": {
+        "set": {
+          "utm_source": "{{appointment.tracking.utm_source | optional}}",
+          "utm_medium": "{{appointment.tracking.utm_medium | optional}}",
+          "utm_campaign": "{{appointment.tracking.utm_campaign | optional}}",
+          "utm_content": "{{appointment.tracking.utm_content | optional}}",
+          "utm_term": "{{appointment.tracking.utm_term | optional}}",
+          "fbclid": "{{appointment.tracking.fbclid | optional}}"
+        },
+        "ifEmpty": [
+          "utm_source",
+          "utm_medium",
+          "utm_campaign",
+          "utm_content",
+          "utm_term",
+          "fbclid"
+        ]
+      }
+    },
+    {
+      "id": "n2",
+      "type": "branch@1",
+      "title": "Which way?"
+    },
+    {
+      "id": "b1",
+      "type": "set@1",
+      "title": "Remember setter line = *Setter:* [setter]",
+      "var": "setter_line",
+      "value": "*Setter:* {{appointment.set_by | default:unknown}}"
+    },
+    {
+      "id": "s1",
+      "type": "set@1",
+      "title": "Remember setter line =",
+      "var": "setter_line",
+      "value": ""
+    },
+    {
+      "id": "b2",
+      "type": "set@1",
+      "title": "Remember booking kind = setter booked",
+      "var": "booking_kind",
+      "value": "setter booked"
+    },
+    {
+      "id": "s2",
+      "type": "set@1",
+      "title": "Remember booking kind = self-booked",
+      "var": "booking_kind",
+      "value": "self-booked"
+    },
+    {
+      "id": "b2b",
+      "type": "set@1",
+      "title": "Remember booking source = [setter]",
+      "var": "booking_source",
+      "value": "{{setting.picklist.sales_call_booking_source.setter}}"
+    },
+    {
+      "id": "s2b",
+      "type": "set@1",
+      "title": "Remember booking source = [self]",
+      "var": "booking_source",
+      "value": "{{setting.picklist.sales_call_booking_source.self}}"
+    },
+    {
+      "id": "b3",
+      "type": "action@1",
+      "title": "Update the contact in the CRM",
+      "action": "crm.update_contact",
+      "params": {
+        "set": {
+          "setter": "{{appointment.set_by | optional}}"
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "type": "action@1",
+      "title": "Create or move pipeline card “[full name] -- Direct”",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "stage": "{{setting.crm.stage_setter_direct_booked}}",
+        "ifMissing": "create",
+        "pick": "open",
+        "name": "{{contact.name}} -- Direct",
+        "owner": "{{appointment.closer.ghl_user_id | optional}}"
+      }
+    },
+    {
+      "id": "b4",
+      "type": "action@1",
+      "title": "Create or move pipeline card “[full name] -- Set”",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_setter}}",
+        "stage": "{{setting.crm.stage_setter_appointment_set}}",
+        "ifMissing": "create",
+        "pick": "open",
+        "name": "{{contact.name}} -- Set",
+        "owner": "{{appointment.closer.ghl_user_id | optional}}",
+        "fields": {
+          "setter_owner": "{{appointment.set_by | optional}}"
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "type": "action@1",
+      "title": "Create or move pipeline card “[full name] -- Direct”",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_scheduled}}",
+        "ifMissing": "create",
+        "pick": "open",
+        "name": "{{contact.name}} -- Direct",
+        "owner": "{{appointment.closer.ghl_user_id | optional}}"
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "b5",
+      "type": "action@1",
+      "title": "Create or move pipeline card “[full name] -- Setter Booked”",
+      "action": "crm.move_deal",
+      "params": {
+        "pipeline": "{{setting.crm.pipeline_closer}}",
+        "stage": "{{setting.crm.stage_closer_scheduled}}",
+        "ifMissing": "create",
+        "pick": "open",
+        "name": "{{contact.name}} -- Setter Booked",
+        "owner": "{{appointment.closer.ghl_user_id | optional}}",
+        "fields": {
+          "setter_owner": "{{appointment.set_by | optional}}"
+        }
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "s5",
+      "type": "action@1",
+      "title": "Tags “+stat-booked” “+stat-self-booked” “+meta booked call” “−seq-no-show” “−seq-nurture” “−seq-winback” “−opt-in lead” “−stat-no-show” “−stat-cancelled” “−stat-possible-cancel” “−stat-needs-attentio…",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-booked",
+          "stat-self-booked",
+          "meta booked call"
+        ]
+      }
+    },
+    {
+      "id": "s5_rm",
+      "type": "action@1",
+      "title": "Tags “+stat-booked” “+stat-self-booked” “+meta booked call” “−seq-no-show” “−seq-nurture” “−seq-winback” “−opt-in lead” “−stat-no-show” “−stat-cancelled” “−stat-possible-cancel” “−stat-needs-attentio…",
+      "action": "crm.remove_tag",
+      "params": {
+        "tags": [
+          "seq-no-show",
+          "seq-nurture",
+          "seq-winback",
+          "opt-in lead",
+          "stat-no-show",
+          "stat-cancelled",
+          "stat-possible-cancel",
+          "stat-needs-attention"
+        ]
+      }
+    },
+    {
+      "id": "b6",
+      "type": "action@1",
+      "title": "Tags “+stat-booked” “+stat-set” “+meta booked call” “−seq-no-show” “−seq-nurture” “−seq-winback” “−opt-in lead” “−stat-no-show” “−stat-cancelled” “−stat-possible-cancel” “−stat-needs-attention” (adds)",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-booked",
+          "stat-set",
+          "meta booked call"
+        ]
+      }
+    },
+    {
+      "id": "b6_rm",
+      "type": "action@1",
+      "title": "Tags “+stat-booked” “+stat-set” “+meta booked call” “−seq-no-show” “−seq-nurture” “−seq-winback” “−opt-in lead” “−stat-no-show” “−stat-cancelled” “−stat-possible-cancel” “−stat-needs-attention” (remo…",
+      "action": "crm.remove_tag",
+      "params": {
+        "tags": [
+          "seq-no-show",
+          "seq-nurture",
+          "seq-winback",
+          "opt-in lead",
+          "stat-no-show",
+          "stat-cancelled",
+          "stat-possible-cancel",
+          "stat-needs-attention"
+        ]
+      }
+    },
+    {
+      "id": "k3",
+      "type": "action@1",
+      "title": "Open a CRM task",
+      "action": "crm.create_task",
+      "params": {
+        "title": "call_booked.k3.title",
+        "due": "1d",
+        "body": "call_booked.k3.body",
+        "assignTo": "{{appointment.closer.ghl_user_id | optional}}"
+      }
+    },
+    {
+      "id": "k5",
+      "type": "action@1",
+      "title": "A reschedule: the slot the call left keeps its Sales Call, logged as rescheduled",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "custom_objects.sales_call",
+        "properties": {
+          "outcome": "{{setting.picklist.sales_call_outcome.rescheduled}}"
+        },
+        "ifMissing": "skip",
+        "key": "{{event.slot.from | optional}}"
+      }
+    },
+    {
+      "id": "k4",
+      "type": "action@1",
+      "title": "Write sales call record",
+      "action": "crm.upsert_record",
+      "params": {
+        "object": "custom_objects.sales_call",
+        "properties": {
+          "closer": "{{appointment.closer.name | optional}}",
+          "setter": "{{appointment.set_by | optional}}",
+          "outcome": "{{setting.picklist.sales_call_outcome.scheduled}}",
+          "call_date": "{{appointment.starts_at | offer_date:iso_date}}",
+          "contact_id": "{{contact.ghl_contact_id | optional}}",
+          "external_id": "{{appointment.slot_key}}",
+          "scheduled_at": "{{appointment.starts_at}}",
+          "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | offer_date:iso_date}}",
+          "booking_source": "{{vars.booking_source | optional}}",
+          "opportunity_id": "{{contact.cards.closer.id | optional}}"
+        },
+        "ifMissing": "create",
+        "key": "{{appointment.slot_key}}"
+      },
+      "into": "k4_record",
+      "onFailure": "skip"
+    },
+    {
+      "id": "k4_written",
+      "type": "branch@1",
+      "title": "Was the record written? (its links need its id)"
+    },
+    {
+      "id": "k4_rel1",
+      "type": "action@1",
+      "title": "Link the record (1 of 2)",
+      "action": "crm.relate_records",
+      "params": {
+        "association": "{{setting.crm.assoc_sales_call_contact}}",
+        "first": "{{contact.ghl_contact_id | optional}}",
+        "second": "{{vars.k4_record.id}}"
+      }
+    },
+    {
+      "id": "k4_rel2",
+      "type": "action@1",
+      "title": "Link the record (2 of 2)",
+      "action": "crm.relate_records",
+      "params": {
+        "association": "{{setting.crm.assoc_sales_call_opportunity}}",
+        "first": "{{vars.k4_record.id}}",
+        "second": "{{contact.cards.closer.id | optional}}"
+      }
+    },
+    {
+      "id": "v4",
+      "type": "set@1",
+      "title": "Remember card = name Call rescheduled; icons :repeat:; reschedule mark repeat",
+      "var": "card",
+      "value": {
+        "$if": {
+          "eq": [
+            "{{event.type}}",
+            "appointment.rescheduled"
+          ]
+        },
+        "then": {
+          "name": "Call rescheduled",
+          "icons": [
+            ":repeat:"
+          ],
+          "reschedule_mark": "repeat"
+        },
+        "else": {
+          "name": "New call booked",
+          "icons": [
+            ":telephone_receiver:",
+            ":calendar:",
+            ":date:",
+            ":spiral_calendar_pad:"
+          ],
+          "reschedule_mark": ""
+        }
+      }
+    },
+    {
+      "id": "n4_mark_if",
+      "type": "branch@1",
+      "title": "A reschedule? Then 🔁 on the card it replaces"
+    },
+    {
+      "id": "n4_mark",
+      "type": "action@1",
+      "title": "React :repeat: on the old booking card",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "repeat"
+        ]
+      }
+    },
+    {
+      "id": "n4",
+      "type": "message@1",
+      "title": "Post the booking card in Slack (a reschedule: 🔁 face, 🔁 on the old card)",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": {
+        "pick": "{{event.type}}",
+        "cases": {
+          "appointment.rescheduled": "call_booked.n4_rescheduled"
+        },
+        "else": "call_booked.n4"
+      },
+      "remember": "appointment:{{appointment.id}}"
+    },
+    {
+      "id": "v_textoff",
+      "type": "set@1",
+      "title": "Why no text can reach them: Do Not Disturb, or no phone",
+      "var": "no_text_reason",
+      "value": {
+        "$pick": "{{contact.sms_dnd}}",
+        "cases": {
+          "true": "has texts turned off (Do Not Disturb)"
+        },
+        "else": ""
+      }
+    },
+    {
+      "id": "v_nophone",
+      "type": "set@1",
+      "title": "…or no phone number on file",
+      "var": "no_text_reason",
+      "value": {
+        "$if": {
+          "and": [
+            {
+              "eq": [
+                "{{vars.no_text_reason | optional}}",
+                ""
+              ]
+            },
+            {
+              "not": {
+                "exists": "contact.phone"
+              }
+            }
+          ]
+        },
+        "then": "has no phone number on file",
+        "else": "{{vars.no_text_reason | optional}}"
+      }
+    },
+    {
+      "id": "n_dnd",
+      "type": "message@1",
+      "title": "Texts can't reach them (Do Not Disturb or no phone): ⚠️ on the card and a note under it, once per booking",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": "call_booked.n_dnd",
+      "thread": {
+        "tag": "appointment:{{appointment.id}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "n_dnd_react",
+      "type": "action@1",
+      "title": "React :warning: on the post it replies under",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "warning"
+        ]
+      }
+    },
+    {
+      "id": "n_nolink_note",
+      "type": "message@1",
+      "title": "No meeting link: a note under the booking card, 🔗 on it",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": "call_booked.n_nolink_note",
+      "thread": {
+        "tag": "appointment:{{appointment.id}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "n_nolink_note_react",
+      "type": "action@1",
+      "title": "React :link: on the post it replies under",
+      "action": "slack.react",
+      "params": {
+        "post": {
+          "tag": "appointment:{{appointment.id}}"
+        },
+        "emojis": [
+          "link"
+        ]
+      }
+    },
+    {
+      "id": "n_nolink_alert",
+      "type": "message@1",
+      "title": "No meeting link: an issue in the alerts channel",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.no_link_alerts}}"
+        }
+      },
+      "content": "call_booked.n_nolink_alert"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: booking recorded",
+      "reason": "booked"
+    },
+    {
+      "id": "k3_if",
+      "type": "branch@1",
+      "title": "Only if: Send {{contact.first_name}} a personalized video"
+    },
+    {
+      "id": "k5_if",
+      "type": "branch@1",
+      "title": "Only if: A reschedule: the slot the call left keeps its Sales Call, logged as rescheduled"
+    },
+    {
+      "id": "n_dnd_if",
+      "type": "branch@1",
+      "title": "Only if: Texts can't reach them (Do Not Disturb or no phone): ⚠️ on the card and a note under it, once per booking"
+    },
+    {
+      "id": "n_nolink_note_if",
+      "type": "branch@1",
+      "title": "Only if: No meeting link: a note under the booking card, 🔗 on it"
+    },
+    {
+      "id": "n_nolink_alert_if",
+      "type": "branch@1",
+      "title": "Only if: No meeting link: an issue in the alerts channel"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "c0"
+    },
+    {
+      "from": "t2",
+      "to": "c0"
+    },
+    {
+      "from": "c0",
+      "to": "c0_hold",
+      "on": "timeout",
+      "label": "not in time: pause for a person"
+    },
+    {
+      "from": "c0",
+      "to": "n1",
+      "on": "arrived"
+    },
+    {
+      "from": "c0_hold",
+      "to": "c0_again",
+      "on": "resumed"
+    },
+    {
+      "from": "c0_again",
+      "to": "n1",
+      "when": {
+        "exists": "contact.ghl_contact_id"
+      }
+    },
+    {
+      "from": "c0_again",
+      "to": "c0_hold",
+      "else": true,
+      "label": "still not: paused again"
+    },
+    {
+      "from": "n1",
+      "to": "u1"
+    },
+    {
+      "from": "u1",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "to": "b1",
+      "label": "setter booked",
+      "when": {
+        "eq": [
+          "{{appointment.self_booked}}",
+          false
+        ]
+      }
+    },
+    {
+      "from": "n2",
+      "to": "s1",
+      "label": "self-booked",
+      "else": true
+    },
+    {
+      "from": "b1",
+      "to": "b2"
+    },
+    {
+      "from": "s1",
+      "to": "s2"
+    },
+    {
+      "from": "b2",
+      "to": "b2b"
+    },
+    {
+      "from": "s2",
+      "to": "s2b"
+    },
+    {
+      "from": "b2b",
+      "to": "b3"
+    },
+    {
+      "from": "s2b",
+      "to": "s3"
+    },
+    {
+      "from": "b3",
+      "to": "b4"
+    },
+    {
+      "from": "s3",
+      "to": "s4"
+    },
+    {
+      "from": "b4",
+      "to": "b5"
+    },
+    {
+      "from": "s4",
+      "to": "s5"
+    },
+    {
+      "from": "b5",
+      "to": "b6"
+    },
+    {
+      "from": "s5",
+      "to": "s5_rm"
+    },
+    {
+      "from": "s5_rm",
+      "to": "k3_if"
+    },
+    {
+      "from": "b6",
+      "to": "b6_rm"
+    },
+    {
+      "from": "b6_rm",
+      "to": "k3_if"
+    },
+    {
+      "from": "k3",
+      "to": "k5_if"
+    },
+    {
+      "from": "k5",
+      "to": "k4"
+    },
+    {
+      "from": "k4",
+      "to": "k4_written"
+    },
+    {
+      "from": "k4_written",
+      "to": "k4_rel1",
+      "when": {
+        "exists": "vars.k4_record.id"
+      },
+      "label": "written"
+    },
+    {
+      "from": "k4_written",
+      "to": "v4",
+      "else": true,
+      "label": "not written: no links"
+    },
+    {
+      "from": "k4_rel1",
+      "to": "k4_rel2"
+    },
+    {
+      "from": "k4_rel2",
+      "to": "v4"
+    },
+    {
+      "from": "v4",
+      "to": "n4_mark_if"
+    },
+    {
+      "from": "n4_mark_if",
+      "to": "n4_mark",
+      "when": {
+        "eq": [
+          "{{event.type}}",
+          "appointment.rescheduled"
+        ]
+      },
+      "label": "rescheduled"
+    },
+    {
+      "from": "n4_mark_if",
+      "to": "n4",
+      "else": true,
+      "label": "a new booking"
+    },
+    {
+      "from": "n4_mark",
+      "to": "n4"
+    },
+    {
+      "from": "n4",
+      "to": "v_textoff"
+    },
+    {
+      "from": "v_textoff",
+      "to": "v_nophone"
+    },
+    {
+      "from": "v_nophone",
+      "to": "n_dnd_if"
+    },
+    {
+      "from": "n_dnd",
+      "to": "n_dnd_react"
+    },
+    {
+      "from": "n_dnd_react",
+      "to": "n_nolink_note_if"
+    },
+    {
+      "from": "n_nolink_note",
+      "to": "n_nolink_note_react"
+    },
+    {
+      "from": "n_nolink_note_react",
+      "to": "n_nolink_alert_if"
+    },
+    {
+      "from": "n_nolink_alert",
+      "to": "x1"
+    },
+    {
+      "from": "k3_if",
+      "to": "k3",
+      "when": {
+        "ne": [
+          "{{event.type}}",
+          "appointment.rescheduled"
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "k3_if",
+      "to": "k5_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "k5_if",
+      "to": "k5",
+      "when": {
+        "exists": "event.slot.from"
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "k5_if",
+      "to": "k4",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "n_dnd_if",
+      "to": "n_dnd",
+      "when": {
+        "and": [
+          {
+            "ne": [
+              "{{vars.no_text_reason | optional}}",
+              ""
+            ]
+          },
+          {
+            "ne": [
+              "{{event.type}}",
+              "appointment.rescheduled"
+            ]
+          }
+        ]
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "n_dnd_if",
+      "to": "n_nolink_note_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "n_nolink_note_if",
+      "to": "n_nolink_note",
+      "when": {
+        "not": {
+          "exists": "appointment.meeting_url"
+        }
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "n_nolink_note_if",
+      "to": "n_nolink_alert_if",
+      "else": true,
+      "label": "it does not: skipped"
+    },
+    {
+      "from": "n_nolink_alert_if",
+      "to": "n_nolink_alert",
+      "when": {
+        "not": {
+          "exists": "appointment.meeting_url"
+        }
+      },
+      "label": "it holds"
+    },
+    {
+      "from": "n_nolink_alert_if",
+      "to": "x1",
+      "else": true,
+      "label": "it does not: skipped"
+    }
+  ]
+}

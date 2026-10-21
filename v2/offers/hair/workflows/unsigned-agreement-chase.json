@@ -1,0 +1,338 @@
+{
+  "schema": 2,
+  "id": "unsigned-agreement-chase",
+  "name": "Unsigned agreement chase",
+  "description": "After a first payment beyond a deposit: every 24 hours for three days, while the agreement is unsigned, the owner is DMed and given a CRM task; after the third, the contact is tagged stat-agreement-unsigned and the alerts channel is told.",
+  "origin": {
+    "template": "agreement-chase",
+    "version": 6
+  },
+  "reentry": {
+    "policy": "once_per_contact"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "Payment received — there are no prior non deposit total and payment kind is not “deposit”",
+      "on": {
+        "event": "payment.received",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.prior_non_deposit_total}}",
+                0
+              ]
+            },
+            {
+              "ne": [
+                "{{event.kind}}",
+                "deposit"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "w1",
+      "type": "wait@1",
+      "title": "Wait 24 hours",
+      "until": {
+        "anchor": "now",
+        "offset": "+24h",
+        "zone": "offer"
+      }
+    },
+    {
+      "id": "c1",
+      "type": "branch@1",
+      "title": "Check they have not signed the agreement"
+    },
+    {
+      "id": "c1_x",
+      "type": "end@1",
+      "title": "Stop: signed",
+      "reason": "signed"
+    },
+    {
+      "id": "v1",
+      "type": "set@1",
+      "title": "Remember nudge = 1",
+      "var": "nudge",
+      "value": 1
+    },
+    {
+      "id": "n1",
+      "type": "message@1",
+      "title": "DM the owner: still unsigned",
+      "to": {
+        "slack": {
+          "dm": "{{contact.owner.slack_user_id}}",
+          "fallbackChannel": "{{setting.slack.channel.alerts}}"
+        }
+      },
+      "content": "unsigned_agreement_chase.n1"
+    },
+    {
+      "id": "n1_task",
+      "type": "action@1",
+      "title": "Open the CRM task for the owner",
+      "action": "crm.create_task",
+      "params": {
+        "title": "unsigned_agreement_chase.n1.task",
+        "due": "1d"
+      }
+    },
+    {
+      "id": "w2",
+      "type": "wait@1",
+      "title": "Wait 24 hours",
+      "until": {
+        "anchor": "now",
+        "offset": "+24h",
+        "zone": "offer"
+      }
+    },
+    {
+      "id": "c2",
+      "type": "branch@1",
+      "title": "Check they have not signed the agreement"
+    },
+    {
+      "id": "c2_x",
+      "type": "end@1",
+      "title": "Stop: signed",
+      "reason": "signed"
+    },
+    {
+      "id": "v2",
+      "type": "set@1",
+      "title": "Remember nudge = 2",
+      "var": "nudge",
+      "value": 2
+    },
+    {
+      "id": "n2",
+      "type": "message@1",
+      "title": "DM the owner: still unsigned",
+      "to": {
+        "slack": {
+          "dm": "{{contact.owner.slack_user_id}}",
+          "fallbackChannel": "{{setting.slack.channel.alerts}}"
+        }
+      },
+      "content": "unsigned_agreement_chase.n2"
+    },
+    {
+      "id": "n2_task",
+      "type": "action@1",
+      "title": "Open the CRM task for the owner",
+      "action": "crm.create_task",
+      "params": {
+        "title": "unsigned_agreement_chase.n2.task",
+        "due": "1d"
+      }
+    },
+    {
+      "id": "w3",
+      "type": "wait@1",
+      "title": "Wait 24 hours",
+      "until": {
+        "anchor": "now",
+        "offset": "+24h",
+        "zone": "offer"
+      }
+    },
+    {
+      "id": "c3",
+      "type": "branch@1",
+      "title": "Check they have not signed the agreement"
+    },
+    {
+      "id": "c3_x",
+      "type": "end@1",
+      "title": "Stop: signed",
+      "reason": "signed"
+    },
+    {
+      "id": "v3",
+      "type": "set@1",
+      "title": "Remember nudge = 3",
+      "var": "nudge",
+      "value": 3
+    },
+    {
+      "id": "n3",
+      "type": "message@1",
+      "title": "DM the owner: still unsigned",
+      "to": {
+        "slack": {
+          "dm": "{{contact.owner.slack_user_id}}",
+          "fallbackChannel": "{{setting.slack.channel.alerts}}"
+        }
+      },
+      "content": "unsigned_agreement_chase.n3"
+    },
+    {
+      "id": "n3_task",
+      "type": "action@1",
+      "title": "Open the CRM task for the owner",
+      "action": "crm.create_task",
+      "params": {
+        "title": "unsigned_agreement_chase.n3.task",
+        "due": "1d"
+      }
+    },
+    {
+      "id": "g1",
+      "type": "action@1",
+      "title": "Add tag “stat-agreement-unsigned”",
+      "action": "crm.add_tag",
+      "params": {
+        "tags": [
+          "stat-agreement-unsigned"
+        ]
+      }
+    },
+    {
+      "id": "s1",
+      "type": "message@1",
+      "title": "Post unsigned alert in Slack",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.alerts}}"
+        }
+      },
+      "content": "unsigned_agreement_chase.s1"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Stop: unsigned after 3",
+      "reason": "unsigned_after_3"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "w1"
+    },
+    {
+      "from": "w1",
+      "to": "c1"
+    },
+    {
+      "from": "c1",
+      "to": "v1",
+      "when": {
+        "eq": [
+          "{{contact.agreement_signed}}",
+          false
+        ]
+      }
+    },
+    {
+      "from": "c1",
+      "to": "c1_x",
+      "else": true,
+      "label": "signed"
+    },
+    {
+      "from": "v1",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "n1_task"
+    },
+    {
+      "from": "n1_task",
+      "to": "w2"
+    },
+    {
+      "from": "w2",
+      "to": "c2"
+    },
+    {
+      "from": "c2",
+      "to": "v2",
+      "when": {
+        "eq": [
+          "{{contact.agreement_signed}}",
+          false
+        ]
+      }
+    },
+    {
+      "from": "c2",
+      "to": "c2_x",
+      "else": true,
+      "label": "signed"
+    },
+    {
+      "from": "v2",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "to": "n2_task"
+    },
+    {
+      "from": "n2_task",
+      "to": "w3"
+    },
+    {
+      "from": "w3",
+      "to": "c3"
+    },
+    {
+      "from": "c3",
+      "to": "v3",
+      "when": {
+        "eq": [
+          "{{contact.agreement_signed}}",
+          false
+        ]
+      }
+    },
+    {
+      "from": "c3",
+      "to": "c3_x",
+      "else": true,
+      "label": "signed"
+    },
+    {
+      "from": "v3",
+      "to": "n3"
+    },
+    {
+      "from": "n3",
+      "to": "n3_task"
+    },
+    {
+      "from": "n3_task",
+      "to": "g1"
+    },
+    {
+      "from": "g1",
+      "to": "s1"
+    },
+    {
+      "from": "s1",
+      "to": "x1"
+    }
+  ]
+}

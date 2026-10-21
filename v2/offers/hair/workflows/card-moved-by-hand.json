@@ -1,0 +1,428 @@
+{
+  "schema": 2,
+  "id": "card-moved-by-hand",
+  "name": "Card moved by hand",
+  "description": "Someone moved a card in GHL by hand: a line in the booking post's thread says who and where; a move into a no-show, Lost or Disqualified stage after the call started files that outcome as the closer's form would.",
+  "origin": {
+    "template": "card-moved",
+    "version": 1
+  },
+  "reentry": {
+    "policy": "always"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "Someone moved a card by hand in GHL",
+      "on": {
+        "event": "card.moved"
+      }
+    },
+    {
+      "id": "v_status",
+      "type": "set@1",
+      "title": "Whether the status changed too",
+      "var": "status_part",
+      "value": {
+        "$if": {
+          "ne": [
+            "{{event.from_status}}",
+            "{{event.to_status}}"
+          ]
+        },
+        "then": " and marked it {{event.to_status}}",
+        "else": ""
+      }
+    },
+    {
+      "id": "v_line",
+      "type": "set@1",
+      "title": "The thread line",
+      "var": "line",
+      "value": {
+        "$if": {
+          "ne": [
+            "{{event.from_stage}}",
+            "{{event.to_stage}}"
+          ]
+        },
+        "then": "🗂️ {{event.mover | default:someone}} moved the {{event.pipeline}} card to {{event.to_name}}{{vars.status_part | optional}}",
+        "else": "🗂️ {{event.mover | default:someone}} marked the {{event.pipeline}} card {{event.to_status}}"
+      }
+    },
+    {
+      "id": "n_line",
+      "type": "message@1",
+      "title": "Say who moved the card, in the booking post's thread",
+      "to": {
+        "slack": {
+          "channel": "{{setting.slack.channel.bookings}}"
+        }
+      },
+      "content": "card_moved_by_hand.n_line",
+      "thread": {
+        "tag": "appointment:{{appointment.id}}"
+      },
+      "threadOnly": true
+    },
+    {
+      "id": "b1",
+      "type": "branch@1",
+      "title": "Does the stage name an outcome for a call that has started?"
+    },
+    {
+      "id": "o_noshow",
+      "type": "action@1",
+      "title": "File a no-show, as the form would",
+      "action": "facts.record_outcome",
+      "params": {
+        "appointment": "{{appointment.id}}",
+        "outcome": "noshow",
+        "source": "person",
+        "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+        "person": "{{event.mover_id | optional}}"
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "o_noshow_said",
+      "type": "action@1",
+      "title": "Tell the other workflows: the call's outcome is filed",
+      "action": "facts.record",
+      "params": {
+        "type": "appointment.outcome",
+        "data": {
+          "outcome": "noshow",
+          "previous_outcome": "{{appointment.outcome | optional}}",
+          "previous_call_outcome": "{{appointment.call_outcome | optional}}",
+          "outcome_source": "disposition",
+          "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+          "by": "{{event.mover_id | optional}}",
+          "via": "card_moved"
+        },
+        "startsWorkflows": true
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "o_lost",
+      "type": "action@1",
+      "title": "File a show that was lost, as the form would",
+      "action": "facts.record_outcome",
+      "params": {
+        "appointment": "{{appointment.id}}",
+        "outcome": "showed",
+        "source": "person",
+        "callOutcome": "lost",
+        "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+        "person": "{{event.mover_id | optional}}"
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "o_lost_said",
+      "type": "action@1",
+      "title": "Tell the other workflows: the call's outcome is filed",
+      "action": "facts.record",
+      "params": {
+        "type": "appointment.outcome",
+        "data": {
+          "outcome": "showed",
+          "previous_outcome": "{{appointment.outcome | optional}}",
+          "previous_call_outcome": "{{appointment.call_outcome | optional}}",
+          "outcome_source": "disposition",
+          "call_outcome": "lost",
+          "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+          "by": "{{event.mover_id | optional}}",
+          "via": "card_moved"
+        },
+        "startsWorkflows": true
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "o_lost_held",
+      "type": "action@1",
+      "title": "Tell the other workflows: the call was held",
+      "action": "facts.record",
+      "params": {
+        "type": "call.held",
+        "data": {
+          "call_type": "{{appointment.term.category | optional}}",
+          "outcome": "lost",
+          "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+          "by": "{{event.mover_id | optional}}"
+        },
+        "startsWorkflows": true
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "o_dq",
+      "type": "action@1",
+      "title": "File a show that was disqualified, as the form would",
+      "action": "facts.record_outcome",
+      "params": {
+        "appointment": "{{appointment.id}}",
+        "outcome": "showed",
+        "source": "person",
+        "callOutcome": "unqualified",
+        "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+        "person": "{{event.mover_id | optional}}"
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "o_dq_said",
+      "type": "action@1",
+      "title": "Tell the other workflows: the call's outcome is filed",
+      "action": "facts.record",
+      "params": {
+        "type": "appointment.outcome",
+        "data": {
+          "outcome": "showed",
+          "previous_outcome": "{{appointment.outcome | optional}}",
+          "previous_call_outcome": "{{appointment.call_outcome | optional}}",
+          "outcome_source": "disposition",
+          "call_outcome": "unqualified",
+          "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+          "by": "{{event.mover_id | optional}}",
+          "via": "card_moved"
+        },
+        "startsWorkflows": true
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "o_dq_held",
+      "type": "action@1",
+      "title": "Tell the other workflows: the call was held",
+      "action": "facts.record",
+      "params": {
+        "type": "call.held",
+        "data": {
+          "call_type": "{{appointment.term.category | optional}}",
+          "outcome": "unqualified",
+          "notes": "Card moved to {{event.to_name}} in the CRM by {{event.mover | default:someone}}",
+          "by": "{{event.mover_id | optional}}"
+        },
+        "startsWorkflows": true
+      },
+      "onFailure": "hold"
+    },
+    {
+      "id": "x_noted",
+      "type": "end@1",
+      "title": "Stop: noted",
+      "reason": "noted"
+    },
+    {
+      "id": "x_filed",
+      "type": "end@1",
+      "title": "Stop: filed",
+      "reason": "filed"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "v_status"
+    },
+    {
+      "from": "v_status",
+      "to": "v_line"
+    },
+    {
+      "from": "v_line",
+      "to": "n_line"
+    },
+    {
+      "from": "n_line",
+      "to": "b1"
+    },
+    {
+      "from": "b1",
+      "to": "o_noshow",
+      "label": "into a no-show stage",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{appointment.started}}",
+              true
+            ]
+          },
+          {
+            "ne": [
+              "{{event.from_stage}}",
+              "{{event.to_stage}}"
+            ]
+          },
+          {
+            "ne": [
+              "{{appointment.outcome | optional}}",
+              "noshow"
+            ]
+          },
+          {
+            "or": [
+              {
+                "and": [
+                  {
+                    "eq": [
+                      "{{event.pipeline}}",
+                      "closer"
+                    ]
+                  },
+                  {
+                    "eq": [
+                      "{{event.to_stage}}",
+                      "{{setting.crm.stage_closer_cancelled | optional}}"
+                    ]
+                  }
+                ]
+              },
+              {
+                "and": [
+                  {
+                    "eq": [
+                      "{{event.pipeline}}",
+                      "setter"
+                    ]
+                  },
+                  {
+                    "eq": [
+                      "{{event.to_stage}}",
+                      "{{setting.crm.stage_setter_cancelled | optional}}"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "from": "b1",
+      "to": "o_lost",
+      "label": "into Lost",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{appointment.started}}",
+              true
+            ]
+          },
+          {
+            "ne": [
+              "{{event.from_stage}}",
+              "{{event.to_stage}}"
+            ]
+          },
+          {
+            "ne": [
+              "{{appointment.call_outcome | optional}}",
+              "lost"
+            ]
+          },
+          {
+            "eq": [
+              "{{event.pipeline}}",
+              "closer"
+            ]
+          },
+          {
+            "eq": [
+              "{{event.to_stage}}",
+              "{{setting.crm.stage_closer_lost | optional}}"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "from": "b1",
+      "to": "o_dq",
+      "label": "into Disqualified",
+      "when": {
+        "and": [
+          {
+            "eq": [
+              "{{appointment.started}}",
+              true
+            ]
+          },
+          {
+            "ne": [
+              "{{event.from_stage}}",
+              "{{event.to_stage}}"
+            ]
+          },
+          {
+            "ne": [
+              "{{appointment.call_outcome | optional}}",
+              "unqualified"
+            ]
+          },
+          {
+            "eq": [
+              "{{event.pipeline}}",
+              "closer"
+            ]
+          },
+          {
+            "eq": [
+              "{{event.to_stage}}",
+              "{{setting.crm.stage_closer_disqualified | optional}}"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "from": "b1",
+      "to": "x_noted",
+      "label": "any other stage, or nothing new to file: noted",
+      "else": true
+    },
+    {
+      "from": "o_noshow",
+      "to": "o_noshow_said"
+    },
+    {
+      "from": "o_noshow_said",
+      "to": "x_filed"
+    },
+    {
+      "from": "o_lost",
+      "to": "o_lost_said"
+    },
+    {
+      "from": "o_lost_said",
+      "to": "o_lost_held"
+    },
+    {
+      "from": "o_lost_held",
+      "to": "x_filed"
+    },
+    {
+      "from": "o_dq",
+      "to": "o_dq_said"
+    },
+    {
+      "from": "o_dq_said",
+      "to": "o_dq_held"
+    },
+    {
+      "from": "o_dq_held",
+      "to": "x_filed"
+    }
+  ]
+}

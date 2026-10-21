@@ -1,0 +1,88 @@
+{
+  "schema": 2,
+  "id": "post-call-follow-up",
+  "name": "Post-call follow-up",
+  "description": "Off in v1. The morning after a call filed \"follow up\", one text asking for questions.",
+  "origin": {
+    "template": "post-call-follow-up",
+    "version": 3
+  },
+  "reentry": {
+    "policy": "once_per_appointment"
+  },
+  "premise": {
+    "label": "The contact is still in the CRM",
+    "holds": {
+      "exists": "contact.id"
+    },
+    "endReason": "contact_gone"
+  },
+  "sendWindow": {
+    "zone": "contact",
+    "opens": "08:00",
+    "closes": "20:00",
+    "outside": "next_open",
+    "transactional": "any_hour"
+  },
+  "delivery": {
+    "kind": "human",
+    "whenStale": "skip"
+  },
+  "nodes": [
+    {
+      "id": "t1",
+      "type": "trigger@1",
+      "title": "The call happened — outcome is follow up",
+      "on": {
+        "event": "call.held",
+        "match": {
+          "eq": [
+            "{{event.outcome}}",
+            "follow_up"
+          ]
+        }
+      }
+    },
+    {
+      "id": "n1",
+      "type": "wait@1",
+      "title": "Wait until 9:00 AM the next day",
+      "until": {
+        "anchor": "now",
+        "offset": "day_after@09:00",
+        "zone": "contact"
+      },
+      "fitSendWindow": false
+    },
+    {
+      "id": "n2",
+      "type": "message@1",
+      "title": "Follow-up text",
+      "to": {
+        "contact": "sms"
+      },
+      "content": "post_call_follow_up.n2",
+      "kind": "human"
+    },
+    {
+      "id": "x1",
+      "type": "end@1",
+      "title": "Done: sent",
+      "reason": "sent"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t1",
+      "to": "n1"
+    },
+    {
+      "from": "n1",
+      "to": "n2"
+    },
+    {
+      "from": "n2",
+      "to": "x1"
+    }
+  ]
+}
