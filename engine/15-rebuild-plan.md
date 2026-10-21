@@ -233,11 +233,15 @@ The alternative, a new repository, separates history cleanly but puts the spec a
    - Vendors push: webhooks from GHL (Marketplace app), Whop, Fathom, Typeform and Slack.
    - Timers are jobs with an exact run time on the worker.
    - A nightly reconcile catches anything a webhook missed.
-   - Polling stays only where a vendor cannot push, inside its connector:
-     - GHL agreements still waiting for a signature (every 2 minutes, until signed or 30 days);
-     - call transcripts (with back-off);
-     - Calendly on a plan without webhooks;
-     - a GHL offer past the 5-agency cap (PIT mode, until the Security Review passes).
+   - Polling stays only where a vendor cannot push, inside its connector, and only for something specific we are waiting
+     on. Nothing polls on a timer for no reason:
+     - **A sent agreement** (GHL has no "signed" webhook). Checked every 10 seconds for its first 60 minutes, then every 5
+       minutes for 30 days. It stops the moment it is signed or voided. One check per location covers every agreement that
+       location is waiting on, inside GHL's rate limit (Tyler).
+     - Call transcripts, with back-off.
+     - **Calendly on a free plan.** A paid Calendly plan (which has webhooks) is required 99% of the time; a free account is
+       polled only if one is onboarded (Tyler).
+     - A GHL offer past the 5-agency cap (PIT mode, until the Security Review passes).
 4. **App framework:** Next.js and React (Tyler knows them).
 5. **Data access:** Drizzle plus Zod: tables written as TypeScript, and every setting and workflow checked against a schema.
 6. **GHL agencies:** every client is in its own agency. Three of the private app's five installs are used by Hair, PMU and
