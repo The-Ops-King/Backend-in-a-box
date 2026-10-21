@@ -19,8 +19,21 @@ The GHL recorder, for the Phase 0 checks. It becomes v2's GHL door later.
 | `GET /health` | Answers when the app is up. |
 
 The workflow definition format (`src/workflow/`): the ten versioned primitives, the action registry, conditions, the
-template renderer with blank detection, and `validateWorkflow`. There is no interpreter yet. How each v1 step is written in
-it is in `docs/v1-to-v2-steps.md`.
+template renderer with blank detection, and `validateWorkflow`. How each v1 step is written in it is in
+`docs/v1-to-v2-steps.md`.
+
+The engine (`src/engine/`), with no connectors yet (its ports have fakes only):
+- **tables** (`src/db/schema.ts`, migrations `0001`, `0002`): offers, workflows and their immutable versions, settings,
+  content, connections, operator addresses; the append-only fact log (`events`); runs, run steps, the outbox, Slack
+  posts and alerts. The database refuses an outbox row without the run and the step that asked for it.
+- **the interpreter** (`interpreter.ts`): walks a run through its pinned version. Triggers and re-entry, the premise on
+  every wake and before every step that reaches outside, every primitive, waits stored as data, listeners and `$resume`,
+  recheck loops, pauses for a person. A step's effect is only an outbox row in the run's transaction.
+- **the delivery gate** (`gate.ts`): delivery state (sandbox / live), CRM writes (dry / real), DND, the send window, the
+  frequency cap and circuit breaker, the blank-variable hold, in that order, each decision kept on the row.
+- **the dispatcher** (`dispatcher.ts`): claims a due row, reads the contact, applies the gate, calls the port with the
+  row's idempotency key outside any transaction, records the result. Unknown is never re-sent.
+- **the job runner** (`jobs.ts`, ADR 0008): graphile-worker; `Engine.runDue()` does everything due now for tests.
 
 ## Deploy on Railway (from the repo)
 1. **New project, then Deploy from GitHub repo.** Pick this repository and the branch `rebuild`. In the service's settings, set
@@ -41,6 +54,6 @@ The GHL app takes two URLs:
 
 ## Develop
 `pnpm install`, then:
-- `pnpm test` (it needs `DATABASE_URL` pointing at an empty Postgres);
+- `pnpm test` (with `DATABASE_URL` pointing at an empty Postgres, the engine's tests run on Postgres as well as in memory);
 - `pnpm typecheck`;
 - `pnpm db:generate` after a change to `src/db/schema.ts`. That writes the next numbered migration into `drizzle/`.

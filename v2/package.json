@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "drizzle-orm": "~0.44.7",
+    "graphile-worker": "0.17.3",
     "next": "^15.5.28",
     "pg": "^8.23.1",
     "react": "^19.3.1",
