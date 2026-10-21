@@ -1,0 +1,120 @@
+# The platform Slack app's manifest: one app (owned by Tyler), distributed and unlisted, installed into each workspace
+# through "Add to Slack" (/slack/install). Replace ${BASE_URL} with the platform's address (https://<domain>, no trailing
+# slash) before pasting it into api.slack.com/apps → the app → App Manifest. Every scope has a named feature behind it
+# (docs/slack-app-spec.md); src/slack/env.ts holds the same scopes and events, and a test keeps them equal.
+display_information:
+  name: Backend in a Box
+  description: Your offer's bookings, alerts and numbers, in Slack.
+  background_color: "#1d1c1d"
+features:
+  bot_user:
+    display_name: bib
+    always_online: true
+  slash_commands:
+    - command: /mtd
+      url: ${BASE_URL}/slack/commands
+      description: Month-to-date numbers
+      should_escape: false
+    - command: /weekly
+      url: ${BASE_URL}/slack/commands
+      description: Last week's numbers
+      usage_hint: "[this week]"
+      should_escape: false
+    - command: /monthly
+      url: ${BASE_URL}/slack/commands
+      description: Last month's numbers
+      usage_hint: "[this month]"
+      should_escape: false
+    - command: /show-rate
+      url: ${BASE_URL}/slack/commands
+      description: Show rate
+      usage_hint: "[this week | last month] [by closer | by source]"
+      should_escape: false
+    - command: /close-rate
+      url: ${BASE_URL}/slack/commands
+      description: Close rate
+      usage_hint: "[this week | last month] [by closer | by source]"
+      should_escape: false
+    - command: /cash
+      url: ${BASE_URL}/slack/commands
+      description: Cash collected
+      usage_hint: "[this week | last month] [by closer | by source]"
+      should_escape: false
+    - command: /leads
+      url: ${BASE_URL}/slack/commands
+      description: Leads
+      usage_hint: "[this week | last month] [by source]"
+      should_escape: false
+    - command: /closes
+      url: ${BASE_URL}/slack/commands
+      description: Closes
+      usage_hint: "[this week | last month] [by closer]"
+      should_escape: false
+    - command: /leaderboard
+      url: ${BASE_URL}/slack/commands
+      description: The current leaderboard
+      should_escape: false
+    - command: /availability
+      url: ${BASE_URL}/slack/commands
+      description: Open slots per calendar for the next N days
+      usage_hint: "[days]"
+      should_escape: false
+    - command: /agreement
+      url: ${BASE_URL}/slack/commands
+      description: Send an agreement
+      usage_hint: "[their email or phone]"
+      should_escape: true
+    - command: /support
+      url: ${BASE_URL}/slack/commands
+      description: Open a ticket to Tyler
+      usage_hint: "what's wrong"
+      should_escape: false
+    - command: /team
+      url: ${BASE_URL}/slack/commands
+      description: The team and their roles (operator)
+      usage_hint: "[add @person role | remove @person]"
+      should_escape: true
+    - command: /help
+      url: ${BASE_URL}/slack/commands
+      description: What each command does, for this offer
+      should_escape: false
+oauth_config:
+  redirect_urls:
+    - ${BASE_URL}/slack/oauth/callback
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.customize
+      - channels:read
+      - groups:read
+      - channels:history
+      - groups:history
+      - im:history
+      - im:write
+      - app_mentions:read
+      - reactions:read
+      - reactions:write
+      - users:read
+      - users:read.email
+      - commands
+settings:
+  event_subscriptions:
+    request_url: ${BASE_URL}/slack/events
+    bot_events:
+      - app_mention
+      - message.im
+      - message.channels
+      - message.groups
+      - reaction_added
+      - member_joined_channel
+      - channel_rename
+      - channel_archive
+      - app_uninstalled
+      - tokens_revoked
+  interactivity:
+    is_enabled: true
+    request_url: ${BASE_URL}/slack/interactions
+    message_menu_options_url: ${BASE_URL}/slack/options
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: true

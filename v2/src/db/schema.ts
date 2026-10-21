@@ -443,3 +443,161 @@ export const scheduleTimers = pgTable("schedule_timers", {
   nextAt: timestamp("next_at", { withTimezone: true }).notNull(),
   lastPeriod: text("last_period"),
 }, (t) => [primaryKey({ columns: [t.workflowId, t.node] }), index("schedule_timers_due").on(t.nextAt)]);
+
+/*
+ * The platform Slack app (src/slack/). One app, installed per workspace by OAuth; each channel belongs to one offer.
+ * How Slack behaves is the platform's; where an offer posts and what it says stays in the offer's settings and content.
+ */
+
+/** A Slack workspace the app is installed in, with its bot token sealed. One row per workspace, however many offers use it. */
+export const slackWorkspaces = pgTable("slack_workspaces", {
+  teamId: text("team_id").primaryKey(),
+  teamName: text("team_name"),
+  appId: text("app_id"),
+  botUserId: text("bot_user_id").notNull(),
+  botTokenEnc: text("bot_token_enc").notNull(),
+  /** Token rotation: the sealed refresh token and when the bot token expires (null: it does not expire). */
+  refreshTokenEnc: text("refresh_token_enc"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  scopes: text("scopes").notNull(),
+  installedBy: text("installed_by"),
+  installedAt: timestamp("installed_at", { withTimezone: true }).notNull(),
+  /** Set by app_uninstalled or tokens_revoked: every Slack post for its offers is held until it is installed again. */
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedReason: text("revoked_reason"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+
+/** Which workspace an offer's Slack is: an install links the offer; installing the same workspace for another offer only adds a link. */
+export const slackOfferLinks = pgTable("slack_offer_links", {
+  offerId: uuid("offer_id").primaryKey().references(() => offers.id),
+  teamId: text("team_id").notNull().references(() => slackWorkspaces.teamId),
+  linkedBy: text("linked_by"),
+  linkedAt: timestamp("linked_at", { withTimezone: true }).notNull(),
+}, (t) => [index("slack_offer_links_team").on(t.teamId)]);
+
+/** A channel and the one offer it belongs to (the primary key keeps it to one), with the slots it fills for that offer. */
+export const slackChannels = pgTable("slack_channels", {
+  teamId: text("team_id").notNull().references(() => slackWorkspaces.teamId),
+  channelId: text("channel_id").notNull(),
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  slots: text("slots").array().notNull().default(sql`'{}'::text[]`),
+  name: text("name"),
+  isPrivate: boolean("is_private").notNull().default(false),
+  botMember: boolean("bot_member").notNull().default(false),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.teamId, t.channelId] }), index("slack_channels_offer").on(t.offerId)]);
+
+/** A person's account elsewhere, confirmed by a person (never guessed): their Slack user in a workspace. */
+export const personIdentities = pgTable("person_identities", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  personId: text("person_id").notNull(),
+  kind: text("kind").notNull(),
+  teamId: text("team_id").notNull(),
+  userId: text("user_id").notNull(),
+  confirmedBy: text("confirmed_by"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.offerId, t.kind, t.teamId, t.userId] }),
+  uniqueIndex("person_identities_person").on(t.offerId, t.personId, t.kind, t.teamId),
+  index("person_identities_user").on(t.kind, t.teamId, t.userId),
+  check("person_identities_kind", sql`${t.kind} in ('slack')`),
+]);
+
+/**
+ * Every message the platform's Slack app posted: a workflow's (with its run and step), an alert's, the bot's. Later
+ * steps and presses find a post here; `app` is the app that posted it, which answers for it until it closes; `settled`
+ * is the press that answered it (who, what, when), after which its buttons are gone.
+ */
+export const slackMessages = pgTable("slack_messages", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  offerId: uuid("offer_id").references(() => offers.id),
+  teamId: text("team_id").notNull(),
+  channel: text("channel").notNull(),
+  ts: text("ts").notNull(),
+  threadTs: text("thread_ts"),
+  kind: text("kind").notNull(),
+  workflowId: uuid("workflow_id"),
+  runId: uuid("run_id"),
+  node: text("node"),
+  tag: text("tag"),
+  outboxId: bigint("outbox_id", { mode: "number" }),
+  alertId: bigint("alert_id", { mode: "number" }),
+  app: text("app").notNull().default("platform"),
+  sandbox: boolean("sandbox").notNull().default(false),
+  settled: jsonb("settled"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("slack_messages_ts").on(t.teamId, t.channel, t.ts),
+  index("slack_messages_run").on(t.runId, t.node),
+  index("slack_messages_tag").on(t.offerId, t.tag),
+  check("slack_messages_kind", sql`${t.kind} in ('workflow', 'alert', 'bot', 'command', 'support')`),
+]);
+
+/**
+ * What the platform's Slack app says that no run asked for (an alert's post, its thread replies and ✅, the bot's
+ * answers, a press's edit of the message it answered): written first, delivered after, tried three times, then an
+ * alert; held while the workspace is revoked. A run's posts go through the engine's outbox instead.
+ */
+export const slackOutbox = pgTable("slack_outbox", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  offerId: uuid("offer_id").references(() => offers.id),
+  teamId: text("team_id"),
+  kind: text("kind").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  payload: jsonb("payload").notNull(),
+  status: text("status").notNull().default("queued"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  alertId: bigint("alert_id", { mode: "number" }),
+  lastError: text("last_error"),
+  result: jsonb("result"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+}, (t) => [
+  index("slack_outbox_due").on(t.status, t.nextAttemptAt),
+  check("slack_outbox_kind", sql`${t.kind} in ('post', 'update', 'react', 'respond', 'ephemeral')`),
+  check("slack_outbox_status", sql`${t.status} in ('queued', 'sending', 'sent', 'failed', 'unknown')`),
+]);
+
+/** How each alert has been said in Slack: where its post is, when it was last said, paused, and whether its resolve was said. */
+export const slackAlertState = pgTable("slack_alert_state", {
+  alertId: bigint("alert_id", { mode: "number" }).primaryKey().references(() => alerts.id),
+  teamId: text("team_id"),
+  channel: text("channel"),
+  ts: text("ts"),
+  saidCount: integer("said_count").notNull().default(0),
+  lastSaidAt: timestamp("last_said_at", { withTimezone: true }),
+  pausedAt: timestamp("paused_at", { withTimezone: true }),
+  pausedBy: text("paused_by"),
+  resolvedSaidAt: timestamp("resolved_said_at", { withTimezone: true }),
+  /** Checked again and found to be something only a person can tell: kept open, never repeated. */
+  quiet: boolean("quiet").notNull().default(false),
+});
+
+/** Settings that are the platform's, the same for every offer (alert repeats, the operator's channel, the bot's model). */
+export const platformSettings = pgTable("platform_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** The bot's tokens spent per offer per day (the offer's clock), for its daily budget. */
+export const slackBotUsage = pgTable("slack_bot_usage", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  day: text("day").notNull(),
+  tokens: integer("tokens").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.offerId, t.day] })]);
+
+/** What people did in Slack and what was refused them: presses, refusals, the bot's read-only queries. Never message text. */
+export const slackAudit = pgTable("slack_audit", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  offerId: uuid("offer_id"),
+  teamId: text("team_id"),
+  userId: text("user_id"),
+  action: text("action").notNull(),
+  detail: jsonb("detail").notNull().default({}),
+  at: timestamp("at", { withTimezone: true }).notNull(),
+}, (t) => [index("slack_audit_offer").on(t.offerId, t.at)]);
