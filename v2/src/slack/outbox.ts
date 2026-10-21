@@ -52,7 +52,7 @@ export async function resolveAlertKey(db: Db, offerId: string | null, key: strin
 async function platformGate(d: OutDeps, row: SlackOutRow): Promise<"go" | "wait" | { refuse: string }> {
   const ws = row.offerId ? await workspaceOf(d.db, row.offerId) : row.teamId ? await workspace(d.db, row.teamId) : undefined;
   if (!ws || ws.revokedAt) return "wait";
-  if (row.offerId && (await d.db.select().from(connections).where(and(eq(connections.offerId, row.offerId), eq(connections.port, "slack"))))[0]?.status === "paused_auth") return "wait";
+  if (row.offerId && ((await d.db.select().from(connections).where(and(eq(connections.offerId, row.offerId), eq(connections.port, "slack"))))[0]?.status ?? "connected") !== "connected") return "wait";
   if (row.kind !== "post" && row.kind !== "ephemeral") return "go";
   const channel = (row.payload as PostPayload).channel;
   if (/^D[A-Z0-9-]+$/.test(channel)) return "go";   // a DM: Slack gives each one an id starting with D
@@ -135,7 +135,7 @@ async function fail(d: OutDeps, row: SlackOutRow, e: unknown): Promise<"retry" |
   // an alert about a post that was itself an alert's is kept on the dashboard only, so a broken Slack does not feed itself
   const detail = { slackOutboxId: row.id, kind: row.kind, ...(row.alertId ? { slackSilent: true } : {}) };
   if (err.failure === "auth") {
-    if (row.offerId) await d.db.insert(connections).values({ offerId: row.offerId, port: "slack", status: "paused_auth", reason: message, pausedAt: now }).onConflictDoUpdate({ target: [connections.offerId, connections.port], set: { status: "paused_auth", reason: message, pausedAt: now } });
+    if (row.offerId) await d.db.insert(connections).values({ offerId: row.offerId, port: "slack", status: "paused", reason: message, pausedAt: now }).onConflictDoUpdate({ target: [connections.offerId, connections.port], set: { status: "paused", reason: message, pausedAt: now } });
     await raiseAlert(d.db, { offerId: row.offerId, key: "auth:slack", kind: "connection_auth", message: `The Slack connection refused its token; Slack posts wait until it is fixed: ${message}`, detail, at: now });
     await d.db.update(slackOutbox).set({ status: "queued", attempts: row.attempts - 1, lastError: message, nextAttemptAt: null }).where(eq(slackOutbox.id, row.id));
     return "waiting";

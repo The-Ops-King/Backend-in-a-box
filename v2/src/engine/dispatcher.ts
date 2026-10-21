@@ -88,7 +88,7 @@ export async function deliver(d: DispatchDeps, id: number): Promise<boolean> {
     if (row.leaseUntil && row.leaseUntil > now && row.leaseOwner !== worker) return undefined;
     const port = portOf(row.kind);
     // a connection refused its token: nothing goes through it (or, for a contact effect, past the CRM read) until it is fixed
-    for (const p of row.effect === "contact" ? [port, "crm"] : [port]) if ((await tx.connection(row.offerId, p))?.status === "paused_auth") return undefined;
+    for (const p of row.effect === "contact" ? [port, "crm"] : [port]) { const c = await tx.connection(row.offerId, p); if (c && c.status !== "connected") return undefined; }
     const run = (await tx.run(row.runId))!;
     if (run.status === "ended" || run.status === "failed") {
       await tx.updateOutbox(row.id, { status: "suppressed", lastError: `the run ended (${run.endReason}) before this went out`, settledAt: now });
@@ -319,7 +319,9 @@ async function failed(d: DispatchDeps, row: OutboxRow, e: unknown, before: strin
     const tries = before ? cur.attempts + 1 : cur.attempts;
     const base = { lastError: message, errorClass: cls, leaseOwner: null, leaseUntil: null };
     if (cls === "auth") {
-      await tx.setConnection({ offerId: row.offerId, port, status: "paused_auth", reason: message, pausedAt: now });
+      // a connection already held for a reason of its own (it needs a reinstall, it was uninstalled) keeps that reason
+      const held = await tx.connection(row.offerId, port);
+      if (!held || held.status === "connected") await tx.setConnection({ offerId: row.offerId, port, status: "paused", reason: message, pausedAt: now });
       await tx.raiseAlert({ offerId: row.offerId, key: scoped(row.offerId, `auth:${port}`), kind: "connection_auth", message: `The ${port} connection refused its token; everything through it waits until it is fixed: ${message}`, detail: {}, runId: null, outboxId: row.id, openedAt: now });
       // the call was refused, so it did not happen: the row goes back to the queue, to wait for the connection
       await tx.updateOutbox(row.id, { ...base, status: "queued", nextAttemptAt: now, sentAt: null });
@@ -347,7 +349,7 @@ async function failed(d: DispatchDeps, row: OutboxRow, e: unknown, before: strin
 /** A person fixed the connection's token: everything waiting on it is due now. */
 export async function resumeConnection(store: Store, offerId: string, port: string, now: Date): Promise<number> {
   return store.tx(async (tx) => {
-    await tx.setConnection({ offerId, port, status: "ok", reason: null, pausedAt: null });
+    await tx.setConnection({ offerId, port, status: "connected", reason: null, pausedAt: null });
     await tx.resolveAlert(scoped(offerId, `auth:${port}`), now);
     const rows = (await tx.outboxRows({ offerId, statuses: ["queued"] })).filter((r) => portOf(r.kind) === port);
     for (const r of rows) { await tx.updateOutbox(r.id, { nextAttemptAt: now }); await tx.schedule({ kind: "outbox", id: r.id, at: now }); }

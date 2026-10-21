@@ -106,7 +106,7 @@ class MemTx implements Tx {
   async connection(offerId: string, port: string) { const c = this.s.connections.find((x) => x.offerId === offerId && x.port === port); return c && copy(c); }
   async setConnection(row: ConnectionRow) {
     const i = this.s.connections.findIndex((x) => x.offerId === row.offerId && x.port === row.port);
-    if (i >= 0) this.s.connections[i] = copy(row); else this.s.connections.push(copy(row));
+    if (i >= 0) this.s.connections[i] = copy({ ...this.s.connections[i]!, ...row }); else this.s.connections.push(copy(row));
   }
 
   async appendEvent(e: NewEvent) {

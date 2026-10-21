@@ -81,7 +81,7 @@ async function afterInstall(app: SlackApp, teamId: string, now: Date) {
   const offers = await offersOfTeam(app.db, teamId);
   for (const o of offers) {
     const c = (await app.db.select().from(connections).where(eq(connections.offerId, o.id))).find((x) => x.port === "slack");
-    if (c?.status === "paused_auth") await resumeConnection(app.engine.store, o.id, "slack", now);
+    if (c && c.status !== "connected") await resumeConnection(app.engine.store, o.id, "slack", now);
     await resolveAlertKey(app.db, o.id, "auth:slack", now);
   }
   await resolveAlertKey(app.db, null, `slack-revoked:${teamId}`, now);

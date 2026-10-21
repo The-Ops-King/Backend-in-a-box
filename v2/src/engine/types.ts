@@ -97,7 +97,9 @@ export type PostRow = { id: number; offerId: string; outboxId: number; runId: st
 
 export type AlertRow = { id: number; offerId: string | null; key: string; kind: string; message: string; detail: Record<string, unknown>; runId: string | null; outboxId: number | null; openedAt: Date; resolvedAt: Date | null };
 
-export type ConnectionRow = { offerId: string; port: string; status: "ok" | "paused_auth"; reason: string | null; pausedAt: Date | null };
+/** connected: usable. paused: it refused its token. needs_reinstall, uninstalled: the vendor app must be installed again. Anything but connected holds everything through it. */
+export type ConnectionStatus = "connected" | "paused" | "needs_reinstall" | "uninstalled";
+export type ConnectionRow = { offerId: string; port: string; status: ConnectionStatus; reason: string | null; pausedAt: Date | null };
 
 /** A schedule trigger's next time, and the last period it ran for. */
 export type ScheduleTimer = { workflowId: string; node: string; offerId: string; nextAt: Date; lastPeriod: string | null };

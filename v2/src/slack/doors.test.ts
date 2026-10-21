@@ -201,7 +201,7 @@ describe.skipIf(!process.env.DATABASE_URL)("installing the app (Add to Slack)", 
     await b.event({ type: "app_uninstalled" });
     await b.drain();
     expect((await db().select().from(slackWorkspaces))[0]!.revokedAt).not.toBeNull();
-    expect((await db().select().from(connections)).filter((c) => c.offerId === b.offerId)).toMatchObject([{ port: "slack", status: "paused_auth" }]);
+    expect((await db().select().from(connections)).filter((c) => c.offerId === b.offerId)).toMatchObject([{ port: "slack", status: "paused" }]);
     const operatorAlert = (await db().select().from(alerts)).find((a) => a.kind === "slack_revoked")!;
     expect(operatorAlert).toMatchObject({ offerId: null });
     expect(operatorAlert.message).toMatch(/uninstalled/);

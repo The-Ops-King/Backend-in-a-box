@@ -110,7 +110,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack port", () => {
   it("a token Slack refuses pauses the offer's Slack: its posts wait, with one alert, and go once it is fixed", async () => {
     b.fake.failNext({ method: "chat.postMessage", error: "invalid_auth" });
     await b.ingest("acme", "appointment.booked", booked());
-    expect((await db().select().from(connections))[0]).toMatchObject({ port: "slack", status: "paused_auth" });
+    expect((await db().select().from(connections))[0]).toMatchObject({ port: "slack", status: "paused" });
     expect((await db().select().from(outbox)).map((r) => r.status).sort()).toEqual(["queued", "queued"]);
     expect((await db().select().from(alerts)).map((a) => a.kind)).toEqual(["connection_auth"]);
     const { resumeConnection } = await import("@/engine/dispatcher");

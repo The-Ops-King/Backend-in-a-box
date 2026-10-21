@@ -46,7 +46,7 @@ export const CAUSE_CHECKS: Record<string, Check> = {
     if (!a.offerId) return "unknown";
     const port = /:auth:([a-z]+)$/.exec(a.key)?.[1];
     const c = (await app.db.select().from(connections).where(and(eq(connections.offerId, a.offerId), eq(connections.port, port ?? ""))))[0];
-    return c?.status === "paused_auth" ? "open" : "fixed";
+    return c && c.status !== "connected" ? "open" : "fixed";
   },
   circuit_breaker: async (app, a) => (a.offerId && (await offerRow(app.db, a.offerId))?.sendsPausedAt ? "open" : "fixed"),
   sandbox_no_test_channel: async (app, a) => (a.offerId && (await offerSettings(app.db, a.offerId))["slack.channel.test"] ? "fixed" : "open"),
@@ -197,7 +197,7 @@ export async function revokeWorkspace(app: SlackApp, teamId: string, reason: "un
   const ws = (await app.db.update(slackWorkspaces).set({ revokedAt: now, revokedReason: reason, updatedAt: now }).where(eq(slackWorkspaces.teamId, teamId)).returning())[0];
   if (!ws) return;
   const linked = await offersOfTeam(app.db, teamId);
-  for (const o of linked) await app.db.insert(connections).values({ offerId: o.id, port: "slack", status: "paused_auth", reason: `Slack ${reason}`, pausedAt: now }).onConflictDoUpdate({ target: [connections.offerId, connections.port], set: { status: "paused_auth", reason: `Slack ${reason}`, pausedAt: now } });
+  for (const o of linked) await app.db.insert(connections).values({ offerId: o.id, port: "slack", status: "paused", reason: `Slack ${reason}`, pausedAt: now }).onConflictDoUpdate({ target: [connections.offerId, connections.port], set: { status: "paused", reason: `Slack ${reason}`, pausedAt: now } });
   await raiseAlert(app.db, { offerId: null, key: `slack-revoked:${teamId}`, kind: "slack_revoked", message: `Slack was ${reason} in ${ws.teamName ?? teamId}${linked.length ? ` (${linked.map((o) => o.name).join(", ")})` : ""}. Its posts are held until the app is installed again (Connect Slack).`, detail: { team: teamId, offers: linked.map((o) => o.id) }, at: now });
   await audit(app.db, { teamId, action: `slack.${reason === "uninstalled" ? "uninstalled" : "tokens_revoked"}`, detail: { offers: linked.map((o) => o.id) }, at: now });
 }

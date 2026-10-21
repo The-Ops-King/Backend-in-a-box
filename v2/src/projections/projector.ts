@@ -118,7 +118,7 @@ class Work {
     if (e.appointmentId && (isObj(this.p.appointment) || e.type.startsWith("appointment."))) { this.appointment(); if (e.type !== "appointment.booked") this.countBooking(); }
     if (e.type.startsWith("appointment.") && !e.appointmentId) return undefined;
     switch (e.type) {
-      case "lead.created": return this.lead();
+      case "lead.created": return this.e.contactId ? this.lead() : undefined;
       case "appointment.booked": return this.booked();
       case "appointment.rescheduled": return this.rescheduled();
       case "appointment.status_changed": case "appointment.cancelled": return this.status();
@@ -132,7 +132,7 @@ class Work {
       case "payment.received": case "payment.refunded": case "payment.failed": case "payment.unlinked": return this.payment();
       case "payment.linked": return this.linked();
       case "deal.opened": case "deal.won": case "deal.lost": case "deal.reopened": return this.ledgerDeal();
-      case "crm.deal_written": case "card.moved": return this.card();
+      case "crm.deal_written": case "card.moved": case "card.updated": return this.card();
       case "crm.deal_status_set": return this.cardStatus();
       case "crm.record_written": return this.record();
       case "agreement.sent": case "agreement.signed": case "agreement.voided": case "agreement.status_changed": return this.agreement();

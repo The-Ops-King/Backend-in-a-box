@@ -139,7 +139,7 @@ describe.skipIf(!process.env.DATABASE_URL)("buttons and the ask step", () => {
     const alertPost = () => [...b.fake.messages.values()].find((m) => m.channel === "C-ALERTS" && !m.threadTs)!;
     const raise = async () => {
       const a = await raiseAlert(db(), { offerId: b.offerId, key: "auth:crm", kind: "connection_auth", message: "The crm connection refused its token", at: b.clock.now() });
-      await db().insert((await import("@/db/schema")).connections).values({ offerId: b.offerId, port: "crm", status: "paused_auth", reason: "x", pausedAt: b.clock.now() });
+      await db().insert((await import("@/db/schema")).connections).values({ offerId: b.offerId, port: "crm", status: "paused", reason: "x", pausedAt: b.clock.now() });
       await announceAlerts(b.app); await b.drain();
       return a.id;
     };

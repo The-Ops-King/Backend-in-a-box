@@ -16,7 +16,13 @@ export const inbox = pgTable("inbox", {
   headers: jsonb("headers").notNull(),
   body: text("body").notNull(),                           // raw, byte for byte, so the signature can be checked again
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [uniqueIndex("inbox_source_delivery").on(t.source, t.deliveryId)]);
+  /** The connection whose door it came through (a per-connection door), and the offer it belongs to once known. */
+  connectionId: uuid("connection_id"),
+  offerId: uuid("offer_id"),
+  /** Set when the normalizer has read it: what came of it (facts recorded, ignored, an unknown location, ...). */
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  outcome: text("outcome"),
+}, (t) => [uniqueIndex("inbox_source_delivery").on(t.source, t.deliveryId), index("inbox_unprocessed").on(t.source, t.processedAt)]);
 
 /** A GHL sub-account the app is installed on, with its tokens encrypted. One row per location. */
 export const ghlConnections = pgTable("ghl_connections", {
@@ -128,16 +134,128 @@ export const reportDefinitions = pgTable("report_definitions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.offerId, t.kind, t.key] }), check("report_definitions_kind", sql`${t.kind} in ('report', 'metric')`)]);
 
-/** Whether an offer's connection on a port may be used: an auth failure pauses it until a person fixes the token. */
+/**
+ * An offer's connection on a port: which provider serves it (GHL, Whop, Fathom, ...), how (`mode`: oauth or pit for GHL,
+ * webhook or polling for Calendly), whether it may be used now, and its credentials, sealed. One provider per port per
+ * offer; a port may also be named by one verb ("ai.classify") when two providers share a port. A row with no provider is
+ * only the engine's pause of a port (the platform's own Slack app). An auth failure pauses it until a person fixes it;
+ * a needs_reinstall or uninstalled connection holds everything through it the same way.
+ * `id` names it in its inbound door, /in/{id}. `external_id` is the vendor's account it is (a GHL location, a Calendly
+ * organization). `config` holds what is not secret (a generic door's field map, Calendly's free-plan flag, polling).
+ */
 export const connections = pgTable("connections", {
   offerId: uuid("offer_id").notNull().references(() => offers.id),
   port: text("port").notNull(),
-  status: text("status").notNull().default("ok"),
+  status: text("status").notNull().default("connected"),
   reason: text("reason"),
   pausedAt: timestamp("paused_at", { withTimezone: true }),
+  id: uuid("id").notNull().defaultRandom().unique(),
+  provider: text("provider"),
+  mode: text("mode"),
+  externalId: text("external_id"),
+  credentialsEnc: text("credentials_enc"),
+  config: jsonb("config").notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   primaryKey({ columns: [t.offerId, t.port] }),
-  check("connections_status", sql`${t.status} in ('ok', 'paused_auth')`),
+  index("connections_provider_external").on(t.provider, t.externalId),
+  check("connections_status", sql`${t.status} in ('connected', 'paused', 'needs_reinstall', 'uninstalled')`),
+]);
+
+/**
+ * An offer's field map: each canonical field a workflow names ("lead_source") and the provider's own field it is
+ * (a GHL custom field id), per object (contact, opportunity, a custom object's key; "calendar" maps a call type to a
+ * calendar id). `value_type` says how a value is written (a GHL DATE field takes YYYY-MM-DD). Workflows never name a
+ * provider field id.
+ */
+export const fieldMaps = pgTable("field_maps", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  provider: text("provider").notNull(),
+  object: text("object").notNull().default("contact"),
+  canonicalField: text("canonical_field").notNull(),
+  providerFieldId: text("provider_field_id").notNull(),
+  valueType: text("value_type").notNull().default("text"),
+  options: jsonb("options").notNull().default({}),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.offerId, t.provider, t.object, t.canonicalField] }),
+  uniqueIndex("field_maps_provider_field").on(t.offerId, t.provider, t.object, t.providerFieldId),
+  check("field_maps_value_type", sql`${t.valueType} in ('text', 'date', 'datetime', 'number', 'money', 'options', 'checkbox', 'id')`),
+]);
+
+/**
+ * What a write of ours is expected to change at the vendor, recorded before the write is made: the webhook that echoes
+ * it back inside the window is tagged `by: platform`, so a change the platform made is never mistaken for a person's.
+ */
+export const connectorEchoes = pgTable("connector_echoes", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  provider: text("provider").notNull(),
+  entity: text("entity").notNull(),
+  entityId: text("entity_id").notNull(),
+  change: jsonb("change").notNull(),
+  outboxKey: text("outbox_key"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  matchedAt: timestamp("matched_at", { withTimezone: true }),
+}, (t) => [index("connector_echoes_entity").on(t.offerId, t.provider, t.entity, t.entityId)]);
+
+/**
+ * The last state a connector saw of a vendor's entity (a contact's tags and DND, an appointment's start and status, a
+ * card's stage), and the vendor's time for it: a later delivery is compared with it (an update older than it is stale
+ * and dropped), and a poll or the reconcile diffs against it. Also each poll's cursor (kind "cursor").
+ */
+export const entityVersions = pgTable("entity_versions", {
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  provider: text("provider").notNull(),
+  kind: text("kind").notNull(),
+  entityId: text("entity_id").notNull(),
+  versionAt: timestamp("version_at", { withTimezone: true }),
+  state: jsonb("state").notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.offerId, t.provider, t.kind, t.entityId] })]);
+
+/**
+ * An agreement the platform sent and is waiting on (GHL has no "signed" webhook). Its location is checked every 10 s
+ * for the first hour after sending, then every 5 minutes, up to 30 days; checking stops when it is signed or voided.
+ */
+export const agreementChecks = pgTable("agreement_checks", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  connectionId: uuid("connection_id").notNull(),
+  locationId: text("location_id").notNull(),
+  agreementId: text("agreement_id").notNull(),
+  contactId: text("contact_id"),
+  name: text("name"),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
+  nextCheckAt: timestamp("next_check_at", { withTimezone: true }).notNull(),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  lastStatus: text("last_status"),
+  checks: integer("checks").notNull().default(0),
+  status: text("status").notNull().default("waiting"),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("agreement_checks_agreement").on(t.offerId, t.agreementId),
+  index("agreement_checks_due").on(t.locationId, t.status, t.nextCheckAt),
+  check("agreement_checks_status", sql`${t.status} in ('waiting', 'signed', 'voided', 'expired')`),
+]);
+
+/** A call recording whose transcript is not ready yet: fetched again 1, 3 and 10 minutes after, then given up on and flagged. */
+export const transcriptWaits = pgTable("transcript_waits", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  offerId: uuid("offer_id").notNull().references(() => offers.id),
+  connectionId: uuid("connection_id").notNull(),
+  provider: text("provider").notNull(),
+  recordingId: text("recording_id").notNull(),
+  tries: integer("tries").notNull().default(0),
+  nextAt: timestamp("next_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("waiting"),
+  fact: jsonb("fact").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("transcript_waits_recording").on(t.offerId, t.provider, t.recordingId),
+  check("transcript_waits_status", sql`${t.status} in ('waiting', 'ready', 'gave_up')`),
 ]);
 
 /** The operator's own phones and emails: in sandbox, the only addresses a message to a contact may reach. Platform-wide. */

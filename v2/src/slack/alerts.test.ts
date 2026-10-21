@@ -25,7 +25,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts in Slack", () => {
   });
   const sweep = async () => { const r = await announceAlerts(b.app); await b.drain(); return r; };
   const authAlert = async (offer = b.offerId) => {
-    await db().insert(connections).values({ offerId: offer, port: "crm", status: "paused_auth", reason: "x", pausedAt: b.clock.now() }).onConflictDoNothing();
+    await db().insert(connections).values({ offerId: offer, port: "crm", status: "paused", reason: "x", pausedAt: b.clock.now() }).onConflictDoNothing();
     return (await raiseAlert(db(), { offerId: offer, key: "auth:crm", kind: "connection_auth", message: "The crm connection refused its token", at: b.clock.now() })).id;
   };
   const top = (channel: string) => [...b.fake.messages.values()].filter((m) => m.channel === channel && !m.threadTs);
@@ -90,7 +90,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts in Slack", () => {
   it("a cause found gone when checked closes the alert: the ✅ instead of a repeat", async () => {
     await authAlert();
     await sweep();
-    await db().update(connections).set({ status: "ok" });
+    await db().update(connections).set({ status: "connected" });
     b.clock.advance("1h");
     expect((await sweep()).checkedFixed).toBe(1);
     expect(thread("C-ALERTS")).toEqual(["✅ Resolved (open for 1 hour)"]);
@@ -128,7 +128,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts in Slack", () => {
     await db().update(slackAlertState).set({ pausedAt: b.clock.now(), pausedBy: "x" }).where(eq(slackAlertState.alertId, id));
     b.clock.advance("2h"); await sweep();
     expect(thread("C-ALERTS")).toEqual([]);
-    await db().update(connections).set({ status: "ok" });
+    await db().update(connections).set({ status: "connected" });
     b.clock.advance("1h"); await sweep();
     expect(thread("C-ALERTS")).toEqual(["✅ Resolved (open for 3 hours)"]);
   });
