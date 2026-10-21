@@ -114,10 +114,12 @@ The connectors (`src/connectors/`, set up per vendor in `docs/connectors.md`; Ty
   pause) over two auth modes, OAuth (the Marketplace app; tokens renewed under the row lock when under 4 hours, refresh
   tokens single-use, a lost refresh is needs_reinstall) and a private token, behind the same ports; every v1 quirk fixed
   inside it with a test; the webhook normalizer (contacts, tags, DND, appointments, cards, messages, dialer calls, records,
-  notes, users, installs) with echo tagging (`by: platform`) and stale dropping; the agreement check (10 s for an hour,
+  notes, users, installs) with echo tagging (`by: platform`: recorded and projected, but starting only a trigger that says
+  `includeOwnWrites: true`) and stale dropping; the agreement check (10 s for an hour,
   then 5 min to 30 days, one request per location); the private-token poll, which records the same facts as the
   webhooks; the nightly reconcile (26 hours, `source: reconcile`, an alert past a handful missed).
-- **Whop, Fathom, Typeform, Calendly** (webhook, or a free plan's poll by exception), **the generic signed door**, **Jev**
+- **Whop, Fathom** (a recording placed by v1's ladder: email, meeting link, exact name, the closer's calendar, its
+  thresholds the offer's settings), **Typeform, Calendly** (webhook, or a free plan's poll by exception), **the generic signed door**, **Jev**
   (ai.classify) and **Anthropic** (ai.summarize, its model a setting).
 - **contract suites** (`contract/`): one suite per port (crm, messaging, scheduling, esign, ai, payments-in, recording,
   forms) that every provider passes, on the fake HTTP layer with a stateful fake GHL (`testkit/`).
@@ -154,8 +156,12 @@ states (fixtures only for vendor reads), and together the scenarios take every e
 `_untakeable.json`, with why).
 
 ## Deploy on Railway (from the repo)
+Two services from this repository, the app and the worker, and one Postgres. Railway reads one config file per service:
+the app's is `railway.json` (Railway's default name), the worker's `railway.worker.json`.
+
 1. **New project, then Deploy from GitHub repo.** Pick this repository and the branch `rebuild`. In the service's settings, set
-   **Root Directory** to `v2`. `railway.json` holds the build and start commands; the start command runs the migrations first.
+   **Root Directory** to `v2`. This is the app: `railway.json` holds its build and start commands (`pnpm migrate && pnpm start`);
+   the start command runs the migrations first.
 2. **Add a database.** In the same project, click New, then Database, then PostgreSQL.
 3. **Set the service's variables:**
    - `DATABASE_URL`: `${{Postgres.DATABASE_URL}}`, Railway's reference to the database.
@@ -167,6 +173,21 @@ states (fixtures only for vendor reads), and together the scenarios take every e
      (see `docs/slack.md`).
 4. **Generate a domain** under the service's Networking settings. Then check that `https://<domain>/health` answers
    `{"ok":true}`.
+5. **Add the worker** (`src/worker.ts`: every timer, delivery, Slack job and connector job runs here; without it nothing
+   that waits ever happens). In the same project, click New, then GitHub Repo, and pick this repository and `rebuild` again.
+   In the new service's settings:
+   - **Root Directory**: `v2`.
+   - **Config file** (Settings, Config-as-code, "Railway Config File"): `/v2/railway.worker.json`. The path is from the
+     repository's root, not the root directory. Without it Railway reads `railway.json` and starts a second app (and a
+     start command typed in the dashboard does not help: what a config file says wins over the dashboard).
+   - **Variables**: the same as the app's (step 3). The simplest is to reference them: `DATABASE_URL` as
+     `${{Postgres.DATABASE_URL}}`, and each other one as `${{<app service name>.TOKEN_KEY}}` and so on.
+   - No domain, and no healthcheck: the worker answers no HTTP.
+   - Keep it at **one replica**: GHL's rate budget is per process (`docs/connectors.md`).
+
+   The worker brings the schema up to date at its start, as the app's `pnpm migrate` does, both under one Postgres
+   advisory lock (`src/db/migrator.ts`): when both services deploy at once, whichever comes second waits for the first,
+   then finds nothing left to do, and the worker never runs against an older schema than its code.
 
 The GHL app takes two URLs:
 - redirect URL: `https://<domain>/ghl/oauth/callback`

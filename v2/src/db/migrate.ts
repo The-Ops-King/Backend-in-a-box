@@ -1,13 +1,7 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { runMigrations } from "graphile-worker";
-import { closeDb, db, pgPool } from "./client";
+import { closeDb, pgPool } from "./client";
+import { migrateAll } from "./migrator";
 
-/** Runs every migration in drizzle/ not yet recorded, once each, in order. Run by the deploy before the app starts. */
-const folder = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../drizzle");
-await migrate(db(), { migrationsFolder: folder });
-// the job queue's own schema (graphile_worker), which the library migrates itself
-await runMigrations({ pgPool: pgPool() });
+/** `pnpm migrate`: the app service's start runs it before the app (railway.json); the worker runs the same at its start. */
+await migrateAll(pgPool());
 await closeDb();
 console.log("migrations: up to date");

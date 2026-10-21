@@ -1,5 +1,6 @@
-import { run, runMigrations } from "graphile-worker";
+import { run } from "graphile-worker";
 import { db, pgPool } from "@/db/client";
+import { migrateAll } from "@/db/migrator";
 import { Engine } from "@/engine/engine";
 import { taskList } from "@/engine/jobs";
 import { PgStore } from "@/engine/pg-store";
@@ -15,8 +16,10 @@ import { defaultHub } from "@/connectors/runtime";
 /**
  * The always-on worker (ADR 0008), with real ports: the engine's jobs (wakes, deliveries, schedules), the Slack app's,
  * and the connectors' (the inbox normalizer, GHL's token refresh, agreement checks and private-token poll, Calendly's
- * free-plan poll, transcripts, the nightly reconcile). `pnpm worker`. Not in railway.json yet: it is a second Railway
- * service with the same variables, started with this command, when the first offer moves.
+ * free-plan poll, transcripts, the nightly reconcile). `pnpm worker`: the second Railway service, from the same repo
+ * and root, with the same variables, its config in `railway.worker.json` (README, "Deploy on Railway"). It brings the
+ * schema up to date first, under the migrators' lock, so it never works on an older schema than its code, and its
+ * start beside the app's `pnpm migrate` is safe: whichever comes second waits, then finds nothing to do.
  */
 
 const d = db();
@@ -28,7 +31,7 @@ const engine = new Engine({ store: new PgStore(d, "graphile"), ports: connectorP
 hub.setIngest(async (f) => ({ duplicate: (await engine.ingest(f)).duplicate }));
 const slackApp = { db: d, env, api, port: slack, engine, now: () => new Date(), enqueue: graphileEnqueue(d) };
 
-await runMigrations({ pgPool: pgPool() });
+await migrateAll(pgPool());
 await engine.reap();
 await sweepInbox(hub, (id) => processDelivery(hub, id));
 for (const provider of ["ghl", "whop", "fathom", "calendly"] as const) for (const c of await hub.state.connectionsOf(provider)) if (c.status === "connected") await startConnection(hub, c);
