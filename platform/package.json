@@ -15,7 +15,9 @@
     "install:company": "tsx scripts/install-company.ts",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "tick": "tsx scripts/tick.ts",
-    "smoke": "tsx scripts/smoke-journey.ts"
+    "smoke": "tsx scripts/smoke-journey.ts",
+    "spec": "tsx scripts/spec-workflows.ts",
+    "traces": "tsx scripts/export-traces.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
