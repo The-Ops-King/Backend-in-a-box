@@ -11,12 +11,14 @@
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "sim": "tsx src/sim/cli.ts"
+    "sim": "tsx src/sim/cli.ts",
+    "worker": "tsx src/worker.ts"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "drizzle-orm": "~0.44.7",
     "graphile-worker": "0.17.3",
     "next": "^15.5.28",

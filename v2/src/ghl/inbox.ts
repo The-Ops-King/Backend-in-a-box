@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { db } from "@/db/client";
 import { inbox } from "@/db/schema";
 
-export type Recorded = { stored: boolean; deliveryId: string };
+export type Recorded = { stored: boolean; deliveryId: string; id?: number };
 
 /**
  * Keeps one GHL delivery as it arrived. GHL retries a delivery up to 12 times; the same delivery (its webhookId, else the body's
@@ -17,5 +17,5 @@ export async function recordGhlDelivery(rawBody: string, headers: Record<string,
     eventType: typeof parsed.type === "string" ? parsed.type : null,
     locationId: typeof parsed.locationId === "string" ? parsed.locationId : null,
   }).onConflictDoNothing().returning({ id: inbox.id });
-  return { stored: rows.length > 0, deliveryId };
+  return { stored: rows.length > 0, deliveryId, ...(rows[0] ? { id: rows[0].id } : {}) };
 }

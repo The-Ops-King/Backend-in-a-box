@@ -1,4 +1,6 @@
 import { connectLocation } from "@/ghl/oauth";
+import { resumeLocation } from "@/connectors/ghl/auth";
+import { defaultHub } from "@/connectors/runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +10,8 @@ export async function GET(req: Request) {
   if (!code) return new Response("No code from GHL.", { status: 400 });
   try {
     const { locationId } = await connectLocation(code);
+    // a reinstall: the location's offers that were waiting on it go again
+    await resumeLocation(defaultHub(), locationId);
     return new Response(`Connected GHL location ${locationId}. You can close this tab.`, { headers: { "content-type": "text/plain" } });
   } catch (e) {
     console.error("ghl install failed", e);
