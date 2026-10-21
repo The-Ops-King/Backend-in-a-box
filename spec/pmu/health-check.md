@@ -1,19 +1,19 @@
 # Health check
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | shipped template: platform/src/templates/health-check.json (the offer's words, if any, are applied at install) |
-| Template | `health-check` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 2, saved 2026-10-19T16:47:23.216Z (D150: the Pause button on alert posts (Tyler: live on all accounts)) |
+| Template | `health-check` v5 |
+| Edited since copied from the template | no |
+| Saved version | 2 |
+| Enabled | on |
+| Mode | quiet |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | nothing |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 19 |
 
 ## Steps
@@ -43,7 +43,7 @@ Next:
 
 </details>
 
-### 2. An alert is raised: something broke — topic is not “availability”
+### 2. An alert is raised: something broke
 
 - Step id `t_raised`, type `trigger`
 
@@ -56,19 +56,13 @@ Next:
 {
   "id": "t_raised",
   "type": "trigger",
-  "event": "alert.raised",
-  "match": {
-    "neq": [
-      "{{event.topic}}",
-      "availability"
-    ]
-  }
+  "event": "alert.raised"
 }
 ```
 
 </details>
 
-### 3. An alert is still open (said again every hour until it is fixed) — topic is not “availability”
+### 3. An alert is still open (said again every hour until it is fixed)
 
 - Step id `t_repeated`, type `trigger`
 
@@ -81,19 +75,13 @@ Next:
 {
   "id": "t_repeated",
   "type": "trigger",
-  "event": "alert.repeated",
-  "match": {
-    "neq": [
-      "{{event.topic}}",
-      "availability"
-    ]
-  }
+  "event": "alert.repeated"
 }
 ```
 
 </details>
 
-### 4. An alert is fixed (cleared) — topic is not “availability”
+### 4. An alert is fixed (cleared)
 
 - Step id `t_resolved`, type `trigger`
 
@@ -106,13 +94,7 @@ Next:
 {
   "id": "t_resolved",
   "type": "trigger",
-  "event": "alert.resolved",
-  "match": {
-    "neq": [
-      "{{event.topic}}",
-      "availability"
-    ]
-  }
+  "event": "alert.resolved"
 }
 ```
 
@@ -251,7 +233,7 @@ Next:
 
 - Step id `a_head`, type `set_var`
 - Engine description: Remember head, picked by [payment kind]
-- Detail: blocked → Step could not run; skipped → Step skipped; held → Run paused on a step; paused → Run needs a hand; auth → Token rejected; failed → Run failed; health → Health check; poll → Polling; engine → Engine; otherwise Engine
+- Detail: auth → Token rejected; held → Run paused on a step; poll → Polling; engine → Engine; failed → Run failed; health → Health check; paused → Run needs a hand; blocked → Step could not run; skipped → Step skipped; otherwise Engine
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -267,15 +249,15 @@ Next:
   "key": "head",
   "value": "{{event.kind}}",
   "pick": {
-    "blocked": "Step could not run",
-    "skipped": "Step skipped",
-    "held": "Run paused on a step",
-    "paused": "Run needs a hand",
     "auth": "Token rejected",
+    "held": "Run paused on a step",
+    "poll": "Polling",
+    "engine": "Engine",
     "failed": "Run failed",
     "health": "Health check",
-    "poll": "Polling",
-    "engine": "Engine"
+    "paused": "Run needs a hand",
+    "blocked": "Step could not run",
+    "skipped": "Step skipped"
   },
   "else_value": "Engine"
 }
@@ -322,7 +304,7 @@ Next:
 
 - Step id `a_dhead`, type `set_var`
 - Engine description: Remember drift head, picked by [detail shape]
-- Detail: fixed one → [detail fixed] in the engine didn't match GHL over the last [detail days] days; [the drift line's verb (it's or they've)] been updated from GHL. Except this one, which I have a question about:; fixed many → [detail fixed] in the engine didn't match GHL over the last [detail days] days; [the drift line's verb (it's or they've)] been updated from GHL. Except these, which I have questions about:; one → One thing in the engine doesn't match GHL and I have a question about it:; many → [detail count] things in the engine don't match GHL, which I have questions about:; otherwise 
+- Detail: one → One thing in the engine doesn't match GHL and I have a question about it:; many → [detail count] things in the engine don't match GHL, which I have questions about:; fixed one → [detail fixed] in the engine didn't match GHL over the last [detail days] days; [the drift line's verb (it's or they've)] been updated from GHL. Except this one, which I have a question about:; fixed many → [detail fixed] in the engine didn't match GHL over the last [detail days] days; [the drift line's verb (it's or they've)] been updated from GHL. Except these, which I have questions about:; otherwise 
 - Runs only if: key is “health:ledger drift” (otherwise skipped)
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
@@ -345,10 +327,10 @@ Next:
   "key": "drift_head",
   "value": "{{event.detail.shape}}",
   "pick": {
-    "fixed_one": "{{event.detail.fixed | plural:record}} in the engine didn't match GHL over the last {{event.detail.days}} days; {{vars.drift_were}} been updated from GHL.\nExcept this one, which I have a question about:",
-    "fixed_many": "{{event.detail.fixed | plural:record}} in the engine didn't match GHL over the last {{event.detail.days}} days; {{vars.drift_were}} been updated from GHL.\nExcept these, which I have questions about:",
     "one": "One thing in the engine doesn't match GHL and I have a question about it:",
-    "many": "{{event.detail.count}} things in the engine don't match GHL, which I have questions about:"
+    "many": "{{event.detail.count}} things in the engine don't match GHL, which I have questions about:",
+    "fixed_one": "{{event.detail.fixed | plural:record}} in the engine didn't match GHL over the last {{event.detail.days}} days; {{vars.drift_were}} been updated from GHL.\nExcept this one, which I have a question about:",
+    "fixed_many": "{{event.detail.fixed | plural:record}} in the engine didn't match GHL over the last {{event.detail.days}} days; {{vars.drift_were}} been updated from GHL.\nExcept these, which I have questions about:"
   },
   "else_value": ""
 }
@@ -646,7 +628,7 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
 
 ## Engine rules that apply but are not steps
 

@@ -1,0 +1,229 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "Card moved by hand",
+  "slug": "card-moved-by-hand",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "noted",
+      "runs": 2
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-56>",
+      "status": "completed",
+      "exit_reason": "noted",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 5,
+      "trigger": {
+        "type": "card.moved",
+        "source": "ghl_poll",
+        "data": {
+          "by": "crm",
+          "mover": null,
+          "to_name": "Showed",
+          "crm_card": "<crm-id-35>",
+          "mover_id": null,
+          "pipeline": "setter",
+          "to_stage": "<id-28>",
+          "from_name": "Appointment Set",
+          "to_status": "won",
+          "from_stage": "<id-3>",
+          "from_status": "open",
+          "pipeline_id": "<crm-id-36>"
+        }
+      },
+      "steps": [
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "x_noted",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "v_status",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_line",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 5,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "nothing to react to: the post this replies to is not in Slack (booked before the engine, or its channel was unbound)",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x_noted",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_line",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "no post to reply to",
+          "at_sec": null,
+          "body": "🗂️ someone moved the setter card to Showed and marked it won"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-57>",
+      "status": "completed",
+      "exit_reason": "noted",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 5,
+      "trigger": {
+        "type": "card.moved",
+        "source": "ghl_poll",
+        "data": {
+          "by": "crm",
+          "mover": null,
+          "to_name": "Showed",
+          "crm_card": "<crm-id-24>",
+          "mover_id": null,
+          "pipeline": "setter",
+          "to_stage": "<id-28>",
+          "from_name": "Direct Booked",
+          "to_status": "won",
+          "from_stage": "<id-12>",
+          "from_status": "open",
+          "pipeline_id": "<crm-id-36>"
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "x_noted",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "n_line",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [
+            "in_thread_of",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-15>",
+            "tag": "appointment:<id-29>",
+            "in_thread_of": "<phone-12>"
+          },
+          "error": null
+        },
+        {
+          "node": "x_noted",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_status",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_line",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 5,
+          "body": "🗂️ someone moved the setter card to Showed and marked it won"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

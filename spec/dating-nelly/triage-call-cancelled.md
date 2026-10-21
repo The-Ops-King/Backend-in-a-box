@@ -1,21 +1,20 @@
 # Triage call cancelled
 
-Offer: **Dating (Nelly)** (`dating-nelly`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **Dating (Nelly)** (`dating-nelly`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | the offer's own workflow: platform/installs/dating-nelly/triage-call-cancelled.json |
+| Where this definition came from | live: version 2, saved 2026-10-20T03:44:46.969Z (D199: the rebook task for whoever takes the triage call, as the post says) |
 | Template | none (the offer's own workflow) |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | follows the offer (quiet) |
-| Send lock | unknown (repo) |
+| Edited since copied from the template | yes |
+| Saved version | 2 |
+| Enabled | on |
+| Mode | live |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | once_per_appointment |
 | Re-checked before every step | appointment exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 8 |
-| Note | dating-nelly: Call cancelled for a Triage call (a triage call, which Call cancelled leaves to it): the setter card to Cancelled, the Discovery Call record cancelled, the tags, ❌ in the booking thread; no closer card, no task, no Sales Call (D142) |
 
 ## Steps
 
@@ -279,12 +278,12 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.field_contact_appointment_date` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_discovery_call` | id | no | not read (repo) |
-| `crm.pipeline_setter` | id | yes | not read (repo) |
-| `crm.stage_setter_cancelled` | id | yes | not read (repo) |
-| `slack.channel.bookings` | channel | no | not read (repo) |
+| `crm.field_contact_appointment_date` | id | yes | `RkHcvZxz7orOBLxclh4i` |
+| `crm.location_id` | id | yes | `eLfhuKEaVMlrpLm2Fz8V` |
+| `crm.object_discovery_call` | id | no | `custom_objects.dating_discovery` |
+| `crm.pipeline_setter` | id | yes | `N59nJLRaspsNwiaPWtE8` |
+| `crm.stage_setter_cancelled` | id | yes | `72b4a0a0-11db-4b3c-92b7-e06c4d6112e1` |
+| `slack.channel.bookings` | channel | no | `C0C9Q7MEANT` |
 
 ## Engine rules that apply but are not steps
 

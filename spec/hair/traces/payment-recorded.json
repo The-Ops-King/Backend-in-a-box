@@ -1,0 +1,370 @@
+{
+  "offer": "hair",
+  "workflow": "Payment recorded",
+  "slug": "payment-recorded",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "recorded",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-64>",
+      "status": "completed",
+      "exit_reason": "recorded",
+      "mode_at_start": "test",
+      "workflow_version": 12,
+      "started": "2026-10-12",
+      "took_sec": 54,
+      "trigger": {
+        "type": "payment.received",
+        "source": "whop",
+        "data": {
+          "kind": "deposit",
+          "amount": 1500,
+          "cleared": false,
+          "paid_at": "2026-10-12T01:06:49.142Z",
+          "currency": "USD",
+          "linked_by": "known",
+          "payment_id": "<id-42>",
+          "outstanding": 1499,
+          "prior_total": 0,
+          "running_total": 1500,
+          "contract_value": 2999,
+          "customer_email": null,
+          "whop_member_id": null,
+          "provider_payment_id": "<contact-1>-c16ea7aa"
+        }
+      },
+      "steps": [
+        {
+          "node": "v1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "p1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "crm_id",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "crm_id": "<crm-id-38>",
+            "our_id": "<id-65>",
+            "record": "created",
+            "related": [
+              "<crm-id-8>→<crm-id-38>",
+              "<crm-id-38>→<crm-id-6>"
+            ],
+            "properties": {
+              "type": "deposit",
+              "amount": 1500,
+              "closer": "<staff-2>",
+              "setter": "<contact-1> Setter",
+              "status": "succeeded",
+              "processor": "whop",
+              "contact_id": "<crm-id-8>",
+              "occurred_at": "2026-10-12T01:06:49.142Z",
+              "display_label": "$1500 · <contact-3> · 2026-10-11",
+              "opportunity_id": "<crm-id-6>",
+              "transaction_id": "<contact-1>-c16ea7aa"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "p_rev",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "nothing to react to: the post this replies to is not in Slack (booked before the engine, or its channel was unbound)",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n5",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-24>"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "o_won",
+          "type": "update_opportunity",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "opportunity",
+            "started",
+            "status"
+          ],
+          "result": {
+            "status": {
+              "to": "won",
+              "from": "open"
+            },
+            "started": [],
+            "opportunity": "<id-66>"
+          },
+          "error": null
+        },
+        {
+          "node": "a0",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "m1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "p1",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "p_book",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-25>",
+            "tag": "appointment:<id-4>",
+            "reacted": true,
+            "in_thread_of": "<phone-1>"
+          },
+          "error": null
+        },
+        {
+          "node": "b2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "r2"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "customFields"
+          ],
+          "result": {
+            "customFields": [
+              {
+                "id": "<crm-id-39>",
+                "field_value": "2999"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r2",
+          "type": "crm_record",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "blocking",
+            "class",
+            "kind",
+            "tries",
+            "vendor",
+            "why"
+          ],
+          "result": {
+            "why": "couldn't update the Sales Call record after 1 try; the run went on without it",
+            "kind": "gave_up",
+            "class": "permanent",
+            "tries": 1,
+            "vendor": "ghl",
+            "blocking": false
+          },
+          "error": "GHL 400 on /objects/custom_objects.sales_call/records/<crm-id-7>?locationId=<crm-id-10>: {\"message\":\"\\\"1500\\\" isn't a valid number for Cash Collected (USD).\",\"error\":\"Bad Request\",\"statusCode\":400,\"traceId\":\"<id-67>\"}"
+        },
+        {
+          "node": "n1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "customFields"
+          ],
+          "result": {
+            "customFields": [
+              {
+                "id": "<crm-id-40>",
+                "field_value": "1500"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "r1"
+          },
+          "error": null
+        },
+        {
+          "node": "r2",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 4208,
+          "result_keys": [
+            "crm_id",
+            "our_id",
+            "properties",
+            "record",
+            "related",
+            "retried_by"
+          ],
+          "result": {
+            "crm_id": "<crm-id-24>",
+            "our_id": "<id-20>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "cash_collected": 1500
+            },
+            "retried_by": "dashboard"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "no post to reply to",
+          "at_sec": null,
+          "body": "💵 Paid $1,500 · deposit."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 54,
+          "body": "💵 Paid $1,500 · deposit. Details in the payments channel."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 54,
+          "body": "*Payment received:* $1,500\n*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-10>/contacts/detail/<crm-id-8>|<staff-1> TEST>\n*Closer:* <staff-2>\n*Setter:* <contact-1> Setter"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": [
+        {
+          "node": "n4",
+          "kind": "record",
+          "done": true
+        },
+        {
+          "node": "m1",
+          "kind": "note",
+          "done": true
+        }
+      ]
+    }
+  ]
+}

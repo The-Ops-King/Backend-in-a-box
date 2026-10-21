@@ -1,0 +1,243 @@
+{
+  "offer": "hair",
+  "workflow": "Pre-call sequence",
+  "slug": "pre-call-sequence",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "exited",
+      "exit_reason": "workflow turned off",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-72>",
+      "status": "exited",
+      "exit_reason": "workflow turned off",
+      "mode_at_start": "ghost",
+      "workflow_version": 3,
+      "started": "2026-10-09",
+      "took_sec": 92669,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-12T16:00:00.000000Z",
+          "calendar_id": "<id-73>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 8,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-09T18:16:24.446+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 8,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "<p>Hey <contact-17>,</p><p>[PLACEHOLDER — day-one email. Your spot for Monday, October 12 at 12:00PM with <staff-3> isn't locked y",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 8,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 8,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "sms disabled for company",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 236,
+          "result_keys": [
+            "replied_at"
+          ],
+          "result": {
+            "replied_at": "2026-10-09T14:19:51.741Z"
+          },
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 236,
+          "result_keys": [
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "unclear",
+            "confidence": 0
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 236,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-09T16:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unclear",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 236,
+          "result_keys": [
+            "shadow",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-27>",
+            "shadow": true
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 236,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "n_unclear",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 6269,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "sms disabled for company",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 6269,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-10T16:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 6269,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-09T16:00:14.903+00:00"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 8,
+          "body": "<p>Hey <contact-17>,</p><p>[PLACEHOLDER — day-one email. Your spot for Monday, October 12 at 12:00PM with <staff-3> isn't locked yet: reply CONFIRM to lock it in.]</p>"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "sms_disabled: company has no number",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 236,
+          "body": "<contact-18> replied to the booking text and I couldn't tell what they meant. Their call is Monday at 12pm with the closer; the reminders keep going.\n> ​👍​ to “ <contact-17>, your call is booked. Reply back with a text of emoji to lock-in your spot.\n\nThen complete your intake form so we can review your stage before we talk: https://saveyourhairtoday.com/in-take\n\nMeeting Location: https://us06web.zoom.us/j/<phone-28>?pwd=z2rLMS88LLaUKj7DWwZAoDYRnamHJc.1 ”"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "sms_disabled: company has no number",
+          "at_sec": null,
+          "body": ""
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

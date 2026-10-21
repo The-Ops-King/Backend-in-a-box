@@ -1,0 +1,100 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "Daily wrap-up",
+  "slug": "daily-wrap-up",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "done",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-83>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 3,
+      "started": "2026-10-20",
+      "took_sec": 11,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_daily",
+          "period": "2026-10-19",
+          "fired_at": "2026-10-20T02:10:47.118+00:00",
+          "workflow": "Daily wrap-up",
+          "local_date": "2026-10-19",
+          "local_time": "19:10"
+        }
+      },
+      "steps": [
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 11,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_build",
+          "type": "report",
+          "status": "ok",
+          "at_sec": 11,
+          "result_keys": [
+            "kind",
+            "period",
+            "report_id"
+          ],
+          "result": {
+            "kind": "daily",
+            "period": {
+              "end": "2026-10-19",
+              "start": "2026-10-19"
+            },
+            "report_id": "<id-84>"
+          },
+          "error": null
+        },
+        {
+          "node": "t_daily",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 11,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_post",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 11,
+          "result_keys": [
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-32>"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 11,
+          "body": "📊 *Today, Mon Oct 19*\n\n```\nLeads          10\nNew bookings    7\nCalls due       4\nShowed          1\nShow rate     25%\n```\n⚠️ Calls with no EOD outcome: 3\n\n_From GHL and the engine, read 7:10 PM PDT_"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

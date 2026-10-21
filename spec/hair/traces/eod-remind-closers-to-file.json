@@ -1,0 +1,374 @@
+{
+  "offer": "hair",
+  "workflow": "EOD: remind closers to file",
+  "slug": "eod-remind-closers-to-file",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "done",
+      "runs": 17
+    },
+    {
+      "status": "completed",
+      "exit_reason": "nothing_to_file",
+      "runs": 40
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-74>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "test",
+      "workflow_version": 4,
+      "started": "2026-10-17",
+      "took_sec": 29,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-17",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-17T13:00:11.554+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-17",
+          "local_time": "09:00"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [
+        {
+          "tag": "eod-reminder:<id-75>:2026-10-17",
+          "channel": "C0C7QCTHL8L",
+          "at_sec": 29
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-76>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "test",
+      "workflow_version": 4,
+      "started": "2026-10-16",
+      "took_sec": 24,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_evening",
+          "period": "2026-10-16",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-16T22:00:12.337+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-16",
+          "local_time": "18:00"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [
+        {
+          "tag": "eod-reminder:<id-75>:2026-10-16",
+          "channel": "C0C7QCTHL8L",
+          "at_sec": 24
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-77>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "test",
+      "workflow_version": 4,
+      "started": "2026-10-16",
+      "took_sec": 128,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-16",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-16T13:00:10.281+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-16",
+          "local_time": "09:00"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-78>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "test",
+      "workflow_version": 4,
+      "started": "2026-10-15",
+      "took_sec": 16,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_evening",
+          "period": "2026-10-15",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-15T22:00:09.843+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-15",
+          "local_time": "18:00"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [
+        {
+          "tag": "eod-reminder:<id-75>:2026-10-15",
+          "channel": "C0C7QCTHL8L",
+          "at_sec": 16
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-79>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "test",
+      "workflow_version": 4,
+      "started": "2026-10-15",
+      "took_sec": 39,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-15",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-15T13:00:10.544+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-15",
+          "local_time": "09:00"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-80>",
+      "status": "completed",
+      "exit_reason": "nothing_to_file",
+      "mode_at_start": "live",
+      "workflow_version": 5,
+      "started": "2026-10-20",
+      "took_sec": 8,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_evening",
+          "period": "2026-10-20",
+          "user_id": "<id-81>",
+          "fired_at": "2026-10-20T22:03:42.034+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-20",
+          "local_time": "18:03"
+        }
+      },
+      "steps": [
+        {
+          "node": "t_evening",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 8,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_due",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 8,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_evening",
+          "type": "eod_due",
+          "status": "ok",
+          "at_sec": 8,
+          "result_keys": [
+            "days",
+            "include_today",
+            "lookback_days",
+            "overdue"
+          ],
+          "result": {
+            "days": 0,
+            "overdue": 0,
+            "include_today": true,
+            "lookback_days": 7
+          },
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-82>",
+      "status": "completed",
+      "exit_reason": "nothing_to_file",
+      "mode_at_start": "live",
+      "workflow_version": 5,
+      "started": "2026-10-20",
+      "took_sec": 20,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_evening",
+          "period": "2026-10-20",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-20T22:03:42.034+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-20",
+          "local_time": "18:03"
+        }
+      },
+      "steps": [
+        {
+          "node": "t_evening",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 20,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_evening",
+          "type": "eod_due",
+          "status": "ok",
+          "at_sec": 20,
+          "result_keys": [
+            "days",
+            "include_today",
+            "lookback_days",
+            "overdue"
+          ],
+          "result": {
+            "days": 0,
+            "overdue": 0,
+            "include_today": true,
+            "lookback_days": 7
+          },
+          "error": null
+        },
+        {
+          "node": "c_due",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 20,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-83>",
+      "status": "completed",
+      "exit_reason": "nothing_to_file",
+      "mode_at_start": "test",
+      "workflow_version": 4,
+      "started": "2026-10-20",
+      "took_sec": 12,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-20",
+          "user_id": "<id-53>",
+          "fired_at": "2026-10-20T13:00:12.127+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-20",
+          "local_time": "09:00"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-84>",
+      "status": "completed",
+      "exit_reason": "nothing_to_file",
+      "mode_at_start": "test",
+      "workflow_version": 4,
+      "started": "2026-10-20",
+      "took_sec": 32,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-20",
+          "user_id": "<id-81>",
+          "fired_at": "2026-10-20T13:00:12.127+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-20",
+          "local_time": "09:00"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-85>",
+      "status": "completed",
+      "exit_reason": "nothing_to_file",
+      "mode_at_start": "test",
+      "workflow_version": 4,
+      "started": "2026-10-20",
+      "took_sec": 9,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-20",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-20T13:00:12.127+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-20",
+          "local_time": "09:00"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

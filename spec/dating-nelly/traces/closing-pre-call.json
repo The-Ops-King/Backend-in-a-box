@@ -1,0 +1,872 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "Closing pre-call",
+  "slug": "closing-pre-call",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "done",
+      "runs": 2
+    },
+    {
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "runs": 2
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-68>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "quiet",
+      "workflow_version": 3,
+      "started": "2026-10-19",
+      "took_sec": 73976,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T20:30:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": false
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 31,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T02:58:01.542+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_nolink_alert",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 31,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if not (there is a meeting link); there is a meeting link",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 31,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "no phone on the contact",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "n_nolink",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 31,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if not (there is a meeting link); there is a meeting link",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 14423,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-23>",
+            "tag": "appointment:<id-69>",
+            "reacted": true,
+            "in_thread_of": "<phone-24>"
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 14423,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-20T02:30:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14423,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14423,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T19:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14423,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14423,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T02:58:11.074+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m1_nolink",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 73976,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if not (there is a meeting link); there is a meeting link",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 73976,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 73976,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T19:30:44.924+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 73976,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "no phone on the contact",
+            "kind": "noop"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "no phone on the contact",
+          "at_sec": null,
+          "body": "Hi <contact-4>, it's <staff-3>. You're booked for your private consultation with me on Tuesday, Oct 20 at 1:30 PM MST. It runs about an hour, so block off the time. Reply YES to confirm, or let me know if you need to move it."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 14423,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-20T02:30:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "no phone on the contact",
+          "at_sec": null,
+          "body": "<contact-4>, we're on in an hour (1:30 PM MST). Join here: <url-7> See you soon! <staff-3>"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-70>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "quiet",
+      "workflow_version": 2,
+      "started": "2026-10-19",
+      "took_sec": 744,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "test",
+        "data": {
+          "source": "<contact-4>",
+          "status": "confirmed",
+          "simulated": true,
+          "starts_at": "2026-10-19T16:50:00.000-07:00",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "n_nolink_alert",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 66,
+          "result_keys": [
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-25>"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 66,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_nolink",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 66,
+          "result_keys": [
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-26>"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 66,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_send"
+          ],
+          "result": {
+            "why": "the CRM refused the sms: GHL 400 on /conversations/messages: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Cannot send message as DND is active for SMS.\",\"canonicalCode\":\"CONVERSATIONS_MSG_DND_ACTIVE_SMS\",\"arguments\":{},\"traceId\":\"<id-71>\"}",
+            "kind": "blocked",
+            "would_send": "Hi <contact-14>, it's <staff-3>. You're booked for your private consultation with me on Monday, Oct 19 at 4:50 PM PDT. It runs abou"
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 66,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 72,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-19T22:50:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 569,
+          "result_keys": [
+            "replies",
+            "settling_until"
+          ],
+          "result": {
+            "replies": 1,
+            "settling_until": "2026-10-19T22:48:29.187+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "v_read",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 634,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 634,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-19T05:50:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 634,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T22:49:23.850+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 634,
+          "result_keys": [
+            "replied_at",
+            "replies"
+          ],
+          "result": {
+            "replies": 1,
+            "replied_at": "2026-10-19T22:46:59.187Z"
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 634,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "v_read",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 634,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T22:50:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_att_on",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 634,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w_dec",
+          "type": "wait_for_reaction",
+          "status": "skipped",
+          "at_sec": 634,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "nothing to tap: that post is not in Slack (channel unbound, or the post was skipped)",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "n_ask",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 634,
+          "result_keys": [
+            "blocking",
+            "class",
+            "kind",
+            "tries",
+            "vendor",
+            "why"
+          ],
+          "result": {
+            "why": "couldn't ask in the booking channel: keep, cancel or reschedule? after 1 try; the run went on without it",
+            "kind": "gave_up",
+            "class": "permanent",
+            "tries": 1,
+            "vendor": null,
+            "blocking": false
+          },
+          "error": "unknown path {{reply.last_outbound.body}}"
+        },
+        {
+          "node": "c1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 634,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value",
+            "why"
+          ],
+          "result": {
+            "why": "not confident enough",
+            "value": "unclear",
+            "ambiguity": 0.84,
+            "confidence": 0.6
+          },
+          "error": null
+        },
+        {
+          "node": "n_pending",
+          "type": "update_appointment",
+          "status": "ok",
+          "at_sec": 634,
+          "result_keys": [
+            "pending_read"
+          ],
+          "result": {
+            "pending_read": {
+              "at": "2026-10-19T22:49:23.850+00:00",
+              "intent": "unclear",
+              "confidence": 60
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 737,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T22:50:46.830+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 737,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is a meeting link; there is no meeting link",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "m1_nolink",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 737,
+          "result_keys": [
+            "external_id",
+            "substituted"
+          ],
+          "result": {
+            "external_id": "<crm-id-38>",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 744,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 66,
+          "body": "<@<slack-user-1>>: <contact-25>'s consultation Mon Oct 19 · 4:50 PM PDT has no meeting link in Calendly. Please send them the link."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 66,
+          "body": "<@<slack-user-1>>: <contact-25>'s consultation Mon Oct 19 · 4:50 PM PDT has no meeting link in Calendly. Please send them the link."
+        },
+        {
+          "channel": "sms",
+          "status": "failed",
+          "reason": null,
+          "at_sec": null,
+          "body": "Hi <contact-14>, it's <staff-3>. You're booked for your private consultation with me on Monday, Oct 19 at 4:50 PM PDT. It runs about an hour, so block off the time. Reply YES to confirm, or let me know if you need to move it."
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-19T05:50:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "sms",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 744,
+          "body": "<contact-14>, we're on in an hour (4:50 PM PDT). I'll send you the link here shortly. See you soon! <staff-3>"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-72>",
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "mode_at_start": "quiet",
+      "workflow_version": 4,
+      "started": "2026-10-20",
+      "took_sec": 1477,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-21T21:00:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": false
+        }
+      },
+      "steps": [
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 40,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 40,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T06:51:11.305+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 40,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_nolink_alert",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 40,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if not (there is a meeting link); there is a meeting link",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "n_nolink",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 40,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if not (there is a meeting link); there is a meeting link",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 40,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "no phone on the contact",
+            "kind": "noop"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "no phone on the contact",
+          "at_sec": null,
+          "body": "Hi <contact-4>, it's <staff-3>. You're booked for your private consultation with me on Wednesday, Oct 21 at 2:00 PM MST. It runs about an hour, so block off the time. Reply YES to confirm, or let me know if you need to move it."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-73>",
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "mode_at_start": "quiet",
+      "workflow_version": 2,
+      "started": "2026-10-19",
+      "took_sec": 206,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T20:00:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "n_nolink",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 43,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if not (there is a meeting link); there is a meeting link",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 43,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T02:50:46.830+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 43,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "no phone on the contact",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "n_nolink_alert",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 43,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if not (there is a meeting link); there is a meeting link",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 43,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 43,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "no phone on the contact",
+          "at_sec": null,
+          "body": "Hi <contact-4>, it's <staff-3>. You're booked for your private consultation with me on Tuesday, Oct 20 at 1:00 PM MST. It runs about an hour, so block off the time. Reply YES to confirm, or let me know if you need to move it."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

@@ -1,21 +1,20 @@
 # Deal closed
 
-Offer: **Dating (Nelly)** (`dating-nelly`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **Dating (Nelly)** (`dating-nelly`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | playbook copy: platform/installs/dating-nelly/deal-closed.json |
-| Template | `deal-closed` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
+| Where this definition came from | live: version 5, saved 2026-10-17T04:56:58.473Z (dating-nelly: the welcome email and text are the company's own (installs/dating-nelly/words.json); still placeholders, so both are skipped, not Hair's (D118); the won closer card carries the deal's value (D130)) |
+| Template | `deal-closed` v6 |
+| Edited since copied from the template | yes |
+| Saved version | 5 |
+| Enabled | off |
 | Mode | follows the offer (quiet) |
-| Send lock | unknown (repo) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | once_per_contact |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 13 |
-| Note | dating-nelly: the welcome email and text are the company's own (installs/dating-nelly/words.json); still placeholders, so both are skipped, not Hair's (D118); the won closer card carries the deal's value (D130) |
 
 ## Steps
 
@@ -218,8 +217,8 @@ Next:
   "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
   "key": "{{records.sales_call.key}}",
   "properties": {
-    "disposition": "closed_won",
     "outcome": "{{picklist.sales_call_outcome.showed}}",
+    "disposition": "closed_won",
     "cash_collected": "{{contact.cash_collected}}"
   },
   "if_missing": "skip",
@@ -429,14 +428,14 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_sales_call` | id | no | not read (repo) |
-| `crm.pipeline_closer` | id | yes | not read (repo) |
-| `crm.pipeline_setter` | id | yes | not read (repo) |
-| `crm.stage_closer_closed_won` | id | yes | not read (repo) |
-| `prompt.close_cheer` | text | yes | not read (repo) |
-| `secret.anthropic_key` | secret | yes | not read (repo) |
-| `slack.channel.deals` | channel | no | not read (repo) |
+| `crm.location_id` | id | yes | `eLfhuKEaVMlrpLm2Fz8V` |
+| `crm.object_sales_call` | id | no | `custom_objects.dating_sales_call` |
+| `crm.pipeline_closer` | id | yes | `hLBo4MFsrGj7EjfDmkEn` |
+| `crm.pipeline_setter` | id | yes | `N59nJLRaspsNwiaPWtE8` |
+| `crm.stage_closer_closed_won` | id | yes | `c4daa37b-ad4b-45f5-8da2-4e8dd0736dc5` |
+| `prompt.close_cheer` | text | yes | `You write one line for a sales team's Slack channel the moment a deal closes. You are given the closer's name, the client's first name, cash collected, the deal value, how many days it took from first booking to payment, and the lead source. Write ONE sentence, under 25 words, congratulating the closer by name in the team's voice: upbeat, specific to the numbers you were given, never generic. Mention the days to close only if it is impressive (under 7). No emoji, no hashtags, no quotation marks, no preamble. Answer with the sentence only.` |
+| `secret.anthropic_key` | secret | yes | set (secret, not shown) |
+| `slack.channel.deals` | channel | no | `C0CB00B0HC0` |
 
 ## Engine rules that apply but are not steps
 

@@ -1,0 +1,363 @@
+{
+  "offer": "pmu",
+  "workflow": "Payment recorded",
+  "slug": "payment-recorded",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "recorded",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-93>",
+      "status": "completed",
+      "exit_reason": "recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-13",
+      "took_sec": 23,
+      "trigger": {
+        "type": "payment.received",
+        "source": "whop",
+        "data": {
+          "kind": "paid_in_full",
+          "amount": 10000,
+          "cleared": true,
+          "paid_at": "2026-10-13T21:53:04.267Z",
+          "currency": "USD",
+          "linked_by": "known",
+          "payment_id": "<id-62>",
+          "outstanding": 0,
+          "prior_total": 0,
+          "running_total": 10000,
+          "contract_value": 10000,
+          "customer_email": null,
+          "whop_member_id": null,
+          "provider_payment_id": "<contact-25>-b9189764"
+        }
+      },
+      "steps": [
+        {
+          "node": "v1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "r2"
+          },
+          "error": null
+        },
+        {
+          "node": "o_won",
+          "type": "update_opportunity",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "opportunity",
+            "started",
+            "status"
+          ],
+          "result": {
+            "status": {
+              "to": "won",
+              "from": "open"
+            },
+            "started": [],
+            "opportunity": "<id-94>"
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "shadow",
+            "would_note"
+          ],
+          "result": {
+            "shadow": true,
+            "would_note": "PAYMENT RECEIVED — Tue Oct 13 · 5:53 PM EDT · $10000 (paid_in_full) · collected 10000 of 10000"
+          },
+          "error": null
+        },
+        {
+          "node": "a0",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "m1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "r1"
+          },
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "shadow",
+            "would_update"
+          ],
+          "result": {
+            "shadow": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-38>",
+                  "field_value": "10000"
+                }
+              ]
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "shadow",
+            "would_update"
+          ],
+          "result": {
+            "shadow": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-39>",
+                  "field_value": "10000"
+                }
+              ]
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "f1"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "p_book",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 23,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "💵 Paid $10,000 · paid_in_full. Details in the payments channel."
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "p_rev",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 23,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "💵 Paid $10,000 · paid_in_full."
+          },
+          "error": null
+        },
+        {
+          "node": "f1",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "shadow",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "pay-paid-full"
+            ],
+            "would_untag": [
+              "pay-plan-active"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n5",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 23,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "*Payment received:* $10,000\n*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-21>|<contact-25> again>\n*Closer:* Car"
+          },
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "crm_id",
+            "our_id",
+            "properties",
+            "record",
+            "related",
+            "shadow"
+          ],
+          "result": {
+            "crm_id": null,
+            "our_id": "<id-95>",
+            "record": "created",
+            "shadow": true,
+            "related": [],
+            "properties": {
+              "type": "paid_in_full",
+              "amount": 10000,
+              "closer": "<staff-2>",
+              "status": "succeeded",
+              "paid_date": "2026-10-13",
+              "processor": "whop",
+              "contact_id": "<crm-id-21>",
+              "link_status": "linked",
+              "occurred_at": "2026-10-13T21:53:04.267Z",
+              "display_label": "$10000 · <contact-34> · 2026-10-13",
+              "transaction_id": "<contact-25>-b9189764"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "r2",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "crm_id",
+            "our_id",
+            "properties",
+            "record",
+            "related",
+            "shadow"
+          ],
+          "result": {
+            "crm_id": null,
+            "our_id": "<id-64>",
+            "record": "updated",
+            "shadow": true,
+            "related": [],
+            "properties": {
+              "cash_collected": 10000
+            }
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "💵 Paid $10,000 · paid_in_full."
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "*Payment received:* $10,000\n*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-21>|<contact-25> again>\n*Closer:* <staff-2>"
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "💵 Paid $10,000 · paid_in_full. Details in the payments channel."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

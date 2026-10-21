@@ -1,19 +1,19 @@
 # Weekly wrap-up
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | shipped template: platform/src/templates/weekly-wrap-up.json (the offer's words, if any, are applied at install) |
-| Template | `weekly-wrap-up` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 3, saved 2026-10-17T19:30:26.423Z (upgraded to template v3) |
+| Template | `weekly-wrap-up` v3 |
+| Edited since copied from the template | no |
+| Saved version | 3 |
+| Enabled | off |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | nothing |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 4 |
 
 ## Steps
@@ -383,8 +383,8 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
-| `slack.channel.reports` | channel | no | not read (repo) |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `slack.channel.reports` | channel | no | `C0BSGCQS3RA` |
 
 ## Engine rules that apply but are not steps
 

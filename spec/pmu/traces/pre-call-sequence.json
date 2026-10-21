@@ -1,0 +1,4800 @@
+{
+  "offer": "pmu",
+  "workflow": "Pre-call sequence",
+  "slug": "pre-call-sequence",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "done",
+      "runs": 18
+    },
+    {
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "runs": 5
+    },
+    {
+      "status": "waiting",
+      "exit_reason": null,
+      "runs": 2
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-126>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "ghost",
+      "workflow_version": 3,
+      "started": "2026-10-20",
+      "took_sec": 14866,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T18:00:00.000000Z",
+          "calendar_id": "<id-20>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 16,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "waiting",
+          "at_sec": 16,
+          "result_keys": [
+            "deadline",
+            "why"
+          ],
+          "result": {
+            "why": "not yet: there is a CRM contact; looking <contact-33> every 2 minutes until 2026-10-20T14:43:15.172+00:00",
+            "deadline": "2026-10-20T14:43:15.172+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 143,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T17:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 143,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 143,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 143,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 460,
+          "result_keys": [
+            "replies",
+            "settling_until"
+          ],
+          "result": {
+            "replies": 1,
+            "settling_until": "2026-10-20T13:51:07.664+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "k_conf",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-9>",
+            "ghost": true,
+            "stage": "<id-28>",
+            "fields": [],
+            "crm_card": "<crm-id-9>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 522,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-20T00:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "rs",
+          "type": "resume",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "nothing to go back to: no listener pulled this run away",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T13:51:41.440+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_conf_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "reacted_on",
+            "redirected_to",
+            "tag",
+            "ts",
+            "unreacted"
+          ],
+          "result": {
+            "ts": "<phone-38>",
+            "tag": "appointment:<id-24>",
+            "ghost": true,
+            "reacted": true,
+            "unreacted": 0,
+            "reacted_on": 0,
+            "in_thread_of": "<phone-12>",
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 522,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-18T06:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "bm",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "mm"
+          },
+          "error": null
+        },
+        {
+          "node": "mm",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — morning-of text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "replied_at",
+            "replies"
+          ],
+          "result": {
+            "replies": 1,
+            "replied_at": "2026-10-20T13:49:37.664Z"
+          },
+          "error": null
+        },
+        {
+          "node": "m48",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 522,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-19T06:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "n_conf"
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T13:51:41.440+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T13:51:41.440+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 522,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T17:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_conf",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-confirmed"
+            ],
+            "would_untag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T13:51:41.440+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m24e",
+          "type": "send_email",
+          "status": "stale",
+          "at_sec": 522,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-20T00:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 522,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "confirmed",
+            "ambiguity": 0.44,
+            "confidence": 1
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 11825,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T17:00:04.336+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 11825,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 1-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 11825,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T17:50:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "m10",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 14866,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 10-minute text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 14866,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14866,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T17:50:45.320+00:00"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 143,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 143,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-20T00:00:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "email",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-20T00:00:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-18T06:00:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 522,
+          "body": "✅ <contact-8>'s call today at 2pm is confirmed.\n> Confirming Discovery Call."
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 522,
+          "body": "[placeholder — morning-of text]"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-19T06:00:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 11825,
+          "body": "[placeholder — 1-hour text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14866,
+          "body": "[placeholder — 10-minute text]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-127>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "ghost",
+      "workflow_version": 3,
+      "started": "2026-10-19",
+      "took_sec": 76334,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T15:00:00.000000Z",
+          "calendar_id": "<id-128>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 24,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-19T21:38:25.682+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 131,
+          "result_keys": [
+            "replies",
+            "settling_until"
+          ],
+          "result": {
+            "replies": 1,
+            "settling_until": "2026-10-19T17:40:50.350+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "n_conf"
+          },
+          "error": null
+        },
+        {
+          "node": "m24e",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "k_conf",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-30>",
+            "ghost": true,
+            "stage": "<id-28>",
+            "fields": [],
+            "crm_card": "<crm-id-28>",
+            "from_stage": "<id-21>"
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T17:41:49.639+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 218,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T08:00:00.000-05:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T17:41:49.639+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_conf",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-confirmed"
+            ],
+            "would_untag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n_conf_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "reacted_on",
+            "redirected_to",
+            "tag",
+            "ts",
+            "unreacted"
+          ],
+          "result": {
+            "ts": "<phone-39>",
+            "tag": "appointment:<id-129>",
+            "ghost": true,
+            "reacted": true,
+            "unreacted": 0,
+            "reacted_on": 0,
+            "in_thread_of": "<phone-40>",
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 218,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-18T03:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "rs",
+          "type": "resume",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "nothing to go back to: no listener pulled this run away",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "replied_at",
+            "replies"
+          ],
+          "result": {
+            "replies": 1,
+            "replied_at": "2026-10-19T17:39:20.350Z"
+          },
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "confirmed",
+            "ambiguity": 0.75,
+            "confidence": 1
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 218,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T17:41:49.639+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m48",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 218,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-19T03:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "bm",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 69760,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "r1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 69760,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T14:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 69760,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T13:00:24.818+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 73331,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 1-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 73331,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T14:00:22.976+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 73331,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T14:50:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "m10",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 76334,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 10-minute text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 76334,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 76334,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T14:50:25.699+00:00"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 24,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 24,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 218,
+          "body": "✅ <contact-36>'s call tomorrow at 10am is confirmed.\n> Yes"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 218,
+          "body": "[placeholder — 24-hour email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 218,
+          "body": "[placeholder — 24-hour text]"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-19T03:00:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-18T03:00:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 73331,
+          "body": "[placeholder — 1-hour text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 76334,
+          "body": "[placeholder — 10-minute text]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-130>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "ghost",
+      "workflow_version": 3,
+      "started": "2026-10-19",
+      "took_sec": 98184,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T17:30:00.000000Z",
+          "calendar_id": "<id-128>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 26,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-19T18:04:32.087+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 26,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 26,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 26,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 26,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-37>",
+            "ghost": true,
+            "stage": "<id-36>",
+            "fields": [],
+            "crm_card": "uoUwnjNPfCvBGkkDycqa",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T18:05:44.130+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m24e",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T18:05:44.130+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m48",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 14488,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-19T05:30:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14488,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T08:00:00.000-04:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 14488,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-18T05:30:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "redirected_to",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-41>",
+            "tag": "appointment:<id-131>",
+            "ghost": true,
+            "reacted": true,
+            "in_thread_of": "<phone-42>",
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14488,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T18:05:44.130+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 78970,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T12:00:04.560+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "bm",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 78970,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "mm"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 78970,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T16:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "mm",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 78970,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — morning-of text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 95197,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 1-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 95197,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T17:20:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 95197,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T16:30:56.349+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m10",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 98184,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 10-minute text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 98184,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 98184,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T17:20:42.752+00:00"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 26,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 26,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14488,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-19T05:30:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-18T05:30:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14488,
+          "body": "[placeholder — 24-hour email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14488,
+          "body": "[placeholder — 24-hour text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 78970,
+          "body": "[placeholder — morning-of text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 95197,
+          "body": "[placeholder — 1-hour text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 98184,
+          "body": "[placeholder — 10-minute text]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-132>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-17",
+      "took_sec": 173355,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-19T21:00:00.000000Z",
+          "calendar_id": "<id-20>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 22,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-18T00:42:21.755+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 14468,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-38>",
+            "ghost": true,
+            "stage": "<id-36>",
+            "fields": [],
+            "crm_card": "<crm-id-11>",
+            "from_stage": "<id-21>"
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 14468,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-17T09:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14468,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-18T00:43:15.430+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m48",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 14468,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 2 days out]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14468,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-18T00:43:15.430+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14468,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-18T21:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14468,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 14468,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack channel not bound",
+            "kind": "blocked",
+            "would_post": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14468,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "m24e",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 87553,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 87553,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T08:00:00.000-07:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 87553,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-18T21:01:20.105+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 87553,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "mm",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 152451,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — morning-of text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 152451,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T15:02:23.340+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 152451,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T20:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "bm",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 152451,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "mm"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 170363,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T20:00:59.248+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 170363,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 1-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 170363,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T20:50:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 173355,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T20:51:21.712+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 173355,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "m10",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 173355,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 10-minute text]",
+            "substituted": false
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 22,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 22,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack channel",
+          "at_sec": null,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14468,
+          "body": "[placeholder — 2 days out]"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-17T09:00:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 87553,
+          "body": "[placeholder — 24-hour text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 87553,
+          "body": "[placeholder — 24-hour email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 152451,
+          "body": "[placeholder — morning-of text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 170363,
+          "body": "[placeholder — 1-hour text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 173355,
+          "body": "[placeholder — 10-minute text]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-133>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-17",
+      "took_sec": 172784,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-19T15:30:00.000000Z",
+          "calendar_id": "<id-128>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 19,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-17T19:21:23.068+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-17T19:22:17.149+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14473,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-18T15:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-17T19:22:17.149+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 14473,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 14473,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-17T03:30:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m48",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 2 days out]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-39>",
+            "ghost": true,
+            "stage": "<id-36>",
+            "fields": [],
+            "crm_card": "<crm-id-48>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "bm",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 86975,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "r1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "m24e",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 86975,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 86975,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T08:00:00.000-07:00",
+            "used_fallback": false,
+            "deferred_into_window": true
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 86975,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 86975,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-18T15:30:39.308+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "skipped",
+          "at_sec": 86975,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if the call is at 9 AM or later; the call is before 9 AM",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 171679,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T15:02:23.340+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 171679,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 1-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 171679,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T15:20:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r10",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 172784,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T15:20:48.380+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m10",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 172784,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 10-minute text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 172784,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 19,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 19,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-17T03:30:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14473,
+          "body": "[placeholder — 2 days out]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 86975,
+          "body": "[placeholder — 24-hour text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 86975,
+          "body": "[placeholder — 24-hour email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 171679,
+          "body": "[placeholder — 1-hour text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 172784,
+          "body": "[placeholder — 10-minute text]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-134>",
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-19",
+      "took_sec": 132699,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T19:30:00.000000Z",
+          "calendar_id": "<id-128>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "waiting",
+          "at_sec": 31,
+          "result_keys": [
+            "quiet_hours_until"
+          ],
+          "result": {
+            "quiet_hours_until": "2026-10-19T08:00:00.000-05:00"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 35526,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 35526,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-19T17:00:19.834+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 35526,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 50037,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-18T07:30:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 50037,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "redirected_to",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-43>",
+            "tag": "appointment:<id-37>",
+            "ghost": true,
+            "reacted": true,
+            "in_thread_of": "<phone-19>",
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 50037,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-40>",
+            "ghost": true,
+            "stage": "<id-36>",
+            "fields": [],
+            "crm_card": "<crm-id-2>",
+            "from_stage": "<id-21>"
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 50037,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T17:01:44.229+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 50037,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T17:01:44.229+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m48",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 50037,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-19T07:30:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 50037,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 50037,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 50037,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T19:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 58928,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T19:30:21.393+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 58928,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 58928,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T08:00:00.000-05:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "m24e",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 58928,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "bm",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 121953,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "mm"
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 121953,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T13:00:24.818+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 121953,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T18:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "mm",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 121953,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — morning-of text]",
+            "substituted": false
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 35526,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 35526,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-19T07:30:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 50037,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-18T07:30:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 58928,
+          "body": "[placeholder — 24-hour email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 58928,
+          "body": "[placeholder — 24-hour text]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 121953,
+          "body": "[placeholder — morning-of text]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-135>",
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-18",
+      "took_sec": 28738,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T21:30:00.000000Z",
+          "calendar_id": "<id-128>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "waiting",
+          "at_sec": 12,
+          "result_keys": [
+            "quiet_hours_until"
+          ],
+          "result": {
+            "quiet_hours_until": "2026-10-18T08:00:00.000-04:00"
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 2234,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-18T16:00:35.386+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 2234,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 2234,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 16728,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-18T09:30:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 16728,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-18T21:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 16728,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 16728,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 16728,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-18T16:02:09.077+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 16728,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-41>",
+            "ghost": true,
+            "stage": "<id-36>",
+            "fields": [],
+            "crm_card": "<crm-id-15>",
+            "from_stage": "<id-21>"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 16728,
+          "result_keys": [
+            "kind",
+            "needs",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack channel not bound",
+            "kind": "blocked",
+            "needs": {
+              "bindings": [
+                "slack.channel.bookings"
+              ]
+            },
+            "would_post": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 2234,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 2234,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack channel",
+          "at_sec": null,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-18T09:30:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-136>",
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-16",
+      "took_sec": 257307,
+      "trigger": {
+        "type": "appointment.rescheduled",
+        "source": "ghl_poll",
+        "data": {
+          "slot": {
+            "to": "<id-41>",
+            "from": "<id-137>"
+          },
+          "source": "calendly",
+          "starts_at": {
+            "to": "2026-10-19T17:30:00.000000Z",
+            "from": "2026-10-16T17:30:00.000Z"
+          }
+        }
+      },
+      "steps": [
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 23,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-16T20:34:24.200+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "t2",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 23,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-16T20:35:17.762+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — 3 days out]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 14473,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14473,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-17T17:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "name",
+            "shadow",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-16>",
+            "stage": "<id-36>",
+            "fields": [],
+            "shadow": true,
+            "crm_card": "<crm-id-13>",
+            "from_stage": "<id-117>"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14473,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 90016,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-17T17:34:20.577+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 90016,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-18T17:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "m48",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 90016,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 2 days out]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 176177,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-18T17:30:21.275+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 176177,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T08:00:00.000-04:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "m24e",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 176177,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 176177,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 24-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 242809,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-19T16:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 242809,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T12:00:23.273+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "mm",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 242809,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — morning-of text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "bm",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 242809,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "mm"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 23,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 23,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14473,
+          "body": "[placeholder — 3 days out]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 90016,
+          "body": "[placeholder — 2 days out]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 176177,
+          "body": "[placeholder — 24-hour text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 176177,
+          "body": "[placeholder — 24-hour email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 242809,
+          "body": "[placeholder — morning-of text]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-138>",
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-14",
+      "took_sec": 179121,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-19T21:00:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 21,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-14T19:00:28.172+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14422,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 14422,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14422,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14422,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-16T21:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 14422,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "name",
+            "shadow",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-42>",
+            "stage": "<id-36>",
+            "fields": [],
+            "shadow": true,
+            "crm_card": "<crm-id-49>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 21,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 21,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-139>",
+      "status": "exited",
+      "exit_reason": "moot: appointment cancelled",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-14",
+      "took_sec": 167772,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-16T19:00:00.000000Z",
+          "calendar_id": "<id-20>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "waiting",
+          "at_sec": 13,
+          "result_keys": [
+            "deadline",
+            "why"
+          ],
+          "result": {
+            "why": "not yet: there is a CRM contact; looking <contact-33> every 2 minutes until 2026-10-14T15:07:28.131+00:00",
+            "deadline": "2026-10-14T15:07:28.131+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 187,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 187,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 187,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-14T18:10:22.038+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 187,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 14590,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-14T18:10:25.309+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "stale",
+          "at_sec": 14590,
+          "result_keys": [
+            "why"
+          ],
+          "result": {
+            "why": "past before_event deadline 2026-10-14T07:00:00.000+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 14590,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "name",
+            "shadow",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-43>",
+            "stage": "<id-36>",
+            "fields": [],
+            "shadow": true,
+            "crm_card": "<crm-id-50>",
+            "from_stage": "<id-28>"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14590,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 14590,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14590,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14590,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-14T19:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "m48",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 17594,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — 2 days out]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 17594,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-14T19:00:28.952+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 17594,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-15T19:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "rm",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 103994,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-16T08:00:00.000-05:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 103994,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-15T19:00:24.801+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 103994,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — 24-hour text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "m24e",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 103994,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — 24-hour email]",
+            "substituted": false
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 187,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 187,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "suppressed",
+          "reason": "stale: past before_event deadline 2026-10-14T07:00:00.000+00:00",
+          "at_sec": null,
+          "body": ""
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 17594,
+          "body": "[placeholder — 2 days out]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 103994,
+          "body": "[placeholder — 24-hour text]"
+        },
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 103994,
+          "body": "[placeholder — 24-hour email]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-140>",
+      "status": "waiting",
+      "exit_reason": null,
+      "mode_at_start": "ghost",
+      "workflow_version": 3,
+      "started": "2026-10-19",
+      "took_sec": null,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-23T19:00:00.000000Z",
+          "calendar_id": "<id-128>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 14,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 14,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 14,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 14,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 14,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T01:48:00.410+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14436,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14436,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T19:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 14436,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "redirected_to",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-44>",
+            "tag": "appointment:<id-141>",
+            "ghost": true,
+            "reacted": true,
+            "in_thread_of": "<phone-45>",
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14436,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 14436,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-44>",
+            "ghost": true,
+            "stage": "<id-36>",
+            "fields": [],
+            "crm_card": "<crm-id-26>",
+            "from_stage": "<id-21>"
+          },
+          "error": null
+        },
+        {
+          "node": "r48",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 76380,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-21T19:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "m72",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 76380,
+          "result_keys": [
+            "ghost",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "ghost": true,
+            "would_send": "[placeholder — 3 days out]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 76380,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T19:00:26.570+00:00"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 14436,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 76380,
+          "body": "[placeholder — 3 days out]"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-142>",
+      "status": "waiting",
+      "exit_reason": null,
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-17",
+      "took_sec": null,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-11-16T20:00:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 19,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-17T04:27:23.409+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — immediate text]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "e1",
+          "type": "send_email",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [
+            "shadow",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "shadow": true,
+            "would_send": "[placeholder — day-one email]",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k_unc",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 14423,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "name",
+            "shadow",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-45>",
+            "stage": "<id-36>",
+            "fields": [],
+            "shadow": true,
+            "crm_card": "<crm-id-20>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 14423,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+          },
+          "error": null
+        },
+        {
+          "node": "r72",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14423,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-11-13T20:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14423,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-unconfirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14423,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "email",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 19,
+          "body": "[placeholder — day-one email]"
+        },
+        {
+          "channel": "sms",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 19,
+          "body": "[placeholder — immediate text]"
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

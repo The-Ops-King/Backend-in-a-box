@@ -1,21 +1,20 @@
 # Call cancelled
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | playbook copy: platform/installs/pmu/call-cancelled.json |
-| Template | `call-cancelled` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 2, saved 2026-10-13T21:44:51.192Z (PMU: one board. No setter card; the card moves to Canceled Call) |
+| Template | `call-cancelled` v7 |
+| Edited since copied from the template | yes |
+| Saved version | 2 |
+| Enabled | on |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | once_per_appointment |
 | Re-checked before every step | appointment exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 8 |
-| Note | PMU: one board. No setter card; the card moves to Canceled Call |
 
 ## Steps
 
@@ -195,11 +194,11 @@ Next:
   "id": "n6",
   "title": "Sales Call record: cancelled (logged, never deleted or reused)",
   "type": "crm_record",
-  "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+  "object": "custom_objects.sales_call",
   "key": "{{appointment.slot_key}}",
   "properties": {
-    "external_id": "{{appointment.slot_key}}",
-    "outcome": "{{picklist.sales_call_outcome.cancelled}}"
+    "outcome": "{{picklist.sales_call_outcome.cancelled}}",
+    "external_id": "{{appointment.slot_key}}"
   },
   "if_missing": "match",
   "relate": [],
@@ -280,12 +279,11 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.field_contact_appointment_date` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_sales_call` | id | no | not read (repo) |
-| `crm.pipeline_closer` | id | yes | not read (repo) |
-| `crm.stage_closer_cancelled` | id | yes | not read (repo) |
-| `slack.channel.bookings` | channel | no | not read (repo) |
+| `crm.field_contact_appointment_date` | id | yes | `uqulQPE8vPu0RZDyDXIj` |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `crm.pipeline_closer` | id | yes | `1B37Vzv6euKMpWaFFuVW` |
+| `crm.stage_closer_cancelled` | id | yes | `b476556a-26f3-4bff-86eb-05fdcf0c5bd0` |
+| `slack.channel.bookings` | channel | no | `C0BSCMB813L` |
 
 ## Engine rules that apply but are not steps
 

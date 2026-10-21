@@ -1,19 +1,19 @@
 # Setter call logged
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | shipped template: platform/src/templates/setter-call-logged.json (the offer's words, if any, are applied at install) |
-| Template | `setter-call-logged` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 2, saved 2026-10-16T18:23:40.134Z (upgraded to template v10) |
+| Template | `setter-call-logged` v10 |
+| Edited since copied from the template | no |
+| Saved version | 2 |
+| Enabled | off |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 79 |
 
 ## Steps
@@ -80,7 +80,7 @@ Next:
 
 - Step id `l_conv`, type `lookup`
 - Engine description: Look up the whole conversation this call is part of (the same caller's calls to them, each starting within the gap of the last one ending)
-- Detail: recording id [this recording]; gap min [the gap between parts of one call (minutes)]; saved as convo for the steps after it (the engine's own question, read-only)
+- Detail: gap min [the gap between parts of one call (minutes)]; recording id [this recording]; saved as convo for the steps after it (the engine's own question, read-only)
 - If it keeps failing: the run is held on this step (step c1 reads what it looked up)
 
 Next:
@@ -95,8 +95,8 @@ Next:
   "type": "lookup",
   "query": "call_conversation",
   "params": {
-    "recording_id": "{{recording.id}}",
-    "gap_min": "{{setting.calls.conversation_gap_min}}"
+    "gap_min": "{{setting.calls.conversation_gap_min}}",
+    "recording_id": "{{recording.id}}"
   },
   "into": "convo"
 }
@@ -162,7 +162,7 @@ Next:
 
 - Step id `a1`, type `classify`
 - Engine description: Jev: what kind of phone call between someone on the sales team and a lead was this?
-- Detail: Decides between setting, confirmation, closing, other; below 80% sure, or a reply a careful person would doubt, goes to a person
+- Detail: Decides between other, closing, setting, confirmation; below 80% sure, or a reply a careful person would doubt, goes to a person
 - If it keeps failing: the run is held on this step (step b_kind reads the call type)
 
 Question asked of the classifier:
@@ -177,6 +177,18 @@ What it reads:
 {{vars.convo.transcript_text}}
 ```
 
+Option "other" means:
+
+```
+Anything else: 'are you joining the call', 'where are you', a voicemail greeting, a wrong number, spam, a call that never got past hello, an internal or personal call, or a transcript too thin to tell.
+```
+
+Option "closing" means:
+
+```
+The booked sales call itself: a closer presents the program, its price or payment, handles objections and asks for a decision to buy.
+```
+
 Option "setting" means:
 
 ```
@@ -187,18 +199,6 @@ Option "confirmation" means:
 
 ```
 The setter confirms an appointment that is already booked: time, link, what to expect, perhaps a brief re-qualification.
-```
-
-Option "closing" means:
-
-```
-The booked sales call itself: a closer presents the program, its price or payment, handles objections and asks for a decision to buy.
-```
-
-Option "other" means:
-
-```
-Anything else: 'are you joining the call', 'where are you', a voicemail greeting, a wrong number, spam, a call that never got past hello, an internal or personal call, or a transcript too thin to tell.
 ```
 
 Next:
@@ -217,10 +217,10 @@ Next:
   "into": "vars.classify.call_type",
   "question": "What kind of phone call between someone on the sales team and a lead was this?",
   "criteria": {
-    "setting": "The setter finds out about the lead's situation, qualifies them, and works toward booking (or books) a call with a closer.",
-    "confirmation": "The setter confirms an appointment that is already booked: time, link, what to expect, perhaps a brief re-qualification.",
+    "other": "Anything else: 'are you joining the call', 'where are you', a voicemail greeting, a wrong number, spam, a call that never got past hello, an internal or personal call, or a transcript too thin to tell.",
     "closing": "The booked sales call itself: a closer presents the program, its price or payment, handles objections and asks for a decision to buy.",
-    "other": "Anything else: 'are you joining the call', 'where are you', a voicemail greeting, a wrong number, spam, a call that never got past hello, an internal or personal call, or a transcript too thin to tell."
+    "setting": "The setter finds out about the lead's situation, qualifies them, and works toward booking (or books) a call with a closer.",
+    "confirmation": "The setter confirms an appointment that is already booked: time, link, what to expect, perhaps a brief re-qualification."
   },
   "ambiguity_max": 0.8
 }
@@ -255,7 +255,7 @@ Next:
 
 - Step id `l_book`, type `lookup`
 - Engine description: Look up their bookings
-- Detail: kind closing; status not cancelled; closer [who dialed]; starts since [the call started] -60m; starts until [the call started] +60m; order starts at; saved as closing booking for the steps after it (the engine's own question, read-only)
+- Detail: kind closing; order starts at; closer [who dialed]; status not cancelled; starts since [the call started] -60m; starts until [the call started] +60m; saved as closing booking for the steps after it (the engine's own question, read-only)
 - If it keeps failing: the run is held on this step (step v_link reads what it looked up)
 
 Next:
@@ -271,11 +271,11 @@ Next:
   "query": "appointments_for_contact",
   "params": {
     "kind": "closing",
-    "status_not": "cancelled",
+    "order": "starts_at",
     "closer": "{{recording.caller.ghl_user_id | default:}}",
+    "status_not": "cancelled",
     "starts_since": "{{vars.convo.first.started_at}} -60m",
-    "starts_until": "{{vars.convo.first.started_at}} +60m",
-    "order": "starts_at"
+    "starts_until": "{{vars.convo.first.started_at}} +60m"
   },
   "into": "closing_booking"
 }
@@ -404,7 +404,7 @@ Next:
 
 - Step id `rec_close`, type `record`
 - Engine description: Record: Jev read a dialer call as a closing call
-- Detail: An event in the ledger with recording id, external id, conversation, parts, closer, linked, about [the booking it lines up with]; it starts the workflows that listen for it (once)
+- Detail: An event in the ledger with parts, closer, linked, external id, conversation, recording id, about [the booking it lines up with]; it starts the workflows that listen for it (once)
 - If it keeps failing: the run is held on this step (it is the run's own ledger)
 
 Next:
@@ -419,12 +419,12 @@ Next:
   "type": "record",
   "event": "call.closing",
   "data": {
-    "recording_id": "{{recording.id}}",
-    "external_id": "{{recording.external_id}}",
-    "conversation": "{{vars.convo.key}}",
     "parts": "{{vars.convo.count}}",
     "closer": "{{recording.caller.name | default:}}",
-    "linked": "{{vars.booking_id}}"
+    "linked": "{{vars.booking_id}}",
+    "external_id": "{{recording.external_id}}",
+    "conversation": "{{vars.convo.key}}",
+    "recording_id": "{{recording.id}}"
   },
   "appointment": "{{vars.booking_id}}",
   "start": true
@@ -477,7 +477,7 @@ Next: the run ends here.
 
 - Step id `a3`, type `classify`
 - Engine description: Jev: what did this setting call between a setter and a lead achieve?
-- Detail: Decides between set, follow up, dq, not interested; below 70% sure, or a reply a careful person would doubt, goes to a person
+- Detail: Decides between dq, set, follow up, not interested; below 70% sure, or a reply a careful person would doubt, goes to a person
 - If it keeps failing: the run is held on this step (step v_conf reads reply intent confidence)
 
 Question asked of the classifier:
@@ -492,6 +492,12 @@ What it reads:
 {{vars.convo.transcript_text}}
 ```
 
+Option "dq" means:
+
+```
+The lead does not qualify: the setter or the lead established they are not a fit (budget, age, location, medical, timeline, no real problem to solve, already with a competitor, or a bad or wrong contact).
+```
+
 Option "set" means:
 
 ```
@@ -502,12 +508,6 @@ Option "follow_up" means:
 
 ```
 The lead is interested but nothing was booked: a callback, a later conversation or sending them information was agreed or clearly implied.
-```
-
-Option "dq" means:
-
-```
-The lead does not qualify: the setter or the lead established they are not a fit (budget, age, location, medical, timeline, no real problem to solve, already with a competitor, or a bad or wrong contact).
 ```
 
 Option "not_interested" means:
@@ -532,9 +532,9 @@ Next:
   "into": "vars.classify.result",
   "question": "What did this setting call between a setter and a lead achieve?",
   "criteria": {
+    "dq": "The lead does not qualify: the setter or the lead established they are not a fit (budget, age, location, medical, timeline, no real problem to solve, already with a competitor, or a bad or wrong contact).",
     "set": "A call with the closer or specialist was booked on this call: a day and time were agreed, or the setter booked it while they were on the phone.",
     "follow_up": "The lead is interested but nothing was booked: a callback, a later conversation or sending them information was agreed or clearly implied.",
-    "dq": "The lead does not qualify: the setter or the lead established they are not a fit (budget, age, location, medical, timeline, no real problem to solve, already with a competitor, or a bad or wrong contact).",
     "not_interested": "The lead declined: they said they are not interested, do not want a call, or asked not to be contacted."
   },
   "ambiguity_max": 0.8
@@ -589,7 +589,7 @@ Next:
 
 - Step id `l_now`, type `lookup`
 - Engine description: Look up the whole conversation this call is part of (the same caller's calls to them, each starting within the gap of the last one ending)
-- Detail: recording id [this recording]; gap min [the gap between parts of one call (minutes)]; saved as convo now for the steps after it (the engine's own question, read-only)
+- Detail: gap min [the gap between parts of one call (minutes)]; recording id [this recording]; saved as convo now for the steps after it (the engine's own question, read-only)
 - If it keeps failing: the run is held on this step (step c_latest reads what it looked up)
 
 Next:
@@ -604,8 +604,8 @@ Next:
   "type": "lookup",
   "query": "call_conversation",
   "params": {
-    "recording_id": "{{recording.id}}",
-    "gap_min": "{{setting.calls.conversation_gap_min}}"
+    "gap_min": "{{setting.calls.conversation_gap_min}}",
+    "recording_id": "{{recording.id}}"
   },
   "into": "convo_now"
 }
@@ -730,16 +730,16 @@ Next:
   "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
   "key": "{{vars.convo.key}}",
   "properties": {
-    "display_label": "{{contact.name | default:Unknown}} — {{vars.convo.first.started_at | date_company}}{{vars.parts_line}}",
-    "external_id": "{{vars.convo.key}}",
-    "contact_id": "{{contact.ghl_contact_id | default:}}",
-    "occurred_at": "{{vars.convo.first.started_at | date_company}}",
-    "direction": "{{recording.direction}}",
-    "duration_sec": "{{vars.convo.total_sec}}",
     "setter": "{{recording.caller.name | default:}}",
     "outcome": "{{recording.status}}",
-    "recording_url": "{{recording.url | default:}}",
-    "call_result": "{{vars.result_key | default:}}"
+    "direction": "{{recording.direction}}",
+    "contact_id": "{{contact.ghl_contact_id | default:}}",
+    "call_result": "{{vars.result_key | default:}}",
+    "external_id": "{{vars.convo.key}}",
+    "occurred_at": "{{vars.convo.first.started_at | date_company}}",
+    "duration_sec": "{{vars.convo.total_sec}}",
+    "display_label": "{{contact.name | default:Unknown}} — {{vars.convo.first.started_at | date_company}}{{vars.parts_line}}",
+    "recording_url": "{{recording.url | default:}}"
   },
   "owner": "{{recording.caller.ghl_user_id | default:}}",
   "if_missing": "create",
@@ -903,7 +903,7 @@ Next:
 ### 28. Remember result, picked by [who decided the result]
 
 - Step id `v_res`, type `set_var`
-- Detail: booking → set; jev → [Jev's read of the result]; otherwise 
+- Detail: jev → [Jev's read of the result]; booking → set; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -918,8 +918,8 @@ Next:
   "key": "result",
   "value": "{{vars.decided_by}}",
   "pick": {
-    "booking": "set",
-    "jev": "{{vars.classify.result}}"
+    "jev": "{{vars.classify.result}}",
+    "booking": "set"
   },
   "else_value": ""
 }
@@ -1026,7 +1026,7 @@ Next:
 
 - Step id `l_now2`, type `lookup`
 - Engine description: Look up the whole conversation this call is part of (the same caller's calls to them, each starting within the gap of the last one ending)
-- Detail: recording id [this recording]; gap min [the gap between parts of one call (minutes)]; saved as convo now for the steps after it (the engine's own question, read-only)
+- Detail: gap min [the gap between parts of one call (minutes)]; recording id [this recording]; saved as convo now for the steps after it (the engine's own question, read-only)
 - If it keeps failing: the run is held on this step (step c_latest2 reads what it looked up)
 
 Next:
@@ -1041,8 +1041,8 @@ Next:
   "type": "lookup",
   "query": "call_conversation",
   "params": {
-    "recording_id": "{{recording.id}}",
-    "gap_min": "{{setting.calls.conversation_gap_min}}"
+    "gap_min": "{{setting.calls.conversation_gap_min}}",
+    "recording_id": "{{recording.id}}"
   },
   "into": "convo_now"
 }
@@ -1112,7 +1112,7 @@ Next:
 
 - Step id `a4`, type `classify`
 - Engine description: Jev: if this lead was disqualified on the call, what was the reason?
-- Detail: Decides between budget, age, geo, medical, timeline, no problem, competitor, bad contact, other; below 60% sure, or a reply a careful person would doubt, goes to a person
+- Detail: Decides between age, geo, other, budget, medical, timeline, competitor, no problem, bad contact; below 60% sure, or a reply a careful person would doubt, goes to a person
 - Runs only if: the result is disqualified or blank (otherwise skipped)
 - If it keeps failing: after its tries it is skipped and the run goes on (set on the step (blocking: false); set on the step)
 
@@ -1128,12 +1128,6 @@ What it reads:
 {{vars.convo.transcript_text}}
 ```
 
-Option "budget" means:
-
-```
-They cannot afford it or have no money for it right now.
-```
-
 Option "age" means:
 
 ```
@@ -1144,6 +1138,18 @@ Option "geo" means:
 
 ```
 They are outside the area the company serves.
+```
+
+Option "other" means:
+
+```
+Any other reason, or the transcript does not say.
+```
+
+Option "budget" means:
+
+```
+They cannot afford it or have no money for it right now.
 ```
 
 Option "medical" means:
@@ -1158,28 +1164,22 @@ Option "timeline" means:
 Their timing does not work: not for a long while, or no urgency at all.
 ```
 
-Option "no_problem" means:
-
-```
-They do not actually have the problem the program solves.
-```
-
 Option "competitor" means:
 
 ```
 They are already working with, or committed to, a competitor.
 ```
 
+Option "no_problem" means:
+
+```
+They do not actually have the problem the program solves.
+```
+
 Option "bad_contact" means:
 
 ```
 A wrong number, a fake or duplicate contact, or someone who never asked to be contacted.
-```
-
-Option "other" means:
-
-```
-Any other reason, or the transcript does not say.
 ```
 
 Next:
@@ -1208,15 +1208,15 @@ Next:
   "into": "vars.classify.dq_reason",
   "question": "If this lead was disqualified on the call, what was the reason?",
   "criteria": {
-    "budget": "They cannot afford it or have no money for it right now.",
     "age": "They are too young or too old for the program.",
     "geo": "They are outside the area the company serves.",
+    "other": "Any other reason, or the transcript does not say.",
+    "budget": "They cannot afford it or have no money for it right now.",
     "medical": "A medical condition or treatment rules them out.",
     "timeline": "Their timing does not work: not for a long while, or no urgency at all.",
-    "no_problem": "They do not actually have the problem the program solves.",
     "competitor": "They are already working with, or committed to, a competitor.",
-    "bad_contact": "A wrong number, a fake or duplicate contact, or someone who never asked to be contacted.",
-    "other": "Any other reason, or the transcript does not say."
+    "no_problem": "They do not actually have the problem the program solves.",
+    "bad_contact": "A wrong number, a fake or duplicate contact, or someone who never asked to be contacted."
   },
   "ambiguity_max": 0.8
 }
@@ -1249,7 +1249,7 @@ Next:
 ### 36. Remember dq tag, picked by [Jev's DQ reason]
 
 - Step id `v_dqtag`, type `set_var`
-- Detail: budget → dq-budget; age → dq-age; geo → dq-geo; medical → dq-medical; timeline → dq-timeline; no problem → dq-no-problem; competitor → dq-competitor; bad contact → dq-bad-contact; otherwise dq
+- Detail: age → dq-age; geo → dq-geo; budget → dq-budget; medical → dq-medical; timeline → dq-timeline; competitor → dq-competitor; no problem → dq-no-problem; bad contact → dq-bad-contact; otherwise dq
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -1264,13 +1264,13 @@ Next:
   "key": "dq_tag",
   "value": "{{vars.classify.dq_reason | default:}}",
   "pick": {
-    "budget": "dq-budget",
     "age": "dq-age",
     "geo": "dq-geo",
+    "budget": "dq-budget",
     "medical": "dq-medical",
     "timeline": "dq-timeline",
-    "no_problem": "dq-no-problem",
     "competitor": "dq-competitor",
+    "no_problem": "dq-no-problem",
     "bad_contact": "dq-bad-contact"
   },
   "else_value": "dq"
@@ -1326,7 +1326,7 @@ Next:
 
 - Step id `rec_read`, type `record`
 - Engine description: Record: Jev read what a setter call achieved
-- Detail: An event in the ledger with recording id, external id, parts, setter, predicted, predicted confidence, top guesses, result, decided by, set by booking, booked at, jev agreed, dq reason, acts; nothing leaves the engine
+- Detail: An event in the ledger with acts, parts, result, setter, booked at, dq reason, predicted, decided by, jev agreed, external id, top guesses, recording id, set by booking, predicted confidence; nothing leaves the engine
 - If it keeps failing: the run is held on this step (it is the run's own ledger)
 
 Next:
@@ -1341,20 +1341,20 @@ Next:
   "type": "record",
   "event": "setter_call.result",
   "data": {
-    "recording_id": "{{vars.convo.first.id}}",
-    "external_id": "{{vars.convo.key}}",
+    "acts": "{{setting.setter_result.act}}",
     "parts": "{{vars.convo.count}}",
-    "setter": "{{recording.caller.name | default:}}",
-    "predicted": "{{vars.classify.result}}",
-    "predicted_confidence": "{{vars.jev_confidence}}",
-    "top_guesses": "{{vars.jev_guesses}}",
     "result": "{{vars.result}}",
-    "decided_by": "{{vars.decided_by}}",
-    "set_by_booking": "{{vars.booked.matched | default:false}}",
+    "setter": "{{recording.caller.name | default:}}",
     "booked_at": "{{vars.booked.appointment.booked_at | default:}}",
-    "jev_agreed": "{{vars.jev_agreed}}",
     "dq_reason": "{{vars.classify.dq_reason | default:}}",
-    "acts": "{{setting.setter_result.act}}"
+    "predicted": "{{vars.classify.result}}",
+    "decided_by": "{{vars.decided_by}}",
+    "jev_agreed": "{{vars.jev_agreed}}",
+    "external_id": "{{vars.convo.key}}",
+    "top_guesses": "{{vars.jev_guesses}}",
+    "recording_id": "{{vars.convo.first.id}}",
+    "set_by_booking": "{{vars.booked.matched | default:false}}",
+    "predicted_confidence": "{{vars.jev_confidence}}"
   }
 }
 ```
@@ -1720,7 +1720,7 @@ Next:
 ### 50. Remember result, picked by [the tap]
 
 - Step id `tv_res`, type `set_var`
-- Detail: white check mark → set; repeat → follow_up; x → dq; no entry sign → not_interested; otherwise 
+- Detail: x → dq; repeat → follow_up; no entry sign → not_interested; white check mark → set; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -1735,10 +1735,10 @@ Next:
   "key": "result",
   "value": "{{reaction.reaction | default:}}",
   "pick": {
-    "white_check_mark": "set",
-    "repeat": "follow_up",
     "x": "dq",
-    "no_entry_sign": "not_interested"
+    "repeat": "follow_up",
+    "no_entry_sign": "not_interested",
+    "white_check_mark": "set"
   },
   "else_value": ""
 }
@@ -1750,7 +1750,7 @@ Next:
 
 - Step id `ru1`, type `record`
 - Engine description: Record: Nobody answered the team's question in time
-- Detail: An event in the ledger with domain, predicted, predicted confidence, top guesses, recording id; nothing leaves the engine
+- Detail: An event in the ledger with domain, predicted, top guesses, recording id, predicted confidence; nothing leaves the engine
 - If it keeps failing: the run is held on this step (it is the run's own ledger)
 
 Next:
@@ -1767,9 +1767,9 @@ Next:
   "data": {
     "domain": "setter_call_result",
     "predicted": "{{vars.classify.result}}",
-    "predicted_confidence": "{{vars.jev_confidence}}",
     "top_guesses": "{{vars.jev_guesses}}",
-    "recording_id": "{{vars.convo.first.id}}"
+    "recording_id": "{{vars.convo.first.id}}",
+    "predicted_confidence": "{{vars.jev_confidence}}"
   }
 }
 ```
@@ -1824,7 +1824,7 @@ Next:
 ### 53. Remember result key, picked by [the result]
 
 - Step id `v_key`, type `set_var`
-- Detail: set → [set]; follow up → [follow up]; dq → [disqualified]; not interested → [not interested]; otherwise 
+- Detail: dq → [disqualified]; set → [set]; follow up → [follow up]; not interested → [not interested]; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -1839,9 +1839,9 @@ Next:
   "key": "result_key",
   "value": "{{vars.result}}",
   "pick": {
+    "dq": "{{picklist.discovery_call_result.dq}}",
     "set": "{{picklist.discovery_call_result.set}}",
     "follow_up": "{{picklist.discovery_call_result.follow_up}}",
-    "dq": "{{picklist.discovery_call_result.dq}}",
     "not_interested": "{{picklist.discovery_call_result.not_interested}}"
   },
   "else_value": ""
@@ -2029,7 +2029,7 @@ Next:
 ### 59. Remember result words, picked by [the result]
 
 - Step id `v_words`, type `set_var`
-- Detail: set → Set; follow up → Follow up; dq → DQ; not interested → Not interested; otherwise 
+- Detail: dq → DQ; set → Set; follow up → Follow up; not interested → Not interested; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -2044,9 +2044,9 @@ Next:
   "key": "result_words",
   "value": "{{vars.result}}",
   "pick": {
+    "dq": "DQ",
     "set": "Set",
     "follow_up": "Follow up",
-    "dq": "DQ",
     "not_interested": "Not interested"
   },
   "else_value": ""
@@ -2207,7 +2207,7 @@ Next: the run ends here.
 ### 65. Remember act line, picked by [the result]
 
 - Step id `v_act`, type `set_var`
-- Detail: follow up → [act word] a task for [who dialed] to call back [full name], due next business day.; dq → [act word] tag [the DQ tag] and mark the setter card lost.; not interested → [act word] mark the setter card lost.; otherwise 
+- Detail: dq → [act word] tag [the DQ tag] and mark the setter card lost.; follow up → [act word] a task for [who dialed] to call back [full name], due next business day.; not interested → [act word] mark the setter card lost.; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -2222,8 +2222,8 @@ Next:
   "key": "act_line",
   "value": "{{vars.result}}",
   "pick": {
-    "follow_up": "{{vars.act_word}} a task for {{recording.caller.name | default:the setter}} to call back {{contact.name | default:them}}, due next business day.",
     "dq": "{{vars.act_word}} tag {{vars.dq_tag}} and mark the setter card lost.",
+    "follow_up": "{{vars.act_word}} a task for {{recording.caller.name | default:the setter}} to call back {{contact.name | default:them}}, due next business day.",
     "not_interested": "{{vars.act_word}} mark the setter card lost."
   },
   "else_value": ""
@@ -2328,7 +2328,7 @@ Next:
 
 - Step id `rec_rev`, type `record`
 - Engine description: Record: A team member said whether Jev read it right
-- Detail: An event in the ledger with domain, predicted, predicted confidence, decided, agreed, decided by, recording id; nothing leaves the engine
+- Detail: An event in the ledger with agreed, domain, decided, predicted, decided by, recording id, predicted confidence; nothing leaves the engine
 - If it keeps failing: the run is held on this step (it is the run's own ledger)
 
 Next:
@@ -2343,13 +2343,13 @@ Next:
   "type": "record",
   "event": "intent.reviewed",
   "data": {
-    "domain": "setter_call_result",
-    "predicted": "{{vars.classify.result}}",
-    "predicted_confidence": "{{vars.jev_confidence}}",
-    "decided": "{{vars.result}}",
     "agreed": "{{vars.jev_agreed}}",
+    "domain": "setter_call_result",
+    "decided": "{{vars.result}}",
+    "predicted": "{{vars.classify.result}}",
     "decided_by": "{{reaction.user_name}}",
-    "recording_id": "{{vars.convo.first.id}}"
+    "recording_id": "{{vars.convo.first.id}}",
+    "predicted_confidence": "{{vars.jev_confidence}}"
   }
 }
 ```
@@ -2386,7 +2386,7 @@ Next:
 
 - Step id `rec_late`, type `record`
 - Engine description: Record: Jev read what a setter call achieved
-- Detail: An event in the ledger with recording id, external id, parts, setter, predicted, predicted confidence, top guesses, result, decided by, set by booking, booked at, jev agreed, dq reason, acts; nothing leaves the engine
+- Detail: An event in the ledger with acts, parts, result, setter, booked at, dq reason, predicted, decided by, jev agreed, external id, top guesses, recording id, set by booking, predicted confidence; nothing leaves the engine
 - If it keeps failing: the run is held on this step (it is the run's own ledger)
 
 Next:
@@ -2401,20 +2401,20 @@ Next:
   "type": "record",
   "event": "setter_call.result",
   "data": {
-    "recording_id": "{{vars.convo.first.id}}",
-    "external_id": "{{vars.convo.key}}",
+    "acts": "{{setting.setter_result.act}}",
     "parts": "{{vars.convo.count}}",
-    "setter": "{{recording.caller.name | default:}}",
-    "predicted": "{{vars.classify.result}}",
-    "predicted_confidence": "{{vars.jev_confidence}}",
-    "top_guesses": "{{vars.jev_guesses}}",
     "result": "set",
-    "decided_by": "booking",
-    "set_by_booking": "true",
+    "setter": "{{recording.caller.name | default:}}",
     "booked_at": "{{vars.late.appointment.booked_at | default:}}",
-    "jev_agreed": "{{vars.jev_agreed}}",
     "dq_reason": "{{vars.classify.dq_reason | default:}}",
-    "acts": "{{setting.setter_result.act}}"
+    "predicted": "{{vars.classify.result}}",
+    "decided_by": "booking",
+    "jev_agreed": "{{vars.jev_agreed}}",
+    "external_id": "{{vars.convo.key}}",
+    "top_guesses": "{{vars.jev_guesses}}",
+    "recording_id": "{{vars.convo.first.id}}",
+    "set_by_booking": "true",
+    "predicted_confidence": "{{vars.jev_confidence}}"
   }
 }
 ```
@@ -2424,7 +2424,7 @@ Next:
 ### 73. Remember result key, picked by [the result]
 
 - Step id `tv_key`, type `set_var`
-- Detail: set → [set]; follow up → [follow up]; dq → [disqualified]; not interested → [not interested]; otherwise 
+- Detail: dq → [disqualified]; set → [set]; follow up → [follow up]; not interested → [not interested]; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -2439,9 +2439,9 @@ Next:
   "key": "result_key",
   "value": "{{vars.result}}",
   "pick": {
+    "dq": "{{picklist.discovery_call_result.dq}}",
     "set": "{{picklist.discovery_call_result.set}}",
     "follow_up": "{{picklist.discovery_call_result.follow_up}}",
-    "dq": "{{picklist.discovery_call_result.dq}}",
     "not_interested": "{{picklist.discovery_call_result.not_interested}}"
   },
   "else_value": ""
@@ -2453,7 +2453,7 @@ Next:
 ### 74. Remember outcome line, picked by [who decided the result]
 
 - Step id `v_line`, type `set_var`
-- Detail: booking → Set — booked through a setter link [when it was booked] (Jev read: [Jev's read of the result], [how sure Jev was]% sure); jev → [the result] (Jev is [how sure Jev was]% sure); otherwise [why the team is asked]; the team is asked
+- Detail: jev → [the result] (Jev is [how sure Jev was]% sure); booking → Set — booked through a setter link [when it was booked] (Jev read: [Jev's read of the result], [how sure Jev was]% sure); otherwise [why the team is asked]; the team is asked
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -2468,8 +2468,8 @@ Next:
   "key": "outcome_line",
   "value": "{{vars.decided_by}}",
   "pick": {
-    "booking": "Set — booked through a setter link {{vars.booked_when}} (Jev read: {{vars.classify.result | words}}, {{vars.jev_confidence}}% sure)",
-    "jev": "{{vars.result_words}} (Jev is {{vars.jev_confidence}}% sure)"
+    "jev": "{{vars.result_words}} (Jev is {{vars.jev_confidence}}% sure)",
+    "booking": "Set — booked through a setter link {{vars.booked_when}} (Jev read: {{vars.classify.result | words}}, {{vars.jev_confidence}}% sure)"
   },
   "else_value": "{{vars.unsure_line}}; the team is asked"
 }
@@ -2510,7 +2510,7 @@ Next:
 ### 76. Remember result words, picked by [the result]
 
 - Step id `tv_words`, type `set_var`
-- Detail: set → Set; follow up → Follow up; dq → DQ; not interested → Not interested; otherwise 
+- Detail: dq → DQ; set → Set; follow up → Follow up; not interested → Not interested; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -2525,9 +2525,9 @@ Next:
   "key": "result_words",
   "value": "{{vars.result}}",
   "pick": {
+    "dq": "DQ",
     "set": "Set",
     "follow_up": "Follow up",
-    "dq": "DQ",
     "not_interested": "Not interested"
   },
   "else_value": ""
@@ -2587,7 +2587,7 @@ Next:
 ### 78. Remember act line, picked by [the result]
 
 - Step id `tv_act`, type `set_var`
-- Detail: follow up → [act word] a task for [who dialed] to call back [full name], due next business day.; dq → [act word] tag [the DQ tag] and mark the setter card lost.; not interested → [act word] mark the setter card lost.; otherwise 
+- Detail: dq → [act word] tag [the DQ tag] and mark the setter card lost.; follow up → [act word] a task for [who dialed] to call back [full name], due next business day.; not interested → [act word] mark the setter card lost.; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -2602,8 +2602,8 @@ Next:
   "key": "act_line",
   "value": "{{vars.result}}",
   "pick": {
-    "follow_up": "{{vars.act_word}} a task for {{recording.caller.name | default:the setter}} to call back {{contact.name | default:them}}, due next business day.",
     "dq": "{{vars.act_word}} tag {{vars.dq_tag}} and mark the setter card lost.",
+    "follow_up": "{{vars.act_word}} a task for {{recording.caller.name | default:the setter}} to call back {{contact.name | default:them}}, due next business day.",
     "not_interested": "{{vars.act_word}} mark the setter card lost."
   },
   "else_value": ""
@@ -2638,17 +2638,17 @@ Next:
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.assoc_discovery_call_contact` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_discovery_call` | id | no | not read (repo) |
-| `crm.pipeline_setter` | id | yes | not read (repo) |
-| `crm.stage_setter_dq` | id | no | not read (repo) |
-| `crm.stage_setter_not_interested` | id | no | not read (repo) |
-| `prompt.setter_call_notes` | text | yes | not read (repo) |
-| `secret.anthropic_key` | secret | yes | not read (repo) |
-| `slack.channel.bookings` | channel | no | not read (repo) |
-| `slack.channel.ops` | channel | no | not read (repo) |
-| `slack.channel.setter_calls` | channel | no | not read (repo) |
+| `crm.assoc_discovery_call_contact` | id | yes | **unbound** |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `crm.object_discovery_call` | id | no | `custom_objects.discovery_call` |
+| `crm.pipeline_setter` | id | yes | **unbound** |
+| `crm.stage_setter_dq` | id | no | **unbound** |
+| `crm.stage_setter_not_interested` | id | no | **unbound** |
+| `prompt.setter_call_notes` | text | yes | `You read transcripts of setter phone calls for a sales team. Report what was said. Do not invent enthusiasm, and do not soften a bad call. If something was not discussed, say so rather than guessing.  Score fit against this rubric exactly: 10-8  named a specific problem, gave a timeline, asked about price or next steps 7-5   engaged and answered questions, but vague on urgency or budget 4-2   polite but passive; no stated problem or timeline 1     wrong number, spam, or not a prospect at all  Answer with exactly this JSON shape: {   "summary": "what the call was about and where it landed, one or two sentences",   "pains": "what is bothering them, in their words; empty string if it did not come up",   "goals": "what they want; empty string if it did not come up",   "triage": "anything that affects whether they are a fit (budget, timing, decision maker, medical); empty string if nothing",   "next_step": "the next step agreed or suggested on the call (a callback time, information to send, the call with the specialist); empty string if none",   "fit_quality": 1 to 10 per the rubric,   "digest": "the Slack-ready write-up: the summary, then a line each for Pains, Goals and Triage only when they came up, then Fit: N/10 and a few words why. A short confirmation call where nothing new was said is one line." }` |
+| `secret.anthropic_key` | secret | yes | set (secret, not shown) |
+| `slack.channel.bookings` | channel | no | `C0BSCMB813L` |
+| `slack.channel.ops` | channel | no | `C0C70J3TEF9` |
+| `slack.channel.setter_calls` | channel | no | `C0C40PT9T8A` |
 
 ## Engine rules that apply but are not steps
 

@@ -1,21 +1,20 @@
 # Setter call filed
 
-Offer: **Dating (Nelly)** (`dating-nelly`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **Dating (Nelly)** (`dating-nelly`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | the offer's own workflow: platform/installs/dating-nelly/setter-call-filed.json |
+| Where this definition came from | live: version 2, saved 2026-10-19T22:02:58.943Z (D186 (Tyler): the end of day's notes and why a DQ go on the Discovery Call record) |
 | Template | none (the offer's own workflow) |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | follows the offer (quiet) |
-| Send lock | unknown (repo) |
+| Edited since copied from the template | yes |
+| Saved version | 2 |
+| Enabled | on |
+| Mode | live |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 9 |
-| Note | dating-nelly: a setter's outbound call answered on the end of day (D156): the conversation's Discovery Call record (showed, set / follow up / DQ / not interested), the setter card to Appointment Set or DQ / Not Interested (lost), a line under the call's post in the setter channel |
 
 ## Steps
 
@@ -46,7 +45,7 @@ Next:
 
 - Step id `v_line`, type `set_var`
 - Engine description: Remember line, picked by [result]
-- Detail: set → ✅ End of day: set; follow up → 🔁 End of day: follow up; dq → ⛔ End of day: DQ; not interested → 👋 End of day: not interested; otherwise 
+- Detail: dq → ⛔ End of day: DQ; set → ✅ End of day: set; follow up → 🔁 End of day: follow up; not interested → 👋 End of day: not interested; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -62,9 +61,9 @@ Next:
   "key": "line",
   "value": "{{event.result}}",
   "pick": {
+    "dq": "⛔ End of day: DQ",
     "set": "✅ End of day: set",
     "follow_up": "🔁 End of day: follow up",
-    "dq": "⛔ End of day: DQ",
     "not_interested": "👋 End of day: not interested"
   },
   "else_value": ""
@@ -93,18 +92,18 @@ Next:
   "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
   "key": "{{event.conversation}}",
   "properties": {
-    "display_label": "{{contact.name | default:Unknown}} — {{event.started_at | date_company:yyyy-MM-dd}}",
-    "external_id": "{{event.conversation}}",
-    "contact_id": "{{contact.ghl_contact_id | default:}}",
-    "occurred_at": "{{event.started_at | date_company}}",
-    "direction": "{{event.direction | default:}}",
-    "duration_sec": "{{event.duration_sec | default:}}",
+    "notes": "{{event.note | default:}}",
     "setter": "{{event.setter | default:}}",
     "outcome": "showed",
-    "recording_url": "{{event.recording_url | default:}}",
-    "call_result": "{{event.result}}",
+    "direction": "{{event.direction | default:}}",
     "dq_reason": "{{event.dq_reason | default:}}",
-    "notes": "{{event.note | default:}}"
+    "contact_id": "{{contact.ghl_contact_id | default:}}",
+    "call_result": "{{event.result}}",
+    "external_id": "{{event.conversation}}",
+    "occurred_at": "{{event.started_at | date_company}}",
+    "duration_sec": "{{event.duration_sec | default:}}",
+    "display_label": "{{contact.name | default:Unknown}} — {{event.started_at | date_company:yyyy-MM-dd}}",
+    "recording_url": "{{event.recording_url | default:}}"
   },
   "owner": "{{event.setter_ghl_user_id | default:}}",
   "if_missing": "create",
@@ -297,14 +296,14 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.assoc_discovery_call_contact` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_discovery_call` | id | no | not read (repo) |
-| `crm.pipeline_setter` | id | yes | not read (repo) |
-| `crm.stage_setter_appointment_set` | id | yes | not read (repo) |
-| `crm.stage_setter_dq` | id | yes | not read (repo) |
-| `crm.stage_setter_not_interested` | id | yes | not read (repo) |
-| `slack.channel.setter_calls` | channel | no | not read (repo) |
+| `crm.assoc_discovery_call_contact` | id | yes | `6ad17a5fceaa91122182cbe8` |
+| `crm.location_id` | id | yes | `eLfhuKEaVMlrpLm2Fz8V` |
+| `crm.object_discovery_call` | id | no | `custom_objects.dating_discovery` |
+| `crm.pipeline_setter` | id | yes | `N59nJLRaspsNwiaPWtE8` |
+| `crm.stage_setter_appointment_set` | id | yes | `cdecc4fc-3865-446b-b663-9f432a90323e` |
+| `crm.stage_setter_dq` | id | yes | `49fa4f2a-b866-4850-9706-ee0ff63f7c15` |
+| `crm.stage_setter_not_interested` | id | yes | `82b55b7f-f553-4de7-9441-2a431d65616d` |
+| `slack.channel.setter_calls` | channel | no | `C0CB00CSDCG` |
 
 ## Engine rules that apply but are not steps
 

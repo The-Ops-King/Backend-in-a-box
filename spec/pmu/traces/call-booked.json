@@ -1,0 +1,1599 @@
+{
+  "offer": "pmu",
+  "workflow": "Call booked",
+  "slug": "call-booked",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "booked",
+      "runs": 35
+    },
+    {
+      "status": "exited",
+      "exit_reason": "moot: contact gone",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-1>",
+      "status": "completed",
+      "exit_reason": "booked",
+      "mode_at_start": "ghost",
+      "workflow_version": 7,
+      "started": "2026-10-20",
+      "took_sec": 37,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-12-15T20:30:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-21T23:34:50.918Z",
+              "body": "Booked for Tue Dec 15 · 3:30 PM EST. A quick personal video before the call.",
+              "title": "Send <contact-1> a personalized video",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "c_new",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-2>",
+            "ghost": true,
+            "stage": "<id-3>",
+            "fields": [],
+            "crm_card": "<crm-id-2>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2b",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v4",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_type",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k4",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-4>",
+            "record": "created",
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "scheduled",
+              "call_date": "2026-12-15",
+              "call_type": "closing",
+              "contact_id": "<crm-id-3>",
+              "external_id": "<id-5>",
+              "scheduled_at": "2026-12-15T20:30:00.000Z",
+              "display_label": "<contact-3> — 2026-12-15",
+              "booking_source": "direct",
+              "opportunity_id": "<crm-id-2>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "s5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-booked",
+              "stat-self-booked",
+              "meta booked call"
+            ],
+            "would_untag": [
+              "seq-no-show",
+              "seq-nurture",
+              "seq-winback",
+              "opt-in lead",
+              "stat-no-show",
+              "stat-cancelled",
+              "stat-possible-cancel",
+              "stat-needs-attention"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": "<phone-1>:30"
+                }
+              ],
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [
+            "ghost",
+            "reacted_on",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-2>",
+            "ghost": true,
+            "reacted_on": 0,
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "appointment:<id-6>"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "f_card",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "c_new",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "s1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "s_suffix",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 37,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 37,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-3>|<contact-1> Ajanon>\n*Booked with:* <staff-2>\n\n*Appointment time:* Tue Dec 15 · 3:30 PM EST\n*Phone:* <phone-3>\n*Monthly revenue:* —\n*Ad budget:* —\n*Qualified:* DQ\n*Reschedule link:* <url-1>\n*Source:* zapier · self-booked"
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "appointment:<id-6>",
+          "channel": "C0C270G06FN",
+          "at_sec": 37
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-7>",
+      "status": "completed",
+      "exit_reason": "booked",
+      "mode_at_start": "ghost",
+      "workflow_version": 7,
+      "started": "2026-10-20",
+      "took_sec": 31,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-26T21:00:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "s2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_new",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-4>",
+            "ghost": true,
+            "stage": "<id-3>",
+            "fields": [],
+            "crm_card": "<crm-id-6>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2b",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": "<phone-4>:00"
+                }
+              ],
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "f_card",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "c_new",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "k4",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-8>",
+            "record": "created",
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "scheduled",
+              "call_date": "2026-10-26",
+              "call_type": "closing",
+              "contact_id": "<crm-id-7>",
+              "external_id": "<id-9>",
+              "scheduled_at": "2026-10-26T21:00:00.000Z",
+              "display_label": "<contact-5> — 2026-10-26",
+              "booking_source": "direct",
+              "opportunity_id": "<crm-id-6>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "s1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "s5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-booked",
+              "stat-self-booked",
+              "meta booked call"
+            ],
+            "would_untag": [
+              "seq-no-show",
+              "seq-nurture",
+              "seq-winback",
+              "opt-in lead",
+              "stat-no-show",
+              "stat-cancelled",
+              "stat-possible-cancel",
+              "stat-needs-attention"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-21T21:39:39.753Z",
+              "body": "Booked for Mon Oct 26 · 5:00 PM EDT. A quick personal video before the call.",
+              "title": "Send <contact-6> a personalized video",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "v4",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_type",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [
+            "ghost",
+            "reacted_on",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-5>",
+            "ghost": true,
+            "reacted_on": 0,
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "appointment:<id-10>"
+          },
+          "error": null
+        },
+        {
+          "node": "s_suffix",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 31,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 31,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-7>|<contact-6> Cox>\n*Booked with:* <staff-2>\n\n*Appointment time:* Mon Oct 26 · 5:00 PM EDT\n*Phone:* <phone-6>\n*Monthly revenue:* —\n*Ad budget:* —\n*Qualified:* MQL\n*Reschedule link:* <url-2>\n*Source:* — · self-booked"
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "appointment:<id-10>",
+          "channel": "C0C270G06FN",
+          "at_sec": 31
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-11>",
+      "status": "completed",
+      "exit_reason": "booked",
+      "mode_at_start": "ghost",
+      "workflow_version": 7,
+      "started": "2026-10-20",
+      "took_sec": 25,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T22:30:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "n1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": "<phone-7>:30"
+                }
+              ],
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-21T16:07:29.519Z",
+              "body": "Booked for Tue Oct 20 · 6:30 PM EDT. A quick personal video before the call.",
+              "title": "Send <contact-1> a personalized video",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "s2b",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v4",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_type",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s_suffix",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "ghost",
+            "reacted_on",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-8>",
+            "ghost": true,
+            "reacted_on": 0,
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "appointment:<id-12>"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_new",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-7>",
+            "ghost": true,
+            "stage": "<id-3>",
+            "fields": [],
+            "crm_card": "<crm-id-2>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "f_card",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "c_new",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k4",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-13>",
+            "record": "created",
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "scheduled",
+              "call_date": "2026-10-20",
+              "call_type": "closing",
+              "contact_id": "<crm-id-3>",
+              "external_id": "<id-14>",
+              "scheduled_at": "2026-10-20T22:30:00.000Z",
+              "display_label": "<contact-1> Aganon — 2026-10-20",
+              "booking_source": "direct",
+              "opportunity_id": "<crm-id-2>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "s1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-booked",
+              "stat-self-booked",
+              "meta booked call"
+            ],
+            "would_untag": [
+              "seq-no-show",
+              "seq-nurture",
+              "seq-winback",
+              "opt-in lead",
+              "stat-no-show",
+              "stat-cancelled",
+              "stat-possible-cancel",
+              "stat-needs-attention"
+            ]
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 25,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-3>|<contact-1> Aganon>\n*Booked with:* <staff-2>\n\n*Appointment time:* Tue Oct 20 · 6:30 PM EDT\n*Phone:* <phone-3>\n*Monthly revenue:* —\n*Ad budget:* —\n*Qualified:* DQ\n*Reschedule link:* <url-3>\n*Source:* zapier · self-booked"
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "appointment:<id-12>",
+          "channel": "C0C270G06FN",
+          "at_sec": 25
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-15>",
+      "status": "completed",
+      "exit_reason": "booked",
+      "mode_at_start": "ghost",
+      "workflow_version": 7,
+      "started": "2026-10-20",
+      "took_sec": 22,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-21T22:30:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "v4",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k4",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-16>",
+            "record": "created",
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "scheduled",
+              "call_date": "2026-10-21",
+              "call_type": "closing",
+              "contact_id": "<crm-id-3>",
+              "external_id": "<id-17>",
+              "scheduled_at": "2026-10-21T22:30:00.000Z",
+              "display_label": "<contact-1> Aganon — 2026-10-21",
+              "booking_source": "direct",
+              "opportunity_id": "<crm-id-2>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-21T16:01:36.338Z",
+              "body": "Booked for Wed Oct 21 · 6:30 PM EDT. A quick personal video before the call.",
+              "title": "Send <contact-1> a personalized video",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "ghost",
+            "reacted_on",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-9>",
+            "ghost": true,
+            "reacted_on": 0,
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "appointment:<id-18>"
+          },
+          "error": null
+        },
+        {
+          "node": "v_type",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "f_card",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "c_new",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_new",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-7>",
+            "ghost": true,
+            "stage": "<id-3>",
+            "fields": [],
+            "crm_card": "<crm-id-2>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-booked",
+              "stat-self-booked",
+              "meta booked call"
+            ],
+            "would_untag": [
+              "seq-no-show",
+              "seq-nurture",
+              "seq-winback",
+              "opt-in lead",
+              "stat-no-show",
+              "stat-cancelled",
+              "stat-possible-cancel",
+              "stat-needs-attention"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": "<phone-10>:30"
+                }
+              ],
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "s_suffix",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "s1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "s2b",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 22,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 22,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-3>|<contact-1> Aganon>\n*Booked with:* <staff-2>\n\n*Appointment time:* Wed Oct 21 · 6:30 PM EDT\n*Phone:* <phone-3>\n*Monthly revenue:* —\n*Ad budget:* —\n*Qualified:* DQ\n*Reschedule link:* <url-4>\n*Source:* zapier · self-booked"
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "appointment:<id-18>",
+          "channel": "C0C270G06FN",
+          "at_sec": 22
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-19>",
+      "status": "completed",
+      "exit_reason": "booked",
+      "mode_at_start": "ghost",
+      "workflow_version": 7,
+      "started": "2026-10-20",
+      "took_sec": 148,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-20T18:00:00.000000Z",
+          "calendar_id": "<id-20>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 18,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "waiting",
+          "at_sec": 18,
+          "result_keys": [
+            "deadline",
+            "why"
+          ],
+          "result": {
+            "why": "not yet: there is a CRM contact; looking again every 2 minutes until 2026-10-20T14:43:15.172+00:00",
+            "deadline": "2026-10-20T14:43:15.172+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": "<phone-11>:00"
+                }
+              ],
+              "assignedUserId": "<crm-id-8>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s_suffix",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-booked",
+              "stat-self-booked",
+              "meta booked call"
+            ],
+            "would_untag": [
+              "seq-no-show",
+              "seq-nurture",
+              "seq-winback",
+              "opt-in lead",
+              "stat-no-show",
+              "stat-cancelled",
+              "stat-possible-cancel",
+              "stat-needs-attention"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-21T13:45:22.570Z",
+              "body": "Booked for Tue Oct 20 · 2:00 PM EDT. A quick personal video before the call.",
+              "title": "Send <contact-8> a personalized video",
+              "assignedUserId": "<crm-id-8>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "s1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "s2b",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_type",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "f_card",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "c_new",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "c_new",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-9>",
+            "ghost": true,
+            "stage": "<id-3>",
+            "fields": [],
+            "crm_card": "<crm-id-9>",
+            "from_stage": "<id-21>"
+          },
+          "error": null
+        },
+        {
+          "node": "v4",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k4",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-22>",
+            "record": "created",
+            "related": [],
+            "properties": {
+              "closer": "<staff-3>",
+              "outcome": "scheduled",
+              "call_date": "2026-10-20",
+              "call_type": "closing",
+              "contact_id": "<crm-id-10>",
+              "external_id": "<id-23>",
+              "scheduled_at": "2026-10-20T18:00:00.000Z",
+              "display_label": "<contact-10> — 2026-10-20",
+              "booking_source": "direct",
+              "opportunity_id": "<crm-id-9>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [
+            "ghost",
+            "reacted_on",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-12>",
+            "ghost": true,
+            "reacted_on": 0,
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "appointment:<id-24>"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 148,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 148,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-10>|<contact-8> G>\n*Booked with:* <staff-4>\n\n*Appointment time:* Tue Oct 20 · 2:00 PM EDT\n*Phone:* <phone-13>\n*Monthly revenue:* —\n*Ad budget:* —\n*Qualified:* —\n*Reschedule link:* <url-5>\n*Source:* zapier · self-booked"
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "appointment:<id-24>",
+          "channel": "C0C270G06FN",
+          "at_sec": 148
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-25>",
+      "status": "exited",
+      "exit_reason": "moot: contact gone",
+      "mode_at_start": "ghost",
+      "workflow_version": 7,
+      "started": "2026-10-19",
+      "took_sec": 133,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-21T23:30:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "waiting",
+          "at_sec": 19,
+          "result_keys": [
+            "deadline",
+            "why"
+          ],
+          "result": {
+            "why": "not yet: there is a CRM contact; looking again every 2 minutes until 2026-10-20T00:54:30.865+00:00",
+            "deadline": "2026-10-20T00:54:30.865+00:00"
+          },
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

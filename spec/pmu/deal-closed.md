@@ -1,21 +1,20 @@
 # Deal closed
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | playbook copy: platform/installs/pmu/deal-closed.json |
-| Template | `deal-closed` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 4, saved 2026-10-16T18:24:05.219Z (PMU: one board. The card moves to Signed Contract, won; no setter card) |
+| Template | `deal-closed` v5 |
+| Edited since copied from the template | yes |
+| Saved version | 4 |
+| Enabled | on |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | once_per_contact |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 12 |
-| Note | PMU: one board. The card moves to Signed Contract, won; no setter card |
 
 ## Steps
 
@@ -192,8 +191,8 @@ Next:
   "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
   "key": "{{records.sales_call.key}}",
   "properties": {
-    "disposition": "closed_won",
     "outcome": "{{picklist.sales_call_outcome.showed}}",
+    "disposition": "closed_won",
     "cash_collected": "{{contact.cash_collected}}"
   },
   "if_missing": "skip",
@@ -397,13 +396,13 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_sales_call` | id | no | not read (repo) |
-| `crm.pipeline_closer` | id | yes | not read (repo) |
-| `crm.stage_closer_closed_won` | id | yes | not read (repo) |
-| `prompt.close_cheer` | text | yes | not read (repo) |
-| `secret.anthropic_key` | secret | yes | not read (repo) |
-| `slack.channel.deals` | channel | no | not read (repo) |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `crm.object_sales_call` | id | no | `custom_objects.sales_call` |
+| `crm.pipeline_closer` | id | yes | `1B37Vzv6euKMpWaFFuVW` |
+| `crm.stage_closer_closed_won` | id | yes | `f63b74f5-4528-4002-a2b4-67e4f0f0f5d6` |
+| `prompt.close_cheer` | text | yes | `You write one line for a sales team's Slack channel the moment a deal closes. You are given the closer's name, the client's first name, cash collected, the deal value, how many days it took from first booking to payment, and the lead source. Write ONE sentence, under 25 words, congratulating the closer by name in the team's voice: upbeat, specific to the numbers you were given, never generic. Mention the days to close only if it is impressive (under 7). No emoji, no hashtags, no quotation marks, no preamble. Answer with the sentence only.` |
+| `secret.anthropic_key` | secret | yes | set (secret, not shown) |
+| `slack.channel.deals` | channel | no | `C0BSG9X17S8` |
 
 ## Engine rules that apply but are not steps
 

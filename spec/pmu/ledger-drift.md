@@ -1,19 +1,19 @@
 # Ledger drift
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | shipped template: platform/src/templates/ledger-drift.json (the offer's words, if any, are applied at install) |
-| Template | `ledger-drift` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 1, saved 2026-10-13T18:29:28.700Z (installed from template) |
+| Template | `ledger-drift` v1 |
+| Edited since copied from the template | no |
+| Saved version | 1 |
+| Enabled | off |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | nothing |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 6 |
 
 ## Steps
@@ -174,10 +174,10 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.assoc_sales_call_contact` | id | no | not read (repo) |
-| `crm.assoc_sales_call_opportunity` | id | no | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_sales_call` | id | yes | not read (repo) |
+| `crm.assoc_sales_call_contact` | id | no | `6ab44fe67f8a0a87bc8a542d` |
+| `crm.assoc_sales_call_opportunity` | id | no | `6ace9cd588661082b9b4aa71` |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `crm.object_sales_call` | id | yes | `custom_objects.sales_call` |
 
 ## Engine rules that apply but are not steps
 

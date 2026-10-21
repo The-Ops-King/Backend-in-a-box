@@ -1,0 +1,1165 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "Triage pre-call",
+  "slug": "triage-pre-call",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "done",
+      "runs": 1
+    },
+    {
+      "status": "exited",
+      "exit_reason": "superseded: a newer run for this person",
+      "runs": 1
+    },
+    {
+      "status": "waiting",
+      "exit_reason": null,
+      "runs": 10
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-58>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "quiet",
+      "workflow_version": 2,
+      "started": "2026-10-19",
+      "took_sec": 81161,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "test",
+        "data": {
+          "source": "<contact-4>",
+          "status": "confirmed",
+          "simulated": true,
+          "starts_at": "2026-10-20T14:00:00.000-07:00",
+          "calendar_id": "<id-9>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "skipped",
+          "at_sec": 76,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_send"
+          ],
+          "result": {
+            "why": "the CRM refused the sms: GHL 400 on /conversations/messages: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Cannot send message as DND is active for SMS.\",\"canonicalCode\":\"CONVERSATIONS_MSG_DND_ACTIVE_SMS\",\"arguments\":{},\"traceId\":\"<id-59>\"}",
+            "kind": "blocked",
+            "would_send": "Hi <contact-14>, it's <staff-3>. You're booked for your free 15-minute strategy call on Tuesday, Oct 20 at 2:00 PM PDT. My teammate"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 76,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 76,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 82,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T02:29:06.774+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 459,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T02:29:06.774+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 1187,
+          "result_keys": [
+            "replies",
+            "settling_until"
+          ],
+          "result": {
+            "replies": 1,
+            "settling_until": "2026-10-19T22:48:29.187+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_ask",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 1255,
+          "result_keys": [
+            "blocking",
+            "class",
+            "kind",
+            "tries",
+            "vendor",
+            "why"
+          ],
+          "result": {
+            "why": "couldn't ask in the booking channel: keep, cancel or reschedule? after 1 try; the run went on without it",
+            "kind": "gave_up",
+            "class": "permanent",
+            "tries": 1,
+            "vendor": null,
+            "blocking": false
+          },
+          "error": "unknown path {{reply.last_outbound.body}}"
+        },
+        {
+          "node": "n_pending",
+          "type": "update_appointment",
+          "status": "ok",
+          "at_sec": 1255,
+          "result_keys": [
+            "pending_read"
+          ],
+          "result": {
+            "pending_read": {
+              "at": "2026-10-19T22:49:23.850+00:00",
+              "intent": "unclear",
+              "confidence": 55
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n_att_on",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 1255,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w_dec",
+          "type": "wait_for_reaction",
+          "status": "skipped",
+          "at_sec": 1255,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "nothing to tap: that post is not in Slack (channel unbound, or the post was skipped)",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 1255,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-19T22:49:23.850+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "m24s",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 1255,
+          "result_keys": [
+            "external_id",
+            "substituted"
+          ],
+          "result": {
+            "external_id": "<crm-id-37>",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 1255,
+          "result_keys": [
+            "replied_at",
+            "replies"
+          ],
+          "result": {
+            "replies": 1,
+            "replied_at": "2026-10-19T22:46:59.187Z"
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 1255,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "v_read",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 1255,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value",
+            "why"
+          ],
+          "result": {
+            "why": "not confident enough",
+            "value": "unclear",
+            "ambiguity": 0.83,
+            "confidence": 0.55
+          },
+          "error": null
+        },
+        {
+          "node": "v_read",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 1255,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 1264,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-20T21:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "m1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 81152,
+          "result_keys": [
+            "external_id",
+            "substituted"
+          ],
+          "result": {
+            "external_id": "gZkIIEbuDRWLTGtpolRm",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 81152,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-20T21:00:42.969+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 81161,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "failed",
+          "reason": null,
+          "at_sec": null,
+          "body": "Hi <contact-14>, it's <staff-3>. You're booked for your free 15-minute strategy call on Tuesday, Oct 20 at 2:00 PM PDT. My teammate <staff-2> will be the one calling you. Reply YES to confirm, or reply here if you need a different time."
+        },
+        {
+          "channel": "sms",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 1264,
+          "body": "Hi <contact-14>, <staff-3> here. Quick reminder that <staff-2> is calling you tomorrow at 3:00 PM PDT for your strategy call. It's only 15 minutes, so find a spot where you can talk freely."
+        },
+        {
+          "channel": "sms",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 81160,
+          "body": "<contact-14>, your call with <staff-2> is in an hour (3:00 PM MST). Keep your phone close."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-60>",
+      "status": "exited",
+      "exit_reason": "superseded: a newer run for this person",
+      "mode_at_start": "quiet",
+      "workflow_version": 2,
+      "started": "2026-10-19",
+      "took_sec": 33,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "test",
+        "data": {
+          "source": "<contact-4>",
+          "status": "confirmed",
+          "simulated": true,
+          "starts_at": "2026-10-20T14:00:00.000-07:00",
+          "calendar_id": "<id-9>",
+          "self_booked": false
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-61>",
+      "status": "waiting",
+      "exit_reason": null,
+      "mode_at_start": "quiet",
+      "workflow_version": 5,
+      "started": "2026-10-20",
+      "took_sec": null,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-11-16T19:30:00.000000Z",
+          "calendar_id": "<id-9>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 59,
+          "result_keys": [
+            "quiet",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "quiet": true,
+            "would_send": "Hi <contact-7>, it's <staff-3>. You're booked for your free 15-minute strategy call on Monday, Nov 16 at 11:30 AM PST. My teammate",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 59,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 59,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 59,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-21T00:02:13.999+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14530,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "v_lead",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 14530,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14530,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14530,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-11-15T19:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 14530,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-16>",
+            "tag": "appointment:<id-14>",
+            "reacted": true,
+            "in_thread_of": "<phone-3>"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "quiet",
+          "reason": "quiet mode: nothing reaches a contact",
+          "at_sec": 59,
+          "body": "Hi <contact-7>, it's <staff-3>. You're booked for your free 15-minute strategy call on Monday, Nov 16 at 11:30 AM PST. My teammate <staff-2> will be the one calling you. Reply YES to confirm, or reply here if you need a different time."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 14530,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-62>",
+      "status": "waiting",
+      "exit_reason": null,
+      "mode_at_start": "quiet",
+      "workflow_version": 5,
+      "started": "2026-10-20",
+      "took_sec": null,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-11-02T00:30:00.000000Z",
+          "calendar_id": "<id-9>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 79,
+          "result_keys": [
+            "quiet",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "quiet": true,
+            "would_send": "Hi <contact-10>, it's <staff-3>. You're booked for your free 15-minute strategy call on Sunday, Nov 1 at 7:30 PM EST. My teammate",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 79,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 79,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T22:44:11.284+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 79,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 14480,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 14480,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-31T19:59:00.000-04:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 14480,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "v_lead",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 14480,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 14480,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-17>",
+            "tag": "appointment:<id-18>",
+            "reacted": true,
+            "in_thread_of": "<phone-5>"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "quiet",
+          "reason": "quiet mode: nothing reaches a contact",
+          "at_sec": 79,
+          "body": "Hi <contact-10>, it's <staff-3>. You're booked for your free 15-minute strategy call on Sunday, Nov 1 at 7:30 PM EST. My teammate <staff-2> will be the one calling you. Reply YES to confirm, or reply here if you need a different time."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 14480,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-63>",
+      "status": "waiting",
+      "exit_reason": null,
+      "mode_at_start": "quiet",
+      "workflow_version": 4,
+      "started": "2026-10-20",
+      "took_sec": null,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-11-16T22:30:00.000000Z",
+          "calendar_id": "<id-9>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 89,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 89,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "waiting",
+          "at_sec": 89,
+          "result_keys": [
+            "quiet_hours_until"
+          ],
+          "result": {
+            "quiet_hours_until": "2026-10-20T08:00:00.000-07:00"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 40988,
+          "result_keys": [
+            "quiet",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "quiet": true,
+            "would_send": "Hi <contact-13>, it's <staff-3>. You're booked for your free 15-minute strategy call on Monday, Nov 16 at 3:30 PM MST. My teammat",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 40988,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T19:00:47.001+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 55406,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 55406,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-18>",
+            "tag": "appointment:<id-22>",
+            "reacted": true,
+            "in_thread_of": "<phone-7>"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 55406,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-11-15T22:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 55406,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "quiet",
+          "reason": "quiet mode: nothing reaches a contact",
+          "at_sec": 40988,
+          "body": "Hi <contact-13>, it's <staff-3>. You're booked for your free 15-minute strategy call on Monday, Nov 16 at 3:30 PM MST. My teammate <staff-2> will be the one calling you. Reply YES to confirm, or reply here if you need a different time."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 55406,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-64>",
+      "status": "waiting",
+      "exit_reason": null,
+      "mode_at_start": "quiet",
+      "workflow_version": 3,
+      "started": "2026-10-20",
+      "took_sec": null,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-11-01T23:30:00.000000Z",
+          "calendar_id": "<id-9>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 59,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 59,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "waiting",
+          "at_sec": 59,
+          "result_keys": [
+            "quiet_hours_until"
+          ],
+          "result": {
+            "quiet_hours_until": "2026-10-20T08:00:00.000-04:00"
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 37058,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T16:00:46.937+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 37058,
+          "result_keys": [
+            "quiet",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "quiet": true,
+            "would_send": "Hi <contact-23>, it's <staff-3>. You're booked for your free 15-minute strategy call on Sunday, Nov 1 at 6:30 PM EST. My teammate M",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 51538,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 51538,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-31T23:30:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 51538,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 51538,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-19>",
+            "tag": "appointment:<id-65>",
+            "reacted": true,
+            "in_thread_of": "<phone-20>"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "quiet",
+          "reason": "quiet mode: nothing reaches a contact",
+          "at_sec": 37058,
+          "body": "Hi <contact-23>, it's <staff-3>. You're booked for your free 15-minute strategy call on Sunday, Nov 1 at 6:30 PM EST. My teammate <staff-2> will be the one calling you. Reply YES to confirm, or reply here if you need a different time."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 51538,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-66>",
+      "status": "waiting",
+      "exit_reason": null,
+      "mode_at_start": "quiet",
+      "workflow_version": 3,
+      "started": "2026-10-20",
+      "took_sec": null,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-11-27T19:00:00.000000Z",
+          "calendar_id": "<id-9>",
+          "self_booked": true
+        }
+      },
+      "steps": [
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "waiting",
+          "at_sec": 113,
+          "result_keys": [
+            "quiet_hours_until"
+          ],
+          "result": {
+            "quiet_hours_until": "2026-10-20T08:00:00.000-04:00"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 113,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c0",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 113,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "send_sms",
+          "status": "ok",
+          "at_sec": 37821,
+          "result_keys": [
+            "quiet",
+            "substituted",
+            "would_send"
+          ],
+          "result": {
+            "quiet": true,
+            "would_send": "Hi <contact-24>, it's <staff-3>. You're booked for your free 15-minute strategy call on Friday, Nov 27 at 2:00 PM EST. My teammat",
+            "substituted": false
+          },
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "waiting",
+          "at_sec": 37821,
+          "result_keys": [
+            "deadline"
+          ],
+          "result": {
+            "deadline": "2026-10-20T16:00:46.937+00:00"
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 52302,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait_for_reply",
+          "status": "ok",
+          "at_sec": 52302,
+          "result_keys": [
+            "timed_out"
+          ],
+          "result": {
+            "timed_out": true
+          },
+          "error": null
+        },
+        {
+          "node": "n_unc_slack",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 52302,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-21>",
+            "tag": "appointment:<id-67>",
+            "reacted": true,
+            "in_thread_of": "<phone-22>"
+          },
+          "error": null
+        },
+        {
+          "node": "r24",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 52302,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-11-26T19:00:00.000+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "sms",
+          "status": "quiet",
+          "reason": "quiet mode: nothing reaches a contact",
+          "at_sec": 37821,
+          "body": "Hi <contact-24>, it's <staff-3>. You're booked for your free 15-minute strategy call on Friday, Nov 27 at 2:00 PM EST. My teammate <staff-2> will be the one calling you. Reply YES to confirm, or reply here if you need a different time."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 52302,
+          "body": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

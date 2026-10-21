@@ -1,0 +1,445 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "Closing call booked",
+  "slug": "closing-call-booked",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "booked",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-1>",
+      "status": "completed",
+      "exit_reason": "booked",
+      "mode_at_start": "live",
+      "workflow_version": 2,
+      "started": "2026-10-20",
+      "took_sec": 38,
+      "trigger": {
+        "type": "appointment.booked",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": "confirmed",
+          "starts_at": "2026-10-21T21:00:00.000000Z",
+          "calendar_id": "<id-2>",
+          "self_booked": false
+        }
+      },
+      "steps": [
+        {
+          "node": "c0",
+          "type": "ensure_contact",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [
+            "action",
+            "filled",
+            "ghl_contact_id",
+            "source"
+          ],
+          "result": {
+            "action": "created",
+            "filled": [
+              "firstName",
+              "lastName",
+              "email"
+            ],
+            "source": "Calendly booking",
+            "ghl_contact_id": "<crm-id-1>"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_added",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_note",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_via",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 19,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b2b",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b3",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [
+            "customFields"
+          ],
+          "result": {
+            "customFields": [
+              {
+                "id": "<crm-id-2>",
+                "field_value": "<staff-1>"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "b1"
+          },
+          "error": null
+        },
+        {
+          "node": "b2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b_suffix",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [
+            "assignedUserId",
+            "customFields"
+          ],
+          "result": {
+            "customFields": [
+              {
+                "id": "<crm-id-3>",
+                "field_value": "2026-10-21"
+              }
+            ],
+            "assignedUserId": "<crm-id-4>"
+          },
+          "error": null
+        },
+        {
+          "node": "u1",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [
+            "customFields"
+          ],
+          "result": {
+            "customFields": [
+              {
+                "id": "<crm-id-5>",
+                "field_value": "setter"
+              },
+              {
+                "id": "<crm-id-6>",
+                "field_value": "<staff-2>"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "b4",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 24,
+          "result_keys": [
+            "card",
+            "fields",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "created",
+            "name": "<contact-1>",
+            "stage": "<id-3>",
+            "fields": [
+              {
+                "id": "<crm-id-7>",
+                "field_value": "<staff-1>"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "b6",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_new",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "card",
+            "fields",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "created",
+            "name": "<contact-2>",
+            "stage": "<id-4>",
+            "fields": [
+              {
+                "id": "<crm-id-7>",
+                "field_value": "<staff-1>"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "f_card",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "c_new",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "create_task",
+          "status": "skipped",
+          "at_sec": 36,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "tasks are off for this company (crm.tasks)",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "k4",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 36,
+          "result_keys": [
+            "crm_id",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "crm_id": "<crm-id-8>",
+            "our_id": "<id-5>",
+            "record": "created",
+            "related": [
+              "<crm-id-1>→<crm-id-8>",
+              "<crm-id-8>→<crm-id-9>"
+            ],
+            "properties": {
+              "closer": "<staff-3>",
+              "setter": "<staff-1>",
+              "outcome": "scheduled",
+              "call_date": "2026-10-21",
+              "call_type": "closing",
+              "contact_id": "<crm-id-1>",
+              "external_id": "<id-6>",
+              "scheduled_at": "2026-10-21T21:00:00.000Z",
+              "display_label": "<contact-3> — 2026-10-21",
+              "booking_source": "setter_set",
+              "opportunity_id": "<crm-id-9>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "v4",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 38,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_textoff",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 38,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_nophone",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 38,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 38,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_dnd",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 38,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-1>",
+            "tag": "appointment:<id-7>",
+            "reacted": true,
+            "in_thread_of": "<phone-2>"
+          },
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 38,
+          "result_keys": [
+            "reacted_on",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-2>",
+            "reacted_on": 0,
+            "remembered_as": "appointment:<id-7>"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 38,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-10>/contacts/detail/<crm-id-1>|<contact-4> Test>\n*Booked with:* <staff-4>\n*Setter:* <staff-1>\n*Appointment time:* Wed Oct 21 · 2:00 PM PDT\n*Phone:* —\n*Age:* —\n*Based in:* —\n*Income:* —\n*Looking for:* —\n*Biggest challenge:* —\n*Wants:* —\n*Reschedule link:* <url-1>\n*Source:* — · setter booked\n*New to GHL:* added from their Calendly booking"
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 38,
+          "body": "⚠️ <contact-4> has no phone number on file, so no texts will reach them. Call or email instead."
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "appointment:<id-7>",
+          "channel": "C0C9Q7MEANT",
+          "at_sec": 38
+        }
+      ],
+      "crm_effects": [
+        {
+          "node": "c_note",
+          "kind": "note",
+          "done": true
+        },
+        {
+          "node": "b4",
+          "kind": "card",
+          "done": true
+        },
+        {
+          "node": "c_new",
+          "kind": "card",
+          "done": true
+        },
+        {
+          "node": "k4",
+          "kind": "record",
+          "done": true
+        }
+      ]
+    }
+  ]
+}

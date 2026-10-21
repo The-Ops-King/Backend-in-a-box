@@ -1,19 +1,19 @@
 # New lead
 
-Offer: **Dating (Nelly)** (`dating-nelly`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **Dating (Nelly)** (`dating-nelly`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | shipped template: platform/src/templates/new-lead.json (the offer's words, if any, are applied at install) |
-| Template | `new-lead` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | follows the offer (quiet) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 1, saved 2026-10-16T01:31:32.059Z (installed from template) |
+| Template | `new-lead` v3 |
+| Edited since copied from the template | no |
+| Saved version | 1 |
+| Enabled | on |
+| Mode | live |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 5 |
 
 ## Steps
@@ -140,10 +140,10 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.field_opportunity_stage_entered` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.pipeline_setter` | id | yes | not read (repo) |
-| `crm.stage_setter_new_lead` | id | yes | not read (repo) |
+| `crm.field_opportunity_stage_entered` | id | yes | `pBQY7AMGMgjY8H3uibnE` |
+| `crm.location_id` | id | yes | `eLfhuKEaVMlrpLm2Fz8V` |
+| `crm.pipeline_setter` | id | yes | `N59nJLRaspsNwiaPWtE8` |
+| `crm.stage_setter_new_lead` | id | yes | `e4044e0d-0622-45ff-83f0-13b1244b2aae` |
 
 ## Engine rules that apply but are not steps
 

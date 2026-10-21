@@ -1,0 +1,657 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "EOD: remind closers to file",
+  "slug": "eod-remind-closers-to-file",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "done",
+      "runs": 6
+    },
+    {
+      "status": "completed",
+      "exit_reason": "nothing_to_file",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-74>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 3,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-20",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-20T16:00:34.245+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-20",
+          "local_time": "09:00"
+        }
+      },
+      "steps": [
+        {
+          "node": "t_morning",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_op",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 3,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is a Slack id for the operator and the number of calls blank for two days is more than 0; the number of calls blank for two days is at most 0",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "c_due",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_morning",
+          "type": "eod_due",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "days",
+            "include_today",
+            "lookback_days",
+            "overdue"
+          ],
+          "result": {
+            "days": 3,
+            "overdue": 0,
+            "include_today": false,
+            "lookback_days": 7
+          },
+          "error": null
+        },
+        {
+          "node": "n_dm",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-27>",
+            "remembered_as": "eod-reminder:<id-75>:2026-10-20"
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 3,
+          "body": "Hey <staff-3>, your end-of-day is waiting:\n• <<url-8> Oct 15>: 6 calls\n• <<url-9> Oct 16>: 4 calls\n• <<url-10> Oct 19>: 4 calls\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit."
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "eod-reminder:<id-75>:2026-10-20",
+          "channel": "D0CA5CK2GG2",
+          "at_sec": 3
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-76>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 6,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-20",
+          "user_id": "<id-77>",
+          "fired_at": "2026-10-20T16:00:34.245+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-20",
+          "local_time": "09:00"
+        }
+      },
+      "steps": [
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_dm",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-28>",
+            "remembered_as": "eod-reminder:<id-77>:2026-10-20"
+          },
+          "error": null
+        },
+        {
+          "node": "t_morning",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_due",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_op",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 6,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is a Slack id for the operator and the number of calls blank for two days is more than 0; the number of calls blank for two days is at most 0",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "v_morning",
+          "type": "eod_due",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [
+            "days",
+            "include_today",
+            "lookback_days",
+            "overdue"
+          ],
+          "result": {
+            "days": 2,
+            "overdue": 0,
+            "include_today": false,
+            "lookback_days": 7
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 6,
+          "body": "Hey <staff-2>, your end-of-day is waiting:\n• <<url-11> Oct 18>: 1 call\n• <<url-12> Oct 19>: 4 calls\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit."
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "eod-reminder:<id-77>:2026-10-20",
+          "channel": "D0BAA0MU3LK",
+          "at_sec": 6
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-78>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 7,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-19",
+          "user_id": "<id-77>",
+          "fired_at": "2026-10-20T02:10:47.118+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-19",
+          "local_time": "19:10"
+        }
+      },
+      "steps": [
+        {
+          "node": "c_due",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_morning",
+          "type": "eod_due",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [
+            "days",
+            "include_today",
+            "lookback_days",
+            "overdue"
+          ],
+          "result": {
+            "days": 1,
+            "overdue": 0,
+            "include_today": false,
+            "lookback_days": 7
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t_morning",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_op",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 7,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is a Slack id for the operator and the number of calls blank for two days is more than 0; the number of calls blank for two days is at most 0",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "n_dm",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-29>",
+            "remembered_as": "eod-reminder:<id-77>:2026-10-19"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 7,
+          "body": "Hey <staff-2>, your end-of-day is waiting:\n• <<url-11> Oct 18>: 1 call\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-79>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 41,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_evening",
+          "period": "2026-10-19",
+          "user_id": "<id-77>",
+          "fired_at": "2026-10-20T02:10:47.118+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-19",
+          "local_time": "19:10"
+        }
+      },
+      "steps": [
+        {
+          "node": "n_dm",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 41,
+          "result_keys": [
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-30>",
+            "remembered_as": "eod-reminder:<id-77>:2026-10-19"
+          },
+          "error": null
+        },
+        {
+          "node": "c_due",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 41,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_evening",
+          "type": "eod_due",
+          "status": "ok",
+          "at_sec": 41,
+          "result_keys": [
+            "days",
+            "include_today",
+            "lookback_days",
+            "overdue"
+          ],
+          "result": {
+            "days": 2,
+            "overdue": 0,
+            "include_today": true,
+            "lookback_days": 7
+          },
+          "error": null
+        },
+        {
+          "node": "n_op",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 41,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is a Slack id for the operator and the number of calls blank for two days is more than 0; the number of calls blank for two days is at most 0",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 41,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t_evening",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 41,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 41,
+          "body": "Hey <staff-2>, your end-of-day is waiting:\n• <<url-11> Oct 18>: 1 call\n• <<url-13>>: 4 calls\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit."
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "eod-reminder:<id-77>:2026-10-19",
+          "channel": "D0BAA0MU3LK",
+          "at_sec": 41
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-80>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 4,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-19",
+          "user_id": "<id-75>",
+          "fired_at": "2026-10-20T02:10:47.118+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-19",
+          "local_time": "19:10"
+        }
+      },
+      "steps": [
+        {
+          "node": "v_morning",
+          "type": "eod_due",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "days",
+            "include_today",
+            "lookback_days",
+            "overdue"
+          ],
+          "result": {
+            "days": 2,
+            "overdue": 0,
+            "include_today": false,
+            "lookback_days": 7
+          },
+          "error": null
+        },
+        {
+          "node": "x_done",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t_morning",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c_due",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n_dm",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-31>",
+            "remembered_as": "eod-reminder:<id-75>:2026-10-19"
+          },
+          "error": null
+        },
+        {
+          "node": "n_op",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 4,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is a Slack id for the operator and the number of calls blank for two days is more than 0; the number of calls blank for two days is at most 0",
+            "kind": "noop"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 4,
+          "body": "Hey <staff-3>, your end-of-day is waiting:\n• <<url-8> Oct 15>: 6 calls\n• <<url-9> Oct 16>: 4 calls\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-81>",
+      "status": "completed",
+      "exit_reason": "nothing_to_file",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 2,
+      "trigger": {
+        "type": "schedule",
+        "source": "engine",
+        "data": {
+          "node": "t_morning",
+          "period": "2026-10-20",
+          "user_id": "<id-82>",
+          "fired_at": "2026-10-20T21:19:31.112+00:00",
+          "workflow": "EOD: remind closers to file",
+          "local_date": "2026-10-20",
+          "local_time": "14:19"
+        }
+      },
+      "steps": [
+        {
+          "node": "c_due",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 2,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_morning",
+          "type": "eod_due",
+          "status": "ok",
+          "at_sec": 2,
+          "result_keys": [
+            "days",
+            "include_today",
+            "lookback_days",
+            "overdue"
+          ],
+          "result": {
+            "days": 0,
+            "overdue": 0,
+            "include_today": false,
+            "lookback_days": 7
+          },
+          "error": null
+        },
+        {
+          "node": "t_morning",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 2,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

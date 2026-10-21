@@ -1,19 +1,19 @@
 # Calendar availability
 
-Offer: **Dating (Nelly)** (`dating-nelly`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **Dating (Nelly)** (`dating-nelly`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | shipped template: platform/src/templates/calendar-availability.json (the offer's words, if any, are applied at install) |
-| Template | `calendar-availability` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | follows the offer (quiet) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 2, saved 2026-10-20T02:09:53.723Z (D189: calendar alerts are Calendar availability's own steps; Health check says the rest) |
+| Template | `calendar-availability` v2 |
+| Edited since copied from the template | no |
+| Saved version | 2 |
+| Enabled | on |
+| Mode | live |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | nothing |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 18 |
 
 ## Steps
@@ -566,7 +566,7 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
+| `crm.location_id` | id | yes | `eLfhuKEaVMlrpLm2Fz8V` |
 
 ## Engine rules that apply but are not steps
 

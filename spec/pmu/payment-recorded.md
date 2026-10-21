@@ -1,21 +1,20 @@
 # Payment recorded
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | playbook copy: platform/installs/pmu/payment-recorded.json |
-| Template | `payment-recorded` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 3, saved 2026-10-16T18:24:03.956Z (PMU: payments go on PMU's Cash object; the card moves to Purchase when the agreement goes out) |
+| Template | `payment-recorded` v12 |
+| Edited since copied from the template | yes |
+| Saved version | 3 |
+| Enabled | on |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 24 |
-| Note | PMU: payments go on PMU's cash object; the card moves to Purchase when the agreement goes out |
 
 ## Steps
 
@@ -63,7 +62,7 @@ Next:
 
 - Step id `v1`, type `set_var`
 - Engine description: Remember pay, picked by [payment kind]
-- Detail: refund → head Refund; sign −; status refunded; note REFUND; line 💸 Refunded; react money_with_wings; otherwise head Payment received; sign blank; status succeeded; note PAYMENT RECEIVED; line 💵 Paid; react dollar
+- Detail: refund → head Refund; line 💸 Refunded; note REFUND; sign −; react money_with_wings; status refunded; otherwise head Payment received; line 💵 Paid; note PAYMENT RECEIVED; sign blank; react dollar; status succeeded
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -81,20 +80,20 @@ Next:
   "pick": {
     "refund": {
       "head": "Refund",
-      "sign": "−",
-      "status": "refunded",
-      "note": "REFUND",
       "line": "💸 Refunded",
-      "react": "money_with_wings"
+      "note": "REFUND",
+      "sign": "−",
+      "react": "money_with_wings",
+      "status": "refunded"
     }
   },
   "else_value": {
     "head": "Payment received",
-    "sign": "",
-    "status": "succeeded",
-    "note": "PAYMENT RECEIVED",
     "line": "💵 Paid",
-    "react": "dollar"
+    "note": "PAYMENT RECEIVED",
+    "sign": "",
+    "react": "dollar",
+    "status": "succeeded"
   }
 }
 ```
@@ -363,19 +362,19 @@ Next:
   "object": "custom_objects.cash",
   "key": "{{event.provider_payment_id}}",
   "properties": {
-    "display_label": "{{vars.pay.sign}}${{event.amount | abs}} · {{contact.name | default:Unknown}} · {{event.paid_at | date_company:yyyy-MM-dd}}",
-    "transaction_id": "{{event.provider_payment_id}}",
-    "amount": "{{event.amount}}",
-    "occurred_at": "{{event.paid_at}}",
     "type": "{{event.kind | oneof:deposit,balance,installment,paid_in_full,refund,chargeback}}",
-    "status": "{{vars.pay.status | oneof:succeeded,failed,refunded,disputed,pending}}",
-    "processor": "whop",
-    "contact_id": "{{contact.ghl_contact_id | default:}}",
-    "opportunity_id": "{{cards.closer.id | default:}}",
+    "amount": "{{event.amount}}",
     "closer": "{{cards.closer.owner.name | default:}}",
     "setter": "{{contact.fields.setter | default:}}",
+    "status": "{{vars.pay.status | oneof:succeeded,failed,refunded,disputed,pending}}",
     "paid_date": "{{event.paid_at | date_company:yyyy-MM-dd}}",
-    "link_status": "{{contact.ghl_contact_id | default: | then:linked}}"
+    "processor": "whop",
+    "contact_id": "{{contact.ghl_contact_id | default:}}",
+    "link_status": "{{contact.ghl_contact_id | default: | then:linked}}",
+    "occurred_at": "{{event.paid_at}}",
+    "display_label": "{{vars.pay.sign}}${{event.amount | abs}} · {{contact.name | default:Unknown}} · {{event.paid_at | date_company:yyyy-MM-dd}}",
+    "opportunity_id": "{{cards.closer.id | default:}}",
+    "transaction_id": "{{event.provider_payment_id}}"
   },
   "if_missing": "create",
   "relate": [
@@ -722,19 +721,19 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.agreement_sender` | id | no | not read (repo) |
-| `crm.agreement_template` | id | yes | not read (repo) |
-| `crm.assoc_payment_contact` | id | yes | not read (repo) |
-| `crm.assoc_payment_opportunity` | id | yes | not read (repo) |
-| `crm.field_contact_cash_collected` | id | yes | not read (repo) |
-| `crm.field_contact_revenue_generated` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_sales_call` | id | no | not read (repo) |
-| `crm.pipeline_closer` | id | yes | not read (repo) |
-| `crm.stage_closer_purchase` | id | yes | not read (repo) |
-| `slack.channel.bookings` | channel | no | not read (repo) |
-| `slack.channel.calls` | channel | no | not read (repo) |
-| `slack.channel.payments` | channel | no | not read (repo) |
+| `crm.agreement_sender` | id | no | `xj08UCveN9WfVxozksRj` |
+| `crm.agreement_template` | id | yes | `6ab1a493edcabb246caaa32d` |
+| `crm.assoc_payment_contact` | id | yes | `6ace9cd531cf32c8752d430b` |
+| `crm.assoc_payment_opportunity` | id | yes | `6acea4bb17ba0eea79bef808` |
+| `crm.field_contact_cash_collected` | id | yes | `5JYR4ImLAgEdf7f1Dk9s` |
+| `crm.field_contact_revenue_generated` | id | yes | `g7gaxSNPi5YDgUM7nf6S` |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `crm.object_sales_call` | id | no | `custom_objects.sales_call` |
+| `crm.pipeline_closer` | id | yes | `1B37Vzv6euKMpWaFFuVW` |
+| `crm.stage_closer_purchase` | id | yes | `6320f087-a367-4f0e-a609-216a72a68a8e` |
+| `slack.channel.bookings` | channel | no | `C0BSCMB813L` |
+| `slack.channel.calls` | channel | no | `C0C4PNJKPQC` |
+| `slack.channel.payments` | channel | no | `C0BTJ19AHKP` |
 
 ## Engine rules that apply but are not steps
 

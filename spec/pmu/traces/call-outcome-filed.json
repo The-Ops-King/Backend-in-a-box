@@ -1,0 +1,1253 @@
+{
+  "offer": "pmu",
+  "workflow": "Call outcome filed",
+  "slug": "call-outcome-filed",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "noted",
+      "runs": 7
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-96>",
+      "status": "completed",
+      "exit_reason": "noted",
+      "mode_at_start": "ghost",
+      "workflow_version": 4,
+      "started": "2026-10-19",
+      "took_sec": 56,
+      "trigger": {
+        "type": "appointment.outcome",
+        "source": "disposition",
+        "data": {
+          "by": "disposition",
+          "label": "No-show",
+          "notes": "Card moved to No Show in the CRM by someone",
+          "outcome": "noshow",
+          "previous_outcome": null,
+          "previous_call_outcome": null
+        }
+      },
+      "steps": [
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 56,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "u2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 56,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "g4",
+          "type": "tags",
+          "status": "skipped",
+          "at_sec": 56,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if their unanswered reply is “cancelled” or a reschedule request; their unanswered reply is neither “cancelled” nor a reschedule request",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "u3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 56,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 56,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "g1"
+          },
+          "error": null
+        },
+        {
+          "node": "o_reopen",
+          "type": "update_opportunity",
+          "status": "skipped",
+          "at_sec": 56,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if the earlier call outcome is “lost” and how the call went is not “lost”; the earlier call outcome is not “lost”",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "gn2",
+          "type": "pipeline_card",
+          "status": "skipped",
+          "at_sec": 56,
+          "result_keys": [
+            "crm_card",
+            "kind",
+            "stage",
+            "why"
+          ],
+          "result": {
+            "why": "already there",
+            "kind": "noop",
+            "stage": "<id-97>",
+            "crm_card": "<crm-id-40>"
+          },
+          "error": null
+        },
+        {
+          "node": "r2",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 56,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "not_on_object",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-98>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "outcome": "no_show",
+              "next_step": null,
+              "disposition": null,
+              "external_id": "<id-99>",
+              "cash_collected": null,
+              "objection_primary": null
+            },
+            "not_on_object": [
+              "next_step_date",
+              "payment_terms"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "g1",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 56,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "nothing to react to: the post this replies to is not in Slack (booked before the engine, or its channel was unbound)",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 56,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "u4",
+          "type": "tags",
+          "status": "skipped",
+          "at_sec": 56,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is an earlier answer and either the earlier answer is not the outcome or the earlier call outcome is not how the call went; there is no earlier answer",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "u1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 56,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "g3",
+          "type": "record",
+          "status": "skipped",
+          "at_sec": 56,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if their unanswered reply is “cancelled” or a reschedule request; their unanswered reply is neither “cancelled” nor a reschedule request",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "g2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 56,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-no-show"
+            ]
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "no post to reply to",
+          "at_sec": null,
+          "body": "👻 No-show for the call Mon Oct 19 · 6:00 PM EDT with <staff-2>."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-100>",
+      "status": "completed",
+      "exit_reason": "noted",
+      "mode_at_start": "ghost",
+      "workflow_version": 4,
+      "started": "2026-10-18",
+      "took_sec": 60,
+      "trigger": {
+        "type": "appointment.outcome",
+        "source": "disposition",
+        "data": {
+          "by": "disposition",
+          "label": "Showed",
+          "outcome": "showed",
+          "previous_outcome": "showed",
+          "previous_call_outcome": null
+        }
+      },
+      "steps": [
+        {
+          "node": "u1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "u2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [
+            "card",
+            "card_status",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-22>",
+            "ghost": true,
+            "stage": "<id-101>",
+            "fields": [],
+            "crm_card": "<crm-id-18>",
+            "from_stage": "<id-101>",
+            "card_status": "lost"
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "s1"
+          },
+          "error": null
+        },
+        {
+          "node": "u3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "u4",
+          "type": "tags",
+          "status": "skipped",
+          "at_sec": 60,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "no tag to add or take off",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "v_disp",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "o_reopen",
+          "type": "update_opportunity",
+          "status": "skipped",
+          "at_sec": 60,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if the earlier call outcome is “lost” and how the call went is not “lost”; the earlier call outcome is not “lost” and how the call went is “lost”",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "o_lost",
+          "type": "update_opportunity",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [
+            "opportunity",
+            "started",
+            "status"
+          ],
+          "result": {
+            "status": {
+              "to": "lost",
+              "from": "open"
+            },
+            "started": [],
+            "opportunity": "<id-102>"
+          },
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-showed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-103>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "outcome": "showed",
+              "disposition": "lost",
+              "external_id": "<id-104>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "b2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "c3"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 60,
+          "result_keys": [
+            "kind",
+            "needs",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack channel not bound",
+            "kind": "blocked",
+            "needs": {
+              "bindings": [
+                "slack.channel.bookings"
+              ]
+            },
+            "would_post": "✅ Showed, per <staff-2>: lost."
+          },
+          "error": null
+        },
+        {
+          "node": "c3",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-lost"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 60,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack channel",
+          "at_sec": null,
+          "body": "✅ Showed, per <staff-2>: lost."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-105>",
+      "status": "completed",
+      "exit_reason": "noted",
+      "mode_at_start": "ghost",
+      "workflow_version": 3,
+      "started": "2026-10-16",
+      "took_sec": 46,
+      "trigger": {
+        "type": "appointment.outcome",
+        "source": "disposition",
+        "data": {
+          "by": "disposition",
+          "label": "No-show",
+          "outcome": "noshow",
+          "previous_outcome": null,
+          "previous_call_outcome": null
+        }
+      },
+      "steps": [
+        {
+          "node": "g3",
+          "type": "record",
+          "status": "skipped",
+          "at_sec": 46,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if their unanswered reply is “cancelled” or a reschedule request; their unanswered reply is neither “cancelled” nor a reschedule request",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "g2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 46,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-no-show"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "o_reopen",
+          "type": "update_opportunity",
+          "status": "skipped",
+          "at_sec": 46,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if the earlier call outcome is “lost” and how the call went is not “lost”; the earlier call outcome is not “lost”",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 46,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "g1"
+          },
+          "error": null
+        },
+        {
+          "node": "u2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 46,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "u4",
+          "type": "tags",
+          "status": "skipped",
+          "at_sec": 46,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is an earlier answer and either the earlier answer is not the outcome or the earlier call outcome is not how the call went; there is no earlier answer",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "gn2",
+          "type": "pipeline_card",
+          "status": "skipped",
+          "at_sec": 46,
+          "result_keys": [
+            "crm_card",
+            "kind",
+            "stage",
+            "why"
+          ],
+          "result": {
+            "why": "already there",
+            "kind": "noop",
+            "stage": "<id-97>",
+            "crm_card": "<crm-id-41>"
+          },
+          "error": null
+        },
+        {
+          "node": "u1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 46,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "u3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 46,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "g4",
+          "type": "tags",
+          "status": "skipped",
+          "at_sec": 46,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if their unanswered reply is “cancelled” or a reschedule request; their unanswered reply is neither “cancelled” nor a reschedule request",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "g1",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 46,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "👻 No-show for the call Thu Oct 15 · 8:00 PM EDT with <staff-2>."
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 46,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r2",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 46,
+          "result_keys": [
+            "crm_id",
+            "not_on_object",
+            "our_id",
+            "properties",
+            "record",
+            "related",
+            "shadow"
+          ],
+          "result": {
+            "crm_id": null,
+            "our_id": "<id-106>",
+            "record": "updated",
+            "shadow": true,
+            "related": [],
+            "properties": {
+              "outcome": "no_show",
+              "next_step": null,
+              "disposition": null,
+              "external_id": "<id-107>",
+              "cash_collected": null,
+              "objection_primary": null
+            },
+            "not_on_object": [
+              "next_step_date",
+              "payment_terms"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 46,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "👻 No-show for the call Thu Oct 15 · 8:00 PM EDT with <staff-2>."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-108>",
+      "status": "completed",
+      "exit_reason": "noted",
+      "mode_at_start": "ghost",
+      "workflow_version": 3,
+      "started": "2026-10-15",
+      "took_sec": 54,
+      "trigger": {
+        "type": "appointment.outcome",
+        "source": "disposition",
+        "data": {
+          "by": "disposition",
+          "label": "No-show",
+          "outcome": "noshow",
+          "previous_outcome": null,
+          "previous_call_outcome": null
+        }
+      },
+      "steps": [
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "g1"
+          },
+          "error": null
+        },
+        {
+          "node": "u4",
+          "type": "tags",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is an earlier answer and either the earlier answer is not the outcome or the earlier call outcome is not how the call went; there is no earlier answer",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "g3",
+          "type": "record",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if their unanswered reply is “cancelled” or a reschedule request; their unanswered reply is neither “cancelled” nor a reschedule request",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "u2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r2",
+          "type": "crm_record",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "no custom_objects.sales_call record in the CRM to update: none carries this booking's id or this person at this start time",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "u3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "u1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "gn2",
+          "type": "pipeline_card",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "crm_card",
+            "kind",
+            "stage",
+            "why"
+          ],
+          "result": {
+            "why": "already there",
+            "kind": "noop",
+            "stage": "<id-97>",
+            "crm_card": "<crm-id-42>"
+          },
+          "error": null
+        },
+        {
+          "node": "g4",
+          "type": "tags",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if their unanswered reply is “cancelled” or a reschedule request; their unanswered reply is neither “cancelled” nor a reschedule request",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "g1",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "👻 No-show for the call Thu Oct 15 · 3:00 PM EDT with <staff-2>."
+          },
+          "error": null
+        },
+        {
+          "node": "o_reopen",
+          "type": "update_opportunity",
+          "status": "skipped",
+          "at_sec": 54,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if the earlier call outcome is “lost” and how the call went is not “lost”; the earlier call outcome is not “lost”",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "g2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 54,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-no-show"
+            ]
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "👻 No-show for the call Thu Oct 15 · 3:00 PM EDT with <staff-2>."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-109>",
+      "status": "completed",
+      "exit_reason": "noted",
+      "mode_at_start": "ghost",
+      "workflow_version": 3,
+      "started": "2026-10-15",
+      "took_sec": 53,
+      "trigger": {
+        "type": "appointment.outcome",
+        "source": "disposition",
+        "data": {
+          "by": "disposition",
+          "label": "Showed",
+          "outcome": "showed",
+          "previous_outcome": null,
+          "previous_call_outcome": null
+        }
+      },
+      "steps": [
+        {
+          "node": "s1",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 53,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "✅ Showed, per <staff-2>: lost."
+          },
+          "error": null
+        },
+        {
+          "node": "c3",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-lost"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [
+            "crm_id",
+            "our_id",
+            "properties",
+            "record",
+            "related",
+            "shadow"
+          ],
+          "result": {
+            "crm_id": "<crm-id-23>",
+            "our_id": "<id-110>",
+            "record": "updated",
+            "shadow": true,
+            "related": [],
+            "properties": {
+              "outcome": "showed",
+              "disposition": "lost",
+              "external_id": "<id-111>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "u4",
+          "type": "tags",
+          "status": "skipped",
+          "at_sec": 53,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if there is an earlier answer and either the earlier answer is not the outcome or the earlier call outcome is not how the call went; there is no earlier answer",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "u2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-showed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "o_lost",
+          "type": "update_opportunity",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [
+            "opportunity",
+            "started",
+            "status"
+          ],
+          "result": {
+            "status": {
+              "to": "lost",
+              "from": "open"
+            },
+            "started": [],
+            "opportunity": "<id-112>"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [
+            "card",
+            "card_status",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "name",
+            "shadow",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-35>",
+            "stage": "<id-101>",
+            "fields": [],
+            "shadow": true,
+            "crm_card": "<crm-id-43>",
+            "from_stage": "<id-101>",
+            "card_status": "lost"
+          },
+          "error": null
+        },
+        {
+          "node": "v_disp",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "u3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "o_reopen",
+          "type": "update_opportunity",
+          "status": "skipped",
+          "at_sec": 53,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "only if the earlier call outcome is “lost” and how the call went is not “lost”; the earlier call outcome is not “lost” and how the call went is “lost”",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b2",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "c3"
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "s1"
+          },
+          "error": null
+        },
+        {
+          "node": "u1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 53,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "✅ Showed, per <staff-2>: lost."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

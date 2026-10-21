@@ -1,19 +1,19 @@
 # Post-call follow-up
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | shipped template: platform/src/templates/post-call-follow-up.json (the offer's words, if any, are applied at install) |
-| Template | `post-call-follow-up` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 1, saved 2026-10-13T18:29:28.700Z (installed from template) |
+| Template | `post-call-follow-up` v3 |
+| Edited since copied from the template | no |
+| Saved version | 1 |
+| Enabled | off |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | once_per_appointment |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 4 |
 
 ## Steps
@@ -124,7 +124,7 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
 
 ## Engine rules that apply but are not steps
 

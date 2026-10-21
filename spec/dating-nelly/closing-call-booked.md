@@ -1,22 +1,21 @@
 # Closing call booked
 
-Offer: **Dating (Nelly)** (`dating-nelly`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **Dating (Nelly)** (`dating-nelly`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | the offer's own workflow: platform/installs/dating-nelly/closing-call-booked.json |
+| Where this definition came from | live: version 2, saved 2026-10-20T02:09:55.713Z (D188: a booking no text can reach (Do Not Disturb, or no phone) gets ⚠️ on its card and a note saying why, once) |
 | Template | none (the offer's own workflow) |
-| Edited since copied from the template | unknown (repo) |
+| Edited since copied from the template | yes |
 | Takes over | `call-booked` |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | follows the offer (quiet) |
-| Send lock | unknown (repo) |
+| Saved version | 2 |
+| Enabled | on |
+| Mode | live |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | appointment exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 34 |
-| Note | dating-nelly: Call booked for a Closing call booking only (its calendar's call type), the Sales Call's call type closing; one card fork after the booking paths, a new booking (closer card to Scheduled, the video task) or a reschedule (the card to Scheduled only before the call, its name kept; the old slot's Sales Call logged rescheduled), as PMU's (D105, D107, D123) |
 
 ## Steps
 
@@ -80,7 +79,7 @@ Next:
 
 - Step id `c_via`, type `set_var`
 - Engine description: Remember booked via, picked by [appointment source]
-- Detail: calendly → Calendly; ghl → GHL calendar; otherwise booking page
+- Detail: ghl → GHL calendar; calendly → Calendly; otherwise booking page
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -96,8 +95,8 @@ Next:
   "key": "booked_via",
   "value": "{{appointment.source}}",
   "pick": {
-    "calendly": "Calendly",
-    "ghl": "GHL calendar"
+    "ghl": "GHL calendar",
+    "calendly": "Calendly"
   },
   "else_value": "booking page"
 }
@@ -801,17 +800,17 @@ Next:
   "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
   "key": "{{appointment.slot_key}}",
   "properties": {
-    "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
-    "external_id": "{{appointment.slot_key}}",
-    "contact_id": "{{contact.ghl_contact_id | default:}}",
-    "opportunity_id": "{{cards.closer.id | default:}}",
-    "scheduled_at": "{{appointment.starts_at}}",
-    "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
     "closer": "{{appointment.closer.name | default: | option:sales_call_closer}}",
     "setter": "{{appointment.set_by | default:}}",
     "outcome": "{{picklist.sales_call_outcome.scheduled}}",
+    "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
+    "call_type": "closing",
+    "contact_id": "{{contact.ghl_contact_id | default:}}",
+    "external_id": "{{appointment.slot_key}}",
+    "scheduled_at": "{{appointment.starts_at}}",
+    "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
     "booking_source": "{{vars.booking_source | default:}}",
-    "call_type": "closing"
+    "opportunity_id": "{{cards.closer.id | default:}}"
   },
   "if_missing": "create",
   "relate": [
@@ -1074,26 +1073,26 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.assoc_sales_call_contact` | id | yes | not read (repo) |
-| `crm.assoc_sales_call_opportunity` | id | yes | not read (repo) |
-| `crm.field_contact_appointment_date` | id | yes | not read (repo) |
-| `crm.field_contact_fbclid` | id | no | not read (repo) |
-| `crm.field_contact_setter` | id | yes | not read (repo) |
-| `crm.field_contact_utm_campaign` | id | no | not read (repo) |
-| `crm.field_contact_utm_content` | id | no | not read (repo) |
-| `crm.field_contact_utm_medium` | id | no | not read (repo) |
-| `crm.field_contact_utm_source` | id | no | not read (repo) |
-| `crm.field_contact_utm_term` | id | no | not read (repo) |
-| `crm.field_opportunity_setter_owner` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_sales_call` | id | no | not read (repo) |
-| `crm.pipeline_closer` | id | yes | not read (repo) |
-| `crm.pipeline_setter` | id | yes | not read (repo) |
-| `crm.stage_closer_cancelled` | id | yes | not read (repo) |
-| `crm.stage_closer_scheduled` | id | yes | not read (repo) |
-| `crm.stage_setter_appointment_set` | id | yes | not read (repo) |
-| `crm.stage_setter_direct_booked` | id | yes | not read (repo) |
-| `slack.channel.bookings` | channel | no | not read (repo) |
+| `crm.assoc_sales_call_contact` | id | yes | `6ad17a5e61b66da0c004ec77` |
+| `crm.assoc_sales_call_opportunity` | id | yes | `6ad17a5e30c8c10af2626b6f` |
+| `crm.field_contact_appointment_date` | id | yes | `RkHcvZxz7orOBLxclh4i` |
+| `crm.field_contact_fbclid` | id | no | `vbcByPkab5v6axUoxtr2` |
+| `crm.field_contact_setter` | id | yes | `EaoEms8PxR4EeqAJLeWU` |
+| `crm.field_contact_utm_campaign` | id | no | `m3BvEcP9T8l7nswMHGCc` |
+| `crm.field_contact_utm_content` | id | no | `T17V3pHWXBg1T0hWCl5E` |
+| `crm.field_contact_utm_medium` | id | no | `9tjK0BWKkRGD0RxMYbZt` |
+| `crm.field_contact_utm_source` | id | no | `uOJsdNFezYxrsHRQVLxt` |
+| `crm.field_contact_utm_term` | id | no | `cK7idn27GpS1dDRqaiuN` |
+| `crm.field_opportunity_setter_owner` | id | yes | `jmS5WnMlXnlyKmhkAl4B` |
+| `crm.location_id` | id | yes | `eLfhuKEaVMlrpLm2Fz8V` |
+| `crm.object_sales_call` | id | no | `custom_objects.dating_sales_call` |
+| `crm.pipeline_closer` | id | yes | `hLBo4MFsrGj7EjfDmkEn` |
+| `crm.pipeline_setter` | id | yes | `N59nJLRaspsNwiaPWtE8` |
+| `crm.stage_closer_cancelled` | id | yes | `b7b48139-37ee-4a33-a2bb-e598a36c6090` |
+| `crm.stage_closer_scheduled` | id | yes | `27a674cf-4c34-48ff-8a3e-1368895b91ef` |
+| `crm.stage_setter_appointment_set` | id | yes | `cdecc4fc-3865-446b-b663-9f432a90323e` |
+| `crm.stage_setter_direct_booked` | id | yes | `58e9c375-2134-40b0-a203-70bf36c5f1d9` |
+| `slack.channel.bookings` | channel | no | `C0C9Q7MEANT` |
 
 ## Engine rules that apply but are not steps
 

@@ -1,0 +1,1847 @@
+{
+  "offer": "pmu",
+  "workflow": "Sales call recorded",
+  "slug": "sales-call-recorded",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "recorded",
+      "runs": 14
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-46>",
+      "status": "completed",
+      "exit_reason": "recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 4,
+      "started": "2026-10-20",
+      "took_sec": 3,
+      "trigger": {
+        "type": "recording.received",
+        "source": "fathom",
+        "data": {
+          "title": "<contact-1> Aganon and <staff-2>",
+          "provider": "fathom",
+          "share_url": "<url-6>",
+          "matched_by": "email",
+          "started_at": "2026-10-20T22:34:48.000Z",
+          "external_id": "194648662",
+          "recorded_by": "<email-1>",
+          "duration_min": 59,
+          "recording_id": "<id-47>",
+          "appointment_matched": true
+        }
+      },
+      "steps": [
+        {
+          "node": "n1",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "ghost",
+            "would_note"
+          ],
+          "result": {
+            "ghost": true,
+            "would_note": "CURRENT SITUATION: Five-year PMU artist (powder brows, recently tiny tattoos) in Texas with young kids, no family help nearby, and 15-20 hrs/week available. She"
+          },
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-23>",
+            "ghost": true,
+            "in_thread_of": "<phone-24>",
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "scorecard:<id-47>"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "not_on_object",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-13>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "showed",
+              "call_date": "2026-10-20",
+              "next_step": "Follow-up call in mid-December, before the holidays. It was set for a Tuesday (moved from Monday) during her 4-7pm Central window. The time was offered as 2:30pm Pacific / 4:30pm Central, and she confirmed receiving the invite. The purpose is to revisit her business and her options, likely tied to her tax return, a family ask in January, and her credit repair.",
+              "contact_id": "<crm-id-3>",
+              "disposition": "follow_up",
+              "external_id": "<id-14>",
+              "scheduled_at": "2026-10-20T22:30:00.000Z",
+              "display_label": "<contact-3> — 2026-10-20",
+              "recording_url": "<url-6>",
+              "opportunity_id": "<crm-id-2>",
+              "objection_primary": "finances"
+            },
+            "not_on_object": [
+              "duration_min",
+              "payment_terms",
+              "transcript_ref"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "a2",
+          "type": "analyze",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "into",
+            "model",
+            "parsed",
+            "preview",
+            "repaired",
+            "tokens"
+          ],
+          "result": {
+            "into": [
+              "notes",
+              "rubric"
+            ],
+            "model": "claude-opus-5-5",
+            "parsed": true,
+            "tokens": {
+              "input": 28785,
+              "output": 3700,
+              "cacheRead": 0
+            },
+            "preview": "{\"notes\":{\"summary\":\"Discovery-heavy call with a PMU and tiny-tattoo artist who has been burned by five prior marketing programs and wants a done-for-you bookin",
+            "repaired": false
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "o4",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "redirected_to",
+            "remembered_as",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-25>",
+            "tag": "appointment:<id-12>",
+            "ghost": true,
+            "reacted": true,
+            "in_thread_of": "<phone-8>",
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "showed:<id-12>"
+          },
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "o1"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "a3",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "follow_up",
+            "ambiguity": 0.53,
+            "confidence": 1
+          },
+          "error": null
+        },
+        {
+          "node": "l_conv",
+          "type": "lookup",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "count",
+            "params",
+            "query"
+          ],
+          "result": {
+            "count": 1,
+            "query": "call_conversation",
+            "params": {
+              "gap_min": "15",
+              "recording_id": "<id-47>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "a1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "sales_call",
+            "ambiguity": 0.51,
+            "confidence": 1
+          },
+          "error": null
+        },
+        {
+          "node": "b_q",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "x1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "v_rec",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "o1",
+          "type": "record_outcome",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "events",
+            "outcome",
+            "runs_started"
+          ],
+          "result": {
+            "events": 2,
+            "outcome": "showed",
+            "runs_started": 0
+          },
+          "error": null
+        },
+        {
+          "node": "v_parts",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "ghost",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-24>",
+            "ghost": true,
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "recording:<id-47>"
+          },
+          "error": null
+        },
+        {
+          "node": "o2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-showed"
+            ]
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 3,
+          "body": "*Scorecard:* 6/10\n*Overall Score:* 6\n*Scores:*\n    *Rapport:* 8\n    *Discovery:* 8\n    *Pain Depth:* 8\n    *Presentation:* 6\n    *Objection Handling:* 4\n    *Close Attempt:* 4\n*Strengths:*\n• Let <contact-1> fully unpack every past agency (PMU On Demand, PMU Launch, Real Beauty Bosses, Sheila Bella, Lavonier) and validated the over-promise/under-deliver pattern, which built <staff-5> with a burned buyer.\n• Went deep on emotional pain. Asking \"how has that kind of all been on you?\" surfaced the daughter-in-school moment and the scarcity/stress impact on her kids.\n• Quantified the gap well: $2,500 now vs. a $5K goal, $600 brows, about 8 clients/mo needed. She also caught the discounting habit and tied it to positioning.\n• Tied each T of the presentation back to her stated needs (VA/AI messenger books consults, content AI for her posting paralysis, AI website). She also got a clear 'yes, this solves it' before price.\n*Misses:*\n• Ignored a clear disqualifier before pitching. When asked if she'd take action now, <contact-1> said she'd have to wait until her Jan/Feb tax return, yet <staff-1> ran the full 4T presentation anyway.\n• Never qualified finances until after the price. Her $2,500/mo income, lack of savings and sub-650 credit only came out post-pitch, burning the call on a $10K offer.\n• The price delivery was muddled: \"one-time investment of 10K... $2,500 per month... let me know how you'd like to proceed.\" There was no confident ask or clear option presented.\n• Floated financing \"as low as $500 a month\" without checking it was realistic for someone with high-500s credit and no cards. No actual alternative was offered.\n• Didn't address that she's shopping other companies (\"I met with another company last week\") or anchor what would make this the one.\n• The follow-up has no defined commitment. There was no ask about expected tax return size, saving a target amount, or what she needs in hand by December. The date/day was also confusing (\"Monday, December 14th\" then a Tuesday).\n*Coaching:*\n• Qualify money and timing before the presentation. When a prospect says 'tax return in Jan/Feb,' ask about budget, savings and credit right then. Decide whether to pitch fully or set up a future-commit.\n• When a prospect can't buy now, turn the follow-up into a plan. Get a specific dollar target to set aside, the expected tax return amount, and a commitment to start on a date if the funds land.\n• Present price cleanly and close directly (e.g., 'It's $10K for four months; would you like to do that in full or split?'), then stay quiet. Don't end with 'let me know how you'd like to proceed.'\n*Talk Ratio:* Roughly 45/55 closer to prospect overall; the prospect dominated discovery, and the closer dominated the presentation."
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 3,
+          "body": "✅ Showed · 59 min with <staff-2>. The review is in the calls channel."
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 3,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-3>|<contact-1> Ajanon>\n*Recording:* <<url-7>>\n*Appointment:* Tue Oct 20 · 6:30 PM EDT · marked showed\n*Closer:* <staff-2> · 59 min\n*Outcome:* follow up\n\n*Current situation:* Five-year PMU artist (powder brows, recently tiny tattoos) in Texas with young kids, no family help nearby, and 15-20 hrs/week available. She averages about $2,500/mo, mostly from tiny tattoos, and does only 2-3 brow clients/mo at $600 + $200 touch-up. She only recently stopped discounting. She has lost money on PMU Launch (~$5K), Real Beauty Bosses ($500/mo), Sheila Bella ($10K financed), PMU On Demand ($600/mo) and Lavonier ($1K). She has no website, posts brow work inconsistently, and is paycheck to paycheck after a $6K move.\n*Pains:* Feast-or-famine bookings (\"you're booked and then you die\"), constantly on her phone chasing leads instead of being present with her kids (\"now she's in school, <staff-1>. And that broke my heart\"). She is in the negative, leans on her husband's income, and agencies have ghosted her leads or delivered only coaching.\n*Goals:* Consistent $5K months (then $10K to afford childcare) from higher-margin brows. Consults booked for her so she just shows up and closes, with set business hours, eventually homeschooling and calm, quality time with her kids.\n*Objections:* Finances, Timing, Shopping Around, Burned Before\n*Next step:* Follow-up call in mid-December, before the holidays. It was set for a Tuesday (moved from Monday) during her 4-7pm Central window. The time was offered as 2:30pm Pacific / 4:30pm Central, and she confirmed receiving the invite. The purpose is to revisit her business and her options, likely tied to her tax return, a family ask in January, and her credit repair. "
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "showed:<id-12>",
+          "channel": "C0C270G06FN",
+          "at_sec": 3
+        },
+        {
+          "tag": "recording:<id-47>",
+          "channel": "C0C270G06FN",
+          "at_sec": 3
+        },
+        {
+          "tag": "scorecard:<id-47>",
+          "channel": "C0C270G06FN",
+          "at_sec": 3
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-48>",
+      "status": "completed",
+      "exit_reason": "recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 4,
+      "started": "2026-10-19",
+      "took_sec": 84,
+      "trigger": {
+        "type": "recording.received",
+        "source": "fathom",
+        "data": {
+          "title": "<contact-12> and <staff-2>",
+          "provider": "fathom",
+          "share_url": "<url-8>",
+          "matched_by": "email",
+          "started_at": "2026-10-19T20:58:15.000Z",
+          "external_id": "194189282",
+          "recorded_by": "<email-1>",
+          "duration_min": 62,
+          "recording_id": "<id-49>",
+          "appointment_matched": true
+        }
+      },
+      "steps": [
+        {
+          "node": "b_q",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "x1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "v_rec",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_parts",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "a2",
+          "type": "analyze",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "into",
+            "model",
+            "parsed",
+            "preview",
+            "repaired",
+            "tokens"
+          ],
+          "result": {
+            "into": [
+              "notes",
+              "rubric"
+            ],
+            "model": "claude-opus-5-5",
+            "parsed": true,
+            "tokens": {
+              "input": 18930,
+              "output": 3966,
+              "cacheRead": 0
+            },
+            "preview": "{\"notes\":{\"summary\":\"Discovery and demo call with <contact-13>, a solo PMU artist, run by JP with new rep <staff-1>. JP pulled his ad and conversion numbers, then pitched ",
+            "repaired": false
+          },
+          "error": null
+        },
+        {
+          "node": "o1",
+          "type": "record_outcome",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "events",
+            "outcome",
+            "runs_started"
+          ],
+          "result": {
+            "events": 2,
+            "outcome": "showed",
+            "runs_started": 0
+          },
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "o1"
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "not_on_object",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-50>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "showed",
+              "call_date": "2026-10-19",
+              "next_step": "Tentative call Wednesday at 12:30 Arizona time with <contact-13>, his partner/investor, and <staff-7> <staff-6>. <contact-13> will confirm the partner's availability and forward her the invite. JP will send the list of numbers needed to build a financial model, and <staff-7> <staff-6> will review this call beforehand.",
+              "contact_id": "<crm-id-12>",
+              "disposition": "follow_up",
+              "external_id": "<id-51>",
+              "scheduled_at": "2026-10-19T21:00:00.000Z",
+              "display_label": "<contact-12> — 2026-10-19",
+              "recording_url": "<url-8>",
+              "opportunity_id": "<crm-id-11>",
+              "objection_primary": "spouse_partner"
+            },
+            "not_on_object": [
+              "duration_min",
+              "payment_terms",
+              "transcript_ref"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "o2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "ghost",
+            "would_tag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-showed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "a1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "sales_call",
+            "ambiguity": 0.5,
+            "confidence": 1
+          },
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-26>",
+            "ghost": true,
+            "in_thread_of": "<phone-27>",
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "scorecard:<id-49>"
+          },
+          "error": null
+        },
+        {
+          "node": "k1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "ghost",
+            "would_note"
+          ],
+          "result": {
+            "ghost": true,
+            "would_note": "CURRENT SITUATION: <contact-13> is a solo PMU artist in a beauty plaza about 15 minutes from downtown Phoenix, in business since 2018. He is originally from Hungary. H"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "ghost",
+            "redirected_to",
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-27>",
+            "ghost": true,
+            "redirected_to": "C0C270G06FN",
+            "remembered_as": "recording:<id-49>"
+          },
+          "error": null
+        },
+        {
+          "node": "o4",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 84,
+          "result_keys": [
+            "kind",
+            "why"
+          ],
+          "result": {
+            "why": "nothing to react to: the post this replies to is not in Slack (booked before the engine, or its channel was unbound)",
+            "kind": "noop"
+          },
+          "error": null
+        },
+        {
+          "node": "l_conv",
+          "type": "lookup",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "count",
+            "params",
+            "query"
+          ],
+          "result": {
+            "count": 1,
+            "query": "call_conversation",
+            "params": {
+              "gap_min": "15",
+              "recording_id": "<id-49>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "a3",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 84,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "follow_up",
+            "ambiguity": 0.52,
+            "confidence": 1
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 84,
+          "body": "*Scorecard:* 4/10\n*Overall Score:* 4\n*Scores:*\n    *Rapport:* 7\n    *Discovery:* 6\n    *Pain Depth:* 3\n    *Presentation:* 4\n    *Objection Handling:* 3\n    *Close Attempt:* 3\n*Strengths:*\n• JP pulled real numbers: lead cost, ad spend, booking rate, price, procedure volume, revenue and <staff-8> costs. He used them to frame $5–10k of untapped revenue without needing more ad spend.\n• JP asked how many procedures <contact-13> does a day (\"Between three to five\") and confirmed he is at capacity. He then tied the closer-hire to <contact-13>'s admitted limit: \"I just can't be on the call all the time.\"\n• JP asked for a 6-month definition of success and a revenue goal, and got \"$20,000 would be the first goal.\" He anchored the guarantee to it.\n• JP locked a specific day and time for the next call, and <staff-1> sent the invite live, confirming <contact-13> received it before hanging up.\n*Misses:*\n• The decision-maker was never qualified early. The partner and investor who would fund the purchase only surfaced after the price was given (\"She's my investor\"). That should have come up in discovery.\n• Pain was left shallow. When <contact-13> said \"it is pretty overwhelming, you know, when you do everything by yourself,\" JP pivoted to asking whether he was happy with his staff instead of exploring the cost and emotion behind it.\n• JP undercut urgency mid-discovery: \"your numbers are actually not bad\" and \"You're on track on everything.\"\n• The opening hurt authority. <staff-1> said \"I'm pretty new right now, so I'm still looking over everything,\" and was later unprepared to pull up links and dashboards (\"give me a second to pull up the links\").\n• <staff-1> misread the need by pitching sales scripts. <contact-13> corrected her: \"I don't think it's the script that the issue for us. I think it's the speed.\"\n• <staff-1>'s answer to the competition question (\"we don't hire anybody within a 25 mile radius\") did not address price-shopper <staff-5>. JP's later answer was generic.\n• Several numbers were stated inaccurately. JP said \"you said it was like a 10%\" when <contact-13> had said 4%, said \"$650,000\" and \"$150,000\" for prices, and made unsupported claims of \"another 5, potentially another 10x.\"\n• There was no close attempt after \"that's definitely reasonable.\" JP did not isolate the partner objection, did not ask whether <contact-13> himself was a yes if the numbers worked, and did not explore a deposit to hold a spot.\n*Coaching:*\n• Qualify decision-makers and funding in discovery, with a question like: \"Is anyone else involved in decisions like this, financially or otherwise?\" Then bring the partner onto the first call.\n• When the prospect gives a positive price signal like \"definitely reasonable,\" isolate and test it: \"If your partner sees the numbers work, are you personally ready to move forward?\" Confirm what she specifically needs to see before ending the call.\n• Go deeper on the emotional pain he volunteered (overwhelm, doing everything alone, feeling \"all over the place\") instead of complimenting his numbers. Prep the demo and screen-shares before the call so the presentation stays tight and on his stated gaps: speed to lead, follow-up and tracking.\n*Talk Ratio:* Roughly 70% closers (JP and <staff-1>) to 30% prospect"
+        },
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 84,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-12>|<contact-13> Negron>\n*Recording:* <<url-9>>\n*Appointment:* Mon Oct 19 · 5:00 PM EDT · marked showed\n*Closer:* <staff-2> · 62 min\n*Outcome:* follow up\n\n*Current situation:* <contact-13> is a solo PMU artist in a beauty plaza about 15 minutes from downtown Phoenix, in business since 2018. He is originally from Hungary. He charges $550 for brows including the touch-up and also does corrections and magnetic tattoo removal. He spends about $1,300/mo on Facebook/Instagram DM ads at roughly $3.50–4 per lead, pays a marketing agent $500/mo and a Philippines-based chat VA $500/mo, does 3–5 procedures a day, had about 130 new-client procedures from January to September, and makes about $12–13k/mo in revenue.\n*Pains:* Only about 4% of chat leads book a consultation, with five-plus competing artists and price shoppers making online <staff-5> hard; he has no clear dashboard (\"Not at all\"), his media person doesn't show metrics, and he is at capacity doing everything himself (\"it is pretty overwhelming, you know, when you do everything by yourself\").\n*Goals:* He wants leverage through systems and people, a dashboard that shows when he can hire, and $20k/mo as a first revenue goal. He also wants a solid foundation before adding body contouring rather than adding it \"on top of the mess that I have.\"\n*Objections:* Partner/Investor, Needs More Info, Local Competition\n*Next step:* Tentative call Wednesday at 12:30 Arizona time with <contact-13>, his partner/investor, and <staff-7> <staff-6>. <contact-13> will confirm the partner's availability and forward her the invite. JP will send the list of numbers needed to build a financial model, and <staff-7> <staff-6> will review this call beforehand. "
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "no post to reply to",
+          "at_sec": null,
+          "body": "✅ Showed · 62 min with <staff-2>. The review is in the calls channel."
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "scorecard:<id-49>",
+          "channel": "C0C270G06FN",
+          "at_sec": 84
+        },
+        {
+          "tag": "recording:<id-49>",
+          "channel": "C0C270G06FN",
+          "at_sec": 84
+        }
+      ],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-52>",
+      "status": "completed",
+      "exit_reason": "recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 4,
+      "started": "2026-10-17",
+      "took_sec": 28,
+      "trigger": {
+        "type": "recording.received",
+        "source": "fathom",
+        "data": {
+          "title": "<contact-21> Beauty Moguls",
+          "provider": "fathom",
+          "share_url": "<url-10>",
+          "matched_by": "email",
+          "started_at": "2026-10-17T21:05:03.000Z",
+          "external_id": "193734905",
+          "recorded_by": "<email-1>",
+          "duration_min": 43,
+          "recording_id": "<id-53>",
+          "appointment_matched": false
+        }
+      },
+      "steps": [
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "not_on_object",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-54>",
+            "record": "created",
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "showed",
+              "call_date": "2026-10-17",
+              "contact_id": "<crm-id-17>",
+              "external_id": "fathom-193734905",
+              "display_label": "<contact-22> — 2026-10-17",
+              "recording_url": "<url-10>",
+              "opportunity_id": "<crm-id-18>",
+              "objection_primary": "finances"
+            },
+            "not_on_object": [
+              "duration_min",
+              "transcript_ref"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "k2",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b_q",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "x1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "l_conv",
+          "type": "lookup",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "count",
+            "params",
+            "query"
+          ],
+          "result": {
+            "count": 1,
+            "query": "call_conversation",
+            "params": {
+              "gap_min": "15",
+              "recording_id": "<id-53>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "ghost",
+            "would_note"
+          ],
+          "result": {
+            "ghost": true,
+            "would_note": "CURRENT SITUATION: <contact-21> owns a Florida beauty business (paramedical tattoo, skincare, PMU brows/lips, lash lift/tint, scar and stretch-mark work) plus a traini"
+          },
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 28,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack channel not bound",
+            "kind": "blocked",
+            "would_post": "*Scorecard:* 4/10\n*Overall Score:* 4\n*Scores:*\n    *Rapport:* 4\n    *Discovery:* 5\n    *Pain Depth:* 4\n    *Presentation:* 4\n    *Objection Handling:* 3\n    *Cl"
+          },
+          "error": null
+        },
+        {
+          "node": "a3",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value",
+            "why"
+          ],
+          "result": {
+            "why": "not confident enough",
+            "value": "unclear",
+            "ambiguity": 0.56,
+            "confidence": 0.49
+          },
+          "error": null
+        },
+        {
+          "node": "v_rec",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 28,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack channel not bound",
+            "kind": "blocked",
+            "would_post": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-17>|<contact-21> D>\n*Recording:* <https://fathom.video/share/vQs"
+          },
+          "error": null
+        },
+        {
+          "node": "v_parts",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k4",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "a2",
+          "type": "analyze",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "into",
+            "model",
+            "parsed",
+            "preview",
+            "repaired",
+            "tokens"
+          ],
+          "result": {
+            "into": [
+              "notes",
+              "rubric"
+            ],
+            "model": "claude-opus-5-5",
+            "parsed": true,
+            "tokens": {
+              "input": 18478,
+              "output": 3457,
+              "cacheRead": 0
+            },
+            "preview": "{\"notes\":{\"summary\":\"<contact-21> runs a Florida beauty clinic and training business with an ad agency already prepaid for the year. She wanted a fix for inconsistent ",
+            "repaired": false
+          },
+          "error": null
+        },
+        {
+          "node": "a1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "sales_call",
+            "ambiguity": 0.56,
+            "confidence": 1
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 28,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "k2",
+            "else": true
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack channel",
+          "at_sec": null,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-17>|<contact-21> D>\n*Recording:* <<url-11>>\n⚠️ No appointment matched this recording — nothing marked showed. Check the contact's bookings.\n*Closer:* <staff-2> · 43 min\n*Outcome:* unclear\n\n*Current situation:* <contact-21> owns a Florida beauty business (paramedical tattoo, skincare, PMU brows/lips, lash lift/tint, scar and stretch-mark work) plus a training side. She also holds a hospital leadership role and works mostly solo; her daughter helps occasionally but runs a separate permanent jewelry company. An ad agency is prepaid for the year and she already uses GoHighLevel with its AI. After a hack halted ads for about two months, she has been negative for about 2.5 months with near-empty books. Historically she made an inconsistent $2-10K/month, with $20-30K spikes from training sales.\n*Pains:* Leads from Facebook ads aren't followed up quickly or consistently because she's in the clinic or teaching, and past hires and vendors were unreliable. After the hack she has 'two and a half months of pretty much empty books' with only residual series clients, and she called it 'a little scary right now.'\n*Goals:* She wants a reliable, ideally bilingual (Spanish) receptionist who handles immediate and ongoing follow-up, books simple services directly and books consults for complex ones, giving consistent revenue: $15K minimum and $25-30K/month to get 'our head above water.'\n*Objections:* Can't afford, Tried similar before, Already invested elsewhere, Wants pay-on-results, Spanish-speaking receptionist, AI ad quality, Receptionist hours\n*Next step:* — "
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack channel",
+          "at_sec": null,
+          "body": "*Scorecard:* 4/10\n*Overall Score:* 4\n*Scores:*\n    *Rapport:* 4\n    *Discovery:* 5\n    *Pain Depth:* 4\n    *Presentation:* 4\n    *Objection Handling:* 3\n    *Close Attempt:* 3\n*Strengths:*\n• Got useful numbers early: the $12-15K minimum, the $25-30K 'head above water' goal, historic $2-10K months with training spikes, and the 2.5 months negative after the hack.\n• Surfaced a real selling point: when asked, <contact-21> said her consult close rate is 'about 70%, maybe sometimes 80%.' <staff-1> tied this to a faster ramp: 'because you're good at sales, we could honestly ramp you up faster.'\n• Used concrete ROAS proof when <contact-21> questioned AI ads, e.g. '$275 that she spent, brought $2,600 back' and the $793 to $9,275 ad.\n• Asked a good diagnostic question after the objection: 'what would you need to see in order to feel confident about us?' That drew out her pay-on-results requirement.\n*Misses:*\n• Ignored repeated requests to explain the offer. <contact-21> asked at least four times ('if you could just please just share with me, what do you do?', 'I think I've said this like five different ways now', 'Girl, I've been doing this... I get down to bare bones'), but <staff-1> kept asking discovery questions and recapped instead. This eroded <staff-5> with a direct, time-pressed buyer.\n• Never qualified finances before the pitch, even though <contact-21> disclosed she'd been negative for 2.5 months and had an agency prepaid for the year. She said so herself: 'it would be good to learn that up front.'\n• Couldn't answer the two questions <contact-21> said mattered most, both about the receptionist she called 'the biggest thing for me.' On hours: 'I can't give like exact days that they're working or hours.' On Spanish: 'I believe we could... I haven't specifically asked <staff-7> <staff-6>.'\n• Spent long stretches on the content calendar, brand brain and AI website builder. <contact-21> had already said she has an ads agency and later dismissed these: 'there are other apps that do that kind of thing too.'\n• The guarantee looked improvised. <staff-1> read it live ('wait, sorry, I'm like reading this as right now'), and the money-back version ($600 minimum spend plus a daily tracker) appeared only after the price objection. It came across as unprepared rather than confidence-building.\n• Didn't dig into the Lead Shark failure or show how this offer differs from it ('All the stuff that you have is very similar'). <staff-1> never explained why this would succeed where that one failed.\n• Said 'we can look at different kinds of payment options' but never presented one. Never explored a smaller receptionist-focused scope, even though <contact-21> said 'what I'm really looking for is that, that missing piece of that receptionist part.'\n• Ended with no next step. <staff-1> closed with 'feel free to reach out' instead of committing to follow up on the Spanish-speaker and receptionist-hours questions.\n*Coaching:*\n• With direct, impatient prospects, give a 60-second offer overview the first time they ask, then go back to discovery. Also qualify budget and existing commitments (prepaid agency, negative cash flow) before a full presentation.\n• Know the answers on core deliverables (receptionist hours, coverage, language options) and the guarantee terms cold. When you can't answer on the call, set a dated follow-up to close the gap.\n• When a prospect names one missing piece and a past failure with a similar vendor, tailor the pitch to that piece. Contrast it explicitly with what failed before, and bring payment-plan or reduced-scope options before the conversation ends.\n*Talk Ratio:* Roughly 55% closer / 45% prospect. This is approximate because speaker labels are frequently misattributed in the transcript."
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-55>",
+      "status": "completed",
+      "exit_reason": "recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 4,
+      "started": "2026-10-17",
+      "took_sec": 32,
+      "trigger": {
+        "type": "recording.received",
+        "source": "fathom",
+        "data": {
+          "title": "<contact-23> and <staff-2>",
+          "provider": "fathom",
+          "share_url": "<url-12>",
+          "matched_by": "email",
+          "started_at": "2026-10-16T23:02:01.000Z",
+          "external_id": "193679076",
+          "recorded_by": "<email-1>",
+          "duration_min": 85,
+          "recording_id": "<id-56>",
+          "appointment_matched": true
+        }
+      },
+      "steps": [
+        {
+          "node": "a2",
+          "type": "analyze",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "into",
+            "model",
+            "parsed",
+            "preview",
+            "repaired",
+            "tokens"
+          ],
+          "result": {
+            "into": [
+              "notes",
+              "rubric"
+            ],
+            "model": "claude-opus-5-5",
+            "parsed": true,
+            "tokens": {
+              "input": 28472,
+              "output": 3765,
+              "cacheRead": 0
+            },
+            "preview": "{\"notes\":{\"summary\":\"Discovery and full 4-T presentation of the Beauty Moguls program ($10K one-time, or $2,500/month across 4 months) to a solo PMU artist who ",
+            "repaired": false
+          },
+          "error": null
+        },
+        {
+          "node": "v_rec",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "crm_id",
+            "not_on_object",
+            "our_id",
+            "properties",
+            "record",
+            "related",
+            "shadow"
+          ],
+          "result": {
+            "crm_id": null,
+            "our_id": "<id-57>",
+            "record": "updated",
+            "shadow": true,
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "showed",
+              "call_date": "2026-10-16",
+              "next_step": "Follow-up call November 16 at 2 p.m. Central (booked; she confirmed receiving the text) to revisit payment once she has raised $2,500. <staff-1> said she would check in within the weeks before then.",
+              "contact_id": "<crm-id-19>",
+              "disposition": "follow_up",
+              "external_id": "<id-58>",
+              "scheduled_at": "2026-10-16T23:00:00.000Z",
+              "display_label": "<contact-23> — 2026-10-16",
+              "recording_url": "<url-12>",
+              "opportunity_id": "<crm-id-20>",
+              "objection_primary": "finances"
+            },
+            "not_on_object": [
+              "duration_min",
+              "payment_terms",
+              "transcript_ref"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "k1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "l_conv",
+          "type": "lookup",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "count",
+            "params",
+            "query"
+          ],
+          "result": {
+            "count": 1,
+            "query": "call_conversation",
+            "params": {
+              "gap_min": "15",
+              "recording_id": "<id-56>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "o1"
+          },
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 32,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "*Scorecard:* 6/10\n*Overall Score:* 6\n*Scores:*\n    *Rapport:* 7\n    *Discovery:* 6\n    *Pain Depth:* 7\n    *Presentation:* 5\n    *Objection Handling:* 4\n    *Cl"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 32,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-19>|<contact-24> Byrd>\n*Recording:* <https://fathom.video/shar"
+          },
+          "error": null
+        },
+        {
+          "node": "o2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-showed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "v_parts",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "a3",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "follow_up",
+            "ambiguity": 0.54,
+            "confidence": 0.95
+          },
+          "error": null
+        },
+        {
+          "node": "a1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "sales_call",
+            "ambiguity": 0.53,
+            "confidence": 1
+          },
+          "error": null
+        },
+        {
+          "node": "o1",
+          "type": "record_outcome",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "events",
+            "outcome",
+            "runs_started"
+          ],
+          "result": {
+            "events": 2,
+            "outcome": "showed",
+            "runs_started": 0
+          },
+          "error": null
+        },
+        {
+          "node": "o4",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 32,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "✅ Showed · 85 min with <staff-2>. The review is in the calls channel."
+          },
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "shadow",
+            "would_note"
+          ],
+          "result": {
+            "shadow": true,
+            "would_note": "CURRENT SITUATION: <contact-24> ('Key') is a solo permanent makeup artist, about 5.5 years in business, and a single mom of a teenage son. Her studio is about 50 mil"
+          },
+          "error": null
+        },
+        {
+          "node": "b_q",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 32,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "x1",
+            "else": true
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "*Scorecard:* 6/10\n*Overall Score:* 6\n*Scores:*\n    *Rapport:* 7\n    *Discovery:* 6\n    *Pain Depth:* 7\n    *Presentation:* 5\n    *Objection Handling:* 4\n    *Close Attempt:* 6\n*Strengths:*\n• Opened by asking what resonated from the pre-call video, which surfaced the core pain immediately: no time to reach out to leads.\n• Went beyond revenue into emotional drivers: the home, the son's football, being there after school. She tied it back at the close ('what would it mean for you to actually be able to, like, be there for him?').\n• Mapped features back to stated pains during the presentation: VA receptionist and AI messenger to slow lead response, GoHighLevel to forgotten follow-ups, AI content to her dislike of posting.\n• Handled the $132K <staff-7> <staff-6> number honestly: 'past a certain point, I would say $25,000 to $35,000 is definitely doable for a solo artist,' then explained that the higher figures need a <staff-8>.\n• Isolated the objection before financing ('is there anything else... Or is it just like logistics?'). She confirmed nothing else was in the way.\n• When the deposit was declined, asked 'When do you think you could come up with the $2,500?' and let her choose the follow-up date, so the call ended with a booked next step.\n*Misses:*\n• Ignored a clear early money flag. At the commitment question she said 'I'd take action today if... I had the money,' and <staff-1> replied 'Okay, good' and moved on. Savings, credit and budget weren't explored until after a long presentation.\n• Cost-of-inaction math used the wrong baseline. She said she makes about 5K, but <staff-1> calculated from 10K to claim $50,000 'left on the table.' That undersold the gap and showed she wasn't using the prospect's own numbers.\n• Repeated a confusing 'when were you first personally aware' line of questioning several times. The prospect had to ask 'What's the question?' and the answer was already in hand ('Far too long... two years').\n• Kept the sales-training section going after the prospect said she has consultations 'down pat,' which added length without adding value.\n• Answered the AI-image question with 'the quality of the content doesn't matter so much.' That is risky positioning for a PMU artist whose real before/afters are her proof.\n• Deflected a simple question about business line vs. toll-free number to the strategy call instead of answering it.\n• Kept pushing financing after the prospect stated her debt aversion. She has no savings and has never had a credit card, yet <staff-1> ran an Amex application live, then pushed Klarna again after 'I don't want to apply with Klarna.'\n• Presented the deposit as the fallback and didn't adjust when it was declined, for example with a smaller deposit or a dated payment plan tied to her booking cash flow.\n*Coaching:*\n• Qualify finances right after the commitment question. When a prospect says 'if I had the money,' stop and ask about cash on hand, savings, credit and a realistic start date before presenting, so the offer and payment path fit her reality.\n• Use the prospect's own numbers in cost-of-inaction math: (20K − 5K) × months. Cut sections that don't apply (sales training here) to keep the presentation tight around her stated pains.\n• When a prospect says she won't take on debt, stop pushing credit. Pivot to a cash-based path: a dated start tied to when the $2,500 lands, a smaller good-faith deposit, or a split first payment. Then confirm the exact dollar plan she'll execute before the next call.\n*Talk Ratio:* Roughly 60/40 closer to prospect. Discovery was closer to 40/60, while the presentation was heavily closer-driven. Speaker labels in the transcript are unreliable in places, so this is approximate."
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "✅ Showed · 85 min with <staff-2>. The review is in the calls channel."
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-19>|<contact-24> Byrd>\n*Recording:* <<url-13>>\n*Appointment:* Fri Oct 16 · 7:00 PM EDT · marked showed\n*Closer:* <staff-2> · 85 min\n*Outcome:* follow up\n\n*Current situation:* <contact-24> ('Key') is a solo permanent makeup artist, about 5.5 years in business, and a single mom of a teenage son. Her studio is about 50 miles from his school. She works Wednesday through Saturday. She clears about $5K/month ('5k, give or take'; range 5–10K), and that is her only income, covering both studio and home bills. She runs her own ads and also gets referrals, word of mouth and Google traffic. A broad marketing agency she used about 3 years ago underdelivered on lead quality.\n*Pains:* She can't respond to or follow up with ad leads while she's working ('I don't do follow ups... I forget'), she answers DMs through the night, and low-ticket brow tints and laminations keep her overwhelmed but are 'what's also keeping me afloat.' She has no financial structure or tracking, can't save, and doesn't want to make content; she has felt this way for 'at least, like, two years.'\n*Goals:* She wants to 'buy back my time' with consistent $15–20K months: PMU only, 2–3 clients a day, about 3 days a week. That would let her take her son to football and his games, buy a home, travel, and possibly start another business.\n*Objections:* No money now, Debt aversion, Refuses Klarna, Deposit, Time to implement\n*Next step:* Follow-up call November 16 at 2 p.m. Central (booked; she confirmed receiving the text) to revisit payment once she has raised $2,500. <staff-1> said she would check in within the weeks before then. "
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-59>",
+      "status": "completed",
+      "exit_reason": "recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 4,
+      "started": "2026-10-16",
+      "took_sec": 4,
+      "trigger": {
+        "type": "recording.received",
+        "source": "fathom",
+        "data": {
+          "title": "Impromptu Zoom Meeting",
+          "provider": "fathom",
+          "share_url": "<url-14>",
+          "matched_by": "calendar",
+          "started_at": "2026-10-16T21:54:17.000Z",
+          "external_id": "193672424",
+          "recorded_by": "<email-1>",
+          "duration_min": 29,
+          "recording_id": "<id-60>",
+          "appointment_matched": true
+        }
+      },
+      "steps": [
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "o1"
+          },
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "a1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "sales_call",
+            "ambiguity": 0.62,
+            "confidence": 0.98
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "o4",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 4,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "✅ Showed · 29 min with <staff-2>. The review is in the calls channel."
+          },
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 4,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "*Scorecard:* 4/10\n*Overall Score:* 4\n*Scores:*\n    *Rapport:* 7\n    *Discovery:* 3\n    *Pain Depth:* 3\n    *Presentation:* 3\n    *Objection Handling:* 4\n    *Cl"
+          },
+          "error": null
+        },
+        {
+          "node": "o1",
+          "type": "record_outcome",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "events",
+            "outcome",
+            "runs_started"
+          ],
+          "result": {
+            "events": 2,
+            "outcome": "showed",
+            "runs_started": 0
+          },
+          "error": null
+        },
+        {
+          "node": "b_q",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "edge",
+            "else"
+          ],
+          "result": {
+            "edge": "x1",
+            "else": true
+          },
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "shadow",
+            "would_note"
+          ],
+          "result": {
+            "shadow": true,
+            "would_note": "CURRENT SITUATION: Alexis is a permanent makeup and tattoo artist with her own studio who also still does makeup, including bridal; she wants to leave makeup en"
+          },
+          "error": null
+        },
+        {
+          "node": "k1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "a3",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "follow_up",
+            "ambiguity": 0.61,
+            "confidence": 1
+          },
+          "error": null
+        },
+        {
+          "node": "v_rec",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 4,
+          "result_keys": [
+            "kind",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack not connected",
+            "kind": "blocked",
+            "would_post": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-19>|<contact-24> Byrd>\n*Recording:* <https://fathom.video/shar"
+          },
+          "error": null
+        },
+        {
+          "node": "a2",
+          "type": "analyze",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "into",
+            "model",
+            "parsed",
+            "preview",
+            "repaired",
+            "tokens"
+          ],
+          "result": {
+            "into": [
+              "notes",
+              "rubric"
+            ],
+            "model": "claude-opus-5-5",
+            "parsed": true,
+            "tokens": {
+              "input": 8526,
+              "output": 3391,
+              "cacheRead": 0
+            },
+            "preview": "{\"notes\":{\"summary\":\"Follow-up logistics call to fund a roughly $10,000 program. Alexis brought in her best friend Laura by phone after Laura couldn't join Zoom",
+            "repaired": false
+          },
+          "error": null
+        },
+        {
+          "node": "o2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "shadow",
+            "would_tag"
+          ],
+          "result": {
+            "shadow": true,
+            "would_tag": [
+              "stat-showed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "l_conv",
+          "type": "lookup",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "count",
+            "params",
+            "query"
+          ],
+          "result": {
+            "count": 1,
+            "query": "call_conversation",
+            "params": {
+              "gap_min": "15",
+              "recording_id": "<id-60>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "crm_id",
+            "not_on_object",
+            "our_id",
+            "properties",
+            "record",
+            "related",
+            "shadow"
+          ],
+          "result": {
+            "crm_id": null,
+            "our_id": "<id-57>",
+            "record": "updated",
+            "shadow": true,
+            "related": [],
+            "properties": {
+              "closer": "<staff-1>",
+              "outcome": "showed",
+              "call_date": "2026-10-16",
+              "next_step": "Alexis will call Laura in about an hour and text <staff-1> when both can get back on a call. They will try financing about $8,000 through Laura and about $2,000 as an in-house payment plan. Alexis may also ask her husband about his credit cards.",
+              "contact_id": "<crm-id-19>",
+              "disposition": "follow_up",
+              "external_id": "<id-58>",
+              "scheduled_at": "2026-10-16T23:00:00.000Z",
+              "display_label": "<contact-23> — 2026-10-16",
+              "recording_url": "<url-14>",
+              "opportunity_id": "<crm-id-20>",
+              "objection_primary": "financing_declined"
+            },
+            "not_on_object": [
+              "duration_min",
+              "payment_terms",
+              "transcript_ref"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "v_parts",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "*Scorecard:* 4/10\n*Overall Score:* 4\n*Scores:*\n    *Rapport:* 7\n    *Discovery:* 3\n    *Pain Depth:* 3\n    *Presentation:* 3\n    *Objection Handling:* 4\n    *Close Attempt:* 5\n*Strengths:*\n• Built warm rapport during the tech delays: asked how Alexis and Laura know each other (\"You guys are like sisters now\") and related to the caffeine story (\"I'm the same way too\").\n• Validated Alexis's frustration with last-minute cancellations (\"you also need to respect your own time as well\").\n• Kept looking for options after each dead end (Split It, Klarna, husband's cards, a loan, $8K financed plus $2K in-house) instead of ending the call.\n• Showed empathy on money: \"last thing I'd ever want to do is take food off the table.\"\n• Asked directly for a $100 commitment deposit before letting the call end.\n*Misses:*\n• Opened the money talk with an unverified assumption (\"Laura has an available to balance of 10K across her cards\"). Alexis had never asked Laura that, which put the friend on the spot and caused confusion.\n• Did not qualify financing before the call. Laura thought she was co-signing, and Alexis expected Affirm/Klarna 'pay in four'. Both misunderstandings came out live.\n• Gave uncertain facts on the call (\"I believe you can do up to like 30, even 36 payments... you can double check that for me\"; credit score \"like, 680\"; no hard check), which hurts credibility.\n• Answered Alexis's only real question about consults vs. direct bookings with \"It could be through both\" and never re-sold the value or outcome before asking for money.\n• Pushed Alexis to call her husband on the spot right after she said she was trying \"to my best to not include him in any of this.\" She was not asked how she felt about involving him.\n• After Klarna declined and Alexis said it would take \"months,\" <staff-1> never reconnected the cost to Alexis's goal of leaving makeup or the cost of waiting.\n• The next step is vague (\"maybe over this weekend\" / Alexis will text in an hour): no set time and no confirmed three-way call with Laura.\n*Coaching:*\n• Before any financing call, confirm the funding source: who the applicant is, whether they hold cards and how much limit, an approximate credit score, and that they understand it's in their name, not a co-sign. Get your own product facts right before stating them.\n• Before the money talk, restate the prospect's goal and pain in her own words (leaving makeup entirely, the cancellations, the 'months' to save) so the financing discussion is anchored in the outcome.\n• End with a specific booked time for the three-way call with Laura, and agree in advance what amount to apply for and the fallback if it's declined.\n*Talk Ratio:* Roughly even, perhaps 45% closer / 55% prospect side (Alexis plus Laura on speaker). Speaker labels in the transcript are unreliable, so this is approximate."
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "✅ Showed · 29 min with <staff-2>. The review is in the calls channel."
+        },
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack",
+          "at_sec": null,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-19>|<contact-24> Byrd>\n*Recording:* <<url-15>>\n*Appointment:* Fri Oct 16 · 7:00 PM EDT · marked showed\n*Closer:* <staff-2> · 29 min\n*Outcome:* follow up\n\n*Current situation:* Alexis is a permanent makeup and tattoo artist with her own studio who also still does makeup, including bridal; she wants to leave makeup entirely. She has no savings and no monthly surplus. Her income covers bills, a car payment, studio costs and product. She hoped her friend of 20+ years, Laura, would finance the program while Alexis makes the payments, and she has tried to keep her husband out of the decision.\n*Pains:* Clients cancel and reschedule at the last minute (\"Stop hitting your appointment on my books and then canceling at the last minute\"). Money is tight (\"everything's a little tight right now\"), and without clients she says the $10K \"will take months for me to get to.\"\n*Goals:* She wants to stop doing makeup (\"I don't really want to do makeup at all anymore\") and fill her studio with tattoo and permanent makeup clients through ads, consultations and direct bookings.\n*Objections:* Financing Declined, No Funds, Friend/Husband, Co-signer Confusion\n*Next step:* Alexis will call Laura in about an hour and text <staff-1> when both can get back on a call. They will try financing about $8,000 through Laura and about $2,000 as an in-house payment plan. Alexis may also ask her husband about his credit cards. "
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

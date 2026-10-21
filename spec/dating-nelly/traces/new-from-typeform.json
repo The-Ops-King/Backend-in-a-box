@@ -1,0 +1,539 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "New from Typeform",
+  "slug": "new-from-typeform",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "done",
+      "runs": 7
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-46>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 3,
+      "trigger": {
+        "type": "form.submitted",
+        "source": "form",
+        "data": {
+          "via": "webhook",
+          "ghost": false,
+          "action": "create",
+          "fields": [
+            "field_contact_app_age",
+            "field_contact_app_location",
+            "field_contact_app_profession",
+            "field_contact_app_relationship_status",
+            "field_contact_app_income",
+            "field_contact_app_looking_for",
+            "field_contact_app_has_children",
+            "field_contact_app_wants_children",
+            "field_contact_app_religion",
+            "field_contact_app_shared_faith",
+            "field_contact_app_relocating",
+            "field_contact_app_ideal_partner",
+            "field_contact_app_dating_challenge",
+            "field_contact_app_support_wanted",
+            "field_contact_app_open_to_coaching",
+            "field_contact_app_strategy_session",
+            "field_contact_utm_source",
+            "field_contact_utm_medium",
+            "field_contact_utm_content",
+            "field_contact_fbclid",
+            "field_contact_app_submitted_at",
+            "field_contact_app_response_id"
+          ],
+          "form_id": "AjY7UfXZ",
+          "matched": null,
+          "form_name": "VIP Matchmaking Application",
+          "response_id": "kyyyj6vhrc1ou4g2jkyyy9syw2hshjs4",
+          "submitted_at": "2026-10-20T21:37:58Z",
+          "ghl_contact_id": "<crm-id-31>"
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "record",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [
+            "by",
+            "event",
+            "form_id",
+            "ghl_contact_id",
+            "response_id",
+            "started"
+          ],
+          "result": {
+            "by": "form",
+            "event": "lead.created",
+            "form_id": "AjY7UfXZ",
+            "started": [
+              "<id-47>"
+            ],
+            "response_id": "kyyyj6vhrc1ou4g2jkyyy9syw2hshjs4",
+            "ghl_contact_id": "<crm-id-31>"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 3,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-48>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 4,
+      "trigger": {
+        "type": "form.submitted",
+        "source": "form",
+        "data": {
+          "via": "webhook",
+          "ghost": false,
+          "action": "update",
+          "fields": [
+            "field_contact_app_age",
+            "field_contact_app_location",
+            "field_contact_app_profession",
+            "field_contact_app_relationship_status",
+            "field_contact_app_income",
+            "field_contact_app_looking_for",
+            "field_contact_app_has_children",
+            "field_contact_app_wants_children",
+            "field_contact_app_religion",
+            "field_contact_app_shared_faith",
+            "field_contact_app_relocating",
+            "field_contact_app_dating_challenge",
+            "field_contact_app_support_wanted",
+            "field_contact_app_open_to_coaching",
+            "field_contact_app_strategy_session",
+            "field_contact_utm_source",
+            "field_contact_utm_medium",
+            "field_contact_utm_content",
+            "field_contact_fbclid",
+            "field_contact_app_submitted_at",
+            "field_contact_app_response_id"
+          ],
+          "form_id": "AjY7UfXZ",
+          "matched": "phone",
+          "form_name": "VIP Matchmaking Application",
+          "response_id": "lxr38gxwhjcdxu44lxrkzcjtxtq7yspy",
+          "submitted_at": "2026-10-20T20:00:07Z",
+          "ghl_contact_id": "<crm-id-12>"
+        }
+      },
+      "steps": [
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "record",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "by",
+            "event",
+            "form_id",
+            "ghl_contact_id",
+            "response_id",
+            "started"
+          ],
+          "result": {
+            "by": "form",
+            "event": "lead.created",
+            "form_id": "AjY7UfXZ",
+            "started": [
+              "<id-49>"
+            ],
+            "response_id": "lxr38gxwhjcdxu44lxrkzcjtxtq7yspy",
+            "ghl_contact_id": "<crm-id-12>"
+          },
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-50>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 4,
+      "trigger": {
+        "type": "form.submitted",
+        "source": "form",
+        "data": {
+          "via": "webhook",
+          "ghost": false,
+          "action": "create",
+          "fields": [
+            "field_contact_app_age",
+            "field_contact_app_location",
+            "field_contact_app_profession",
+            "field_contact_app_relationship_status",
+            "field_contact_app_income",
+            "field_contact_app_looking_for",
+            "field_contact_app_has_children",
+            "field_contact_app_wants_children",
+            "field_contact_app_religion",
+            "field_contact_app_shared_faith",
+            "field_contact_app_relocating",
+            "field_contact_app_ideal_partner",
+            "field_contact_app_dating_challenge",
+            "field_contact_app_support_wanted",
+            "field_contact_app_open_to_coaching",
+            "field_contact_app_strategy_session",
+            "field_contact_utm_source",
+            "field_contact_utm_medium",
+            "field_contact_utm_content",
+            "field_contact_fbclid",
+            "field_contact_app_submitted_at",
+            "field_contact_app_response_id"
+          ],
+          "form_id": "AjY7UfXZ",
+          "matched": null,
+          "form_name": "VIP Matchmaking Application",
+          "response_id": "y0z5noo8dog86oequh9399y0z5nodwtt",
+          "submitted_at": "2026-10-20T18:41:10Z",
+          "ghl_contact_id": "<crm-id-16>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n1",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "record",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "by",
+            "event",
+            "form_id",
+            "ghl_contact_id",
+            "response_id",
+            "started"
+          ],
+          "result": {
+            "by": "form",
+            "event": "lead.created",
+            "form_id": "AjY7UfXZ",
+            "started": [
+              "<id-51>"
+            ],
+            "response_id": "y0z5noo8dog86oequh9399y0z5nodwtt",
+            "ghl_contact_id": "<crm-id-16>"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-52>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 4,
+      "trigger": {
+        "type": "form.submitted",
+        "source": "form",
+        "data": {
+          "via": "webhook",
+          "ghost": false,
+          "action": "create",
+          "fields": [
+            "field_contact_app_age",
+            "field_contact_app_location",
+            "field_contact_app_profession",
+            "field_contact_app_relationship_status",
+            "field_contact_app_income",
+            "field_contact_app_looking_for",
+            "field_contact_app_has_children",
+            "field_contact_app_wants_children",
+            "field_contact_app_religion",
+            "field_contact_app_shared_faith",
+            "field_contact_app_relocating",
+            "field_contact_app_ideal_partner",
+            "field_contact_app_dating_challenge",
+            "field_contact_app_support_wanted",
+            "field_contact_app_open_to_coaching",
+            "field_contact_app_strategy_session",
+            "field_contact_utm_source",
+            "field_contact_utm_medium",
+            "field_contact_utm_content",
+            "field_contact_fbclid",
+            "field_contact_app_submitted_at",
+            "field_contact_app_response_id"
+          ],
+          "form_id": "AjY7UfXZ",
+          "matched": null,
+          "form_name": "VIP Matchmaking Application",
+          "response_id": "sl8fy87acj2m0d0hqkpsl8emp6gngmax",
+          "submitted_at": "2026-10-20T18:16:13Z",
+          "ghl_contact_id": "<crm-id-32>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n2",
+          "type": "record",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [
+            "by",
+            "event",
+            "form_id",
+            "ghl_contact_id",
+            "response_id",
+            "started"
+          ],
+          "result": {
+            "by": "form",
+            "event": "lead.created",
+            "form_id": "AjY7UfXZ",
+            "started": [
+              "<id-53>"
+            ],
+            "response_id": "sl8fy87acj2m0d0hqkpsl8emp6gngmax",
+            "ghl_contact_id": "<crm-id-32>"
+          },
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 4,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-54>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 25,
+      "trigger": {
+        "type": "form.submitted",
+        "source": "form",
+        "data": {
+          "via": "webhook",
+          "ghost": false,
+          "action": "create",
+          "fields": [
+            "field_contact_app_age",
+            "field_contact_app_location",
+            "field_contact_app_profession",
+            "field_contact_app_relationship_status",
+            "field_contact_app_income",
+            "field_contact_app_looking_for",
+            "field_contact_app_has_children",
+            "field_contact_app_wants_children",
+            "field_contact_app_religion",
+            "field_contact_app_shared_faith",
+            "field_contact_app_relocating",
+            "field_contact_app_ideal_partner",
+            "field_contact_app_dating_challenge",
+            "field_contact_app_support_wanted",
+            "field_contact_app_open_to_coaching",
+            "field_contact_app_strategy_session",
+            "field_contact_utm_source",
+            "field_contact_utm_medium",
+            "field_contact_utm_content",
+            "field_contact_fbclid",
+            "field_contact_app_submitted_at",
+            "field_contact_app_response_id"
+          ],
+          "form_id": "AjY7UfXZ",
+          "matched": null,
+          "form_name": "VIP Matchmaking Application",
+          "response_id": "l356115qp134ncgr77l3561bmjbf5xaf",
+          "submitted_at": "2026-10-20T14:33:32Z",
+          "ghl_contact_id": "<crm-id-33>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n1",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "record",
+          "status": "ok",
+          "at_sec": 25,
+          "result_keys": [
+            "by",
+            "event",
+            "form_id",
+            "ghl_contact_id",
+            "response_id",
+            "started"
+          ],
+          "result": {
+            "by": "form",
+            "event": "lead.created",
+            "form_id": "AjY7UfXZ",
+            "started": [
+              "<id-55>"
+            ],
+            "response_id": "l356115qp134ncgr77l3561bmjbf5xaf",
+            "ghl_contact_id": "<crm-id-33>"
+          },
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

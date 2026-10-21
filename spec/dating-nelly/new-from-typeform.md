@@ -1,21 +1,20 @@
 # New from Typeform
 
-Offer: **Dating (Nelly)** (`dating-nelly`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **Dating (Nelly)** (`dating-nelly`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | the offer's own workflow: platform/installs/dating-nelly/new-from-typeform.json |
+| Where this definition came from | live: version 1, saved 2026-10-17T02:21:57.430Z (dating-nelly: an application (form.submitted, D122) puts the person in the offer with the tag dating and starts New lead once, if they are not a lead yet (D123)) |
 | Template | none (the offer's own workflow) |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | follows the offer (quiet) |
-| Send lock | unknown (repo) |
+| Edited since copied from the template | no |
+| Saved version | 1 |
+| Enabled | on |
+| Mode | live |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 4 |
-| Note | dating-nelly: an application (form.submitted, D122) puts the person in the offer with the tag dating and starts New lead once, if they are not a lead yet (D123) |
 
 ## Steps
 
@@ -68,7 +67,7 @@ Next:
 
 - Step id `n2`, type `record`
 - Engine description: Record: A new lead is added in GHL
-- Detail: An event in the ledger with ghl contact id, form id, response id, by; it starts the workflows that listen for it (once)
+- Detail: An event in the ledger with by, form id, response id, ghl contact id; it starts the workflows that listen for it (once)
 - Runs only if: they are not a lead (otherwise skipped)
 - If it keeps failing: the run is held on this step (it is the run's own ledger)
 
@@ -90,10 +89,10 @@ Next:
   "type": "record",
   "event": "lead.created",
   "data": {
-    "ghl_contact_id": "{{contact.ghl_contact_id | default:}}",
+    "by": "form",
     "form_id": "{{event.form_id}}",
     "response_id": "{{event.response_id}}",
-    "by": "form"
+    "ghl_contact_id": "{{contact.ghl_contact_id | default:}}"
   },
   "start": true
 }
@@ -123,7 +122,7 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
+| `crm.location_id` | id | yes | `eLfhuKEaVMlrpLm2Fz8V` |
 
 ## Engine rules that apply but are not steps
 

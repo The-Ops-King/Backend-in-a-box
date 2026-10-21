@@ -1,21 +1,20 @@
 # Call booked
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | playbook copy: platform/installs/pmu/call-booked.json |
-| Template | `call-booked` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 7, saved 2026-10-14T00:03:18.801Z (PMU: one board, one card fork after the setter / self paths: a new booking puts the card on Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled only off a pre-call stage and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (10-15-2026 15:00); the video task sits under a new booking and the old slot's Sales Call under a reschedule) |
+| Template | `call-booked` v16 |
+| Edited since copied from the template | yes |
+| Saved version | 7 |
+| Enabled | on |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | appointment exists |
-| Send window | the offer's (unknown in repo) |
-| Steps | 32 |
-| Note | PMU: one board, one card fork after the setter / self paths: a new booking puts the card on Booked Call named -- Direct or -- Setter; a reschedule moves it to Rescheduled only off a pre-call stage and keeps its name; the Sales Call says Closing or Demo; no UTM fields; Appointment Start Time in PMU's format (MM-dd-yyyy HH:mm) |
+| Send window | 08:00 to 20:00, the contact's time zone |
+| Steps | 26 |
 
 ## Steps
 
@@ -26,7 +25,7 @@ Every step, in the order a run meets it from the trigger. Steps that only assemb
 - Step id `t1`, type `trigger`
 
 Next:
-- always → step 3 (`c_via`)
+- always → step 3 (`c0`)
 
 <details><summary>Full step definition</summary>
 
@@ -51,7 +50,7 @@ Next:
 - Step id `t2`, type `trigger`
 
 Next:
-- always → step 3 (`c_via`)
+- always → step 3 (`c0`)
 
 <details><summary>Full step definition</summary>
 
@@ -71,130 +70,45 @@ Next:
 
 </details>
 
-### 3. Where the booking came from, in words
+### 3. Wait for GHL to have the person (a booking can land first)
 
-- Step id `c_via`, type `set_var`
-- Engine description: Remember booked via, picked by [appointment source]
-- Detail: calendly → Calendly; ghl → GHL calendar; otherwise booking page
-- If it keeps failing: the run is held on this step (later steps read what it remembers)
-
-Next:
-- always → step 4 (`c0`)
-
-<details><summary>Full step definition</summary>
-
-```json
-{
-  "id": "c_via",
-  "title": "Where the booking came from, in words",
-  "type": "set_var",
-  "key": "booked_via",
-  "value": "{{appointment.source}}",
-  "pick": {
-    "calendly": "Calendly",
-    "ghl": "GHL calendar"
-  },
-  "else_value": "booking page"
-}
-```
-
-</details>
-
-### 4. Make sure the person is in GHL: found by id, email or phone, else created
-
-- Step id `c0`, type `ensure_contact`
-- Engine description: Make sure the person is in the CRM
-- Detail: Found by their CRM id, email or phone, else created; tagged with the company's scope tag; fields the CRM has blank are filled, nothing it holds is overwritten
-- If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
+- Step id `c0`, type `check`
+- Engine description: Check there is a CRM contact
+- Detail: Waits up to 1 hour for it, looking every 2 minutes. Otherwise the run pauses for a person: contact has no CRM id yet: GHL did not have the person an hour after the booking
+- If it keeps failing: the run is held on this step (it decides whether the run goes on)
 
 Next:
-- always → step 5 (`c_added`)
+- always → step 4 (`n1`)
 
 <details><summary>Full step definition</summary>
 
 ```json
 {
   "id": "c0",
-  "title": "Make sure the person is in GHL: found by id, email or phone, else created",
-  "type": "ensure_contact",
-  "scope_tag": true,
-  "source": "{{vars.booked_via}} booking"
-}
-```
-
-</details>
-
-### 5. A line on the card when the booking put them in GHL
-
-- Step id `c_added`, type `set_var`
-- Engine description: Remember added line, picked by [c0 action]
-- Detail: created → *New to GHL:* added from their [booked via] booking; otherwise 
-- If it keeps failing: the run is held on this step (later steps read what it remembers)
-
-Next:
-- always → step 6 (`c_note`)
-
-<details><summary>Full step definition</summary>
-
-```json
-{
-  "id": "c_added",
-  "title": "A line on the card when the booking put them in GHL",
-  "type": "set_var",
-  "key": "added_line",
-  "value": "{{vars.c0.action}}",
-  "pick": {
-    "created": "*New to GHL:* added from their {{vars.booked_via}} booking"
+  "title": "Wait for GHL to have the person (a booking can land first)",
+  "type": "check",
+  "when": {
+    "exists": "contact.ghl_contact_id"
   },
-  "else_value": ""
+  "else_exit": "no_crm_id",
+  "else_pause": "contact has no CRM id yet: GHL did not have the person an hour after the booking",
+  "retry": {
+    "every": "2m",
+    "for": "1h"
+  }
 }
 ```
 
 </details>
 
-### 6. Say on the contact that the booking added them
-
-- Step id `c_note`, type `note`
-- Engine description: Leave an internal note
-- Runs only if: c0 action is “created” (otherwise skipped)
-- If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
-
-CRM note:
-
-```
-Added to GHL by the booking engine from their {{vars.booked_via}} booking ({{appointment.starts_at | date_company}}): they were not in GHL by email or phone.
-```
-
-Next:
-- always → step 7 (`n1`)
-
-<details><summary>Full step definition</summary>
-
-```json
-{
-  "id": "c_note",
-  "title": "Say on the contact that the booking added them",
-  "only_if": {
-    "eq": [
-      "{{vars.c0.action}}",
-      "created"
-    ]
-  },
-  "type": "note",
-  "template": "Added to GHL by the booking engine from their {{vars.booked_via}} booking ({{appointment.starts_at | date_company}}): they were not in GHL by email or phone."
-}
-```
-
-</details>
-
-### 7. Update the contact in the CRM
+### 4. Update the contact in the CRM
 
 - Step id `n1`, type `update_contact`
 - Detail: owner → the closer; appointment date = [call time]
 - If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
 
 Next:
-- always → step 8 (`n2`)
+- always → step 5 (`n2`)
 
 <details><summary>Full step definition</summary>
 
@@ -217,14 +131,14 @@ Next:
 
 </details>
 
-### 8. Which way?
+### 5. Which way?
 
 - Step id `n2`, type `branch`
 - If it keeps failing: the run is held on this step (it decides where the run goes)
 
 Next:
-- setter booked (when not self-booked) → step 9 (`b1`)
-- self booked → step 10 (`s1`)
+- setter booked (when not self-booked) → step 6 (`b1`)
+- self booked → step 7 (`s1`)
 
 <details><summary>Full step definition</summary>
 
@@ -237,13 +151,13 @@ Next:
 
 </details>
 
-### 9. Remember setter line = *Setter:* [setter]
+### 6. Remember setter line = *Setter:* [setter]
 
 - Step id `b1`, type `set_var`
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 11 (`b2`)
+- always → step 8 (`b2`)
 
 <details><summary>Full step definition</summary>
 
@@ -258,13 +172,13 @@ Next:
 
 </details>
 
-### 10. Remember setter line = 
+### 7. Remember setter line = 
 
 - Step id `s1`, type `set_var`
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 12 (`s2`)
+- always → step 9 (`s2`)
 
 <details><summary>Full step definition</summary>
 
@@ -279,13 +193,13 @@ Next:
 
 </details>
 
-### 11. Remember booking kind = setter booked
+### 8. Remember booking kind = setter booked
 
 - Step id `b2`, type `set_var`
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 13 (`b2b`)
+- always → step 10 (`b2b`)
 
 <details><summary>Full step definition</summary>
 
@@ -300,13 +214,13 @@ Next:
 
 </details>
 
-### 12. Remember booking kind = self-booked
+### 9. Remember booking kind = self-booked
 
 - Step id `s2`, type `set_var`
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 14 (`s2b`)
+- always → step 11 (`s2b`)
 
 <details><summary>Full step definition</summary>
 
@@ -321,13 +235,13 @@ Next:
 
 </details>
 
-### 13. Remember booking source = [setter]
+### 10. Remember booking source = [setter]
 
 - Step id `b2b`, type `set_var`
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 15 (`b3`)
+- always → step 12 (`b3`)
 
 <details><summary>Full step definition</summary>
 
@@ -342,13 +256,13 @@ Next:
 
 </details>
 
-### 14. Remember booking source = [self]
+### 11. Remember booking source = [self]
 
 - Step id `s2b`, type `set_var`
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 16 (`s_suffix`)
+- always → step 13 (`s_suffix`)
 
 <details><summary>Full step definition</summary>
 
@@ -363,7 +277,7 @@ Next:
 
 </details>
 
-### 15. The setter goes on the contact
+### 12. The setter goes on the contact
 
 - Step id `b3`, type `update_contact`
 - Engine description: Update the contact in the CRM
@@ -371,7 +285,7 @@ Next:
 - If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
 
 Next:
-- always → step 17 (`b_suffix`)
+- always → step 14 (`b_suffix`)
 
 <details><summary>Full step definition</summary>
 
@@ -393,13 +307,13 @@ Next:
 
 </details>
 
-### 16. Remember card suffix = Direct
+### 13. Remember card suffix = Direct
 
 - Step id `s_suffix`, type `set_var`
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 18 (`s5`)
+- always → step 15 (`s5`)
 
 <details><summary>Full step definition</summary>
 
@@ -414,13 +328,13 @@ Next:
 
 </details>
 
-### 17. Remember card suffix = Setter
+### 14. Remember card suffix = Setter
 
 - Step id `b_suffix`, type `set_var`
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 19 (`b6`)
+- always → step 16 (`b6`)
 
 <details><summary>Full step definition</summary>
 
@@ -435,13 +349,13 @@ Next:
 
 </details>
 
-### 18. Tags “+stat-booked” “+stat-self-booked” “+meta booked call” “−seq-no-show” “−seq-nurture” “−seq-winback” “−opt-in lead” “−stat-no-show” “−stat-cancelled” “−stat-possible-cancel” “−stat-needs-attention”
+### 15. Tags “+stat-booked” “+stat-self-booked” “+meta booked call” “−seq-no-show” “−seq-nurture” “−seq-winback” “−opt-in lead” “−stat-no-show” “−stat-cancelled” “−stat-possible-cancel” “−stat-needs-attention”
 
 - Step id `s5`, type `tags`
 - If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
 
 Next:
-- always → step 20 (`f_card`)
+- always → step 17 (`f_card`)
 
 <details><summary>Full step definition</summary>
 
@@ -469,13 +383,13 @@ Next:
 
 </details>
 
-### 19. Tags “+stat-booked” “+stat-set” “+meta booked call” “−seq-no-show” “−seq-nurture” “−seq-winback” “−opt-in lead” “−stat-no-show” “−stat-cancelled” “−stat-possible-cancel” “−stat-needs-attention”
+### 16. Tags “+stat-booked” “+stat-set” “+meta booked call” “−seq-no-show” “−seq-nurture” “−seq-winback” “−opt-in lead” “−stat-no-show” “−stat-cancelled” “−stat-possible-cancel” “−stat-needs-attention”
 
 - Step id `b6`, type `tags`
 - If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
 
 Next:
-- always → step 20 (`f_card`)
+- always → step 17 (`f_card`)
 
 <details><summary>Full step definition</summary>
 
@@ -503,15 +417,15 @@ Next:
 
 </details>
 
-### 20. A new booking or a reschedule?
+### 17. A new booking or a reschedule?
 
 - Step id `f_card`, type `branch`
 - Engine description: Which way?
 - If it keeps failing: the run is held on this step (it decides where the run goes)
 
 Next:
-- a reschedule (when this is a reschedule) → step 21 (`c_rs`)
-- a new booking → step 22 (`c_new`)
+- a reschedule (when this is a reschedule) → step 18 (`c_rs`)
+- a new booking → step 19 (`c_new`)
 
 <details><summary>Full step definition</summary>
 
@@ -525,7 +439,7 @@ Next:
 
 </details>
 
-### 21. Card → Rescheduled, if it is before the call (its name stays)
+### 18. Card → Rescheduled, if it is before the call (its name stays)
 
 - Step id `c_rs`, type `pipeline_card`
 - Engine description: Create or move pipeline card
@@ -533,7 +447,7 @@ Next:
 - If it keeps failing: the run is held on this step (step k4 reads the closer card)
 
 Next:
-- always → step 23 (`k5`)
+- always → step 20 (`k5`)
 
 <details><summary>Full step definition</summary>
 
@@ -569,7 +483,7 @@ Next:
 
 </details>
 
-### 22. Card → Booked Call, named -- Setter / -- Direct
+### 19. Card → Booked Call, named -- Setter / -- Direct
 
 - Step id `c_new`, type `pipeline_card`
 - Engine description: Create or move pipeline card “[full name] -- [the card's name ending]”
@@ -577,7 +491,7 @@ Next:
 - If it keeps failing: the run is held on this step (step k4 reads the closer card)
 
 Next:
-- always → step 24 (`k3`)
+- always → step 21 (`k3`)
 
 <details><summary>Full step definition</summary>
 
@@ -603,7 +517,7 @@ Next:
 
 </details>
 
-### 23. The Sales Call for the old time: logged as rescheduled
+### 20. The Sales Call for the old time: logged as rescheduled
 
 - Step id `k5`, type `crm_record`
 - Engine description: Update sales call record
@@ -611,7 +525,7 @@ Next:
 - If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
 
 Next:
-- always → step 25 (`v_type`)
+- always → step 22 (`v_type`)
 
 <details><summary>Full step definition</summary>
 
@@ -620,7 +534,7 @@ Next:
   "id": "k5",
   "title": "The Sales Call for the old time: logged as rescheduled",
   "type": "crm_record",
-  "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+  "object": "custom_objects.sales_call",
   "key": "{{event.slot.from | default:}}",
   "properties": {
     "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
@@ -633,7 +547,7 @@ Next:
 
 </details>
 
-### 24. Send {{contact.first_name}} a personalized video
+### 21. Send {{contact.first_name}} a personalized video
 
 - Step id `k3`, type `create_task`
 - Engine description: Task for the closer: “Send [first name] a personalized video”
@@ -653,7 +567,7 @@ Booked for {{appointment.starts_at | date_company}}. A quick personal video befo
 ```
 
 Next:
-- always → step 25 (`v_type`)
+- always → step 22 (`v_type`)
 
 <details><summary>Full step definition</summary>
 
@@ -670,7 +584,7 @@ Next:
 
 </details>
 
-### 25. Closing or Demo: the call type the calendar books
+### 22. Closing or Demo: the call type the calendar books
 
 - Step id `v_type`, type `set_var`
 - Engine description: Remember call type, picked by [term name]
@@ -678,7 +592,7 @@ Next:
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 26 (`k4`)
+- always → step 23 (`k4`)
 
 <details><summary>Full step definition</summary>
 
@@ -698,14 +612,14 @@ Next:
 
 </details>
 
-### 26. Write sales call record
+### 23. Write sales call record
 
 - Step id `k4`, type `crm_record`
 - Detail: Keyed by this booking; 11 fields; linked to 2 related records
 - If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
 
 Next:
-- always → step 27 (`v4`)
+- always → step 24 (`v4`)
 
 <details><summary>Full step definition</summary>
 
@@ -713,20 +627,20 @@ Next:
 {
   "id": "k4",
   "type": "crm_record",
-  "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+  "object": "custom_objects.sales_call",
   "key": "{{appointment.slot_key}}",
   "properties": {
-    "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
-    "external_id": "{{appointment.slot_key}}",
-    "contact_id": "{{contact.ghl_contact_id | default:}}",
-    "opportunity_id": "{{cards.closer.id | default:}}",
-    "scheduled_at": "{{appointment.starts_at}}",
-    "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
     "closer": "{{appointment.closer.first_name | default: | lower}}",
     "setter": "{{appointment.set_by | default:}}",
     "outcome": "{{picklist.sales_call_outcome.scheduled}}",
+    "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
+    "call_type": "{{vars.call_type}}",
+    "contact_id": "{{contact.ghl_contact_id | default:}}",
+    "external_id": "{{appointment.slot_key}}",
+    "scheduled_at": "{{appointment.starts_at}}",
+    "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
     "booking_source": "{{vars.booking_source | default:}}",
-    "call_type": "{{vars.call_type}}"
+    "opportunity_id": "{{cards.closer.id | default:}}"
   },
   "if_missing": "create",
   "relate": [
@@ -747,14 +661,14 @@ Next:
 
 </details>
 
-### 27. Remember card = name Call rescheduled; icons :repeat:; reschedule mark repeat
+### 24. Remember card = name Call rescheduled; icons :repeat:; reschedule mark repeat
 
 - Step id `v4`, type `set_var`
 - Detail: When this is a reschedule; otherwise name New call booked; icons :telephone_receiver:, :calendar:, :date:, :spiral_calendar_pad:; reschedule mark blank
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
-- always → step 28 (`n4`)
+- always → step 25 (`n4`)
 
 <details><summary>Full step definition</summary>
 
@@ -791,7 +705,7 @@ Next:
 
 </details>
 
-### 28. Post the booking card in Slack (a reschedule: 🔁 face, 🔁 on the old card)
+### 25. Post the booking card in Slack (a reschedule: 🔁 face, 🔁 on the old card)
 
 - Step id `n4`, type `slack_post`
 - Engine description: Post to Slack (the bookings channel)
@@ -808,11 +722,11 @@ Slack post:
 *Appointment time:* {{appointment.starts_at | date_company}}
 *Phone:* {{contact.phone | default:—}}{{contact.intake_lines | line}}
 *Reschedule link:* {{appointment.reschedule_url | default:—}}
-*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}{{vars.added_line | line}}
+*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}
 ```
 
 Next:
-- always → step 29 (`v_textoff`)
+- always → step 26 (`x1`)
 
 <details><summary>Full step definition</summary>
 
@@ -822,7 +736,7 @@ Next:
   "title": "Post the booking card in Slack (a reschedule: 🔁 face, 🔁 on the old card)",
   "type": "slack_post",
   "channel": "{{slack.channel.bookings}}",
-  "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}{{contact.intake_lines | line}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}{{vars.added_line | line}}",
+  "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Booked with:* {{appointment.closer.name | default:unassigned}}\n{{vars.setter_line}}\n*Appointment time:* {{appointment.starts_at | date_company}}\n*Phone:* {{contact.phone | default:—}}{{contact.intake_lines | line}}\n*Reschedule link:* {{appointment.reschedule_url | default:—}}\n*Source:* {{contact.source | default:—}} · {{vars.booking_kind}}",
   "as": {
     "name": "{{vars.card.name}}",
     "icon": "{{vars.card.icons}}"
@@ -842,132 +756,7 @@ Next:
 
 </details>
 
-### 29. Why no text can reach them: Do Not Disturb, or no phone
-
-- Step id `v_textoff`, type `set_var`
-- Engine description: Remember no text reason, picked by [contact sms dnd]
-- Detail: true → has texts turned off (Do Not Disturb); otherwise 
-- If it keeps failing: the run is held on this step (later steps read what it remembers)
-
-Next:
-- always → step 30 (`v_nophone`)
-
-<details><summary>Full step definition</summary>
-
-```json
-{
-  "id": "v_textoff",
-  "title": "Why no text can reach them: Do Not Disturb, or no phone",
-  "type": "set_var",
-  "key": "no_text_reason",
-  "value": "{{contact.sms_dnd}}",
-  "pick": {
-    "true": "has texts turned off (Do Not Disturb)"
-  },
-  "else_value": ""
-}
-```
-
-</details>
-
-### 30. …or no phone number on file
-
-- Step id `v_nophone`, type `set_var`
-- Engine description: Remember no text reason = has no phone number on file
-- Detail: When no text reason is blank and not (there is a phone number); otherwise [no text reason]
-- If it keeps failing: the run is held on this step (later steps read what it remembers)
-
-Next:
-- always → step 31 (`n_dnd`)
-
-<details><summary>Full step definition</summary>
-
-```json
-{
-  "id": "v_nophone",
-  "title": "…or no phone number on file",
-  "type": "set_var",
-  "key": "no_text_reason",
-  "value": "has no phone number on file",
-  "when": {
-    "and": [
-      {
-        "eq": [
-          "{{vars.no_text_reason}}",
-          ""
-        ]
-      },
-      {
-        "not": {
-          "exists": "contact.phone"
-        }
-      }
-    ]
-  },
-  "else_value": "{{vars.no_text_reason}}"
-}
-```
-
-</details>
-
-### 31. Texts can't reach them (Do Not Disturb or no phone): ⚠️ on the card and a note under it, once per booking
-
-- Step id `n_dnd`, type `slack_post`
-- Engine description: Reply in the thread of that Slack post
-- Detail: reacts :warning: on it
-- Runs only if: no text reason is not blank and this is not a reschedule (otherwise skipped)
-- Goes to: channel {{slack.channel.bookings}}; in the thread of tag:appointment:{{appointment.id}}; thread only; posted as "Texts off"
-- If it keeps failing: after its tries it is skipped and the run goes on (nothing later in the run reads what it does)
-
-Slack post:
-
-```
-⚠️ {{contact.first_name | default:They}} {{vars.no_text_reason}}, so no texts will reach them. Call or email instead.
-```
-
-Next:
-- always → step 32 (`x1`)
-
-<details><summary>Full step definition</summary>
-
-```json
-{
-  "id": "n_dnd",
-  "title": "Texts can't reach them (Do Not Disturb or no phone): ⚠️ on the card and a note under it, once per booking",
-  "only_if": {
-    "and": [
-      {
-        "neq": [
-          "{{vars.no_text_reason}}",
-          ""
-        ]
-      },
-      {
-        "neq": [
-          "{{event._type}}",
-          "appointment.rescheduled"
-        ]
-      }
-    ]
-  },
-  "type": "slack_post",
-  "channel": "{{slack.channel.bookings}}",
-  "template": "⚠️ {{contact.first_name | default:They}} {{vars.no_text_reason}}, so no texts will reach them. Call or email instead.",
-  "as": {
-    "name": "Texts off",
-    "icon": ":warning:"
-  },
-  "thread_of": "tag:appointment:{{appointment.id}}",
-  "thread_only": true,
-  "edit": false,
-  "react": "warning",
-  "label": "mode"
-}
-```
-
-</details>
-
-### 32. Done: booking recorded
+### 26. Done: booking recorded
 
 - Step id `x1`, type `exit`
 
@@ -989,22 +778,21 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.assoc_sales_call_contact` | id | yes | not read (repo) |
-| `crm.assoc_sales_call_opportunity` | id | yes | not read (repo) |
-| `crm.field_contact_appointment_date` | id | yes | not read (repo) |
-| `crm.field_contact_setter` | id | yes | not read (repo) |
-| `crm.field_opportunity_setter_owner` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_sales_call` | id | no | not read (repo) |
-| `crm.pipeline_closer` | id | yes | not read (repo) |
-| `crm.stage_closer_cancelled` | id | yes | not read (repo) |
-| `crm.stage_closer_confirmed` | id | yes | not read (repo) |
-| `crm.stage_closer_new_lead` | id | yes | not read (repo) |
-| `crm.stage_closer_no_show` | id | yes | not read (repo) |
-| `crm.stage_closer_rescheduled` | id | yes | not read (repo) |
-| `crm.stage_closer_scheduled` | id | yes | not read (repo) |
-| `crm.stage_closer_unresponsive` | id | yes | not read (repo) |
-| `slack.channel.bookings` | channel | no | not read (repo) |
+| `crm.assoc_sales_call_contact` | id | yes | `6ab44fe67f8a0a87bc8a542d` |
+| `crm.assoc_sales_call_opportunity` | id | yes | `6ace9cd588661082b9b4aa71` |
+| `crm.field_contact_appointment_date` | id | yes | `uqulQPE8vPu0RZDyDXIj` |
+| `crm.field_contact_setter` | id | yes | `h6eZzKxkKp6dLfQfxVdO` |
+| `crm.field_opportunity_setter_owner` | id | yes | `Q2rC8L2dLPizfO2mC6Rd` |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `crm.pipeline_closer` | id | yes | `1B37Vzv6euKMpWaFFuVW` |
+| `crm.stage_closer_cancelled` | id | yes | `b476556a-26f3-4bff-86eb-05fdcf0c5bd0` |
+| `crm.stage_closer_confirmed` | id | yes | `d2fdd051-1e22-4e8c-8d52-dc94ed41b91b` |
+| `crm.stage_closer_new_lead` | id | yes | `7dc8ac43-8b8a-4db7-bc13-ff73c7a326de` |
+| `crm.stage_closer_no_show` | id | yes | `89d423f9-38f0-4e51-87e5-ce007c9c5de7` |
+| `crm.stage_closer_rescheduled` | id | yes | `bfd72f87-56e1-43c3-847f-12f0864df851` |
+| `crm.stage_closer_scheduled` | id | yes | `0c8b03fb-9e38-46ed-a33f-5e02d7f264a3` |
+| `crm.stage_closer_unresponsive` | id | yes | `17b819aa-4423-4771-b53e-731289529026` |
+| `slack.channel.bookings` | channel | no | `C0BSCMB813L` |
 
 ## Engine rules that apply but are not steps
 

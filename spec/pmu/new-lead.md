@@ -1,21 +1,20 @@
 # New lead
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | playbook copy: platform/installs/pmu/new-lead.json |
-| Template | `new-lead` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 2, saved 2026-10-13T21:44:57.674Z (PMU: one board. The card starts on Beauty Moguls at New Lead; a lead has a phone or a VSL tag (vsl a / vsl b); no stage-entered field) |
+| Template | `new-lead` v3 |
+| Edited since copied from the template | yes |
+| Saved version | 2 |
+| Enabled | on |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 5 |
-| Note | PMU: one board. The card starts on Beauty Moguls at New Lead; a lead has a phone or a VSL tag (vsl a / vsl b); no stage-entered field |
 
 ## Steps
 
@@ -154,9 +153,9 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.pipeline_closer` | id | yes | not read (repo) |
-| `crm.stage_closer_new_lead` | id | yes | not read (repo) |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `crm.pipeline_closer` | id | yes | `1B37Vzv6euKMpWaFFuVW` |
+| `crm.stage_closer_new_lead` | id | yes | `7dc8ac43-8b8a-4db7-bc13-ff73c7a326de` |
 
 ## Engine rules that apply but are not steps
 

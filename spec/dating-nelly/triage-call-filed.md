@@ -1,21 +1,20 @@
 # Triage call filed
 
-Offer: **Dating (Nelly)** (`dating-nelly`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **Dating (Nelly)** (`dating-nelly`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | the offer's own workflow: platform/installs/dating-nelly/triage-call-filed.json |
+| Where this definition came from | live: version 2, saved 2026-10-19T22:02:57.662Z (D186 (Tyler): the end of day's notes and why a DQ go on the Discovery Call record) |
 | Template | none (the offer's own workflow) |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | follows the offer (quiet) |
-| Send lock | unknown (repo) |
+| Edited since copied from the template | yes |
+| Saved version | 2 |
+| Enabled | on |
+| Mode | live |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | always |
 | Re-checked before every step | contact exists |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 13 |
-| Note | dating-nelly: a Triage call's outcome, filed on the end of day (or a no-show marked in the CRM): the Discovery Call record (showed or no-show, set / follow up / DQ / not interested), the setter card to Showed (won), DQ, Not Interested or Cancelled / No Show (lost), a line in the booking thread (D143) |
 
 ## Steps
 
@@ -99,7 +98,7 @@ Next:
 
 - Step id `v_att`, type `set_var`
 - Engine description: Remember att, picked by [outcome]
-- Detail: showed → showed; noshow → no_show; rescheduled → rescheduled; otherwise 
+- Detail: noshow → no_show; showed → showed; rescheduled → rescheduled; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -115,8 +114,8 @@ Next:
   "key": "att",
   "value": "{{event.outcome | default:noshow}}",
   "pick": {
-    "showed": "showed",
     "noshow": "no_show",
+    "showed": "showed",
     "rescheduled": "rescheduled"
   },
   "else_value": ""
@@ -129,7 +128,7 @@ Next:
 
 - Step id `v_res`, type `set_var`
 - Engine description: Remember res, picked by [how the call went]
-- Detail: qualified → set; follow up → follow_up; unqualified → dq; lost → not_interested; otherwise 
+- Detail: lost → not_interested; follow up → follow_up; qualified → set; unqualified → dq; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -145,10 +144,10 @@ Next:
   "key": "res",
   "value": "{{appointment.call_outcome | default:}}",
   "pick": {
-    "qualified": "set",
+    "lost": "not_interested",
     "follow_up": "follow_up",
-    "unqualified": "dq",
-    "lost": "not_interested"
+    "qualified": "set",
+    "unqualified": "dq"
   },
   "else_value": ""
 }
@@ -160,7 +159,7 @@ Next:
 
 - Step id `v_line`, type `set_var`
 - Engine description: Remember line, picked by [att]:[res]
-- Detail: showed:set → ✅ Triage: set; showed:follow up → 🔁 Triage: follow up; showed:dq → ⛔ Triage: DQ; showed:not interested → 👋 Triage: not interested; showed: → ✅ Triage: showed; no show: → 👻 Triage: no-show; rescheduled: → 🔁 Triage: rescheduled on the call; otherwise 
+- Detail: showed: → ✅ Triage: showed; no show: → 👻 Triage: no-show; showed:dq → ⛔ Triage: DQ; showed:set → ✅ Triage: set; rescheduled: → 🔁 Triage: rescheduled on the call; showed:follow up → 🔁 Triage: follow up; showed:not interested → 👋 Triage: not interested; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -176,13 +175,13 @@ Next:
   "key": "line",
   "value": "{{vars.att}}:{{vars.res}}",
   "pick": {
-    "showed:set": "✅ Triage: set",
-    "showed:follow_up": "🔁 Triage: follow up",
-    "showed:dq": "⛔ Triage: DQ",
-    "showed:not_interested": "👋 Triage: not interested",
     "showed:": "✅ Triage: showed",
     "no_show:": "👻 Triage: no-show",
-    "rescheduled:": "🔁 Triage: rescheduled on the call"
+    "showed:dq": "⛔ Triage: DQ",
+    "showed:set": "✅ Triage: set",
+    "rescheduled:": "🔁 Triage: rescheduled on the call",
+    "showed:follow_up": "🔁 Triage: follow up",
+    "showed:not_interested": "👋 Triage: not interested"
   },
   "else_value": ""
 }
@@ -210,10 +209,10 @@ Next:
   "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
   "key": "{{appointment.slot_key}}",
   "properties": {
+    "notes": "{{event.notes | default:}}",
     "outcome": "{{vars.att}}",
-    "call_result": "{{vars.res}}",
     "dq_reason": "{{event.dq_reason | default:}}",
-    "notes": "{{event.notes | default:}}"
+    "call_result": "{{vars.res}}"
   },
   "if_missing": "skip",
   "relate": [],
@@ -429,14 +428,14 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.object_discovery_call` | id | no | not read (repo) |
-| `crm.pipeline_setter` | id | yes | not read (repo) |
-| `crm.stage_setter_cancelled` | id | yes | not read (repo) |
-| `crm.stage_setter_dq` | id | yes | not read (repo) |
-| `crm.stage_setter_not_interested` | id | yes | not read (repo) |
-| `crm.stage_setter_showed` | id | yes | not read (repo) |
-| `slack.channel.bookings` | channel | no | not read (repo) |
+| `crm.location_id` | id | yes | `eLfhuKEaVMlrpLm2Fz8V` |
+| `crm.object_discovery_call` | id | no | `custom_objects.dating_discovery` |
+| `crm.pipeline_setter` | id | yes | `N59nJLRaspsNwiaPWtE8` |
+| `crm.stage_setter_cancelled` | id | yes | `72b4a0a0-11db-4b3c-92b7-e06c4d6112e1` |
+| `crm.stage_setter_dq` | id | yes | `49fa4f2a-b866-4850-9706-ee0ff63f7c15` |
+| `crm.stage_setter_not_interested` | id | yes | `82b55b7f-f553-4de7-9441-2a431d65616d` |
+| `crm.stage_setter_showed` | id | yes | `85af6330-f4b3-434e-a597-255f9d446e2d` |
+| `slack.channel.bookings` | channel | no | `C0C9Q7MEANT` |
 
 ## Engine rules that apply but are not steps
 

@@ -1,0 +1,468 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "New lead",
+  "slug": "new-lead",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "done",
+      "runs": 7
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-47>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 10,
+      "trigger": {
+        "type": "lead.created",
+        "source": "engine",
+        "data": {
+          "by": "form",
+          "_node": "n2",
+          "form_id": "AjY7UfXZ",
+          "response_id": "kyyyj6vhrc1ou4g2jkyyy9syw2hshjs4",
+          "ghl_contact_id": "<crm-id-31>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [
+            "card",
+            "fields",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "created",
+            "name": "<contact-18>",
+            "stage": "<id-13>",
+            "fields": [
+              {
+                "id": "<crm-id-34>",
+                "field_value": "2026-10-20"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 10,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 10,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": [
+        {
+          "node": "n2",
+          "kind": "card",
+          "done": true
+        }
+      ]
+    },
+    {
+      "run": "<id-49>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 6,
+      "trigger": {
+        "type": "lead.created",
+        "source": "engine",
+        "data": {
+          "by": "form",
+          "_node": "n2",
+          "form_id": "AjY7UfXZ",
+          "response_id": "lxr38gxwhjcdxu44lxrkzcjtxtq7yspy",
+          "ghl_contact_id": "<crm-id-12>"
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-19>",
+            "stage": "<id-13>",
+            "fields": [
+              {
+                "id": "<crm-id-34>",
+                "field_value": "2026-10-20"
+              }
+            ],
+            "crm_card": "<crm-id-13>",
+            "from_stage": "<id-13>"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-51>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 11,
+      "trigger": {
+        "type": "lead.created",
+        "source": "engine",
+        "data": {
+          "by": "form",
+          "_node": "n2",
+          "form_id": "AjY7UfXZ",
+          "response_id": "y0z5noo8dog86oequh9399y0z5nodwtt",
+          "ghl_contact_id": "<crm-id-16>"
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 5,
+          "result_keys": [
+            "card",
+            "fields",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "created",
+            "name": "<contact-20>",
+            "stage": "<id-13>",
+            "fields": [
+              {
+                "id": "<crm-id-34>",
+                "field_value": "2026-10-20"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 11,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 11,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": [
+        {
+          "node": "n2",
+          "kind": "card",
+          "done": true
+        }
+      ]
+    },
+    {
+      "run": "<id-53>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 11,
+      "trigger": {
+        "type": "lead.created",
+        "source": "engine",
+        "data": {
+          "by": "form",
+          "_node": "n2",
+          "form_id": "AjY7UfXZ",
+          "response_id": "sl8fy87acj2m0d0hqkpsl8emp6gngmax",
+          "ghl_contact_id": "<crm-id-32>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [
+            "card",
+            "fields",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "created",
+            "name": "<contact-21>",
+            "stage": "<id-13>",
+            "fields": [
+              {
+                "id": "<crm-id-34>",
+                "field_value": "2026-10-20"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 11,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 11,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": [
+        {
+          "node": "n2",
+          "kind": "card",
+          "done": true
+        }
+      ]
+    },
+    {
+      "run": "<id-55>",
+      "status": "completed",
+      "exit_reason": "done",
+      "mode_at_start": "live",
+      "workflow_version": 1,
+      "started": "2026-10-20",
+      "took_sec": 93,
+      "trigger": {
+        "type": "lead.created",
+        "source": "engine",
+        "data": {
+          "by": "form",
+          "_node": "n2",
+          "form_id": "AjY7UfXZ",
+          "response_id": "l356115qp134ncgr77l3561bmjbf5xaf",
+          "ghl_contact_id": "<crm-id-33>"
+        }
+      },
+      "steps": [
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 87,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 87,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 87,
+          "result_keys": [
+            "card",
+            "fields",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "created",
+            "name": "<contact-22>",
+            "stage": "<id-13>",
+            "fields": [
+              {
+                "id": "<crm-id-34>",
+                "field_value": "2026-10-20"
+              }
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 93,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 93,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": [
+        {
+          "node": "n2",
+          "kind": "card",
+          "done": true
+        }
+      ]
+    }
+  ]
+}

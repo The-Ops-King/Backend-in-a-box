@@ -1,0 +1,1011 @@
+{
+  "offer": "pmu",
+  "workflow": "Call cancelled",
+  "slug": "call-cancelled",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "cancelled_recorded",
+      "runs": 8
+    },
+    {
+      "status": "exited",
+      "exit_reason": "moot: contact gone",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-26>",
+      "status": "completed",
+      "exit_reason": "cancelled_recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-20",
+      "took_sec": 21,
+      "trigger": {
+        "type": "appointment.status_changed",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": {
+            "to": "cancelled",
+            "from": "confirmed"
+          },
+          "before_start": true,
+          "cancelled_by": "<staff-2>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-11>",
+            "ghost": true,
+            "stage": "<id-27>",
+            "fields": [],
+            "crm_card": "<crm-id-11>",
+            "from_stage": "<id-28>"
+          },
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-21T23:49:09.339Z",
+              "body": "Cancelled by <staff-2>. Reason: none given.",
+              "title": "Rebook <contact-12> — cancelled",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n7",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "redirected_to",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-14>",
+            "tag": "appointment:<id-29>",
+            "ghost": true,
+            "reacted": true,
+            "in_thread_of": "<phone-15>",
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        },
+        {
+          "node": "n6",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-30>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "outcome": "cancelled",
+              "external_id": "<id-31>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": ""
+                }
+              ]
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-cancelled"
+            ],
+            "would_untag": [
+              "stat-booked",
+              "stat-self-booked",
+              "stat-set",
+              "stat-confirmed"
+            ]
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 21,
+          "body": "*Cancelled:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-12>|<contact-13> Negron>\n*Was booked with:* <staff-2> · Wed Oct 21 · 3:30 PM EDT\n*Cancelled by:* <staff-2>\n*Reason:* none given\n*Phone:* <phone-16>\n*Rebook task:* due in 1 day for <staff-2>"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-32>",
+      "status": "completed",
+      "exit_reason": "cancelled_recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-20",
+      "took_sec": 33,
+      "trigger": {
+        "type": "appointment.status_changed",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": {
+            "to": "cancelled",
+            "from": "confirmed"
+          },
+          "before_start": true,
+          "cancelled_by": "<staff-2>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n6",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 33,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-16>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "outcome": "cancelled",
+              "external_id": "<id-17>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 33,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-cancelled"
+            ],
+            "would_untag": [
+              "stat-booked",
+              "stat-self-booked",
+              "stat-set",
+              "stat-confirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 33,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-14>",
+            "ghost": true,
+            "stage": "<id-27>",
+            "fields": [],
+            "crm_card": "<crm-id-2>",
+            "from_stage": "<id-3>"
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 33,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 33,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-21T16:07:29.519Z",
+              "body": "Cancelled by <staff-2>. Reason: none given.",
+              "title": "Rebook <contact-1> Aganon — cancelled",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 33,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": ""
+                }
+              ]
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 33,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n7",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 33,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "redirected_to",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-17>",
+            "tag": "appointment:<id-18>",
+            "ghost": true,
+            "reacted": true,
+            "in_thread_of": "<phone-9>",
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 33,
+          "body": "*Cancelled:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-3>|<contact-1> Aganon>\n*Was booked with:* <staff-2> · Wed Oct 21 · 6:30 PM EDT\n*Cancelled by:* <staff-2>\n*Reason:* none given\n*Phone:* <phone-3>\n*Rebook task:* due in 1 day for <staff-2>"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-33>",
+      "status": "completed",
+      "exit_reason": "cancelled_recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-20",
+      "took_sec": 12,
+      "trigger": {
+        "type": "appointment.status_changed",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": {
+            "to": "cancelled",
+            "from": "confirmed"
+          },
+          "before_start": true,
+          "cancelled_by": "<staff-2>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n6",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-34>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "outcome": "cancelled",
+              "external_id": "<id-35>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-14>",
+            "ghost": true,
+            "stage": "<id-27>",
+            "fields": [],
+            "crm_card": "<crm-id-2>",
+            "from_stage": "<id-36>"
+          },
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": ""
+                }
+              ]
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-21T15:59:52.983Z",
+              "body": "Cancelled by <staff-2>. Reason: none given.",
+              "title": "Rebook <contact-1> Aganon — cancelled",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-cancelled"
+            ],
+            "would_untag": [
+              "stat-booked",
+              "stat-self-booked",
+              "stat-set",
+              "stat-confirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n7",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 12,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "redirected_to",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-18>",
+            "tag": "appointment:<id-37>",
+            "ghost": true,
+            "reacted": true,
+            "in_thread_of": "<phone-19>",
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 12,
+          "body": "*Cancelled:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-3>|<contact-1> Aganon>\n*Was booked with:* <staff-2> · Tue Oct 20 · 3:30 PM EDT\n*Cancelled by:* <staff-2>\n*Reason:* none given\n*Phone:* <phone-3>\n*Rebook task:* due in 1 day for <staff-2>"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-38>",
+      "status": "completed",
+      "exit_reason": "cancelled_recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-19",
+      "took_sec": 13,
+      "trigger": {
+        "type": "appointment.status_changed",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": {
+            "to": "cancelled",
+            "from": "confirmed"
+          },
+          "before_start": true,
+          "cancelled_by": "<staff-2>"
+        }
+      },
+      "steps": [
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-cancelled"
+            ],
+            "would_untag": [
+              "stat-booked",
+              "stat-self-booked",
+              "stat-set",
+              "stat-confirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "n7",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [
+            "ghost",
+            "in_thread_of",
+            "reacted",
+            "redirected_to",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-20>",
+            "tag": "appointment:<id-39>",
+            "ghost": true,
+            "reacted": false,
+            "in_thread_of": null,
+            "redirected_to": "C0C270G06FN"
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-15>",
+            "ghost": true,
+            "stage": "<id-27>",
+            "fields": [],
+            "crm_card": "<crm-id-13>",
+            "from_stage": "<id-36>"
+          },
+          "error": null
+        },
+        {
+          "node": "n6",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-40>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "outcome": "cancelled",
+              "external_id": "<id-41>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n3",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": ""
+                }
+              ]
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 13,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-20T16:02:05.020Z",
+              "body": "Cancelled by <staff-2>. Reason: none given.",
+              "title": "Rebook <contact-16> — cancelled",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "ghost",
+          "reason": null,
+          "at_sec": 13,
+          "body": "*Cancelled:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-14>|<contact-17> Puzon>\n*Was booked with:* <staff-2> · Mon Oct 19 · 1:30 PM EDT\n*Cancelled by:* <staff-2>\n*Reason:* none given\n*Phone:* <phone-21>\n*Rebook task:* due in 1 day for <staff-2>"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-42>",
+      "status": "completed",
+      "exit_reason": "cancelled_recorded",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-18",
+      "took_sec": 21,
+      "trigger": {
+        "type": "appointment.status_changed",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": {
+            "to": "cancelled",
+            "from": "confirmed"
+          },
+          "before_start": true,
+          "cancelled_by": "<staff-2>"
+        }
+      },
+      "steps": [
+        {
+          "node": "n3",
+          "type": "update_contact",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "ghost",
+            "would_update"
+          ],
+          "result": {
+            "ghost": true,
+            "would_update": {
+              "customFields": [
+                {
+                  "id": "<crm-id-4>",
+                  "field_value": ""
+                }
+              ]
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n2",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "card",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "ghost",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-18>",
+            "ghost": true,
+            "stage": "<id-27>",
+            "fields": [],
+            "crm_card": "<crm-id-15>",
+            "from_stage": "<id-27>"
+          },
+          "error": null
+        },
+        {
+          "node": "n7",
+          "type": "slack_post",
+          "status": "skipped",
+          "at_sec": 21,
+          "result_keys": [
+            "kind",
+            "needs",
+            "why",
+            "would_post"
+          ],
+          "result": {
+            "why": "slack channel not bound",
+            "kind": "blocked",
+            "needs": {
+              "bindings": [
+                "slack.channel.bookings"
+              ]
+            },
+            "would_post": "*Cancelled:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-16>|<contact-19> Carvalho>\n*Was booked with:* <staff-2> ·"
+          },
+          "error": null
+        },
+        {
+          "node": "n5",
+          "type": "tags",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "ghost",
+            "would_tag",
+            "would_untag"
+          ],
+          "result": {
+            "ghost": true,
+            "would_tag": [
+              "stat-cancelled"
+            ],
+            "would_untag": [
+              "stat-booked",
+              "stat-self-booked",
+              "stat-set",
+              "stat-confirmed"
+            ]
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "n4",
+          "type": "create_task",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "ghost",
+            "would_create_task"
+          ],
+          "result": {
+            "ghost": true,
+            "would_create_task": {
+              "due": "2026-10-19T19:22:19.491Z",
+              "body": "Cancelled by <staff-2>. Reason: none given.",
+              "title": "Rebook <contact-20> — cancelled",
+              "assignedUserId": "<crm-id-1>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "n6",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [
+            "crm_id",
+            "ghost",
+            "our_id",
+            "properties",
+            "record",
+            "related"
+          ],
+          "result": {
+            "ghost": true,
+            "crm_id": null,
+            "our_id": "<id-43>",
+            "record": "updated",
+            "related": [],
+            "properties": {
+              "outcome": "cancelled",
+              "external_id": "<id-44>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 21,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "suppressed",
+          "reason": "unbound: slack channel",
+          "at_sec": null,
+          "body": "*Cancelled:* <https://app.gohighlevel.com/v2/location/<crm-id-5>/contacts/detail/<crm-id-16>|<contact-19> Carvalho>\n*Was booked with:* <staff-2> · Tue Oct 20 · 5:30 PM EDT\n*Cancelled by:* <staff-2>\n*Reason:* none given\n*Phone:* <phone-22>\n*Rebook task:* due in 1 day for <staff-2>"
+        }
+      ],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-45>",
+      "status": "exited",
+      "exit_reason": "moot: contact gone",
+      "mode_at_start": "ghost",
+      "workflow_version": 2,
+      "started": "2026-10-19",
+      "took_sec": 20,
+      "trigger": {
+        "type": "appointment.status_changed",
+        "source": "ghl_poll",
+        "data": {
+          "source": "calendly",
+          "status": {
+            "to": "cancelled",
+            "from": "confirmed"
+          },
+          "before_start": true,
+          "cancelled_by": "<staff-2>"
+        }
+      },
+      "steps": [],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

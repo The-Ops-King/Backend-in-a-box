@@ -1,0 +1,179 @@
+{
+  "offer": "dating-nelly",
+  "workflow": "Setter call logged",
+  "slug": "setter-call-logged",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "too_short",
+      "runs": 2
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-32>",
+      "status": "completed",
+      "exit_reason": "too_short",
+      "mode_at_start": "live",
+      "workflow_version": 4,
+      "started": "2026-10-20",
+      "took_sec": 6,
+      "trigger": {
+        "type": "call.logged",
+        "source": "ghl_poll",
+        "data": {
+          "kind": "phone",
+          "title": "Outbound call · connected",
+          "caller": "<staff-1>",
+          "status": "connected",
+          "provider": "ghl",
+          "connected": true,
+          "direction": "outbound",
+          "share_url": "https://app.gohighlevel.com/v2/location/<crm-id-10>/conversations/conversations/<crm-id-28>",
+          "started_at": "2026-10-20T19:02:30.558Z",
+          "external_id": "<crm-id-29>",
+          "recorded_by": "<email-2>",
+          "duration_min": 0,
+          "duration_sec": 4,
+          "recording_id": "<id-33>",
+          "has_transcript": false
+        }
+      },
+      "steps": [
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "l_conv",
+          "type": "lookup",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [
+            "count",
+            "params",
+            "query"
+          ],
+          "result": {
+            "count": 2,
+            "query": "call_conversation",
+            "params": {
+              "gap_min": "15",
+              "recording_id": "<id-33>"
+            }
+          },
+          "error": null
+        },
+        {
+          "node": "v1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 6,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    },
+    {
+      "run": "<id-34>",
+      "status": "completed",
+      "exit_reason": "too_short",
+      "mode_at_start": "live",
+      "workflow_version": 4,
+      "started": "2026-10-20",
+      "took_sec": 7,
+      "trigger": {
+        "type": "call.logged",
+        "source": "ghl_poll",
+        "data": {
+          "kind": "phone",
+          "title": "Outbound call · connected",
+          "caller": "<staff-1>",
+          "status": "connected",
+          "provider": "ghl",
+          "connected": true,
+          "direction": "outbound",
+          "share_url": "https://app.gohighlevel.com/v2/location/<crm-id-10>/conversations/conversations/<crm-id-28>",
+          "started_at": "2026-10-20T19:01:44.202Z",
+          "external_id": "<crm-id-30>",
+          "recorded_by": "<email-2>",
+          "duration_min": 0,
+          "duration_sec": 28,
+          "recording_id": "<id-35>",
+          "has_transcript": false
+        }
+      },
+      "steps": [
+        {
+          "node": "v1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "l_conv",
+          "type": "lookup",
+          "status": "ok",
+          "at_sec": 7,
+          "result_keys": [
+            "count",
+            "params",
+            "query"
+          ],
+          "result": {
+            "count": 2,
+            "query": "call_conversation",
+            "params": {
+              "gap_min": "15",
+              "recording_id": "<id-35>"
+            }
+          },
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

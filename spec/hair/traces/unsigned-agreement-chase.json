@@ -1,0 +1,97 @@
+{
+  "offer": "hair",
+  "workflow": "Unsigned agreement chase",
+  "slug": "unsigned-agreement-chase",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "signed",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-41>",
+      "status": "completed",
+      "exit_reason": "signed",
+      "mode_at_start": "test",
+      "workflow_version": 5,
+      "started": "2026-10-12",
+      "took_sec": 86460,
+      "trigger": {
+        "type": "payment.received",
+        "source": "whop",
+        "data": {
+          "kind": "deposit",
+          "amount": 1500,
+          "cleared": false,
+          "paid_at": "2026-10-12T01:06:49.142Z",
+          "currency": "USD",
+          "linked_by": "known",
+          "payment_id": "<id-42>",
+          "outstanding": 1499,
+          "prior_total": 0,
+          "running_total": 1500,
+          "contract_value": 2999,
+          "customer_email": null,
+          "whop_member_id": null,
+          "provider_payment_id": "<contact-1>-c16ea7aa"
+        }
+      },
+      "steps": [
+        {
+          "node": "w1",
+          "type": "wait",
+          "status": "waiting",
+          "at_sec": 64,
+          "result_keys": [
+            "computed",
+            "deferred_into_window",
+            "used_fallback"
+          ],
+          "result": {
+            "computed": "2026-10-13T01:07:42.162+00:00",
+            "used_fallback": false,
+            "deferred_into_window": false
+          },
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 64,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 86460,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "w1",
+          "type": "wait",
+          "status": "ok",
+          "at_sec": 86460,
+          "result_keys": [
+            "waited_until"
+          ],
+          "result": {
+            "waited_until": "2026-10-13T01:07:42.162+00:00"
+          },
+          "error": null
+        }
+      ],
+      "sends": [],
+      "slack_posts": [],
+      "crm_effects": []
+    }
+  ]
+}

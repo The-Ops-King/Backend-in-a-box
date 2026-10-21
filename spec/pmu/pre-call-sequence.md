@@ -1,21 +1,20 @@
 # Pre-call sequence
 
-Offer: **PMU** (`pmu`). Source: **from repo, may differ from live**. Generated 2026-10-21.
+Offer: **PMU** (`pmu`). Source: live database. Generated 2026-10-21.
 
 | Setting | Value |
 | --- | --- |
-| Where this definition came from | playbook copy: platform/installs/pmu/pre-call-sequence.json |
-| Template | `pre-call-sequence` |
-| Edited since copied from the template | unknown (repo) |
-| Saved version | unknown (repo) |
-| Enabled | unknown (repo) |
-| Mode | unknown (repo) |
-| Send lock | unknown (repo) |
+| Where this definition came from | live: version 3, saved 2026-10-19T03:23:24.459Z (Carly's Strategy Call (call type Follow-up call) is a follow-up or reschedule: no pre-call reminders for it (Tyler, 2026-10-19)) |
+| Template | `pre-call-sequence` v15 |
+| Edited since copied from the template | yes |
+| Saved version | 3 |
+| Enabled | on |
+| Mode | follows the offer (ghost) |
+| Send lock | locked: texts, emails, documents and webhooks reach only the operator's own addresses |
 | Runs again for the same person | once_per_appointment; key {{appointment.starts_at}} |
 | Re-checked before every step | appointment in future |
-| Send window | the offer's (unknown in repo) |
+| Send window | 08:00 to 20:00, the contact's time zone |
 | Steps | 48 |
-| Note | PMU: the card follows the confirmation: Call Confirmed when they confirm, Unresponsive - Call Unconfirmed when there is no reply in 4 hours |
 
 ## Steps
 
@@ -234,7 +233,7 @@ Next:
 ### 7. Jev reads the reply
 
 - Step id `c1`, type `classify`
-- Detail: Decides between confirmed, cancelled, reschedule request, question, unclear; below 80% sure, or a reply a careful person would doubt, goes to a person
+- Detail: Decides between unclear, question, cancelled, confirmed, reschedule request; below 80% sure, or a reply a careful person would doubt, goes to a person
 - If it keeps failing: the run is held on this step (step b1 reads the reply)
 
 What it reads:
@@ -249,22 +248,10 @@ What we sent (context):
 {{reply.last_outbound.body | default:}}
 ```
 
-Option "confirmed" means:
+Option "unclear" means:
 
 ```
-They clearly confirm or accept the call: yes, ok, see you then, a thumbs up, a positive or celebratory emoji.
-```
-
-Option "cancelled" means:
-
-```
-They clearly say, in words, that they will not attend or want to cancel.
-```
-
-Option "reschedule_request" means:
-
-```
-They ask for a different day or time.
+The meaning is not plain: a negative or ambiguous emoji on its own, 'maybe', 'idk', 'hmm', or an unrelated message.
 ```
 
 Option "question" means:
@@ -273,10 +260,22 @@ Option "question" means:
 They ask something and do not confirm, cancel or ask to move the call.
 ```
 
-Option "unclear" means:
+Option "cancelled" means:
 
 ```
-The meaning is not plain: a negative or ambiguous emoji on its own, 'maybe', 'idk', 'hmm', or an unrelated message.
+They clearly say, in words, that they will not attend or want to cancel.
+```
+
+Option "confirmed" means:
+
+```
+They clearly confirm or accept the call: yes, ok, see you then, a thumbs up, a positive or celebratory emoji.
+```
+
+Option "reschedule_request" means:
+
+```
+They ask for a different day or time.
 ```
 
 Next:
@@ -294,11 +293,11 @@ Next:
   "threshold": 0.8,
   "into": "reply.intent",
   "criteria": {
-    "confirmed": "They clearly confirm or accept the call: yes, ok, see you then, a thumbs up, a positive or celebratory emoji.",
-    "cancelled": "They clearly say, in words, that they will not attend or want to cancel.",
-    "reschedule_request": "They ask for a different day or time.",
+    "unclear": "The meaning is not plain: a negative or ambiguous emoji on its own, 'maybe', 'idk', 'hmm', or an unrelated message.",
     "question": "They ask something and do not confirm, cancel or ask to move the call.",
-    "unclear": "The meaning is not plain: a negative or ambiguous emoji on its own, 'maybe', 'idk', 'hmm', or an unrelated message."
+    "cancelled": "They clearly say, in words, that they will not attend or want to cancel.",
+    "confirmed": "They clearly confirm or accept the call: yes, ok, see you then, a thumbs up, a positive or celebratory emoji.",
+    "reschedule_request": "They ask for a different day or time."
   },
   "ambiguity_max": 0.8
 }
@@ -401,7 +400,7 @@ Next:
 ### 12. Remember jev read, picked by [the reply]
 
 - Step id `v_read`, type `set_var`
-- Detail: cancelled → Jev is [reply intent confidence]% sure they want to cancel.; reschedule request → Jev is [reply intent confidence]% sure they want to reschedule.; question → Jev read it as a question, not an answer ([reply intent confidence]% sure).; otherwise Jev couldn't tell what they meant (its guesses: [top guesses]).
+- Detail: question → Jev read it as a question, not an answer ([reply intent confidence]% sure).; cancelled → Jev is [reply intent confidence]% sure they want to cancel.; reschedule request → Jev is [reply intent confidence]% sure they want to reschedule.; otherwise Jev couldn't tell what they meant (its guesses: [top guesses]).
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -416,9 +415,9 @@ Next:
   "key": "jev_read",
   "value": "{{reply.intent}}",
   "pick": {
+    "question": "Jev read it as a question, not an answer ({{reply.intent_confidence}}% sure).",
     "cancelled": "Jev is {{reply.intent_confidence}}% sure they want to cancel.",
-    "reschedule_request": "Jev is {{reply.intent_confidence}}% sure they want to reschedule.",
-    "question": "Jev read it as a question, not an answer ({{reply.intent_confidence}}% sure)."
+    "reschedule_request": "Jev is {{reply.intent_confidence}}% sure they want to reschedule."
   },
   "else_value": "Jev couldn't tell what they meant (its guesses: {{reply.top_guesses}})."
 }
@@ -644,9 +643,9 @@ Next:
   "type": "update_appointment",
   "set": {
     "pending_read": {
+      "at": "{{now}}",
       "intent": "{{reply.intent}}",
-      "confidence": "{{reply.intent_confidence}}",
-      "at": "{{now}}"
+      "confidence": "{{reply.intent_confidence}}"
     }
   }
 }
@@ -837,7 +836,7 @@ Next:
 ### 25. Remember decided, picked by [the tap]
 
 - Step id `v_decided`, type `set_var`
-- Detail: white check mark → confirmed; x → cancelled; repeat → reschedule_request; otherwise 
+- Detail: x → cancelled; repeat → reschedule_request; white check mark → confirmed; otherwise 
 - If it keeps failing: the run is held on this step (later steps read what it remembers)
 
 Next:
@@ -852,9 +851,9 @@ Next:
   "key": "decided",
   "value": "{{reaction.reaction | default:}}",
   "pick": {
-    "white_check_mark": "confirmed",
     "x": "cancelled",
-    "repeat": "reschedule_request"
+    "repeat": "reschedule_request",
+    "white_check_mark": "confirmed"
   },
   "else_value": ""
 }
@@ -866,7 +865,7 @@ Next:
 
 - Step id `rec_un`, type `record`
 - Engine description: Record: Nobody answered the team's question in time
-- Detail: An event in the ledger with predicted, predicted confidence, hours before call, appointment id; nothing leaves the engine
+- Detail: An event in the ledger with predicted, appointment id, hours before call, predicted confidence; nothing leaves the engine
 - If it keeps failing: the run is held on this step (it is the run's own ledger)
 
 Next:
@@ -882,9 +881,9 @@ Next:
   "event": "intent.unanswered",
   "data": {
     "predicted": "{{reply.intent}}",
-    "predicted_confidence": "{{reply.intent_confidence}}",
+    "appointment_id": "{{appointment.id}}",
     "hours_before_call": "{{appointment.starts_at | hours_until}}",
-    "appointment_id": "{{appointment.id}}"
+    "predicted_confidence": "{{reply.intent_confidence}}"
   }
 }
 ```
@@ -1015,7 +1014,7 @@ Next:
 
 - Step id `rec`, type `record`
 - Engine description: Record: A team member said whether Jev read it right
-- Detail: An event in the ledger with predicted, predicted confidence, decided, agreed, decided by, appointment id; nothing leaves the engine
+- Detail: An event in the ledger with agreed, decided, predicted, decided by, appointment id, predicted confidence; nothing leaves the engine
 - If it keeps failing: the run is held on this step (it is the run's own ledger)
 
 Next:
@@ -1030,12 +1029,12 @@ Next:
   "type": "record",
   "event": "intent.reviewed",
   "data": {
-    "predicted": "{{reply.intent}}",
-    "predicted_confidence": "{{reply.intent_confidence}}",
-    "decided": "{{vars.decided}}",
     "agreed": "{{vars.agreed}}",
+    "decided": "{{vars.decided}}",
+    "predicted": "{{reply.intent}}",
     "decided_by": "{{reaction.user_name}}",
-    "appointment_id": "{{appointment.id}}"
+    "appointment_id": "{{appointment.id}}",
+    "predicted_confidence": "{{reply.intent_confidence}}"
   }
 }
 ```
@@ -1552,13 +1551,13 @@ Next: the run ends here.
 
 | Key | Kind | Required to enable | Value |
 | --- | --- | --- | --- |
-| `calendar.closer_call` | id | yes | not read (repo) |
-| `crm.location_id` | id | yes | not read (repo) |
-| `crm.pipeline_closer` | id | yes | not read (repo) |
-| `crm.stage_closer_confirmed` | id | yes | not read (repo) |
-| `crm.stage_closer_unresponsive` | id | yes | not read (repo) |
-| `slack.channel.attention` | channel | no | not read (repo) |
-| `slack.channel.bookings` | channel | no | not read (repo) |
+| `calendar.closer_call` | id | yes | `6f818f39-a3ae-47c8-a7d1-1d9f453686d5` |
+| `crm.location_id` | id | yes | `gA10c58jLJRYbNwC3apW` |
+| `crm.pipeline_closer` | id | yes | `1B37Vzv6euKMpWaFFuVW` |
+| `crm.stage_closer_confirmed` | id | yes | `d2fdd051-1e22-4e8c-8d52-dc94ed41b91b` |
+| `crm.stage_closer_unresponsive` | id | yes | `17b819aa-4423-4771-b53e-731289529026` |
+| `slack.channel.attention` | channel | no | `C0BSCMFBY3C` |
+| `slack.channel.bookings` | channel | no | `C0BSCMB813L` |
 
 ## Engine rules that apply but are not steps
 

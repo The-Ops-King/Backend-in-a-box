@@ -1,0 +1,378 @@
+{
+  "offer": "hair",
+  "workflow": "Sales call recorded",
+  "slug": "sales-call-recorded",
+  "note": "Retention limits what can be shown: sends (with their words) are kept 30 days and inbound messages 7 days (companies.sends_retention_days, reply_retention_days); older runs keep their steps but may have no send rows.",
+  "paths": [
+    {
+      "status": "completed",
+      "exit_reason": "recorded",
+      "runs": 1
+    }
+  ],
+  "runs": [
+    {
+      "run": "<id-29>",
+      "status": "completed",
+      "exit_reason": "recorded",
+      "mode_at_start": "test",
+      "workflow_version": 9,
+      "started": "2026-10-11",
+      "took_sec": 45,
+      "trigger": {
+        "type": "recording.received",
+        "source": "fathom",
+        "data": {
+          "title": "<contact-3> <> <staff-2>",
+          "provider": "fathom",
+          "share_url": "https://example.<contact-1>/recording",
+          "matched_by": "calendar",
+          "started_at": "2026-10-10T17:01:00.000Z",
+          "external_id": "<contact-1>-1df33c02",
+          "recorded_by": "<email-1>",
+          "duration_min": 41,
+          "recording_id": "<id-30>",
+          "appointment_matched": true
+        }
+      },
+      "steps": [
+        {
+          "node": "o2",
+          "type": "set_tag",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "b1",
+          "type": "branch",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "edge"
+          ],
+          "result": {
+            "edge": "o1"
+          },
+          "error": null
+        },
+        {
+          "node": "s1",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "remembered_as",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-12>",
+            "remembered_as": "recording:<id-30>"
+          },
+          "error": null
+        },
+        {
+          "node": "a3",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "closed_won",
+            "ambiguity": 0.41,
+            "confidence": 0.77
+          },
+          "error": null
+        },
+        {
+          "node": "k3",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "o3",
+          "type": "pipeline_card",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "card",
+            "card_status",
+            "crm_card",
+            "fields",
+            "from_stage",
+            "name",
+            "stage"
+          ],
+          "result": {
+            "card": "moved",
+            "name": "<contact-4>",
+            "stage": "<id-31>",
+            "fields": [],
+            "crm_card": "<crm-id-31>",
+            "from_stage": "<id-6>",
+            "card_status": "won"
+          },
+          "error": null
+        },
+        {
+          "node": "a2",
+          "type": "analyze",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "into",
+            "model",
+            "parsed",
+            "preview",
+            "repaired",
+            "tokens"
+          ],
+          "result": {
+            "into": [
+              "notes",
+              "rubric"
+            ],
+            "model": "claude-opus-5-5",
+            "parsed": true,
+            "tokens": {
+              "input": 147,
+              "output": 1437,
+              "cacheRead": 0
+            },
+            "preview": "{\"notes\":{\"summary\":\"<staff-1> described two years of thinning at the crown and wants to act before it worsens. After <staff-3> covered the program and price, <staff-1> sai",
+            "repaired": false
+          },
+          "error": null
+        },
+        {
+          "node": "n1",
+          "type": "note",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "a1",
+          "type": "classify",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "ambiguity",
+            "confidence",
+            "value"
+          ],
+          "result": {
+            "value": "sales_call",
+            "ambiguity": 0.43,
+            "confidence": 0.98
+          },
+          "error": null
+        },
+        {
+          "node": "o4",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "in_thread_of",
+            "reacted",
+            "tag",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-13>",
+            "tag": "appointment:<id-18>",
+            "reacted": true,
+            "in_thread_of": "<phone-6>"
+          },
+          "error": null
+        },
+        {
+          "node": "x1",
+          "type": "exit",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "t1",
+          "type": "trigger",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "k1",
+          "type": "set_var",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "skipped",
+          "at_sec": 45,
+          "result_keys": [
+            "blocking",
+            "class",
+            "kind",
+            "tries",
+            "vendor",
+            "why"
+          ],
+          "result": {
+            "why": "couldn't create the Sales Call record after 1 try; the run went on without it",
+            "kind": "gave_up",
+            "class": "permanent",
+            "tries": 1,
+            "vendor": "ghl",
+            "blocking": false
+          },
+          "error": "GHL 400 on /objects/custom_objects.sales_call/records/<crm-id-24>?locationId=<crm-id-10>: {\"message\":\"We couldn't validate the mapped field: next_step.\",\"error\":\"Bad Request\",\"statusCode\":400,\"traceId\":\"<id-32>\"}"
+        },
+        {
+          "node": "c1",
+          "type": "check",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [],
+          "result": {},
+          "error": null
+        },
+        {
+          "node": "s2",
+          "type": "slack_post",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "in_thread_of",
+            "ts"
+          ],
+          "result": {
+            "ts": "<phone-14>",
+            "in_thread_of": "<phone-12>"
+          },
+          "error": null
+        },
+        {
+          "node": "o1",
+          "type": "record_outcome",
+          "status": "ok",
+          "at_sec": 45,
+          "result_keys": [
+            "events",
+            "outcome",
+            "runs_started"
+          ],
+          "result": {
+            "events": 2,
+            "outcome": "showed",
+            "runs_started": 0
+          },
+          "error": null
+        },
+        {
+          "node": "r1",
+          "type": "crm_record",
+          "status": "ok",
+          "at_sec": 801,
+          "result_keys": [
+            "crm_id",
+            "not_on_object",
+            "our_id",
+            "properties",
+            "record",
+            "related",
+            "retried_by"
+          ],
+          "result": {
+            "crm_id": "<crm-id-24>",
+            "our_id": "<id-20>",
+            "record": "updated",
+            "related": [
+              "<crm-id-8>→<crm-id-24>",
+              "<crm-id-24>→<crm-id-6>"
+            ],
+            "properties": {
+              "closer": "<staff-2>",
+              "setter": "<contact-1> Setter",
+              "outcome": "showed",
+              "call_date": "2026-10-10",
+              "contact_id": "<crm-id-8>",
+              "disposition": "closed_won",
+              "external_id": "<contact-1>-fe414d38",
+              "duration_min": 41,
+              "scheduled_at": "2026-10-10T17:00:00.000Z",
+              "display_label": "<contact-3> — 2026-10-10",
+              "recording_url": "https://example.<contact-1>/recording",
+              "opportunity_id": "<crm-id-6>",
+              "objection_primary": "price"
+            },
+            "retried_by": "dashboard",
+            "not_on_object": [
+              "next_step",
+              "payment_terms"
+            ]
+          },
+          "error": null
+        }
+      ],
+      "sends": [
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 45,
+          "body": "*Scorecard:* 4/10\n*Overall Score:* 4\n*Scores:*\n    *Rapport:* 3\n    *Discovery:* 2\n    *Pain Depth:* 2\n    *Presentation:* 3\n    *Objection Handling:* 6\n    *Close Attempt:* 6\n*Strengths:*\n• Opened with an open question (\"Tell me what you have been noticing\") that got <staff-1> to name the problem, how long he has had it, and his goal in one answer.\n• When <staff-1> asked \"Can I split it?\", <staff-3> said yes to two payments and moved straight to the close (\"Let us get you started\") without reopening the price discussion.\n*Misses:*\n• No discovery follow-up after \"thinning at the crown for about two years.\" <staff-3> answered \"Got it\" and went straight to the program. He never asked what <staff-1> has tried, how it affects him, or why he is acting now.\n• Pain depth was never explored. \"Before it gets worse\" was left unexamined, so there is no emotional stake to anchor the value of the program.\n• The presentation and price were delivered in one line (\"Here is how the program works and what it costs\"). Nothing in the transcript shows the program being tied to <staff-1>'s crown thinning or his goal.\n• The close is not locked down. There are no payment amounts, no dates, no confirmation that the first payment was taken, and no booked next step.\n• \"That is a lot right now\" was not explored. <staff-3> did not check whether the two-payment split actually fits <staff-1>'s budget, so there is a risk the deal stalls at payment.\n*Coaching:*\n• After the first answer, ask at least two or three discovery questions before presenting: what <staff-1> has tried, how the thinning affects him day to day, and what \"worse\" would mean to him.\n• Connect the presentation to what <staff-1> said, for example by naming crown thinning and the two-year timeline and showing how the program addresses them.\n• Finish the close on the call. State the split amounts and due dates, take the first payment or book a specific time to do it, and confirm both out loud.\n*Talk Ratio:* Roughly even by turns and words, about 50/50, but <staff-3>'s presentation is not transcribed in detail, so the real ratio cannot be judged reliably."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 45,
+          "body": "✅ Showed · 41 min with <staff-2>. The review is in the calls channel."
+        },
+        {
+          "channel": "slack",
+          "status": "sent",
+          "reason": null,
+          "at_sec": 45,
+          "body": "*Name:* <https://app.gohighlevel.com/v2/location/<crm-id-10>/contacts/detail/<crm-id-8>|<staff-1> TEST>\n*Recording:* <https://example.<contact-1>/recording|Fathom>\n*Appointment:* Sat Oct 10 · 1:00 PM EDT · marked showed\n*Closer:* <staff-2> · 41 min\n\n*Outcome:* closed won\n*Pain:* \n• \"It has been thinning at the crown for about two years\"\n• Worried it will \"get worse\"\n*Goal:* \n• \"I want to fix it before it gets worse\"\n• \"I want to do this\"\n• To split the payment: \"Can I split it?\"\n*Objections:* Price / cash flow\n*Next Steps:* Get <staff-1> started on the program with the cost split into two payments. "
+        }
+      ],
+      "slack_posts": [
+        {
+          "tag": "recording:<id-30>",
+          "channel": "C0C7QCTHL8L",
+          "at_sec": 45
+        }
+      ],
+      "crm_effects": [
+        {
+          "node": "n1",
+          "kind": "note",
+          "done": true
+        }
+      ]
+    }
+  ]
+}
