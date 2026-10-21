@@ -95,6 +95,9 @@ All the open choices, decided (section 6), plus the checks the specs list as "ve
 
 **Gate:** every decision recorded as an ADR, and every check answered with evidence.
 
+**Order changed, 2026-10-21 (Tyler).** Railway paused deploys on the new account, so the GHL checks cannot run yet. They gate only
+the GHL connector in Phase 4, so Phases 1 to 3 go ahead while they wait. The decisions are done (v2/docs/adr 0001 to 0007).
+
 ### Phase 1. The spec, signed per offer: "what's going on with each"
 For Hair, PMU and Dating, one at a time:
 1. Walk the offer's spec (`spec/<offer>/`) with Tyler, workflow by workflow.
