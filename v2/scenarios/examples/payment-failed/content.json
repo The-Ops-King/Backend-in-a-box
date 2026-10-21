@@ -1,0 +1,7 @@
+{
+  "_note": "Illustration words for the simulator, not any offer's content.",
+  "payment_failed.slack_alert": {
+    "channel": "slack",
+    "body": "Payment failed: {{payment.amount | money}} from {{contact.name | default:\"someone we have no name for\"}} ({{payment.reason | default:\"no reason given\"}})."
+  }
+}

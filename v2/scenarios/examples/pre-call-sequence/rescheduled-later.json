@@ -1,0 +1,62 @@
+{
+  "name": "rescheduled a day later",
+  "description": "Booked 3 days out, then moved a day later before the 24-hour reminder: the waiting run follows the moved time.",
+  "workflow": "pre-call-sequence",
+  "start": "2026-10-26T14:00:00Z",
+  "offer": {
+    "zone": "America/Denver"
+  },
+  "delivery": "live",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c1",
+      "phone": "+15550101001",
+      "email": "ana@example.com",
+      "timezone": "America/New_York"
+    }
+  ],
+  "steps": [
+    {
+      "at": "+0m",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "contact": {
+          "first_name": "Ana",
+          "timezone": "America/New_York"
+        },
+        "appointment": {
+          "starts_at": "2026-10-29T18:00:00Z",
+          "call_type": "closing",
+          "status": "booked",
+          "meeting_url": "https://meet.example.com/abc"
+        }
+      }
+    },
+    {
+      "at": "+1d",
+      "type": "appointment.rescheduled",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "appointment": {
+          "starts_at": "2026-10-30T18:00:00Z",
+          "call_type": "closing",
+          "status": "booked"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "sent": [
+      "pre_call.booked",
+      "pre_call.reminder_24h",
+      "pre_call.reminder_1h"
+    ],
+    "ends": [
+      "done"
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "the 5th message of the day hits the cap",
+  "description": "Other workflows already texted the contact 4 times today: the booking text would be the 5th, so it is held and an operator alert is raised; the run goes on, and the reminders on later days go.",
+  "workflow": "pre-call-sequence",
+  "start": "2026-10-26T14:00:00Z",
+  "offer": {
+    "zone": "America/Denver"
+  },
+  "delivery": "live",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c1",
+      "phone": "+15550101001",
+      "email": "ana@example.com",
+      "timezone": "America/New_York"
+    }
+  ],
+  "steps": [
+    {
+      "at": "+1m",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "contact": {
+          "first_name": "Ana",
+          "timezone": "America/New_York"
+        },
+        "appointment": {
+          "starts_at": "2026-10-29T18:00:00Z",
+          "call_type": "closing",
+          "status": "booked",
+          "meeting_url": "https://meet.example.com/abc"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "sent": [
+      "pre_call.reminder_24h",
+      "pre_call.reminder_1h"
+    ],
+    "held": [
+      "pre_call.booked"
+    ],
+    "ends": [
+      "done"
+    ]
+  },
+  "priorSends": [
+    {
+      "contact": "c1",
+      "at": "+0m",
+      "channel": "sms",
+      "count": 4
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "_note": "Illustration words for the simulator, not any offer's content.",
+  "pre_call.booked": {
+    "channel": "sms",
+    "body": "Hi {{contact.first_name | default:there}}, you're booked for {{appointment.starts_at | date:long}}."
+  },
+  "pre_call.reminder_24h": {
+    "channel": "sms",
+    "body": "Reminder: your call is {{appointment.starts_at | relative}}."
+  },
+  "pre_call.reminder_1h": {
+    "channel": "sms",
+    "body": "Your call starts {{appointment.starts_at | relative}}. Join here: {{appointment.meeting_url}}"
+  },
+  "pre_call.reminder_1h_no_link": {
+    "channel": "sms",
+    "body": "Your call starts {{appointment.starts_at | relative}}. We'll call you at this number."
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "booked 3 days out",
+  "description": "Booked Monday 10am for Thursday 2pm (the contact's clock): the booking text now, the 24-hour and the 1-hour reminders.",
+  "workflow": "pre-call-sequence",
+  "start": "2026-10-26T14:00:00Z",
+  "offer": {
+    "zone": "America/Denver"
+  },
+  "delivery": "live",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c1",
+      "phone": "+15550101001",
+      "email": "ana@example.com",
+      "timezone": "America/New_York"
+    }
+  ],
+  "steps": [
+    {
+      "at": "+0m",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "contact": {
+          "first_name": "Ana",
+          "timezone": "America/New_York"
+        },
+        "appointment": {
+          "starts_at": "2026-10-29T18:00:00Z",
+          "call_type": "closing",
+          "status": "booked",
+          "meeting_url": "https://meet.example.com/abc"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "sent": [
+      "pre_call.booked",
+      "pre_call.reminder_24h",
+      "pre_call.reminder_1h"
+    ],
+    "ends": [
+      "done"
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "two failures for one contact",
+  "description": "Two failed payments an hour apart for the same contact: re-entry is always, so each is its own run and its own post.",
+  "workflow": "payment-failed",
+  "start": "2026-10-26T15:00:00Z",
+  "offer": {
+    "zone": "America/Denver",
+    "settings": {
+      "slack.channel.payments": "C-PAYMENTS"
+    }
+  },
+  "delivery": "live",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c9",
+      "phone": "+15550109009",
+      "email": "lee@example.com"
+    }
+  ],
+  "steps": [
+    {
+      "at": "+0m",
+      "type": "payment.failed",
+      "contact": "c9",
+      "payload": {
+        "contact": {
+          "name": "Lee Park"
+        },
+        "payment": {
+          "id": "p1",
+          "amount": 1500,
+          "reason": "card declined"
+        }
+      }
+    },
+    {
+      "at": "+1h",
+      "type": "payment.failed",
+      "contact": "c9",
+      "payload": {
+        "payment": {
+          "id": "p2",
+          "amount": 1500
+        }
+      }
+    }
+  ],
+  "expect": {
+    "sent": [
+      "payment_failed.slack_alert",
+      "payment_failed.slack_alert"
+    ],
+    "ends": [
+      "done",
+      "done"
+    ]
+  }
+}

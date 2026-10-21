@@ -35,6 +35,18 @@ The engine (`src/engine/`), with no connectors yet (its ports have fakes only):
   row's idempotency key outside any transaction, records the result. Unknown is never re-sent.
 - **the job runner** (`jobs.ts`, ADR 0008): graphile-worker; `Engine.runDue()` does everything due now for tests.
 
+The simulator (`src/sim/`): the same engine on a fake clock, fake ports and an in-memory store. It takes a version and
+a scenario and gives the exact timeline; `diffBehavior` compares two versions over a set of scenarios. Scenarios are JSON
+(`src/sim/scenario.ts`); the examples' are in `scenarios/examples/`. `pnpm sim <workflow.json> <scenario folder>` prints
+the timelines.
+
+A scenario folder holds `content.json` (the words by key) and one file per scenario: `name`, `workflow` (its id),
+`start`, `offer` (`zone`, `settings`), `delivery` and `crmWrites` (live and real unless it says), `operator` addresses,
+`contacts` as the CRM holds them (phone, email, zone, DND), `priorSends` (texts other workflows already sent, for the
+cap), `steps` (each `at` an ISO time or an offset such as `+2d3h`: a fact `{ type, contact, appointment, payload }`, a
+`reply`, an `answer` to a question by node or tag, a `fail` queued on a port, an `operator` resume or end), an optional
+`until`, and `expect` (the content keys sent, held and suppressed, and how each run ended).
+
 ## Deploy on Railway (from the repo)
 1. **New project, then Deploy from GitHub repo.** Pick this repository and the branch `rebuild`. In the service's settings, set
    **Root Directory** to `v2`. `railway.json` holds the build and start commands; the start command runs the migrations first.

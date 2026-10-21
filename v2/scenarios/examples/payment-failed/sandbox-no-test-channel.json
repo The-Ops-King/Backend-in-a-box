@@ -1,0 +1,46 @@
+{
+  "name": "sandbox with no test channel",
+  "description": "Delivery sandbox and no test channel set: the post is held, never put in the live channel.",
+  "workflow": "payment-failed",
+  "start": "2026-10-26T15:00:00Z",
+  "offer": {
+    "zone": "America/Denver",
+    "settings": {
+      "slack.channel.payments": "C-PAYMENTS"
+    }
+  },
+  "delivery": "sandbox",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c9",
+      "phone": "+15550109009",
+      "email": "lee@example.com"
+    }
+  ],
+  "steps": [
+    {
+      "at": "+0m",
+      "type": "payment.failed",
+      "contact": "c9",
+      "payload": {
+        "contact": {
+          "name": "Lee Park"
+        },
+        "payment": {
+          "id": "p1",
+          "amount": 1500,
+          "reason": "card declined"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "held": [
+      "payment_failed.slack_alert"
+    ],
+    "ends": [
+      "done"
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "name": "no meeting link",
+  "description": "Booked 3 days out with no meeting link: the 1-hour reminder uses its no-link words.",
+  "workflow": "pre-call-sequence",
+  "start": "2026-10-26T14:00:00Z",
+  "offer": {
+    "zone": "America/Denver"
+  },
+  "delivery": "live",
+  "crmWrites": "real",
+  "contacts": [
+    {
+      "id": "c1",
+      "phone": "+15550101001",
+      "email": "ana@example.com",
+      "timezone": "America/New_York"
+    }
+  ],
+  "steps": [
+    {
+      "at": "+0m",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a1",
+      "payload": {
+        "contact": {
+          "first_name": "Ana",
+          "timezone": "America/New_York"
+        },
+        "appointment": {
+          "starts_at": "2026-10-29T18:00:00Z",
+          "call_type": "closing",
+          "status": "booked"
+        }
+      }
+    }
+  ],
+  "expect": {
+    "sent": [
+      "pre_call.booked",
+      "pre_call.reminder_24h",
+      "pre_call.reminder_1h_no_link"
+    ],
+    "ends": [
+      "done"
+    ]
+  }
+}
