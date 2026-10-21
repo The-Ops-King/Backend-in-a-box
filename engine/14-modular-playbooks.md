@@ -23,7 +23,7 @@ each value of each choice is a module that adds, drops or changes steps and work
 with its modules applied in a fixed order.
 
 What makes this safe to do, given three live offers are built by today's playbooks:
-1. Close the three paths by which a playbook change can reach a live offer without a named dry run (section 3.1). First.
+1. Close the three paths by which a playbook change can reach a live offer without a named dry run (section 3.1). First. Done (D208).
 2. Freeze today's PMU and Dating builds as fixtures and require the new composer to reproduce them byte for byte; Hair stays
    "templates as shipped" (no copies).
 3. Only new offers (and the template businesses, D178) are built by the composer. An existing offer moves only when Tyler names
@@ -121,6 +121,15 @@ Status: **exists** (built and running on an offer), **partial** (pieces exist, t
 These are engine code and admin API, so they are the platform's, not one offer's. They must be closed before any playbook code
 is restructured.
 
+**Closed 2026-10-21 (D208).** The route is a dry run unless `apply: true`, and a running offer takes one named `workflow`; install
+refuses a second run or a company that is not onboarding; `fromTemplate` is refused (409) on a copy the kept playbook builds,
+pointing at the playbooks route (refused rather than rebuilt, so the rebuild is its own named dry run). `setter_call.filed` is in
+`engine/schema.sql`. Open caveat: the `fromTemplate` guard reads the company's `playbook` binding, which as far as the repo
+shows PMU and Dating do not have (their copies were saved one at a time through the definition route, not by a playbook apply),
+so it protects them only once their playbook is recorded, a separate change Tyler names per offer. Until then on those two, only
+the named dry run's diff catches it.
+The findings below are as they were found.
+
 1. **`POST /api/admin/playbooks` writes unless told not to** (`app/api/admin/playbooks/route.ts:41`, `dryRun: body.dryRun === true`)
    and rewrites every copy at once (PMU 9 workflows; Dating every copy and own workflow). Hand edits to steps are overwritten
    (words are kept, D177; `apply.test.ts`). Against CLAUDE.md and D147. Fix: dry run unless `apply: true`, and refuse a company
@@ -181,6 +190,9 @@ only as Tyler names it.
 
 1. **Close 3.1** (playbooks route dry run by default and one workflow for an existing offer; install refuses a second run;
    `fromTemplate` on a playbook copy rebuilds through the playbook). Sync `setter_call.filed` into `engine/schema.sql`. Tests.
+   **Done 2026-10-21 (D208)**, with `fromTemplate` refused on a playbook copy (pointing at the playbooks route) rather than rebuilt.
+   Still open: PMU and Dating have no `playbook` binding, so the `fromTemplate` guard does not cover them until Tyler names
+   recording each one's playbook.
 2. **Freeze today's builds**: copy the current PMU and Dating build output into `src/playbooks/fixtures/2026-10-21/` and a test that
    requires every future build of those two offers to equal it byte for byte, plus Hair's to stay empty.
 3. **Shared lessons into the templates**, as new template versions (they reach no existing offer, D147): the reschedule fork,

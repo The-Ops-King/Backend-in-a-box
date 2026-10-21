@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { asOperator, one } from "@/db/client";
 import { operatorAuthorized } from "@/engine/admin-auth";
 import { createCompanyWorkflow, findCompanyWorkflow, saveDefinition, saveFromTemplate } from "@/engine/definitions";
+import { playbookCopyOf } from "@/playbooks/apply";
 export const dynamic = "force-dynamic";
 
 /**
@@ -16,6 +17,8 @@ export const dynamic = "force-dynamic";
  *      shipped template it does the job of for this company (install never puts that template back; refused 409 while its copy exists).
  *      D147: `fromTemplate: true` in place of `definition` saves the shipped template onto this one copy (the only way a template
  *      change reaches an offer that has the workflow; dryRun first); the copy is that template version again, not an edit.
+ *      D208: refused 409 on a copy the company's playbook builds (the bare template would drop what the playbook changes): rebuild
+ *      it with POST /api/admin/playbooks { company, playbook, workflow }, dry run first.
  * Authorization: Bearer $CRON_SECRET.
  */
 export async function GET(req: Request) {
@@ -49,6 +52,8 @@ export async function POST(req: Request) {
       return NextResponse.json(r);
     }
     if (!w.ok) return NextResponse.json({ error: w.why }, { status: 404 });
+    const pb = fromTemplate && w.slug ? await playbookCopyOf(c, co.id, w.slug) : null;
+    if (pb) return NextResponse.json({ error: `${w.name} is built by the ${pb.playbook} playbook: the bare template would drop what the playbook changes. Rebuild it with POST /api/admin/playbooks { company, playbook: "${pb.playbook}", workflow: "${w.slug}" }, dry run first` }, { status: 409 });
     const r = fromTemplate ? await saveFromTemplate(c, { workflowId: w.id, note: body.note!, by: body.by || "operator", dryRun: body.dryRun === true })
       : await saveDefinition(c, { workflowId: w.id, definition: body.definition, note: body.note!, by: body.by || "operator", dryRun: body.dryRun === true });
     if (!r.ok) return NextResponse.json({ error: r.why, ...(r.problems ? { problems: r.problems } : {}), ...(r.missing ? { missing: r.missing } : {}) }, { status: r.status });

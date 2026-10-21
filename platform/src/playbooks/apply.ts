@@ -8,6 +8,10 @@
  * and says so. The playbook and its params are kept on the company (`playbook`), so it can be rebuilt after a template changes,
  * and `playbookState` says which copies fell behind.
  *
+ * D208: every copy at once only on a company still being built (onboarding) or a template business. On a running offer a write
+ * names one workflow (`workflow`), built with the params the company keeps when none are given; only that copy is saved, and
+ * neither the prompts nor the kept playbook change (CLAUDE.md: one offer, the workflows Tyler names, dry run first).
+ *
  * `copyOfferSettings`: the settings that are how an offer sells, not whose accounts it runs on, copied from one company to
  * another where the other has none of its own. Never a secret, an id, a channel, a person or a form (see OFFER_KEYS).
  */
@@ -44,27 +48,53 @@ export async function installBitsOf(c: PoolClient, companyId: string): Promise<I
   };
 }
 
-export async function applyPlaybook(c: PoolClient, args: { company: string; playbook: string; params?: unknown; dryRun?: boolean; by?: string }): Promise<ApplyResult> {
-  const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [args.company]);
+/** D208: the statuses where a playbook may save every copy at once: a company still being built, and a template business. */
+export const WHOLE_PLAYBOOK_STATUSES = ["onboarding", "template"];
+
+export async function applyPlaybook(c: PoolClient, args: { company: string; playbook: string; params?: unknown; workflow?: string; dryRun?: boolean; by?: string }): Promise<ApplyResult> {
+  const co = await one<{ id: string; status: string }>(c, "select id, status from companies where slug=$1", [args.company]);
   if (!co) return { ok: false, status: 404, why: `no such company: ${args.company} (install it first)` };
   let pb; try { pb = playbookOf(args.playbook); } catch (e) { return { ok: false, status: 400, why: (e as Error).message }; }
+  const whole = args.workflow === undefined;
+  if (whole && !args.dryRun && !WHOLE_PLAYBOOK_STATUSES.includes(co.status))
+    return { ok: false, status: 409, why: `${args.company} is ${co.status}: on a running offer a playbook is saved one named workflow at a time (workflow), dry run first` };
+  const kept = await keptPlaybook(c, co.id);
+  if (!whole && kept && kept.slug !== pb.slug) return { ok: false, status: 409, why: `${args.company} runs the ${kept.slug} playbook, not ${pb.slug}: one workflow cannot move it to another` };
+  const params = args.params !== undefined || whole ? args.params : kept?.params ?? undefined;
   const bits = await installBitsOf(c, co.id);
-  let built; try { built = pb.build(args.company, args.params, bits); } catch (e) { return { ok: false, status: 422, why: (e as Error).message }; }
+  let built; try { built = pb.build(args.company, params, bits); } catch (e) { return { ok: false, status: 422, why: (e as Error).message }; }
+  const copies = whole ? built.copies : built.copies.filter((x) => x.workflow === args.workflow || x.name === args.workflow);
+  if (!whole && !copies.length) return { ok: false, status: 404, why: `the ${pb.slug} playbook builds no copy of "${args.workflow}" (it builds ${built.copies.map((x) => x.name ?? x.workflow).join(", ") || "none"})` };
   const by = args.by ?? "operator";
   // first every copy as a dry run: nothing is written unless all of them pass
   // one connection, one query at a time
   const checked: CopyOutcome[] = [];
-  for (const copy of built.copies) checked.push(await putCopy(c, co.id, copy, by, true));
+  for (const copy of copies) checked.push(await putCopy(c, co.id, copy, by, true));
   if (checked.some((o) => o.did === "refused")) return { ok: false, status: 422, why: `${checked.filter((o) => o.did === "refused").length} of the playbook's copies cannot be saved: nothing was`, copies: checked };
-  // what the build writes into the install file: the call prompts (D118), bound where they differ from the company's
-  const prompts = Object.entries((built.install?.prompts ?? {}) as Record<string, string>).filter(([k, v]) => bits.prompts?.[k] !== v).map(([k]) => k).sort();
-  if (args.dryRun) return { ok: true, dryRun: true, playbook: pb.slug, copies: checked, prompts, rungs: await rungPlan(c, co.id, built.copies) };
-  const copies: CopyOutcome[] = [];
-  for (const copy of built.copies) copies.push(await putCopy(c, co.id, copy, by, false));
+  // what the build writes into the install file: the call prompts (D118), bound where they differ from the company's; not on one workflow
+  const prompts = whole ? Object.entries((built.install?.prompts ?? {}) as Record<string, string>).filter(([k, v]) => bits.prompts?.[k] !== v).map(([k]) => k).sort() : [];
+  if (args.dryRun) return { ok: true, dryRun: true, playbook: pb.slug, copies: checked, prompts, rungs: await rungPlan(c, co.id, copies) };
+  const saved: CopyOutcome[] = [];
+  for (const copy of copies) saved.push(await putCopy(c, co.id, copy, by, false));
   for (const k of prompts) await bindText(c, co.id, `prompt.${k}`, (built.install!.prompts as Record<string, string>)[k]);
-  await bindText(c, co.id, PLAYBOOK_KEY, JSON.stringify({ slug: pb.slug, params: args.params ?? null }));
-  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'playbook.applied','company',$2,$3)", [co.id, co.id, { playbook: pb.slug, by, copies: copies.map((o) => `${o.workflow}: ${o.did}`) }]);
-  return { ok: true, dryRun: false, playbook: pb.slug, copies, prompts, rungs: await rungPlan(c, co.id) };
+  if (whole) await bindText(c, co.id, PLAYBOOK_KEY, JSON.stringify({ slug: pb.slug, params: args.params ?? null }));
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'playbook.applied','company',$2,$3)", [co.id, co.id, { playbook: pb.slug, by, ...(whole ? {} : { workflow: args.workflow }), copies: saved.map((o) => `${o.workflow}: ${o.did}`) }]);
+  return { ok: true, dryRun: false, playbook: pb.slug, copies: saved, prompts, rungs: await rungPlan(c, co.id) };
+}
+
+/** The playbook and params last applied to the company as a whole, if any. */
+export async function keptPlaybook(c: PoolClient, companyId: string): Promise<{ slug: string; params: unknown } | null> {
+  const b = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, PLAYBOOK_KEY]);
+  return b ? JSON.parse(b.value.toString("utf8")) as { slug: string; params: unknown } : null;
+}
+
+/**
+ * D208: the template a company's playbook builds a copy of. `fromTemplate` on such a copy would save the bare template and drop
+ * what the playbook changes, so it is refused there and the copy is rebuilt through the playbook instead.
+ */
+export async function playbookCopyOf(c: PoolClient, companyId: string, template: string): Promise<{ playbook: string } | null> {
+  const kept = await keptPlaybook(c, companyId);
+  return kept && playbookOf(kept.slug).changes.includes(template) ? { playbook: kept.slug } : null;   // `changes` is held to the build by playbooks.test
 }
 
 /** D177: a copy is saved with the company's words laid over it, so a rebuild never loses them. */
@@ -104,9 +134,8 @@ export async function rungPlan(c: PoolClient, companyId: string, pending: Copy[]
 
 /** The company's playbook as last applied, and which of its copies are no longer what the playbook builds from today's templates. */
 export async function playbookState(c: PoolClient, companyId: string, slug: string): Promise<{ playbook: string | null; stale: string[]; why?: string }> {
-  const b = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, PLAYBOOK_KEY]);
-  if (!b) return { playbook: null, stale: [] };
-  const kept = JSON.parse(b.value.toString("utf8")) as { slug: string; params: unknown };
+  const kept = await keptPlaybook(c, companyId);
+  if (!kept) return { playbook: null, stale: [] };
   let built; try { built = playbookOf(kept.slug).build(slug, kept.params ?? undefined, await installBitsOf(c, companyId)); } catch (e) { return { playbook: kept.slug, stale: [], why: (e as Error).message }; }
   const stale: string[] = [], words = await loadWords(c, companyId);
   for (const bare of built.copies) {

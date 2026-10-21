@@ -5870,3 +5870,29 @@ overdue; one whose Discovery Call record in GHL already has an outcome other tha
 (as a filed Sales Call is not). Each overdue day now carries `url`: that person's end-of-day link for the day, so the operator can
 open it and file it. Off (every other offer): nothing changes; the new `url` is only there for a template that uses it. Nelly: on,
 and her reminder's operator line links each day. Tests: `eod.triage-overdue.test.ts`.
+
+## D208. A playbook reaches a running offer one named workflow at a time, dry run first (2026-10-21)
+
+Found while planning modular playbooks (`14-modular-playbooks.md` 3.1): three paths by which a playbook change could reach a live
+offer without a named, dry-run-first change. Tyler, asked whether to "start step 1: close the unsafe paths": "Yes". All three
+are platform code, so they are closed for every offer; no offer's workflows were changed.
+
+1. `POST /api/admin/playbooks` wrote unless told not to (`dryRun: true`) and saved every copy at once. It is now a dry run unless
+   `apply: true`; `dryRun` is no longer read, so an old caller that leaves it out only reads. `applyPlaybook` saves every copy at
+   once only on a company being onboarded or a template business. On any other (a running offer) a write names one `workflow`
+   (template slug or copy name), built with the params the company keeps when none are given: only that copy is saved, the call
+   prompts are not bound, the kept playbook (`playbook` binding) does not change, and a playbook other than the kept one is
+   refused. A dry run of the whole playbook still works anywhere (it writes nothing). `scripts/apply-playbook.ts` sends `apply`
+   and takes `--workflow`.
+2. The wizard's install step re-applied the playbook with no dry run whenever it was run again, active or not. `installPlan` now
+   refuses (409) once the install step is done or the company is not onboarding; a template business is excepted (it never runs).
+3. `fromTemplate: true` on `POST /api/admin/workflows/definition` saved the bare template over a playbook copy, dropping what the
+   playbook changes (on PMU's Call booked, the raw template). It is now refused (409) on a copy the company's kept playbook builds,
+   pointing at the playbooks route with that `workflow`; any other copy is as before (D147).
+
+Open: the third guard knows a copy is the playbook's only from the company's `playbook` binding, which only a whole-playbook apply
+records. PMU's and Dating's copies were saved one at a time through the definition route (their `installs/*/playbook.json` notes),
+so as far as the repo shows neither has the binding, and on them `fromTemplate` is still taken (named and dry run first, so the
+diff is what catches it). Recording an offer's playbook is a separate change Tyler names per offer. Also: `engine/schema.sql` gained
+the `setter_call.filed` event type, which `baseline.ts` already had (an empty database would not take it).
+Tests: `apply.test.ts` (D208), `install.test.ts` (a second install is refused).

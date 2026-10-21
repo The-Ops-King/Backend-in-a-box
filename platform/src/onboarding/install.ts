@@ -6,7 +6,9 @@
  * company turns active, still in ghost: the engine starts reading their accounts, every workflow off, nothing written and nothing
  * sent. Templates a playbook workflow takes over (D123) are left out of the install, so nothing has to be removed. A new offer's
  * SMS starts off (its own GHL account has no approved number yet; Tyler turns it on once A2P is through); a takeover keeps theirs.
- * Re-running is safe: install and the playbook are both idempotent.
+ * D208: it runs once, on a company still onboarding. Refused once the step is done or the company runs (a template business
+ * excepted: it never runs), since it would save the playbook over a running offer's workflows all at once; after that a workflow
+ * changes by name, dry run first.
  */
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
@@ -24,9 +26,11 @@ export type InstallPlan = { input: InstallInput; playbook: string; params: unkno
 
 /** The install the earlier steps add up to; a refusal names the step still to finish. */
 export async function installPlan(c: PoolClient, companyId: string): Promise<{ ok: true; plan: InstallPlan } | { ok: false; status: number; why: string }> {
-  const o = await one<{ name: string; slug: string; timezone: string; kind: "new" | "takeover"; intake: Intake; playbook: string | null; params: unknown; research: Research | null; crm: { last?: CrmRun }; steps: Record<string, unknown> }>(c,
-    `select co.name, co.slug, co.timezone, o.kind, o.intake, o.playbook, o.params, o.research, o.crm, o.steps from onboarding o join companies co on co.id=o.company_id where o.company_id=$1`, [companyId]);
+  const o = await one<{ name: string; slug: string; timezone: string; status: string; kind: "new" | "takeover"; intake: Intake; playbook: string | null; params: unknown; research: Research | null; crm: { last?: CrmRun }; steps: Record<string, unknown> }>(c,
+    `select co.name, co.slug, co.timezone, co.status, o.kind, o.intake, o.playbook, o.params, o.research, o.crm, o.steps from onboarding o join companies co on co.id=o.company_id where o.company_id=$1`, [companyId]);
   if (!o) return { ok: false, status: 404, why: "this company is not being onboarded" };
+  if (o.status !== "template" && (o.steps.install || o.status !== "onboarding"))
+    return { ok: false, status: 409, why: `${o.steps.install ? "already installed" : `the company is ${o.status}`}: an install would save the playbook over a running offer; change its workflows one at a time, by name` };
   const todo = (["offer", "connections", "research", "slack", "crm"] as const).filter((s) => !o.steps[s]);
   if (todo.length) return { ok: false, status: 409, why: `finish ${todo.map((s) => ({ offer: "The offer", connections: "Connections", research: "Research", slack: "Slack", crm: "CRM build" })[s]).join(", ")} first` };
   const r = o.research!, crm = o.crm.last!;

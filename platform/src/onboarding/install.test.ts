@@ -58,7 +58,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D176: the install step", () => {
     expect(p.plan.input).not.toHaveProperty("pit");   // the stored token is used; it never leaves the database here
   });
 
-  it("installs everything off, puts the playbook's copies on, and the company runs in ghost; again, nothing changes", async () => {
+  it("installs everything off, puts the playbook's copies on, and the company runs in ghost; a second install is refused (D208)", async () => {
     const r = await runInstall(asOperator, id, "install-co", adapters, "test");
     expect(r).toMatchObject({ ok: true, playbook: { ok: true, playbook: "one-board" } });
     const co = await asOperator((c) => one<{ status: string; mode: string; sms_enabled: boolean; contract_value_default: string }>(c, "select status, mode, sms_enabled, contract_value_default::text from companies where id=$1", [id]));
@@ -68,7 +68,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D176: the install step", () => {
     expect(await asOperator((c) => one(c, "select count(*)::int as n from workflows where company_id=$1 and diverged", [id]))).toEqual({ n: 9 });   // the one-board copies
     expect((await asOperator((c) => onboardingState(c, "install-co")))!.steps.find((x) => x.id === "install")!.done).toMatchObject({ by: "test" });
     const versions = await asOperator((c) => many(c, "select name, current_version from workflows where company_id=$1 order by name", [id]));
-    expect(await runInstall(asOperator, id, "install-co", adapters, "test")).toMatchObject({ ok: true });
+    expect(await runInstall(asOperator, id, "install-co", adapters, "test")).toMatchObject({ ok: false, status: 409, why: expect.stringMatching(/^already installed/) });
     expect(await asOperator((c) => many(c, "select name, current_version from workflows where company_id=$1 order by name", [id]))).toEqual(versions);
   });
 });
