@@ -1,5 +1,5 @@
 import { deliver, dispatchDue, type DispatchDeps, reapStale } from "./dispatcher";
-import { type Deps, type ReportRenderer, dispatchEvent, endRun, fireSchedule, nudge, resumeRun, startManual, wakeRun } from "./interpreter";
+import { type Deps, type LookupResolver, type ReportRenderer, dispatchEvent, endRun, fireSchedule, nudge, resumeRun, startManual, wakeRun } from "./interpreter";
 import type { Ports } from "./ports";
 import type { Store, Tx } from "./store";
 import type { EventRow, RunRow } from "./types";
@@ -17,6 +17,8 @@ export type EngineOptions = {
   /** The clock. The simulator's is fake. */
   now?: () => Date;
   reports?: ReportRenderer;
+  /** Answers the facts.lookup queries that need the projections, until they are built. */
+  lookup?: LookupResolver;
   secret?: DispatchDeps["secret"];
   random?: () => number;
   worker?: string;
@@ -50,7 +52,7 @@ export class Engine {
     this.now = opts.now ?? (() => new Date());
   }
 
-  private deps(tx: Tx): Deps { return { tx, now: this.now(), ...(this.opts.reports ? { reports: this.opts.reports } : {}) }; }
+  private deps(tx: Tx): Deps { return { tx, now: this.now(), ...(this.opts.reports ? { reports: this.opts.reports } : {}), ...(this.opts.lookup ? { lookup: this.opts.lookup } : {}) }; }
   private dispatchDeps(): DispatchDeps {
     return { store: this.store, ports: this.ports, now: this.now, ...(this.opts.secret ? { secret: this.opts.secret } : {}), ...(this.opts.random ? { random: this.opts.random } : {}), ...(this.opts.worker ? { worker: this.opts.worker } : {}) };
   }
@@ -129,5 +131,5 @@ export class Engine {
   resume(runId: string, how: "resume" | "retry" | "skip" = "resume"): Promise<RunRow> { return this.store.tx((tx) => resumeRun(this.deps(tx), runId, how)); }
   end(runId: string, reason?: string): Promise<void> { return this.store.tx((tx) => endRun(this.deps(tx), runId, reason)); }
   startManual(x: { workflowId: string; subjects: Subjects; by: string; data?: Record<string, unknown> }): Promise<string | null> { return this.store.tx((tx) => startManual(this.deps(tx), x)); }
-  fireSchedule(x: { workflowId: string; triggerNode: string; at: Date }): Promise<string | null> { return this.store.tx((tx) => fireSchedule(this.deps(tx), x)); }
+  fireSchedule(x: { workflowId: string; triggerNode: string; at: Date; person?: Record<string, unknown> & { id: string } }): Promise<string | null> { return this.store.tx((tx) => fireSchedule(this.deps(tx), x)); }
 }

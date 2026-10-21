@@ -78,3 +78,65 @@ describe("diffBehavior", () => {
     expect(d.scenarios[0]!.lines).toEqual(["- pre_call.reminder_1h to contact (sms) at +3d 3h no longer happens", "~ the run ends done → too_close"]);
   });
 });
+
+describe("scenario steps and fixtures for what is not built yet", () => {
+  const wf = (nodes: unknown[], edges: unknown[], extra: Record<string, unknown> = {}) => ({ schema: 2, id: "w", name: "W", reentry: { policy: "always" }, nodes, edges, ...extra });
+  const content = { "w.post": { channel: "slack" as const, body: "{{person.name | default:the offer}}: {{vars.answer | optional}}" } };
+  const base = { name: "s", workflow: "w", start: "2026-10-26T14:00:00Z", offer: { zone: "America/New_York", settings: { "slack.channel.team": "C-TEAM" } }, contacts: [{ id: "c1", phone: "+15550100001" }] };
+
+  it("a schedule step starts one run for the offer, or one per person with the trigger's role", async () => {
+    const def = wf([
+      { id: "t", type: "trigger@1", title: "6pm for each closer", on: { schedule: { at: "18:00", for: { role: "closer" } } } },
+      { id: "m", type: "message@1", title: "DM", to: { slack: { dm: "{{person.slack_user_id}}" } }, content: "w.post" },
+      { id: "x", type: "end@1", title: "Done", reason: "done" },
+    ], [{ from: "t", to: "m" }, { from: "m", to: "x" }]);
+    const r = await simulate({ definition: def, content, scenario: { ...base, people: [{ id: "u1", role: "closer", name: "Luis", slack_user_id: "U1" }, { id: "u2", role: "setter", name: "Mia" }, { id: "u3", role: "closer", name: "Ana", slack_user_id: "U3" }],
+      steps: [{ at: "+0m", schedule: { node: "t" } }], expect: { outbox: ["+0m sent w.post", "+0m sent w.post"], ends: ["done", "done"] } } });
+    expect(r.expectations.failures).toEqual([]);
+    expect(r.outbox.map((o) => o.text)).toEqual(["Luis: ", "Ana: "]);
+  });
+
+  it("answers lookups (in turn), reports and the AI from the scenario's fixtures", async () => {
+    const def = wf([
+      { id: "t", type: "trigger@1", title: "A call", on: { event: "call.logged" } },
+      { id: "l1", type: "action@1", title: "First look", action: "facts.lookup", params: { query: "call_conversation", params: {} }, into: "a" },
+      { id: "l2", type: "action@1", title: "Second look", action: "facts.lookup", params: { query: "call_conversation", params: {} }, into: "b" },
+      { id: "rp", type: "report@1", title: "Numbers", report: "reports.day", period: "in_progress", into: "rep" },
+      { id: "c", type: "action@1", title: "Read it", action: "ai.classify", params: { input: "{{vars.a.text}}", prompt: "w.prompt", options: ["yes", "no"], threshold: 0.5, unclear: "no" }, into: "k" },
+      { id: "s", type: "set@1", title: "Words", var: "answer", value: "{{vars.a.text}}/{{vars.b.text}}/{{vars.rep.body}}/{{vars.k.value}}" },
+      { id: "m", type: "message@1", title: "Post", to: { slack: { channel: "{{setting.slack.channel.team}}" } }, content: "w.post" },
+      { id: "x", type: "end@1", title: "Done", reason: "done" },
+    ], [{ from: "t", to: "l1" }, { from: "l1", to: "l2" }, { from: "l2", to: "rp" }, { from: "rp", to: "c" }, { from: "c", to: "s" }, { from: "s", to: "m" }, { from: "m", to: "x" }]);
+    const r = await simulate({ definition: def, content: { ...content, "w.prompt": { channel: "prompt", body: "Yes or no?" } }, scenario: { ...base,
+      fixtures: { lookups: { call_conversation: [{ text: "one" }, { text: "two" }] }, reports: { "reports.day": { body: "3 calls" } }, classify: ["no"] },
+      steps: [{ at: "+0m", type: "call.logged", contact: "c1" }], expect: { outbox: ["+0m sent ai.classify", "+0m sent w.post"], ends: ["done"] } } });
+    expect(r.expectations.failures).toEqual([]);
+    expect(r.outbox[1]!.text).toBe("the offer: one/two/3 calls/no");
+  });
+
+  it("holds the run on a lookup the scenario gives no answer for", async () => {
+    const def = wf([
+      { id: "t", type: "trigger@1", title: "A call", on: { event: "call.logged" } },
+      { id: "l1", type: "action@1", title: "Look", action: "facts.lookup", params: { query: "calls_for_contact", params: {} }, into: "a" },
+      { id: "x", type: "end@1", title: "Done", reason: "done" },
+    ], [{ from: "t", to: "l1" }, { from: "l1", to: "x" }]);
+    const r = await simulate({ definition: def, content, scenario: { ...base, steps: [{ at: "+0m", type: "call.logged", contact: "c1" }] } });
+    expect(r.runs.map((x) => x.status)).toEqual(["paused"]);
+    expect(r.alerts[0]!.message).toContain("fixtures.lookups");
+  });
+
+  it("states the whole timeline in expect.outbox, and says when it differs", async () => {
+    const def = wf([
+      { id: "t", type: "trigger@1", title: "Tagged", on: { event: "tag.added" } },
+      { id: "w1", type: "wait@1", title: "A day", until: { anchor: "now", offset: "+24h", zone: "offer" } },
+      { id: "m", type: "message@1", title: "Post", to: { slack: { channel: "{{setting.slack.channel.team}}" } }, content: "w.post" },
+      { id: "x", type: "end@1", title: "Done", reason: "done" },
+    ], [{ from: "t", to: "w1" }, { from: "w1", to: "m" }, { from: "m", to: "x" }]);
+    // a fact about the contact at +2h wakes the run early: "24 hours from now" is from when the wait began, so it keeps its time
+    const steps = [{ at: "+0m", type: "tag.added", contact: "c1" }, { at: "+2h", type: "contact.updated", contact: "c1" }];
+    const ok = await simulate({ definition: def, content, scenario: { ...base, steps, expect: { outbox: ["+1d sent w.post"], ends: ["done"] } } });
+    expect(ok.expectations.failures).toEqual([]);
+    const wrong = await simulate({ definition: def, content, scenario: { ...base, steps, expect: { outbox: ["+2h sent w.post"] } } });
+    expect(wrong.expectations.failures).toEqual(['outbox ["+1d sent w.post"], expected ["+2h sent w.post"]']);
+  });
+});

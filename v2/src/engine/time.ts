@@ -125,7 +125,8 @@ export type Computed = { at: Date; anchor: Date; usedFallback: boolean; clamped:
  * kept between earliest and latest on that day. Undefined when the anchor is not a date-time.
  */
 export function computeTimeRule(rule: TimeRule, ctx: Context, env: RenderEnv, reached: Date): Computed | undefined {
-  const anchor = anchorOf(rule, ctx, env);
+  // "now" is the moment the step was reached, so a wait for "24 hours from now" does not move each time the run wakes
+  const anchor = rule.anchor === "now" ? reached : anchorOf(rule, ctx, env);
   if (!anchor) return undefined;
   const zone = rule.zone === "contact" ? env.contactZone ?? env.offerZone : env.offerZone;
   let at = anchor;

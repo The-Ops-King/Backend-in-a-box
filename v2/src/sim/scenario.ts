@@ -42,7 +42,10 @@ const OperatorStep = z.object({
   operator: z.union([z.object({ resume: z.enum(["resume", "retry", "skip"]) }).strict(), z.object({ end: z.string().regex(/^[a-z][a-z0-9_]*$/) }).strict()]),
 }).strict();
 
-export const ScenarioStep = z.union([EventStep, ReplyStep, AnswerStep, FailStep, OperatorStep]);
+/** The clock reaches a schedule trigger (by its node): one run for the offer, or one per person with the trigger's role. */
+const ScheduleStep = z.object({ at: Rel, schedule: z.object({ node: z.string().min(1) }).strict() }).strict();
+
+export const ScenarioStep = z.union([EventStep, ReplyStep, AnswerStep, FailStep, OperatorStep, ScheduleStep]);
 export type ScenarioStep = z.infer<typeof ScenarioStep>;
 
 export const Scenario = z.object({
@@ -61,6 +64,20 @@ export const Scenario = z.object({
   contacts: z.array(Contact).default([]),
   /** Messages other workflows already sent these contacts, for the frequency cap. */
   priorSends: z.array(z.object({ contact: z.string(), at: Rel, channel: z.enum(["sms", "email"]).default("sms"), count: z.number().int().positive().default(1) }).strict()).default([]),
+  /** The team, for schedules that run once per person with a role (each is that run's `person`). */
+  people: z.array(z.object({ id: z.string().min(1), role: z.string().min(1) }).passthrough()).default([]),
+  /**
+   * What the parts not built yet answer, so a scenario can take every path: the facts.lookup queries that need the
+   * projections (by query: one answer, or a list used in turn), the report definitions (by key: the rendered report, or a
+   * list used in turn), and the AI port (classify answers and summarize results, used in turn; a classify answer is the
+   * option, or { value, confidence }).
+   */
+  fixtures: z.object({
+    lookups: z.record(z.unknown()).default({}),
+    reports: z.record(z.unknown()).default({}),
+    classify: z.array(z.union([z.string(), z.object({ value: z.string(), confidence: z.number().min(0).max(1) }).strict()])).default([]),
+    summarize: z.array(z.unknown()).default([]),
+  }).strict().default({}),
   steps: z.array(ScenarioStep).min(1),
   /** What must come out, checked after the run: the content keys that went out, in order, and how each run ended. */
   expect: z.object({
@@ -68,6 +85,8 @@ export const Scenario = z.object({
     held: z.array(z.string()).optional(),
     suppressed: z.array(z.string()).optional(),
     ends: z.array(z.string()).optional(),
+    /** Every outbox row in order, as "<time from start, no spaces> <status> <content key or kind>": "+1d2h sent pre_call.reminder". */
+    outbox: z.array(z.string()).optional(),
   }).strict().optional(),
 }).strict();
 export type Scenario = z.infer<typeof Scenario>;

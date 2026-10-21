@@ -28,8 +28,14 @@ import type { EventRow, Listener, NewRun, OfferRow, RunContext, RunRow, StepRow,
 /** A report definition rendered (report@1). Report definitions arrive with the projections; until then this is supplied by the caller. */
 export type ReportRenderer = (x: { offerId: string; report: string; period: string; params: Record<string, unknown>; now: Date }) => Promise<unknown>;
 
+/**
+ * Answers a facts.lookup query that needs the projections (every query but last_event). The projections arrive in a later
+ * piece; until then this is supplied by the caller (the simulator answers from the scenario).
+ */
+export type LookupResolver = (x: { offerId: string; query: string; params: Record<string, unknown>; contactId: string | null; appointmentId: string | null; now: Date }) => Promise<unknown>;
+
 /** `depth`: how many call@1 steps deep this pass is, so a workflow that calls itself cannot recurse for ever. */
-export type Deps = { tx: Tx; now: Date; reports?: ReportRenderer; depth?: number };
+export type Deps = { tx: Tx; now: Date; reports?: ReportRenderer; lookup?: LookupResolver; depth?: number };
 
 const MAX_CALL_DEPTH = 8;
 
@@ -619,7 +625,12 @@ async function internal(P: Pass, node: Action1, step: StepRow, visit: number, ct
     case "facts.lookup": {
       const query = params.query as keyof typeof LOOKUP_QUERIES;
       const q = params.params as Record<string, unknown>;
-      if (query !== "last_event") throw new Error(`facts.lookup ${query} needs the projections, which are not built yet`);
+      if (query !== "last_event") {
+        if (!P.deps.lookup) throw new Error(`facts.lookup ${query} needs the projections, which are not built yet`);
+        const answer = await P.deps.lookup({ offerId: P.offer.id, query, params: q, contactId: P.run.contactId, appointmentId: P.run.appointmentId, now: P.now });
+        if (node.into) P.run.context.vars[node.into] = (answer ?? null) as never;
+        return leave(P, node, step, "next", { found: answer === undefined || answer === null ? null : query });
+      }
       const about = toText(q.about) || "contact";
       const since = toInstant(q.since), until = toInstant(q.until);
       const subject = about === "appointment" ? { appointmentId: P.run.appointmentId ?? "" } : { contactId: P.run.contactId ?? "" };
@@ -936,15 +947,21 @@ export async function startManual(deps: Deps, x: { workflowId: string; subjects:
   return startRun(deps, { offer, workflow: wf, version, triggerNode: trigger.id, event: null, eventView: { ...(x.data ?? {}), type: "workflow.started_by_hand", by: x.by, occurred_at: iso(deps.now) }, eventKey: key, subjects: x.subjects, snapshot: {} });
 }
 
-/** A schedule trigger's time came: one run for the offer for that period. */
-export async function fireSchedule(deps: Deps, x: { workflowId: string; triggerNode: string; at: Date }): Promise<string | null> {
+/**
+ * A schedule trigger's time came: one run for the offer for that period, or, for a schedule `for` a role, one run for the
+ * person given (`person`, carried as the run's `person`; the people come with a later piece, so the caller names them).
+ */
+export async function fireSchedule(deps: Deps, x: { workflowId: string; triggerNode: string; at: Date; person?: Record<string, unknown> & { id: string } }): Promise<string | null> {
   const wf = await deps.tx.workflow(x.workflowId);
   if (!wf?.enabled || !wf.currentVersionId) return null;
   const version = (await deps.tx.version(wf.currentVersionId))!;
   const { def } = definitionOf(version);
   const t = def.nodes.find((n) => n.id === x.triggerNode);
   if (!t || t.type !== "trigger@1" || !("schedule" in t.on)) throw new Error(`${x.triggerNode} is not a schedule trigger`);
-  if (t.on.schedule.for !== "offer") throw new Error("a schedule for each person with a role needs people, which come in a later piece");
+  const forRole = t.on.schedule.for !== "offer";
+  if (forRole && !x.person) throw new Error("a schedule for each person with a role needs people, which come in a later piece");
+  if (!forRole && x.person) throw new Error(`${x.triggerNode} is a schedule for the offer, not for a person`);
   const offer = (await deps.tx.offer(wf.offerId))!;
-  return startRun(deps, { offer, workflow: wf, version, triggerNode: t.id, event: null, eventView: { type: "schedule", occurred_at: iso(x.at) }, eventKey: `schedule:${iso(x.at)}`, subjects: { contactId: null, appointmentId: null, dealId: null }, snapshot: {}, period: iso(x.at) });
+  const period = x.person ? `${iso(x.at)}:${x.person.id}` : iso(x.at);
+  return startRun(deps, { offer, workflow: wf, version, triggerNode: t.id, event: null, eventView: { type: "schedule", occurred_at: iso(x.at) }, eventKey: `schedule:${period}`, subjects: { contactId: null, appointmentId: null, dealId: null }, snapshot: x.person ? { person: x.person } : {}, period });
 }

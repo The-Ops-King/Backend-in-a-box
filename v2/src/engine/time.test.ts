@@ -35,6 +35,10 @@ describe("a time rule worked out", () => {
     expect(at({ anchor: "now", offset: "+2h" })).toBe("2026-10-26T16:00:00.000Z");
     expect(at({ anchor: "appointment.starts_at" })).toBe("2026-10-29T18:00:00.000Z");
   });
+  it("reads \"now\" as the moment the step was reached, so waking early does not move the time", () => {
+    const later = { ...env, now: new Date("2026-10-27T09:00:00Z") };
+    expect(iso(computeTimeRule(rule({ anchor: "now", offset: "+24h" }), ctx, later, env.now)?.at)).toBe("2026-10-27T14:00:00.000Z");
+  });
   it("puts a day rule at that clock time on the anchor's day in the rule's zone", () => {
     expect(at({ anchor: "appointment.starts_at", offset: "day_before@19:00" })).toBe("2026-10-28T23:00:00.000Z");
     expect(at({ anchor: "appointment.starts_at", offset: "day_of@08:00", zone: "offer" })).toBe("2026-10-29T14:00:00.000Z");

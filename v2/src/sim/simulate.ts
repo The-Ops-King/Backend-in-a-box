@@ -65,7 +65,33 @@ export async function simulate(input: SimInput): Promise<SimResult> {
   for (const o of input.others ?? []) await install(store, offerId, o, { now: start, delivery: sc.delivery, crmWrites: sc.crmWrites });
   const wf = await install(store, offerId, input.definition, { now: start, delivery: sc.delivery, crmWrites: sc.crmWrites });
   await seedPriorSends(store, offerId, sc, start);
-  const engine = new Engine({ store, ports: fp.ports(), now: clock.now, random: () => 0.5, worker: "sim" });
+  const fx = sc.fixtures;
+  const turn = <T>(v: unknown, used: Map<string, number>, key: string): T => {
+    if (!Array.isArray(v)) return v as T;
+    const i = used.get(key) ?? 0;
+    used.set(key, i + 1);
+    if (i >= v.length) throw new Error(`scenario "${sc.name}": the fixture ${key} has ${v.length} answers and a ${i + 1}th was asked for`);
+    return v[i] as T;
+  };
+  const usedLookups = new Map<string, number>(), usedReports = new Map<string, number>();
+  let classified = 0, summarized = 0;
+  fp.classify = (p) => {
+    const a = fx.classify[classified++];
+    if (a === undefined) return { value: p.options[0]!, confidence: 1 };
+    return typeof a === "string" ? { value: a, confidence: 1 } : a;
+  };
+  fp.summarize = () => (summarized < fx.summarize.length ? fx.summarize[summarized++] : {});
+  const engine = new Engine({
+    store, ports: fp.ports(), now: clock.now, random: () => 0.5, worker: "sim",
+    lookup: async ({ query }) => {
+      if (!(query in fx.lookups)) throw new Error(`facts.lookup ${query}: the scenario gives no answer for it (fixtures.lookups)`);
+      return turn(fx.lookups[query], usedLookups, query);
+    },
+    reports: async ({ report }) => {
+      if (!(report in fx.reports)) throw new Error(`report ${report}: the scenario gives no rendered report for it (fixtures.reports)`);
+      return turn(fx.reports[report], usedReports, report);
+    },
+  });
 
   const steps = [...sc.steps].map((s, i) => ({ s, i, at: timeOf(s.at, start) })).sort((a, b) => a.at.getTime() - b.at.getTime() || a.i - b.i);
   for (const { s, i, at } of steps) {
@@ -81,6 +107,12 @@ export async function simulate(input: SimInput): Promise<SimResult> {
       await engine.answer({ offerId, channel: post.channel, ts: post.ts, value: a.value, person: a.person });
     } else if ("fail" in s) {
       fp.failNext({ port: s.fail.port, failure: s.fail.failure, times: s.fail.times, ...(s.fail.method ? { method: s.fail.method } : {}) });
+    } else if ("schedule" in s) {
+      const node = v.workflow.nodes.find((n) => n.id === s.schedule.node);
+      if (!node || node.type !== "trigger@1" || !("schedule" in node.on)) throw new Error(`scenario "${sc.name}" step ${i}: ${s.schedule.node} is not a schedule trigger`);
+      const forWhom = node.on.schedule.for;
+      if (forWhom === "offer") await engine.fireSchedule({ workflowId: wf.id, triggerNode: node.id, at });
+      else for (const person of sc.people.filter((p) => p.role === forWhom.role)) await engine.fireSchedule({ workflowId: wf.id, triggerNode: node.id, at, person });
     } else if ("operator" in s) {
       const paused = await store.tx((tx) => tx.runs({ offerId, statuses: ["paused"] }));
       if (!paused[0]) throw new Error(`scenario "${sc.name}" step ${i}: no paused run for the operator`);
@@ -183,6 +215,9 @@ function report(store: MemStore, sc: Scenario, workflowId: string, definition: u
   if (sc.expect?.suppressed && !same(keysWith("suppressed"), sc.expect.suppressed)) failures.push(`suppressed ${JSON.stringify(keysWith("suppressed"))}, expected ${JSON.stringify(sc.expect.suppressed)}`);
   const ends = simRuns.map((r) => r.endReason ?? r.status);
   if (sc.expect?.ends && !same(ends, sc.expect.ends)) failures.push(`runs ended ${JSON.stringify(ends)}, expected ${JSON.stringify(sc.expect.ends)}`);
+  const rows = outbox.map((o) => `${o.rel.replace(/ /g, "")} ${o.status} ${o.contentKey ?? o.kind}`);
+  const want = sc.expect?.outbox;
+  if (want && !same(rows, want)) failures.push(`outbox ${JSON.stringify(rows)}, expected ${JSON.stringify(want)}`);
 
   return {
     scenario: sc.name, workflow: wfKey(workflowId), delivery: sc.delivery, crmWrites: sc.crmWrites, start: sc.start,
