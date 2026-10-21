@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { install } from "@/engine/testkit";
 import { connectorKit, factsOf, type Kit } from "./testkit/kit";
 import { FakeCalendly, FakeFathom, FakeWhop } from "./testkit/fake-vendors";
+import { meetingKey } from "./framework/recordings";
 import { signCalendly, signStandardWebhook, signTypeform, verifyCalendly, verifyStandardWebhook, verifyTypeform } from "./framework/signatures";
 import { FieldMap, formatValue } from "./framework/field-map";
 import { door } from "./doors";
@@ -159,6 +160,7 @@ describe("Fathom", () => {
   it("a recording is on the prospect's booking nearest it (within a day); the team's own emails are never the prospect", async () => {
     const k = await connectorKit();
     const conn = await k.state.upsertConnection({ offerId: k.offerId, port: "recording", provider: "fathom", credentials: { webhook_secret: "sec", api_key: "fathom-key" } });
+    await k.store.tx((tx) => tx.setSetting(k.offerId, "recordings.match.appointment_window_hours", 24, "test"));
     await known(k, "c1", { email: "ana@example.com" });
     await k.engine.ingest({ offerId: k.offerId, type: "person.added", source: "test", dedupeKey: "p", payload: { person: { id: "u-luis", name: "Luis", email: "luis@team.com", roles: ["closer"] } } });
     await known(k, "c-luis", { email: "luis@team.com" });
@@ -169,6 +171,138 @@ describe("Fathom", () => {
     // one call, not two: the booked call carries the recording
     expect((await k.store.tx((tx) => tx.projFind("calls", k.offerId))).map((c) => [c.id, c.recordingId])).toEqual([["a1", "fathom:77"]]);
     expect(k.queue.jobs.filter((j) => j.task === "transcript_wait")).toHaveLength(0);
+  });
+
+  describe("the match ladder (v1's): email, meeting link, exact name, the closer's calendar; thresholds are the offer's settings", () => {
+    const T0 = Date.parse("2026-10-26T13:00:00Z");
+    const min = (n: number) => new Date(T0 + n * 60_000).toISOString();
+    const ALL = { "recordings.match.appointment_window_hours": 24, "recordings.match.calendar_window_min": 120, "recordings.match.on_time_min": 15, "recordings.match.clear_gap_min": 40 };
+    const setup = async (settings: J = ALL) => {
+      const k = await connectorKit();
+      const conn = await k.state.upsertConnection({ offerId: k.offerId, port: "recording", provider: "fathom", credentials: { webhook_secret: "sec", api_key: "fathom-key" } });
+      for (const [key, v] of Object.entries(settings)) if (v !== undefined) await k.store.tx((tx) => tx.setSetting(k.offerId, key, v, "test"));
+      await k.engine.ingest({ offerId: k.offerId, type: "person.added", source: "test", dedupeKey: "p", payload: { person: { id: "u-luis", name: "Luis", email: "luis@team.com", crm_user_id: "U9", roles: ["closer"] } } });
+      await known(k, "ann", { email: "ann@x.com", first_name: "Ann", last_name: "Lee" });
+      await known(k, "bob1", { email: "bob@x.com", first_name: "Bob", last_name: "Ray" });
+      await known(k, "bob2", { first_name: "Bob", last_name: "Ray" });
+      let n = 0;
+      const book = (contactId: string, startsAt: string, x: J = {}) => k.engine.ingest({ offerId: k.offerId, type: "appointment.booked", source: "test", dedupeKey: `b${++n}`, contactId, appointmentId: `a${n}`, payload: { appointment: { starts_at: startsAt, status: "booked", closer: { ghl_user_id: "U9" }, ...x } } }).then(() => `a${n}`);
+      let m = 0;
+      const record = async (x: J) => { const id = 100 + ++m; await signed(k, "fathom", conn.id, meeting({ recording_id: id, transcript: [{ speaker: { display_name: "Luis" }, text: "hi" }], ...x }), `m${id}`); return (await factsOf(k.store, k.offerId)).find((f) => f.dedupeKey === `fathom:recording:${id}`)!; };
+      return { k, book, record };
+    };
+    const guest = { calendar_invitees: [{ name: "Guest", email: "guest@phone.com" }, { email: "luis@team.com", is_external: false }] };
+    const onlyCloser = { calendar_invitees: [{ name: "Luis", email: "luis@team.com", is_external: false }] };
+
+    it("one meeting key whichever side reports the link; anything not a link is no key", () => {
+      expect(meetingKey("https://us06web.zoom.us/j/82995723390?pwd=Zk9xYzRrbWxLQT09")).toBe("82995723390");
+      expect(meetingKey("https://us02web.zoom.us/wc/join/82995723390")).toBe("82995723390");
+      expect(meetingKey("https://meet.google.com/ABC-defg-hij?authuser=1")).toBe("abc-defg-hij");
+      expect(meetingKey("https://zoom.us/my/carly.room?pwd=1")).toBe("zoom.us/my/carly.room");
+      for (const notALink of [undefined, null, "", "12 Main St, Hartford", "+1 860 555 1234", "zoom"]) expect(meetingKey(notALink)).toBeUndefined();
+    });
+    it("1. email: the contact, on their booking with the meeting link (not merely the nearest), within the window", async () => {
+      const { book, record } = await setup();
+      await book("ann", min(1));
+      const keyed = await book("ann", min(120), { meeting_url: "https://meet.google.com/abc-defg-hij" });
+      const f = await record({ calendar_invitees: [{ email: "ANN@x.com" }], meeting_url: "https://meet.google.com/abc-defg-hij?authuser=0" });
+      expect(f).toMatchObject({ type: "recording.received", contactId: "ann", appointmentId: keyed, payload: { matched_by: "email", appointment_matched: true } });
+      expect(f.payload.rungs_off).toBeUndefined();
+      const nearest = await record({ calendar_invitees: [{ email: "ann@x.com" }] });
+      expect(nearest).toMatchObject({ contactId: "ann", appointmentId: "a1" });
+    });
+    it("1. email: two different contacts on one recording is no guess", async () => {
+      const { record } = await setup();
+      const f = await record({ calendar_invitees: [{ email: "ann@x.com" }, { email: "bob@x.com" }] });
+      expect(f).toMatchObject({ type: "recording.unlinked", contactId: null, payload: { reason: expect.stringMatching(/2 different contacts/) } });
+    });
+    it("1. email without the window: the contact is matched, with no booking, and the fact says which rungs were off", async () => {
+      const { book, record } = await setup({});
+      await book("ann", min(1));
+      const f = await record({ calendar_invitees: [{ email: "ann@x.com" }] });
+      expect(f).toMatchObject({ type: "recording.received", contactId: "ann", appointmentId: null, payload: { matched_by: "email", appointment_matched: false } });
+      expect(f.payload.rungs_off).toEqual([
+        "meeting (recordings.match.appointment_window_hours)",
+        "calendar (recordings.match.calendar_window_min, recordings.match.on_time_min, recordings.match.clear_gap_min)",
+        "booking (recordings.match.appointment_window_hours)",
+      ]);
+    });
+    it("2. meeting link: the one booking with it names the person; a shared link (a personal room) says nothing; the window bounds it", async () => {
+      const { book, record } = await setup({ "recordings.match.appointment_window_hours": 24 });
+      const want = await book("bob2", min(30), { meeting_url: "https://us06web.zoom.us/j/82995723390?pwd=abc", closer: null });
+      const f = await record({ ...onlyCloser, recording_start_time: min(28), meeting_url: "https://zoom.us/j/82995723390" });
+      expect(f).toMatchObject({ type: "recording.received", contactId: "bob2", appointmentId: want, payload: { matched_by: "meeting" } });
+      // the same link on a second booking: no answer from it
+      await book("ann", min(3 * 60), { meeting_url: "https://zoom.us/j/82995723390" });
+      const shared = await record({ ...onlyCloser, recording_start_time: min(28), meeting_url: "https://zoom.us/j/82995723390" });
+      expect(shared).toMatchObject({ type: "recording.unlinked", payload: { reason: expect.stringMatching(/its meeting link is on 2 bookings/) } });
+      // a booking with the link, but further away than the window
+      await book("bob1", min(3 * 24 * 60), { meeting_url: "https://zoom.us/j/7712345678" });
+      expect((await record({ ...onlyCloser, recording_start_time: min(28), meeting_url: "https://zoom.us/j/7712345678" })).type).toBe("recording.unlinked");
+    });
+    it("2. meeting link without its window setting: not tried", async () => {
+      const { book, record } = await setup({});
+      await book("bob2", min(30), { meeting_url: "https://zoom.us/j/82995723390", closer: null });
+      const f = await record({ ...onlyCloser, recording_start_time: min(28), meeting_url: "https://zoom.us/j/82995723390" });
+      expect(f).toMatchObject({ type: "recording.unlinked", payload: { rungs_off: expect.arrayContaining(["meeting (recordings.match.appointment_window_hours)"]) } });
+    });
+    it("3. name: exactly one contact with it (case, spaces and punctuation aside); two with it is no answer", async () => {
+      const { book, record } = await setup();
+      await book("ann", min(5), { closer: null });
+      const f = await record({ calendar_invitees: [{ name: "ann  LEE.", email: "personal@gmail.com" }] });
+      expect(f).toMatchObject({ type: "recording.received", contactId: "ann", appointmentId: "a1", payload: { matched_by: "name" } });
+      const two = await record({ calendar_invitees: [{ name: "Bob Ray", email: "bobs-other@gmail.com" }] });
+      expect(two).toMatchObject({ type: "recording.unlinked", payload: { reason: expect.stringMatching(/"bob ray" is the name of 2 contacts/) } });
+    });
+    it("4. the closer's calendar: their one booking within the window is the call; one further than the window is not", async () => {
+      const { book, record } = await setup();
+      const a = await book("ann", min(0));
+      expect(await record({ ...guest, recording_start_time: min(25) })).toMatchObject({ type: "recording.received", contactId: "ann", appointmentId: a, payload: { matched_by: "calendar" } });
+      const far = await record({ ...guest, recording_start_time: min(5 * 60) });
+      expect(far).toMatchObject({ type: "recording.unlinked", payload: { reason: expect.stringMatching(/nobody in the CRM matches guest@phone.com, Guest; no booking on the closer's calendar near the start/) } });
+    });
+    it("4. the window is the offer's setting: at 360 minutes, a booking five hours away is near", async () => {
+      const { book, record } = await setup({ ...ALL, "recordings.match.calendar_window_min": 360 });
+      const a = await book("ann", min(0));
+      expect(await record({ ...guest, recording_start_time: min(5 * 60) })).toMatchObject({ contactId: "ann", appointmentId: a, payload: { matched_by: "calendar" } });
+    });
+    it("4. back-to-back calls: the call it started on, when the next is clearly another slot (on time, clear gap); too close stays unlinked", async () => {
+      const { book, record } = await setup();
+      const ten = await book("ann", min(0));
+      await book("bob1", min(60));
+      await book("bob1", min(120));
+      expect(await record({ ...guest, recording_start_time: min(1) })).toMatchObject({ contactId: "ann", appointmentId: ten, payload: { matched_by: "calendar" } });
+      await book("bob2", min(30));
+      expect(await record({ ...guest, recording_start_time: min(1) })).toMatchObject({ type: "recording.unlinked", payload: { reason: expect.stringMatching(/none clearly the one it started on/) } });
+    });
+    it("4. back-to-back thresholds: started later than on_time, or the next nearer than clear_gap, is no answer", async () => {
+      const late = await setup({ ...ALL, "recordings.match.on_time_min": 5 });
+      await late.book("ann", min(0)); await late.book("bob1", min(60));
+      expect((await late.record({ ...guest, recording_start_time: min(10) })).type).toBe("recording.unlinked");
+      expect((await late.record({ ...guest, recording_start_time: min(4) })).type).toBe("recording.received");
+      const gap = await setup({ ...ALL, "recordings.match.clear_gap_min": 70 });
+      await gap.book("ann", min(0)); await gap.book("bob1", min(60));
+      expect((await gap.record({ ...guest, recording_start_time: min(1) })).type).toBe("recording.unlinked");
+      expect((await gap.record({ ...guest, recording_start_time: min(-11) })).type).toBe("recording.received");
+    });
+    it("4. the calendar rung is off while any of its three settings is unset (or not a number); an unknown recorder has no calendar", async () => {
+      for (const drop of ["recordings.match.calendar_window_min", "recordings.match.on_time_min", "recordings.match.clear_gap_min"]) {
+        const { book, record } = await setup({ ...ALL, [drop]: drop.endsWith("on_time_min") ? "soon" : undefined });
+        await book("ann", min(0));
+        const f = await record({ ...guest, recording_start_time: min(2) });
+        expect(f).toMatchObject({ type: "recording.unlinked", payload: { rungs_off: [expect.stringContaining(drop)] } });
+      }
+      const { book, record } = await setup();
+      await book("ann", min(0));
+      expect((await record({ ...guest, recorded_by: { email: "someone@else.com" }, recording_start_time: min(2) })).type).toBe("recording.unlinked");
+    });
+    it("an unmatched recording still raises recording.unlinked, saying why; every attendee staff is named as such", async () => {
+      const { record } = await setup();
+      const f = await record({ calendar_invitees: [{ email: "who@where.com" }], recording_start_time: "2020-01-01T00:00:00Z" });
+      expect(f).toMatchObject({ type: "recording.unlinked", contactId: null, payload: { recording_id: expect.stringMatching(/^fathom:/), reason: expect.stringMatching(/who@where.com/), attendees: "who@where.com" } });
+      const staff = await record({ calendar_invitees: [{ email: "luis@team.com" }], recording_start_time: "2020-01-01T00:00:00Z" });
+      expect(staff.payload.reason).toMatch(/every attendee is staff/);
+    });
   });
 
   it("delivered without its transcript: looked for at 1, 3 and 10 minutes; the words come from Fathom when a step asks, never stored", async () => {
@@ -294,8 +428,11 @@ describe("a workflow through the GHL connector", () => {
     g.seedContact({ id: "c1", locationId: "LOC1", email: "ana@example.com", phone: "+15550100001", tags: [] });
     const wf = (id: string, on: J, tags: string[]) => ({ schema: 2, id, name: id, reentry: { policy: "always" }, nodes: [{ id: "t1", type: "trigger@1", title: "Start", on }, { id: "a1", type: "action@1", title: "Tag", action: "crm.add_tag", params: { tags } }, { id: "x1", type: "end@1", title: "End", reason: "done" }], edges: [{ from: "t1", to: "a1" }, { from: "a1", to: "x1" }] });
     await install(k.store, k.offerId, wf("booked", { event: "appointment.booked" }, ["booked"]), { now: k.http.now(), delivery: "live", crmWrites: "real" });
-    // a workflow on that tag: v1's double-fire bug was an engine-written tag starting a second run
-    const onTag = await install(k.store, k.offerId, wf("on-tag", { event: "tag.added", match: { eq: ["{{event.by}}", "crm"] } }, ["followed"]), { now: k.http.now(), delivery: "live", crmWrites: "real" });
+    // a workflow on that tag, with no match on who: v1's double-fire bug was an engine-written tag starting a second run;
+    // an echo starts nothing by default
+    const onTag = await install(k.store, k.offerId, wf("on-tag", { event: "tag.added" }, ["followed"]), { now: k.http.now(), delivery: "live", crmWrites: "real" });
+    // one that asks for our own writes too
+    const onOwn = await install(k.store, k.offerId, wf("on-own", { event: "tag.added", includeOwnWrites: true, match: { eq: ["{{event.tag}}", "booked"] } }, ["seen"]), { now: k.http.now(), delivery: "live", crmWrites: "real" });
     const deliver = async (body: J) => { const r = await k.state.recordDelivery({ source: "ghl", deliveryId: crypto.randomUUID(), eventType: String(body.type), locationId: "LOC1", connectionId: null, offerId: null, headers: {}, body: JSON.stringify(body), receivedAt: k.http.now() }); return processDelivery(k.hub, r.id); };
     await deliver({ type: "ContactCreate", locationId: "LOC1", ...g.contactJson("c1") });
     g.seedAppointment({ id: "a1", locationId: "LOC1", contactId: "c1", calendarId: "CAL1" });
@@ -312,6 +449,7 @@ describe("a workflow through the GHL connector", () => {
     await k.engine.runDue();
     const runsOf = async () => (await k.store.tx((tx) => tx.runs({ workflowId: onTag.id }))).length;
     expect(await runsOf()).toBe(0);
+    expect(await k.store.tx((tx) => tx.runs({ workflowId: onOwn.id }))).toHaveLength(1);
     // a tag a person adds in GHL does start it
     k.http.advance(60_000);
     Object.assign(g.contacts.get("c1")!, { tags: ["booked", "vip"], dateUpdated: k.http.now().toISOString() });

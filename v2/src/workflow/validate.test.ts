@@ -79,6 +79,15 @@ describe("nodes", () => {
     expectOnly(wf([trigger(), { id: "n1", type: "loop@1", title: "Loop" }, end()], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]), "unknown_primitive");
     expectOnly(wf([trigger(), { ...post(), type: "message" }, end()], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]), "unknown_primitive");
   });
+  it("an event trigger may ask for the platform's own writes too (includeOwnWrites, a boolean); a schedule or a manual trigger may not", () => {
+    const on = (o: N) => wf([{ ...trigger(), on: o }, post(), end()], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]);
+    expect(validateWorkflow(on({ event: "tag.added", includeOwnWrites: true })).problems).toEqual([]);
+    expect(validateWorkflow(on({ event: "tag.added", includeOwnWrites: false, match: { eq: ["{{event.tag}}", "vip"] } })).problems).toEqual([]);
+    const p = expectOnly(on({ event: "tag.added", includeOwnWrites: "yes" }), "schema");
+    expect(p).toMatchObject({ node: "t1" });
+    expectOnly(on({ schedule: { every: "1h" }, includeOwnWrites: true }), "schema");
+    expectOnly(on({ manual: { about: "contact" }, includeOwnWrites: true }), "schema");
+  });
   it("refuses a version of a primitive that does not exist", () => {
     expectOnly(wf([trigger(), { ...post(), type: "message@2" }, end()], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]), "unknown_version");
   });

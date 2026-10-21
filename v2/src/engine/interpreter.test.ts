@@ -35,6 +35,23 @@ describe.each(STORES)("the interpreter, on %s", (kind) => {
       await h.store.tx((tx) => tx.updateWorkflow(h.wfs.w!.id, { enabled: false }));
       expect((await h.ingest("appointment.booked", booked())).started).toHaveLength(0);
     });
+    it("the echo of the platform's own write (by: platform) is recorded but starts nothing, unless the trigger has includeOwnWrites", async () => {
+      const h = await harness(kind, { workflows: [
+        flow("plain", [trig("tag.added"), end()], chain("t1", "x1")),
+        flow("matched", [trig("tag.added", { match: { eq: ["{{event.tag}}", "vip"] } }), end()], chain("t1", "x1")),
+        flow("own", [trig("tag.added", { includeOwnWrites: true }), end()], chain("t1", "x1")),
+        flow("refused", [trig("tag.added", { includeOwnWrites: false }), end()], chain("t1", "x1")),
+      ] });
+      const echo = await h.ingest("tag.added", { contact: "c1", key: "echo", payload: { tag: "vip", by: "platform" } });
+      expect(echo.duplicate).toBe(false);
+      expect(echo.event.payload).toMatchObject({ by: "platform" });
+      expect((await h.runs()).map((r) => r.workflowId)).toEqual([h.wfs.own!.id]);
+      // a person's (or the vendor's) change starts every one of them, as before
+      const human = await h.ingest("tag.added", { contact: "c1", key: "human", payload: { tag: "vip", by: "crm" } });
+      expect(human.started).toHaveLength(4);
+      const unsaid = await h.ingest("tag.added", { contact: "c2", key: "unsaid", payload: { tag: "vip" } });
+      expect(unsaid.started).toHaveLength(4);
+    });
   });
 
   describe("branch@1 and set@1", () => {

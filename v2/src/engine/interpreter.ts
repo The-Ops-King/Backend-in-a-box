@@ -862,15 +862,21 @@ async function startForTrigger(deps: Deps, e: EventRow, wf: WorkflowRow, trigger
   });
 }
 
+/** A fact a connector tagged as the echo of the platform's own write. A fact a run recorded is never one: its step said whether it starts workflows. */
+export const isEcho = (e: Pick<EventRow, "runId" | "payload">): boolean => !e.runId && (e.payload as Record<string, unknown> | null)?.by === "platform";
+
 /**
  * A fact arrived: every enabled workflow with a trigger on it (whose match holds) starts a run, subject to reentry. A
- * fact a run recorded never starts that run's own workflow again, unless the step said so (`alsoOwn`).
+ * fact a run recorded never starts that run's own workflow again, unless the step said so (`alsoOwn`). The echo of
+ * the platform's own write starts only the triggers with `includeOwnWrites`.
  */
 export async function dispatchEvent(deps: Deps, e: EventRow, o: { alsoOwn?: boolean } = {}): Promise<string[]> {
   const { tx, now } = deps;
   const offer = (await tx.offer(e.offerId))!;
   const settings = await tx.settings(e.offerId);
   const own = e.runId && !o.alsoOwn ? (await tx.run(e.runId))?.workflowId : undefined;
+  // the echo of our own write (a connector's `by: "platform"`) starts only a trigger that asks for it
+  const echo = isEcho(e);
   const started: string[] = [];
   const subjects = await freshSubjects(tx, { offer, settings, subjects: { contactId: e.contactId, appointmentId: e.appointmentId, dealId: e.dealId }, now, event: eventView(e) });
   for (const wf of await tx.workflows(e.offerId)) {
@@ -879,7 +885,7 @@ export async function dispatchEvent(deps: Deps, e: EventRow, o: { alsoOwn?: bool
     const { def } = definitionOf(version);
     const ctx: Context = { ...mergeSubjects(snapshotOf(e.payload), subjects), event: eventView(e), setting: nestSettings(settings), offer: { id: offer.id, slug: offer.slug, name: offer.name, zone: offer.zone } };
     const env = buildContext({ run: { id: "", startedAt: now, context: { event: {}, subjects: {}, vars: {}, visits: {}, acted: false } }, workflowKey: wf.key, offer, settings, subjects, now }).env;
-    const trigger = def.nodes.find((n) => n.type === "trigger@1" && "event" in n.on && n.on.event === e.type && (!n.on.match || holds(n.on.match, ctx, env)));
+    const trigger = def.nodes.find((n) => n.type === "trigger@1" && "event" in n.on && n.on.event === e.type && (!echo || n.on.includeOwnWrites === true) && (!n.on.match || holds(n.on.match, ctx, env)));
     if (!trigger) continue;
     const id = await startForTrigger(deps, e, wf, trigger.id);
     if (id) started.push(id);

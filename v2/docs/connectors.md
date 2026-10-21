@@ -34,7 +34,8 @@ a provider field id or an auth mode. The connectors live in `src/connectors/`:
   the Slack app's; it sweeps unread inbox rows at start, so a door whose queue call failed loses nothing.
 - **Echoes**: every GHL write records the change it expects (`connector_echoes`) before it is made (a created contact or
   card as soon as its id is known). The webhook that echoes it inside 15 minutes says `by: platform`; every other GHL fact
-  says `by: crm`. Workflows decide what to do with that (see "For Tyler" below).
+  says `by: crm`. An echo is recorded and projected like any fact, but starts no workflow unless its trigger says
+  `includeOwnWrites: true` (Tyler's GHL App Spec: workflows trigger on human or vendor changes by default).
 - **Stale updates**: `entity_versions` keeps the last state and vendor time seen per entity; an update older than it is
   dropped, and the same version seen again (a poll's overlap) is nothing new.
 
@@ -93,6 +94,22 @@ Make the webhook with transcript and summary included, destination `https://<dom
 secret is shown once. Connection: `port: "recording"`, `credentials: { webhook_secret, api_key }`. The team's emails
 (the people projection) are never taken for the prospect.
 
+A recording is placed by v1's ladder (`framework/recordings.ts`), one unambiguous hit or nothing: an invitee email that is
+a known contact; the meeting link (exactly one live booking with it); an invitee's exact name (exactly one contact); the
+closer's calendar (the recorder is a team member with one booking near the start, or the nearest on time with every
+other clear of it). The thresholds are the offer's settings, none with a value in code:
+
+| Setting | What it is | v1 |
+| --- | --- | --- |
+| `recordings.match.appointment_window_hours` | the meeting-link rung's window, and which booking a contact found by email or name is on | 24 |
+| `recordings.match.calendar_window_min` | the closer's-calendar rung: how far from the start their bookings are looked at | 120 |
+| `recordings.match.on_time_min` | back-to-back calls: the nearest is the call when it starts within this... | 15 |
+| `recordings.match.clear_gap_min` | ...and every other is at least this far away | 40 |
+
+While one is unset (or not a number) the rung that reads it is not tried (a contact found by email or name is linked
+without a booking), and the fact says which in `rungs_off`. A recording no rung places is `recording.unlinked` with its
+reason. The generic door's recordings still match by email or phone only.
+
 ### Typeform
 On each form, a webhook to `https://<domain>/in/typeform/<connection id>` with a secret. Connection: `port: "forms"`,
 `credentials: { webhook_secret }`, `config.forms: { "<form id>": { name, answers: { "<question ref>": "<canonical field>" },
@@ -146,9 +163,8 @@ The tests answer from payloads modelled on v1's verified reads and the vendors' 
   own deal in the projections, and a CRM card must never count as a close.
 - A tag on a contact never seen before is not reported as added (GHL's update does not say which tag changed); a contact
   made in GHL reports its tags as added.
-- `by: platform` is on every echoed fact, but workflows still trigger on it unless they match on `event.by` (a test shows
-  `match: { eq: ["{{event.by}}", "crm"] }` keeping an engine-written tag from starting a second run). Whether that should be
-  the default for every trigger is an engine decision for you.
+- An echo (`by: platform`) starts no trigger by default; `includeOwnWrites: true` on a trigger opts in. Waits are not
+  filtered: a run waiting for a tag still sees the tag a step of its own (or another workflow's) wrote.
 - A location shared by two offers sends each offer every fact unless the offer's connection has a `scope_tag`.
 - Whop refunds are not reconciled (the payments list has no refund id to match its webhook's fact by).
 - The GHL rate budget is per process; a second worker process would need a shared one.

@@ -22,8 +22,12 @@ export const Schedule = z.object({
   .refine((s) => s.at !== undefined || (s.days === undefined && s.dayOfMonth === undefined), { message: "days and dayOfMonth go with at, not every" });
 
 const On = z.union([
-  /** A fact arrived: "appointment.booked", narrowed by `match` over the event and its subjects. */
-  z.object({ event: EventName, match: Predicate.optional() }).strict(),
+  /**
+   * A fact arrived: "appointment.booked", narrowed by `match` over the event and its subjects. A fact that is the
+   * echo of the platform's own write (a connector tagged it `by: "platform"`: the tag a step added, coming back as a
+   * webhook) starts nothing unless the trigger says `includeOwnWrites: true`; it is still recorded and projected.
+   */
+  z.object({ event: EventName, match: Predicate.optional(), includeOwnWrites: z.boolean().optional() }).strict(),
   z.object({ schedule: Schedule }).strict(),
   /** Started by a person from the dashboard or Slack, about one subject. */
   z.object({ manual: z.object({ about: z.enum(["contact", "appointment", "deal", "offer"]) }).strict() }).strict(),

@@ -39,7 +39,7 @@ Three rules change how things are written, everywhere:
 
 | v1 type | v2 |
 |---|---|
-| `trigger` (event + `match`) | `trigger@1` `on: { event, match? }` |
+| `trigger` (event + `match`) | `trigger@1` `on: { event, match?, includeOwnWrites? }`. The echo of the platform's own write (a connector's `by: platform`) starts it only with `includeOwnWrites: true`; v1's D144 (a tag a step wrote reached the other workflows) is that opt-in, written where it is meant |
 | `trigger` `event: "schedule"` | `trigger@1` `on: { schedule: { every } \| { at, days?, dayOfMonth? }, for: "offer" \| { role } }` (`for: company` → `offer`, `for: closer` → `{ role: "closer" }`). Fired by its timer (a job at the next time): once per period (the local date, or the interval's bucket) per subject; a late job runs its period once, a period missed entirely is not made up, as v1's clock. A role's runs are one per active person with it, from the people projection (v1: users with role closer or setter) |
 | (none) | `trigger@1` `on: { manual: { about } }`: started by a person |
 | `wait` `rule: { anchor, offset, tz, guard, earliest, latest, window }` | `wait@1` `until: { anchor, offset, zone, guard, earliest, latest }`; `tz` → `zone`, now required; `window` → workflow `sendWindow` |

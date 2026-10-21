@@ -842,6 +842,70 @@
       ]
     },
     {
+      "key": "recordings.match.appointment_window_hours",
+      "type": "hours",
+      "rule": "the Fathom recording matcher: the meeting-link rung, and which booking a recording matched by email or name is on; while unset that rung is not tried and such a recording is linked without a booking",
+      "v1": {
+        "binding": null,
+        "value": 24,
+        "note": "written in code (APPOINTMENT_WINDOW_H in recordings.ts), the same for every offer",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [],
+      "readBy": [
+        "the Fathom connector (src/connectors/framework/recordings.ts)"
+      ]
+    },
+    {
+      "key": "recordings.match.calendar_window_min",
+      "type": "minutes",
+      "rule": "the Fathom recording matcher's closer's-calendar rung: how far from the recording's start the recorder's bookings are looked at; while unset (or either other calendar setting is) that rung is not tried",
+      "v1": {
+        "binding": null,
+        "value": 120,
+        "note": "written in code (CALENDAR_WINDOW_MIN in recordings.ts), the same for every offer",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [],
+      "readBy": [
+        "the Fathom connector (src/connectors/framework/recordings.ts)"
+      ]
+    },
+    {
+      "key": "recordings.match.clear_gap_min",
+      "type": "minutes",
+      "rule": "the closer's-calendar rung with back-to-back calls: every other booking starts at least this far from the recording; while unset that rung is not tried",
+      "v1": {
+        "binding": null,
+        "value": 40,
+        "note": "written in code (CLEAR_GAP_MIN in recordings.ts), the same for every offer",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [],
+      "readBy": [
+        "the Fathom connector (src/connectors/framework/recordings.ts)"
+      ]
+    },
+    {
+      "key": "recordings.match.on_time_min",
+      "type": "minutes",
+      "rule": "the closer's-calendar rung with back-to-back calls: the nearest booking is the call when it starts within this of the recording; while unset that rung is not tried",
+      "v1": {
+        "binding": null,
+        "value": 15,
+        "note": "written in code (ON_TIME_MIN in recordings.ts), the same for every offer",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [],
+      "readBy": [
+        "the Fathom connector (src/connectors/framework/recordings.ts)"
+      ]
+    },
+    {
       "key": "setter_result.act",
       "type": "boolean",
       "v1": {

@@ -13,6 +13,33 @@ the exact timeline it states; together the scenarios take every edge of every wo
 folder's `_untakeable.json`, with why). `pnpm sim offers/hair/workflows/<id>.json offers/hair/scenarios/<id>` prints the
 timelines.
 
+## Changed in piece 8: our own writes start nothing; recordings matched by v1's whole ladder
+
+- **The echo of the platform's own write starts no workflow, unless a trigger asks.** A GHL webhook that echoes a write a
+  step made (the tag it added, the card it moved, the booking it cancelled) is recorded and projected with `by: platform`,
+  and starts only a trigger with `includeOwnWrites: true` (Tyler's GHL App Spec, "Echoes of our own writes"). A fact a step
+  records itself (`facts.record`) is not an echo: its `startsWorkflows` still says whether it starts the others.
+- **Checked against every Hair draft: none needs the opt-in, so none has it.** Hair's triggers that a GHL echo could reach
+  are the bookings (`appointment.booked`, `.rescheduled`, `.status_changed`: Calendar availability, Call booked, Call
+  cancelled, Call outcome filed, Cancellation rebook, No-show recovery, Pre-call sequence), `card.moved` (Card moved by
+  hand) and `tag.added` (Reactivation on `reactivate`, Send agreement manually on `sys-send-agreement-manually`). In v1:
+  - no Hair step adds `reactivate` or `sys-send-agreement-manually` (the tags its steps add are `stat-*`, `pay-*`, `dq-*`
+    and `meta booked call`), so v1's D144 (a tag a run's step added went to the other workflows) started nothing in Hair;
+  - `card.moved` was only ever a hand move (E13), so Card moved by hand never ran on the engine's own card moves. Before
+    this change a v2 echo of Call booked's or Call outcome filed's `crm.move_deal` would have started it; now it does not,
+    as in v1;
+  - the one booking a Hair step changes is Pre-call sequence's ❌ cancel (`n_cx`), which tells the other workflows itself
+    (`n_cx_fact`, `appointment.status_changed`, `startsWorkflows: true`), as v1 did. GHL's echo of that cancel no longer
+    starts Call cancelled, Cancellation rebook and Calendar availability a second time.
+  Every Hair scenario keeps its timeline exactly.
+- **Recordings are matched by v1's ladder** (`src/connectors/framework/recordings.ts`): invitee email, the meeting link,
+  an invitee's exact name, the closer's calendar. Its time thresholds are now Hair's own settings, with no value in code:
+  `recordings.match.appointment_window_hours` (v1 24), `recordings.match.calendar_window_min` (120),
+  `recordings.match.on_time_min` (15), `recordings.match.clear_gap_min` (40), in `settings.required.json`. While one is
+  unset the rung that reads it is not tried, and the recording's fact lists it (`rungs_off`); a recording no rung places
+  is `recording.unlinked`, as before (Unmatched recording). `recording.received` now says `matched_by` and
+  `appointment_matched`, as v1's did.
+
 ## Changed in piece 5: the projections, the derived facts' rules, schedules and reports
 
 What the drafts read about a contact, an appointment, a deal, a payment and a recording now comes from the projections
