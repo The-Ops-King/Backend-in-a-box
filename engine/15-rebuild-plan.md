@@ -132,7 +132,7 @@ Every workflow that is off has no runs at all. So:
 - The fact log, the config store (typed settings, field maps, content), and runs.
 - The outbox and the delivery gate.
 - The simulator: a fake clock and fake ports.
-- The job runner: graphile-worker or pg-boss on a persistent worker.
+- The job runner: graphile-worker or pg-boss on the always-on Railway worker.
 
 **Gate:** every Phase 2 scenario replays in the simulator with zero unexplained differences.
 
@@ -218,20 +218,36 @@ The alternative, a new repository, separates history cleanly but puts the spec a
 | Golden-trace replay | the new engine does what the old one did on real history | `spec/<offer>/traces/` |
 | A few end-to-end runs | the deployed system works against sandbox accounts | per connector |
 
-## 6. Decisions for Tyler before Phase 0 ends
+## 6. Decided (Tyler, 2026-10-21)
 
-Each has a recommendation:
+1. **Where the code lives:** `v2/` in this repository, on new branches. Not a new repo.
+2. **Hosting, one subscription: Railway.** It runs:
+   - the app (Next.js: API and dashboard);
+   - the always-on worker;
+   - Postgres.
 
-1. **Where the code lives:** same repo, `v2/` folder, `rebuild` branch (recommended) or a new repo.
-2. **Hosting:** the app (API plus dashboard) on Vercel as now. The worker on one always-on service: Railway or Render
-   (recommended for simplicity) or Fly.
-3. **Database:** a new dedicated Supabase project with branching (recommended: you already run Supabase) or Neon.
-4. **App framework:** one TypeScript app. Hono plus React (recommended: small and explicit) or Next.js.
-5. **Data access:** Kysely plus Zod (recommended: typed SQL, close to today's raw SQL) or Drizzle.
-6. **GHL agencies:** which agency each live offer's sub-account sits in, and whether new clients' sub-accounts go in yours. A
-   private app installs into at most 5 agencies (GHL spec).
-7. **Slack app owner:** a dedicated platform workspace (recommended in the Slack spec) or yours.
-8. **Slash commands:** `/bib mtd` with short aliases for one release (recommended in the Slack spec) or short names only.
+   No Vercel and no Supabase for v2. The old system stays where it is until each offer moves. Why not the free tiers: an
+   always-on worker keeps the database awake, and Neon Free's 100 compute-hours a month runs out mid-month. Supabase's free
+   projects are used up, and its preview branches are paid. Vercel Hobby is non-commercial only.
+3. **No every-minute poll.**
+   - Vendors push: webhooks from GHL (Marketplace app), Whop, Fathom, Typeform and Slack.
+   - Timers are jobs with an exact run time on the worker.
+   - A nightly reconcile catches anything a webhook missed.
+   - Polling stays only where a vendor cannot push, inside its connector:
+     - GHL agreements still waiting for a signature (every 2 minutes, until signed or 30 days);
+     - call transcripts (with back-off);
+     - Calendly on a plan without webhooks;
+     - a GHL offer past the 5-agency cap (PIT mode, until the Security Review passes).
+4. **App framework:** Next.js and React (Tyler knows them).
+5. **Data access:** Drizzle plus Zod: tables written as TypeScript, and every setting and workflow checked against a schema.
+6. **GHL agencies:** every client is in its own agency. Three of the private app's five installs are used by Hair, PMU and
+   Dating, so the 6th client hits the cap. The Security Review is built for from the start: the scope rationale now, the demo
+   video once the first offer runs on the app (GHL spec).
+7. **Slack and GHL app owner:** Tyler.
+8. **Slash commands:** simple names, no prefix (`/mtd`, `/cash`). With one platform app, offers no longer collide with each
+   other. The only remaining risk is another app in a client's workspace using the same name.
+
+Still open for Phase 0: the GHL test-sub-account checks (Phase 0 above) and HubSpot (only when a HubSpot offer exists).
 
 ## 7. Not in this plan
 
