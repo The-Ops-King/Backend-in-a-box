@@ -246,7 +246,7 @@
       "type": "set@1",
       "title": "Remember jev confidence = [reply intent confidence]",
       "var": "jev_confidence",
-      "value": "{{vars.setter_result.confidence}}"
+      "value": "{{vars.setter_result.confidence | percent}}"
     },
     {
       "id": "l_now",
@@ -267,7 +267,7 @@
       "type": "set@1",
       "title": "Remember jev guesses = [top guesses]",
       "var": "jev_guesses",
-      "value": "{{vars.setter_result.guesses}}"
+      "value": "{{vars.setter_result.guesses | first:3 | each:\"{{item.value}} {{item.confidence | percent}}%\" | join:\", \" | words | default:none}}"
     },
     {
       "id": "c_latest",
@@ -423,7 +423,8 @@
         }
       },
       "content": "setter_call_logged.s1",
-      "remember": "setter-call:{{vars.convo.key}}"
+      "remember": "setter-call:{{vars.convo.key}}",
+      "edit": true
     },
     {
       "id": "v_res",
@@ -643,7 +644,8 @@
       "type": "ask@1",
       "title": "Ask the setters: set, follow up, DQ or not interested?",
       "to": {
-        "channel": "{{setting.slack.channel.setter_calls}}"
+        "channel": "{{setting.slack.channel.setter_calls}}",
+        "fallbackChannel": "{{setting.slack.channel.ops}}"
       },
       "content": "setter_call_logged.q1",
       "answers": {
@@ -820,10 +822,13 @@
       "action": "crm.move_deal",
       "params": {
         "pipeline": "{{setting.crm.pipeline_setter}}",
-        "stage": "{{setting.crm.stage_setter_dq | optional}}",
+        "stage": "{{setting.crm.stage_setter_dq}}",
         "ifMissing": "skip",
         "pick": "open"
-      }
+      },
+      "skipWhenUnset": [
+        "crm.stage_setter_dq"
+      ]
     },
     {
       "id": "k_lost_dq_status",
@@ -833,7 +838,10 @@
       "params": {
         "pipeline": "{{setting.crm.pipeline_setter}}",
         "status": "lost"
-      }
+      },
+      "skipWhenUnset": [
+        "crm.stage_setter_dq"
+      ]
     },
     {
       "id": "v_key",
@@ -885,7 +893,8 @@
       "title": "Close the question in its thread",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.setter_calls}}"
+          "channel": "{{setting.slack.channel.setter_calls}}",
+          "fallbackChannel": "{{setting.slack.channel.ops}}"
         }
       },
       "content": "setter_call_logged.ru2",
@@ -918,10 +927,13 @@
       "action": "crm.move_deal",
       "params": {
         "pipeline": "{{setting.crm.pipeline_setter}}",
-        "stage": "{{setting.crm.stage_setter_not_interested | optional}}",
+        "stage": "{{setting.crm.stage_setter_not_interested}}",
         "ifMissing": "skip",
         "pick": "open"
-      }
+      },
+      "skipWhenUnset": [
+        "crm.stage_setter_not_interested"
+      ]
     },
     {
       "id": "k_lost_ni_status",
@@ -931,7 +943,10 @@
       "params": {
         "pipeline": "{{setting.crm.pipeline_setter}}",
         "status": "lost"
-      }
+      },
+      "skipWhenUnset": [
+        "crm.stage_setter_not_interested"
+      ]
     },
     {
       "id": "v_words",
@@ -962,7 +977,8 @@
       "title": "Say who decided, in the question's thread",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.setter_calls}}"
+          "channel": "{{setting.slack.channel.setter_calls}}",
+          "fallbackChannel": "{{setting.slack.channel.ops}}"
         }
       },
       "content": "setter_call_logged.q_reply",
@@ -1060,7 +1076,7 @@
       "type": "set@1",
       "title": "Remember outcome line = Set — booked through a setter link after the call (Jev read: [Jev's read of the result], [how sure Jev was]% sure)",
       "var": "outcome_line",
-      "value": "Set — booked through a setter link after the call (Jev read: {{vars.setter_result.value}}, {{vars.jev_confidence}}% sure)"
+      "value": "Set — booked through a setter link after the call (Jev read: {{vars.setter_result.value | words}}, {{vars.jev_confidence}}% sure)"
     },
     {
       "id": "rec_rev",
@@ -1147,7 +1163,7 @@
         "$pick": "{{vars.decided_by | optional}}",
         "cases": {
           "jev": "{{vars.result_words | optional}} (Jev is {{vars.jev_confidence}}% sure)",
-          "booking": "Set — booked through a setter link {{vars.booked_when}} (Jev read: {{vars.setter_result.value}}, {{vars.jev_confidence}}% sure)"
+          "booking": "Set — booked through a setter link {{vars.booked_when}} (Jev read: {{vars.setter_result.value | words}}, {{vars.jev_confidence}}% sure)"
         },
         "else": "{{vars.unsure_line}}; the team is asked"
       }
@@ -1192,7 +1208,8 @@
         }
       },
       "content": "setter_call_logged.s_late",
-      "remember": "setter-call:{{vars.convo.key}}"
+      "remember": "setter-call:{{vars.convo.key}}",
+      "edit": true
     },
     {
       "id": "tv_act",

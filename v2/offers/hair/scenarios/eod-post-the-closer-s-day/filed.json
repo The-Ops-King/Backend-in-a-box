@@ -1,6 +1,6 @@
 {
   "name": "a closer files their day",
-  "description": "Luis files Monday: what happened on each call is posted in the EOD channel (the per-call list is GAP 11, not carried), and he gets \"Got it\" in his DM (his reminder is not in this scenario, so the ✅ on it finds nothing).",
+  "description": "Luis files Monday: what happened on each call is listed in the EOD channel (each), and he gets \"Got it\" in his DM (his reminder is not in this scenario, so the ✅ on it finds nothing).",
   "workflow": "eod-post-the-closer-s-day",
   "start": "2026-10-26T14:00:00Z",
   "offer": {

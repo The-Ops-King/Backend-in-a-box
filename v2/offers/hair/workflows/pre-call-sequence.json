@@ -160,7 +160,7 @@
         "threshold": 0.8,
         "ambiguityMax": 0.8,
         "unclear": "unclear",
-        "context": "{{contact.reply.last_outbound.body | optional}}"
+        "context": "{{reply.last_outbound.body | optional}}"
       },
       "into": "intent"
     },
@@ -238,11 +238,11 @@
       "value": {
         "$pick": "{{vars.intent.value}}",
         "cases": {
-          "question": "Jev read it as a question, not an answer ({{vars.intent.confidence}}% sure).",
-          "cancelled": "Jev is {{vars.intent.confidence}}% sure they want to cancel.",
-          "reschedule_request": "Jev is {{vars.intent.confidence}}% sure they want to reschedule."
+          "question": "Jev read it as a question, not an answer ({{vars.intent.confidence | percent}}% sure).",
+          "cancelled": "Jev is {{vars.intent.confidence | percent}}% sure they want to cancel.",
+          "reschedule_request": "Jev is {{vars.intent.confidence | percent}}% sure they want to reschedule."
         },
-        "else": "Jev couldn't tell what they meant (its guesses: {{vars.intent.guesses}})."
+        "else": "Jev couldn't tell what they meant (its guesses: {{vars.intent.guesses | first:3 | each:\"{{item.value}} {{item.confidence | percent}}%\" | join:\", \" | default:none}})."
       }
     },
     {
@@ -321,7 +321,8 @@
       "type": "ask@1",
       "title": "Ask the closer in the attention channel: keep, cancel or reschedule?",
       "to": {
-        "channel": "{{setting.slack.channel.attention}}"
+        "channel": "{{setting.slack.channel.attention}}",
+        "fallbackChannel": "{{setting.slack.channel.bookings}}"
       },
       "content": "pre_call_sequence.n_ask",
       "answers": {
@@ -365,7 +366,7 @@
         "data": {
           "at": "{{now}}",
           "intent": "{{vars.intent.value}}",
-          "confidence": "{{vars.intent.confidence}}"
+          "confidence": "{{vars.intent.confidence | percent}}"
         },
         "startsWorkflows": false
       }
@@ -448,7 +449,7 @@
           "predicted": "{{vars.intent.value}}",
           "appointment_id": "{{appointment.id}}",
           "hours_before_call": "{{appointment.starts_at | hours_until}}",
-          "predicted_confidence": "{{vars.intent.confidence}}"
+          "predicted_confidence": "{{vars.intent.confidence | percent}}"
         },
         "startsWorkflows": false
       },
@@ -524,7 +525,7 @@
           "predicted": "{{vars.intent.value}}",
           "decided_by": "{{vars.reaction.person}}",
           "appointment_id": "{{appointment.id}}",
-          "predicted_confidence": "{{vars.intent.confidence}}"
+          "predicted_confidence": "{{vars.intent.confidence | percent}}"
         },
         "startsWorkflows": false
       },

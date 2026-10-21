@@ -1,6 +1,6 @@
 {
   "name": "the ledger drift alert",
-  "description": "The drift alert: one record updated from GHL and one question. Its headline is worded here (\"1 in the engine didn't match GHL ... it's been updated\"); the questions themselves were a list (GAP 11), not carried. With the next days under it.",
+  "description": "The drift alert: one record updated from GHL and two questions. Its headline is worded here (\"1 record in the engine didn't match GHL ... it's been updated\", with plural), and the questions are listed under it, one line each (each), as v1 did. With the next days under it.",
   "workflow": "health-check",
   "start": "2026-10-26T14:00:00Z",
   "offer": {
@@ -44,7 +44,7 @@
       "slack.channel.eod": "C-EOD",
       "slack.channel.no_link_alerts": "C-NO-LINK",
       "slack.channel.team_reports": "C-TEAM-REPORTS",
-      "slack.channel.engine_alerts": "C-ENGINE-ALERTS",
+      "slack.channel.engine_alerts": "C0BT26R4695",
       "slack.channel.test": "C-TEST",
       "platform.base_url": "https://app.example.com",
       "bot.escalate_to": "U-TYLER",
@@ -89,7 +89,22 @@
           "fixed": 1,
           "shape": "fixed_one",
           "days": 7,
-          "count": 1
+          "count": 2,
+          "q": {
+            "link_card": [
+              {
+                "label": "Ana Lopez — Oct 20 call",
+                "cards": 2
+              }
+            ],
+            "payment_no_won": [
+              {
+                "name": "Bo Diaz",
+                "amount": 1500,
+                "day": "Oct 21"
+              }
+            ]
+          }
         },
         "thread": "See the dashboard."
       }

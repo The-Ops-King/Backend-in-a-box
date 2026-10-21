@@ -162,7 +162,7 @@
       "title": "Post it in the alerts channel, with Resolve and Pause",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.engine_alerts}}"
+          "channelFromFact": "{{event.channel}}"
         }
       },
       "content": "calendar_availability.a_post",
@@ -195,7 +195,7 @@
       "title": "Still open: a line in its thread",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.engine_alerts}}"
+          "channelFromFact": "{{event.channel}}"
         }
       },
       "content": "calendar_availability.a_repeat",
@@ -209,7 +209,7 @@
       "title": "Cleared: resolved in its thread, ✅ on the first post",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.engine_alerts}}"
+          "channelFromFact": "{{event.channel}}"
         }
       },
       "content": "calendar_availability.a_resolve",
@@ -238,7 +238,7 @@
       "title": "The next days' open times under it",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.engine_alerts}}"
+          "channelFromFact": "{{event.channel}}"
         }
       },
       "content": "calendar_availability.a_thread",

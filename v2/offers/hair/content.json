@@ -1,5 +1,5 @@
 {
-  "_note": "UNSIGNED draft. Hair's words, by key, copied from spec/hair. Only what is inside {{ }} is written in v2's roots and filters; where it differs, `v1` (and `v1_subject`) keep the exact v1 text. `as` is the Slack persona's name; `icons` are v1's persona icons, which v2 content does not use yet (GAP 15); `labels` are button labels by action.",
+  "_note": "UNSIGNED draft. Hair's words, by key, copied from spec/hair. Only what is inside {{ }} is written in v2's roots and filters; where it differs, `v1` (and `v1_subject`) keep the exact v1 text. `as` is the Slack persona's name; `icons` are the persona's icons (templates, like `as`); `labels` are button labels by action.",
   "agreement_signed.m1": {
     "channel": "crm",
     "body": "AGREEMENT SIGNED — {{agreement.signed_at | offer_date:medium}} · {{agreement.name | default:agreement}}",
@@ -19,7 +19,7 @@
   },
   "calendar_availability.a_post": {
     "channel": "slack",
-    "body": "{{vars.mark}} *{{event.company}} · Calendar availability*\n{{event.text}}{{event.link | link:Open | line}}",
+    "body": "{{vars.mark}} *{{event.company}} · Calendar availability*\n{{event.text}}{{event.link | link:Open | line}}{{event.fix_link | each:\" · <{{item}}|{{event.fix_label}}>\" | join:\",\" | optional}}{{event.extra_link | each:\"{{event.link | then:\\\" · \\\" | default:\\\"\\\\n\\\"}}<{{item}}|{{event.extra_label | default:Open}}>\" | join:\",\" | optional}}",
     "as": "{{event.as_name | default:Engine alerts}}",
     "icons": [
       "{{vars.icon}}"
@@ -149,7 +149,7 @@
   },
   "call_outcome_filed.s1": {
     "channel": "slack",
-    "body": "✅ Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | default:no call outcome given}}.",
+    "body": "✅ Showed, per {{appointment.closer.name | default:the closer}}: {{appointment.call_outcome | words | default:no call outcome given}}.",
     "as": "Showed",
     "icons": [
       ":white_check_mark:"
@@ -222,7 +222,7 @@
   },
   "eod_post_the_closer_s_day.n_summary": {
     "channel": "slack",
-    "body": "📝 *{{person.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.day_answers_lines | line}}",
+    "body": "📝 *{{person.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.calls | each:\"\\n• {{item.contact}}: {{item.outcome_label | default:no answer}}{{item.cash | nonzero | then:\\\" · $\\\"}}{{item.cash | nonzero | money:0 | suffix:\\\" collected\\\"}}{{item.revenue | nonzero | then:\\\" · $\\\"}}{{item.revenue | nonzero | money:0 | suffix:\\\" revenue\\\"}}{{item.next_date | then:\\\" · next \\\"}}{{item.next_date | date:short_day | optional}}{{item.dq_reason | then:\\\" · \\\"}}{{item.dq_reason | optional}}{{item.lost_reason | then:\\\" · \\\"}}{{item.lost_reason | optional}}\" | join:\"\" | optional}}{{event.day_answers_lines | line}}",
     "as": "End of day",
     "icons": [
       ":clipboard:"
@@ -231,7 +231,7 @@
   },
   "eod_remind_closers_to_file.n_dm": {
     "channel": "slack",
-    "body": "For {{person.name}} (not sent to them yet: closer reminders are off until launch):\nHey {{person.first_name}}, your end-of-day is waiting:\n\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.",
+    "body": "For {{person.name}} (not sent to them yet: closer reminders are off until launch):\nHey {{person.first_name}}, your end-of-day is waiting:\n{{vars.due.days | each:\"• <{{item.url}}|{{item.when}}>: {{item.calls | nonzero | plural:call | optional}}{{item.both | then:\\\", \\\"}}{{item.ghl_blank | nonzero | plural:call | suffix:\\\" with no outcome in GHL\\\"}}\" | join:\"\\n\"}}\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.",
     "as": "End of day",
     "icons": [
       ":clipboard:"
@@ -240,7 +240,7 @@
   },
   "eod_remind_closers_to_file.n_op": {
     "channel": "slack",
-    "body": "{{person.name}} still has Sales Calls with no outcome in GHL after two days:\n",
+    "body": "{{person.name}} still has Sales Calls with no outcome in GHL after two days:\n{{vars.due.overdue | each:\"• {{item.label}}: {{item.names | join}}\" | join:\"\\n\"}}",
     "as": "End of day",
     "icons": [
       ":clipboard:"
@@ -249,7 +249,7 @@
   },
   "health_check.a_post": {
     "channel": "slack",
-    "body": "{{vars.mark}} *{{event.company}} · {{vars.head}}*\n{{vars.body}}{{event.link | link:Open | line}}",
+    "body": "{{vars.mark}} *{{event.company}} · {{vars.head}}*\n{{vars.body}}{{event.link | link:Open | line}}{{event.fix_link | each:\" · <{{item}}|{{event.fix_label}}>\" | join:\",\" | optional}}{{event.extra_link | each:\"{{event.link | then:\\\" · \\\" | default:\\\"\\\\n\\\"}}<{{item}}|{{event.extra_label | default:Open}}>\" | join:\",\" | optional}}",
     "as": "{{event.as_name | default:Engine alerts}}",
     "icons": [
       "{{vars.icon}}"
@@ -411,7 +411,7 @@
   },
   "pre_call_sequence.n_ask": {
     "channel": "slack",
-    "body": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | offer_date:medium}}. {{vars.jev_read}}\n*We sent:*\n> {{contact.reply.last_outbound.body | optional}}\n*They wrote:*\n> {{reply.body}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link). The reminders keep going until you do.",
+    "body": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | offer_date:medium}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body}}\n*They wrote:*\n> {{reply.body}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link). The reminders keep going until you do.",
     "as": "Keep, cancel or reschedule?",
     "icons": [
       ":grey_question:"
@@ -526,7 +526,7 @@
   },
   "sales_call_recorded.n1": {
     "channel": "crm",
-    "body": "CALL SUMMARY — {{recording.started_at | offer_date:iso_date}}{{recording.closer.name | optional}}\n\n{{vars.review.notes}}\n\nCall review: {{vars.review.rubric.overall_score | default:?}}/10\n{{vars.review.rubric}}\n\nRecording: {{recording.share_url | default:—}}",
+    "body": "CALL SUMMARY — {{recording.started_at | offer_date:iso_date}}{{recording.closer.name | optional}}\n\n{{vars.review.notes | lines}}\n\nCall review: {{vars.review.rubric.overall_score | default:?}}/10\n{{vars.review.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
     "v1": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}"
   },
   "sales_call_recorded.o4": {
@@ -558,7 +558,7 @@
   },
   "sales_call_recorded.q_which": {
     "channel": "slack",
-    "body": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute closing call{{vars.parts_line | optional}} by phone with <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> ({{recording.started_at | offer_date:medium}}) that lines up with none of their bookings. Which booking was it?\n\nTap 1️⃣ 2️⃣ or 3️⃣ for that booking (the first three), or ❌ if it was none of them. Nothing is marked until someone does; the question closes in two days.",
+    "body": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute closing call{{vars.parts_line | optional}} by phone with <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}> ({{recording.started_at | offer_date:medium}}) that lines up with none of their bookings. Which booking was it?\n{{vars.options.items | each:\"{{number}}. {{item.starts_at | offer_date:medium}} with {{item.closer | default:no closer}} ({{item.status}})\" | join:\"\\n\" | default:They have no closing call booked in the two weeks around it.}}\nTap 1️⃣ 2️⃣ or 3️⃣ for that booking (the first three), or ❌ if it was none of them. Nothing is marked until someone does; the question closes in two days.",
     "as": "Which booking was this call?",
     "icons": [
       ":grey_question:"
@@ -567,7 +567,7 @@
   },
   "sales_call_recorded.s1": {
     "channel": "slack",
-    "body": "*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line | optional}}\n\n*Outcome:* {{vars.disposition.value | default:unclear}}\n*Pain:* {{vars.review.notes.pain | join | default:—}}\n*Goal:* {{vars.review.notes.desire | join | default:—}}\n*Objections:* {{vars.review.notes.objections | join | default:none heard}}\n*Next Steps:* {{vars.review.notes.next_step | default:—}} {{vars.review.notes.next_step_date | offer_date:short_day | prefix:by}}",
+    "body": "*Name:* <https://app.gohighlevel.com/v2/location/{{setting.crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | optional}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line | optional}}\n\n*Outcome:* {{vars.disposition.value | words | default:unclear}}\n*Pain:* {{vars.review.notes.pain | bullets | default:—}}\n*Goal:* {{vars.review.notes.desire | bullets | default:—}}\n*Objections:* {{vars.review.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.review.notes.next_step | default:—}} {{vars.review.notes.next_step_date | offer_date:short_day | prefix:by}}",
     "as": "Sales call recorded",
     "icons": [
       ":studio_microphone:",
@@ -579,7 +579,7 @@
   },
   "sales_call_recorded.s2": {
     "channel": "slack",
-    "body": "*Scorecard:* {{vars.review.rubric.overall_score | default:?}}/10\n{{vars.review.rubric}}",
+    "body": "*Scorecard:* {{vars.review.rubric.overall_score | default:?}}/10\n{{vars.review.rubric | lines}}",
     "as": "Call review",
     "icons": [
       ":clipboard:",
@@ -679,7 +679,7 @@
   },
   "unlinked_payment.n1": {
     "channel": "slack",
-    "body": "*Unlinked payment* · ${{event.amount | abs | money:2}} {{event.status}}\nNobody in the CRM matched this buyer.\n*Email:* {{event.customer_email | default:—}} · *Phone:* {{event.customer_phone | default:—}} · *Whop member:* {{event.whop_member_id | default:—}}\nLink it: {{setting.platform.base_url}}/c/{{offer.slug}}/payments",
+    "body": "*Unlinked payment* · ${{event.amount | abs | fixed:2}} {{event.status}}\nNobody in the CRM matched this buyer.\n*Email:* {{event.customer_email | default:—}} · *Phone:* {{event.customer_phone | default:—}} · *Whop member:* {{event.whop_member_id | default:—}}\nLink it: {{setting.platform.base_url}}/c/{{offer.slug}}/payments",
     "labels": {
       "link_payment": "Link to a contact"
     },

@@ -65,7 +65,8 @@
       "title": "Tell the team to follow up by hand",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.ops}}"
+          "channel": "{{setting.slack.channel.ops}}",
+          "fallbackChannel": "{{setting.slack.channel.alerts}}"
         }
       },
       "content": "speed_to_lead.s_late"

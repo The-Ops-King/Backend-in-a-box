@@ -29,7 +29,8 @@
       "title": "Tell the team a payment matched nobody",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.alerts}}"
+          "channel": "{{setting.slack.channel.alerts}}",
+          "fallbackChannel": "{{setting.slack.channel.bookings}}"
         }
       },
       "content": "unlinked_payment.n1",

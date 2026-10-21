@@ -1,6 +1,6 @@
 {
   "name": "Jev unsure: nobody answers",
-  "description": "Nobody answers in two days: the question is closed in its thread, no result written.",
+  "description": "Nobody answers in two days: the question is closed in its thread, no result written. Jev's top guesses are written out (\"follow up 40%, not interested 35%, set 25%\"), as v1 did.",
   "workflow": "setter-call-logged",
   "start": "2026-10-26T14:00:00Z",
   "offer": {
@@ -121,7 +121,21 @@
       "setting",
       {
         "value": "unclear",
-        "confidence": 0.4
+        "confidence": 0.4,
+        "guesses": [
+          {
+            "value": "follow_up",
+            "confidence": 0.4
+          },
+          {
+            "value": "not_interested",
+            "confidence": 0.35
+          },
+          {
+            "value": "set",
+            "confidence": 0.25
+          }
+        ]
       },
       "other"
     ],

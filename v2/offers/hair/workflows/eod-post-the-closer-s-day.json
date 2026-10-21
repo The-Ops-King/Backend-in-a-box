@@ -33,7 +33,8 @@
         }
       },
       "content": "eod_post_the_closer_s_day.n_summary",
-      "remember": "eod-summary:{{event.user_id}}:{{event.day}}"
+      "remember": "eod-summary:{{event.user_id}}:{{event.day}}",
+      "edit": true
     },
     {
       "id": "n_ack",
@@ -48,7 +49,8 @@
       "thread": {
         "tag": "eod-reminder:{{event.user_id}}:{{event.day}}"
       },
-      "remember": "eod-ack:{{event.user_id}}:{{event.day}}"
+      "remember": "eod-ack:{{event.user_id}}:{{event.day}}",
+      "edit": true
     },
     {
       "id": "n_ack_react",

@@ -44,7 +44,7 @@
       "slack.channel.eod": "C-EOD",
       "slack.channel.no_link_alerts": "C-NO-LINK",
       "slack.channel.team_reports": "C-TEAM-REPORTS",
-      "slack.channel.engine_alerts": "C-ENGINE-ALERTS",
+      "slack.channel.engine_alerts": "C0BT26R4695",
       "slack.channel.test": "C-TEST",
       "platform.base_url": "https://app.example.com",
       "bot.escalate_to": "U-TYLER",

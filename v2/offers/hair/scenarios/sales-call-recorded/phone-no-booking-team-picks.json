@@ -1,6 +1,6 @@
 {
   "name": "a phone closing call with no booking: the team picks one",
-  "description": "No booking lines up: the review says so, and the attention channel is asked which booking it was (their closing calls two weeks either side). At +3h someone taps 1️⃣: the call is recorded against that booking (call.closing), and the thread says who linked it; the offered reactions come off. In v1 that fact started this same workflow again on the booking (GAP 18: v2 never starts a workflow from a fact its own run recorded).",
+  "description": "No booking lines up: the review says so, and the attention channel is asked which booking it was (their closing calls two weeks either side, listed in the question; attention is unbound, so it goes to ops as in v1). At +3h someone taps 1️⃣: the call is recorded against that booking (call.closing), which starts this same workflow again on the booking (startsThisWorkflow, as v1's `start: true` did): that run marks it showed and edits the review and its scorecard in place. The thread says who linked it; the offered reactions come off.",
   "workflow": "sales-call-recorded",
   "start": "2026-10-26T14:00:00Z",
   "offer": {
@@ -39,7 +39,6 @@
       "slack.channel.alerts": "C-ALERTS",
       "slack.channel.ops": "C-OPS",
       "slack.channel.calls": "C-CALLS",
-      "slack.channel.attention": "C-ATTENTION",
       "slack.channel.setter_calls": "C-SETTER-CALLS",
       "slack.channel.eod": "C-EOD",
       "slack.channel.no_link_alerts": "C-NO-LINK",
@@ -102,9 +101,44 @@
       }
     },
     "classify": [
+      "closed_won",
       "closed_won"
     ],
     "summarize": [
+      {
+        "notes": {
+          "summary": "Ana bought the program, split in two payments.",
+          "pain": [
+            "thinning at the crown for two years"
+          ],
+          "desire": [
+            "fix it before it gets worse"
+          ],
+          "objections": [
+            "price"
+          ],
+          "disposition": "closed_won",
+          "primary_objection": "price",
+          "next_step": "Second payment",
+          "next_step_date": "2026-11-09",
+          "payment_terms": "two payments"
+        },
+        "rubric": {
+          "overall_score": 7,
+          "scores": {
+            "rapport": 8
+          },
+          "strengths": [
+            "clear close"
+          ],
+          "misses": [
+            "short discovery"
+          ],
+          "coaching": [
+            "ask one more why"
+          ]
+        }
+      },
       {
         "notes": {
           "summary": "Ana bought the program, split in two payments.",
@@ -142,6 +176,22 @@
     ]
   },
   "steps": [
+    {
+      "at": "+0m",
+      "type": "appointment.booked",
+      "contact": "c1",
+      "appointment": "a7",
+      "payload": {
+        "appointment": {
+          "starts_at": "2026-10-26T13:30:00Z",
+          "status": "booked",
+          "call_type": "closing",
+          "closer": {
+            "name": "Luis Ortega"
+          }
+        }
+      }
+    },
     {
       "at": "+0m",
       "type": "call.closing",
@@ -192,11 +242,22 @@
       "+0m sent sales_call_recorded.s2",
       "+0m sent crm.add_note",
       "+0m sent sales_call_recorded.q_which",
+      "+3h sent ai.classify",
       "+3h sent sales_call_recorded.q_done",
-      "+3h sent slack.unreact"
+      "+3h sent slack.unreact",
+      "+3h sent ai.summarize",
+      "+3h sent crm.add_tag",
+      "+3h sent crm.move_deal",
+      "+3h sent crm.set_deal_status",
+      "+3h suppressed sales_call_recorded.o4",
+      "+3h suppressed slack.react",
+      "+3h sent sales_call_recorded.s1 (edited)",
+      "+3h sent sales_call_recorded.s2 (edited)",
+      "+3h sent crm.add_note"
     ],
     "ends": [
-      "linked_by_the_team"
+      "linked_by_the_team",
+      "recorded"
     ]
   }
 }

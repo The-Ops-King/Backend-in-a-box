@@ -230,7 +230,8 @@
         }
       },
       "content": "sales_call_recorded.s1",
-      "remember": "recording:{{vars.convo.first.id}}"
+      "remember": "recording:{{vars.convo.first.id}}",
+      "edit": true
     },
     {
       "id": "k4",
@@ -274,7 +275,8 @@
       "thread": {
         "node": "s1"
       },
-      "remember": "scorecard:{{vars.convo.first.id}}"
+      "remember": "scorecard:{{vars.convo.first.id}}",
+      "edit": true
     },
     {
       "id": "o4",
@@ -290,7 +292,8 @@
         "tag": "appointment:{{appointment.id}}"
       },
       "threadOnly": true,
-      "remember": "showed:{{appointment.id}}"
+      "remember": "showed:{{appointment.id}}",
+      "edit": true
     },
     {
       "id": "o4_react",
@@ -421,7 +424,8 @@
       "type": "ask@1",
       "title": "Ask which booking the call was",
       "to": {
-        "channel": "{{setting.slack.channel.attention}}"
+        "channel": "{{setting.slack.channel.attention}}",
+        "fallbackChannel": "{{setting.slack.channel.ops}}"
       },
       "content": "sales_call_recorded.q_which",
       "answers": {
@@ -468,10 +472,12 @@
           "linked_by": "{{vars.reaction.person | optional}}",
           "external_id": "{{recording.external_id}}",
           "conversation": "{{vars.convo.key}}",
-          "recording_id": "{{recording.id}}"
+          "recording_id": "{{recording.id}}",
+          "recording": "{{recording}}"
         },
         "startsWorkflows": true,
-        "appointment": "{{vars.chosen | optional}}"
+        "appointment": "{{vars.chosen | optional}}",
+        "startsThisWorkflow": true
       },
       "onFailure": "hold"
     },
@@ -481,7 +487,8 @@
       "title": "Say it stays unlinked, in the question's thread",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.attention}}"
+          "channel": "{{setting.slack.channel.attention}}",
+          "fallbackChannel": "{{setting.slack.channel.ops}}"
         }
       },
       "content": "sales_call_recorded.q_none",
@@ -513,7 +520,8 @@
       "title": "Say who linked it, in the question's thread",
       "to": {
         "slack": {
-          "channel": "{{setting.slack.channel.attention}}"
+          "channel": "{{setting.slack.channel.attention}}",
+          "fallbackChannel": "{{setting.slack.channel.ops}}"
         }
       },
       "content": "sales_call_recorded.q_done",

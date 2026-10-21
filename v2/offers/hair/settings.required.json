@@ -1,5 +1,5 @@
 {
-  "_note": "UNSIGNED draft. Every setting the Hair workflows and their words read, by the v2 key ({{setting.<key>}}), its type, and what v1 had. v2 enables a workflow only when every setting it reads is set (requiredToEnable is always true; v1.requiredToEnable is whether v1 needed it). No secret values: only whether one is needed. `fieldMap` is the CRM field map the CRM port uses for canonical field names (crm.update_contact, crm.move_deal fields); `connections` are what the AI steps need.",
+  "_note": "UNSIGNED draft. Every setting the Hair workflows and their words read, by the v2 key ({{setting.<key>}}), its type, and what v1 had. v2 enables a workflow only when every setting it requires is set: requiredToEnable is whether any workflow requires it; a setting the workflows read only as optional (a step that skips itself without it, a channel with a fallback, a picklist option) may stay unset, and `optionalIn` names the workflows that read it so. v1.requiredToEnable is whether v1 needed it. No secret values: only whether one is needed. `fieldMap` is the CRM field map the CRM port uses for canonical field names (crm.update_contact, crm.move_deal fields); `connections` are what the AI steps need.",
   "settings": [
     {
       "key": "bot.escalate_to",
@@ -294,8 +294,11 @@
         "value": "d3722faf-840d-473a-95b2-3c11653f992e",
         "requiredToEnable": false
       },
-      "requiredToEnable": true,
+      "requiredToEnable": false,
       "workflows": [
+        "call-outcome-filed"
+      ],
+      "optionalIn": [
         "call-outcome-filed"
       ]
     },
@@ -401,11 +404,14 @@
       "v1": {
         "binding": "crm.stage_setter_dq",
         "value": null,
-        "note": "unbound in v1: the step it feeds wrote nothing",
+        "note": "unbound in v1: the step it feeds wrote nothing. v2's card steps skip themselves while it is unset (skipWhenUnset), as v1 did",
         "requiredToEnable": false
       },
-      "requiredToEnable": true,
+      "requiredToEnable": false,
       "workflows": [
+        "setter-call-logged"
+      ],
+      "optionalIn": [
         "setter-call-logged"
       ]
     },
@@ -428,11 +434,14 @@
       "v1": {
         "binding": "crm.stage_setter_not_interested",
         "value": null,
-        "note": "unbound in v1: the step it feeds wrote nothing",
+        "note": "unbound in v1: the step it feeds wrote nothing. v2's card steps skip themselves while it is unset (skipWhenUnset), as v1 did",
         "requiredToEnable": false
       },
-      "requiredToEnable": true,
+      "requiredToEnable": false,
       "workflows": [
+        "setter-call-logged"
+      ],
+      "optionalIn": [
         "setter-call-logged"
       ]
     },
@@ -532,6 +541,23 @@
       "requiredToEnable": true,
       "workflows": [
         "call-booked"
+      ]
+    },
+    {
+      "key": "picklist.sales_call_disposition",
+      "type": "picklist_map",
+      "v1": {
+        "binding": "sales_call.dispositions",
+        "value": null,
+        "note": "v1's `option:sales_call_disposition` read the offer's own option keys for the disposition (a list of the keys the CRM takes, or a map from the closer's answer to the key); an offer that declared none wrote the answer as it is. Hair's is not in the spec export.",
+        "requiredToEnable": false
+      },
+      "requiredToEnable": false,
+      "workflows": [
+        "call-outcome-filed"
+      ],
+      "optionalIn": [
+        "call-outcome-filed"
       ]
     },
     {
@@ -659,9 +685,14 @@
       },
       "requiredToEnable": true,
       "workflows": [
+        "speed-to-lead",
         "unlinked-payment",
         "unmatched-recording",
         "unsigned-agreement-chase"
+      ],
+      "optionalIn": [
+        "unlinked-payment",
+        "unmatched-recording"
       ]
     },
     {
@@ -670,11 +701,15 @@
       "v1": {
         "binding": "slack.channel.attention",
         "value": null,
-        "note": "unbound in v1 (posts go to slack.channel.bookings). v2 does not fall back (GAP 6): bind it to the fallback's channel (C0C7QCTHL8L) to keep today's behavior",
+        "note": "unbound in v1: the posts went to the step's fallback (Pre-call sequence: slack.channel.bookings; Sales call recorded: slack.channel.ops, then calls). v2 writes the same fallback (fallbackChannel), so it may stay unbound; binding it moves those posts there",
         "requiredToEnable": true
       },
-      "requiredToEnable": true,
+      "requiredToEnable": false,
       "workflows": [
+        "pre-call-sequence",
+        "sales-call-recorded"
+      ],
+      "optionalIn": [
         "pre-call-sequence",
         "sales-call-recorded"
       ]
@@ -695,7 +730,9 @@
         "card-moved-by-hand",
         "payment-recorded",
         "pre-call-sequence",
-        "sales-call-recorded"
+        "sales-call-recorded",
+        "unlinked-payment",
+        "unmatched-recording"
       ]
     },
     {
@@ -732,14 +769,11 @@
       "v1": {
         "binding": null,
         "value": "C0BT26R4695",
-        "note": "v1 posted in the channel each alert named ({{event.channel}}); every Hair alert in the traces named C0BT26R4695",
+        "note": "v1 posted in the channel each alert named ({{event.channel}}); every Hair alert in the traces named C0BT26R4695. v2 posts where the alert names too (channelFromFact), but only when that channel is one of Hair's own Slack channel settings: this setting is what makes C0BT26R4695 one (slack.channel.team_reports has the same id). No step reads it by name, so nothing waits for it to enable; unset (and team_reports moved), the alert posts are held",
         "requiredToEnable": true
       },
-      "requiredToEnable": true,
-      "workflows": [
-        "calendar-availability",
-        "health-check"
-      ]
+      "requiredToEnable": false,
+      "workflows": []
     },
     {
       "key": "slack.channel.eod",
@@ -777,6 +811,11 @@
       },
       "requiredToEnable": true,
       "workflows": [
+        "sales-call-recorded",
+        "setter-call-logged",
+        "speed-to-lead"
+      ],
+      "optionalIn": [
         "speed-to-lead"
       ]
     },
