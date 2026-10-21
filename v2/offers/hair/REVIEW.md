@@ -13,6 +13,55 @@ the exact timeline it states; together the scenarios take every edge of every wo
 folder's `_untakeable.json`, with why). `pnpm sim offers/hair/workflows/<id>.json offers/hair/scenarios/<id>` prints the
 timelines.
 
+## Changed in piece 5: the projections, the derived facts' rules, schedules and reports
+
+What the drafts read about a contact, an appointment, a deal, a payment and a recording now comes from the projections
+(`src/projections/`), built only from the fact log. The scenarios feed them with facts (what happened before the start is
+the scenario's `history`, the team its `people`), not with copies of what v1 worked out.
+
+- **Facts v1 worked out, by rule, from Hair's settings (decision 8 below).** Paid beyond a deposit, a payment's kind,
+  cleared, the price, the closer and the setter, and the Set window read their rule's parameters from typed settings
+  (`src/projections/facts.ts`). While one is unset the fact is not there, and a workflow that reads it cannot be enabled.
+  Signed, the next call, the latest appointment and recording, cash collected, records and cards, the appointment's
+  outcome, call outcome and pending read, and whether the call has started are what the facts say, with no rule to set.
+- **A payment's worked-out facts are `payment.*`, no longer `event.*`.** Payment recorded and Unsigned agreement chase
+  read `payment.kind`, `payment.cleared`, `payment.running_total`, `payment.prior_non_deposit_total`,
+  `payment.contract_value` (v1 put them on the event before dispatch, E7); the provider's own `event.amount` and
+  `event.paid_at` stay. Same words, same branches.
+- **The outcome before the one a step records.** Sales call recorded (o1) and Card moved by hand (o_noshow, o_lost,
+  o_dq) record an outcome and then tell the other workflows what it was before. The appointment projection has the new
+  outcome as soon as it is recorded, so each now remembers the earlier one first (`o1_before`, `o_noshow_before`,
+  `o_lost_before`, `o_dq_before`, `vars.before`), as v1's record_outcome did inside the step.
+- **Pre-call sequence's ❌ path posts before it records the cancellation.** The projection makes the booking cancelled
+  as soon as `appointment.status_changed` is recorded, and the premise (still on and ahead) would then end the run
+  before the ❌ post and its reactions; v1 checked the premise once per pass, so they went. n_cx_fact now comes after
+  n_cx_slack_mark: the same steps, the fact last.
+- **Report definitions and metrics are data** (`reports.json`: `metrics`, and the reports by key), rendered from the
+  projections: the three wrap-ups in Hair's own layout (its `{{ }}` in v2's words, GAP 10's named dates), the
+  leaderboard, and the end-of-day list. Each metric cites the v1 metric-registry entry it keeps; where v1 read GHL live
+  (leads, shows, closes, revenue, cash), v2 counts the fact log (decision 9).
+- **Fixtures left in the scenarios, each a vendor read:** the AI port's classify and summarize answers; the recorder's
+  transcripts (`fixtures.transcripts`, the words of a conversation); the CRM's Sales Calls still blank
+  (`fixtures.crm.sales_calls_blank`, End-of-day's "blank in GHL" and overdue lines); and the reports only a vendor
+  answers (`reports.availability`: the calendars; `reports.health_check`: the probes). No scenario stands in for a
+  lookup or for one of Hair's own reports any more (the offers test refuses it).
+- **Two scenarios gained the later part of a call.** `a-later-part-came-in` and `a-later-part-before-the-set-window-closed`
+  now have the second call itself (rec-s2, within the 15-minute gap), which starts its own run: that run reads the whole
+  conversation (two parts, 10 minutes) and posts (or edits the earlier post), as v1 did. Their timelines show both runs.
+- **Scenario data made consistent with the rules:** `too-short` is now a 30-second call (it said 30 seconds, but its
+  times were five minutes apart); `payment-record-write-fails`'s deal is worth $4,500 ($1,500 before and $1,500 now
+  would otherwise clear a $2,999 price).
+- **Every scenario's copies of worked-out facts became facts.** A contact's closer or owner is now a person in the
+  scenario's `people` and the CRM's `assigned_user_id` on the contact (or a card the closer owns, `crm.deal_written`);
+  prior payments, a signature, bookings, the latest recording, records and cards, a deal's status and an earlier
+  outcome are `history`; "booked again" is a booking. Every scenario but the two above keeps its timeline exactly.
+- **Weekly wrap-up's trace** now has last week's facts in its history (two calls due, one a no-show, one cancelled; two
+  dials) and renders v1's traced body line for line.
+- **End-of-day's links** name the person (`/eod/<person id>`); v1's carried the closer's report token, which v2 does
+  not have yet.
+- **Schedules fire from timers** (the job runner), once per period per subject, for the offer or each person with the
+  role (the people projection); scenarios still name each schedule step.
+
 ## Changed in piece 4: the format gaps closed
 
 The format now says what these drafts lost, so the translations no longer lose it. Words are still v1's exactly; only
@@ -66,8 +115,10 @@ what is inside `{{ }}` changed (`docs/v1-to-v2-steps.md`, "Gaps for Tyler", has 
 3. **Setter call logged acts on the team's answer two days late (possible v1 bug).** A tap is acted on (record, thread line, task, tags, cards) only when the question's two-day window closes. Keep (translated as it is), or act at once (end the tap path at the actions instead of `$resume`).
 4. **Engine actions with no step today (inventory E2 to E9, E12, E13).** Around these workflows v1's engine also acts on its own: the scope tag on a booking (E2), setter attribution and the missing-setter alert (E3, E4), opening the deal on a first booking or payment (E5, E6), paid in full (E7), relinking unlinked payments (E8), the deposit-names alert (E9), DND after a refused text (E12), turning a hand-moved card into card.moved (E13). v2 code does none of these, so each must become a step (the inventory's proposal) or stop. They are not in these drafts, which translate the workflows only: each waits for Tyler's yes.
 5. **Health-sweep repairs (GAP 9).** v1's sweep pulled contacts in (firing lead.created, which can start Speed to lead and text them), retired duplicate ids and switched primary ids, with no step. v2 has only the findings. Decide: platform, explicit steps, or an opt-in.
-6. **What v2 reads that v1 worked out (dependency).** Most branches read facts v1 computed for every run (paid beyond a deposit, signed, next call booked, owner / closer / setter, CRM record keys and cards, the appointment's outcome and pending read, the recording's caller and Set window). In v2 these come from the projections (piece 3 onward), with these names. Confirm the names, or rename them in the workflows before signing.
+6. **What v2 reads that v1 worked out (resolved in piece 5, names to confirm).** Most branches read facts v1 computed for every run (paid beyond a deposit, signed, next call booked, owner / closer / setter, CRM record keys and cards, the appointment's outcome and pending read, the recording's caller and Set window). They now come from the projections under the names the drafts use (`contact.paid_non_deposit`, `contact.agreement_signed`, `contact.has_upcoming_call`, `contact.owner` / `closer` / `setter`, `contact.records.<object>`, `contact.cards.<pipeline>`, `appointment.outcome` / `call_outcome` / `pending_read` / `started`, `recording.caller` / `set_until`), and a payment's as `payment.*` (see piece 5). Confirm the names.
 7. **Dates with the zone name (GAP 10, still open).** v1's team-facing "Thu Oct 29 · 2:00 PM EDT" reads "Thu, Oct 29 at 2:00 PM" (v2's named formats); "Thu Oct 29" reads "Thu, Oct 29". Accept, or ask for a named format with the zone.
+8. **The rules' settings (new in piece 5).** Each needs Hair's value before the workflows that read it can be enabled; v1 had it in code or in a binding the spec export does not show. The scenarios use v1's behavior: `payments.deposit_products` (Hair's declared deposit products; `[]` declares none) and `payments.deposit_by_name` (v1: yes, a product named "deposit"), for payment.kind, contact.paid_non_deposit (Deal closed, Payment recorded, Unsigned agreement chase); `payments.contract_value` (v1's company default; the traces show $2,999) and `payments.cleared_tolerance` (v1: 0.01 in code); `people.closer_from` (v1: `["closer_card", "contact_owner"]` in code) and `people.setter_from` (v1: `["field:setter"]`, the field bound as crm.field_contact_setter) for every post that names the closer or setter (Deal closed, Payment failed, Payment recorded); `setter_result.set_within_min` (v1: 30, default in code) for Setter call logged's Set window. `crm.default_closer` (the owner when the CRM names none) stays optional, as in v1. The wrap-ups' MQL line reads `leads.qualifying_field` and `leads.mql_answers`, and the Connected line `calls.reached_seconds` (v1: companies.reached_seconds): while unset those lines say nothing, as v1's did for a number it could not read.
+9. **Where the numbers are read.** v1's wrap-ups and leaderboard read people, shows, closes, revenue and cash live from GHL (D73, D75); v2 counts the fact log (lead.created, the appointments' outcomes, deal.won, the payment facts), per the blueprint's "one fact log for reporting". Cash is credited to the closer of the person's latest call at or before the payment, not the Payment record's closer field. Hair's footer still says "From GHL and the engine": the words are Hair's to change.
 
 ## How every workflow was translated
 
@@ -77,7 +128,7 @@ what is inside `{{ }}` changed (`docs/v1-to-v2-steps.md`, "Gaps for Tyler", has 
 - Delivery (sandbox / live) and CRM writes (dry / real) are not in a definition. Hair today is test mode with sends locked; Tyler sets these beside each workflow. Most scenarios run live so every path shows; a few run sandbox to show today's lock.
 - What a failing step does is v1's rule for that step (the spec's "If it keeps failing"); a step says `onFailure` only where v2's default differs.
 - Hidden actions are steps (inventory H1, H2, H3, H9, H10, H13): the Calendly cancel, the status fact, notify-owner's DM and task, the deal's won / lost, the outcome and call-held facts, CRM associations. Hidden actions with no step in Hair's copy (E2 scope tag, E3 / E4 setter attribution, E5 / E6 opportunities, E7 / E8 payments, E13 card moves) stay where v1 had them and are listed as findings.
-- `facts.lookup` queries other than `last_event` and the report definitions are answered by the projections (piece 3 onward). The simulator answers from each scenario's `fixtures`; nothing here was invented for a real contact.
+- `facts.lookup` queries and the report definitions are answered by the projections (piece 5), fed by each scenario's facts and `history`; only what a vendor answers (the AI, a transcript, the CRM's blank Sales Calls, the calendars, the health probes) comes from the scenario's `fixtures`. Nothing here was invented for a real contact.
 - v1 classifiers read their options from the database by domain; the criteria name them, so those are the options (plus "unclear" where a read below the threshold needs a name).
 - Found on the way, fixed in v2 (not Hair's): a wait "24 hours from now" moved later every time the run woke early (a reply, any fact about the contact); "now" is now the moment the step was reached.
 
@@ -239,14 +290,14 @@ Decision: keep / change / drop —
 - `| date_company` (v1 "Thu Oct 29 · 2:00 PM EDT") became `| offer_date:medium` ("Thu, Oct 29 at 2:00 PM"): GAP 10, no zone name
 - step n_ask and the wait for a tap on it (w_dec, "Listen for the tap while the reminders go on") are one v2 step, ask@1 with the reactions ['white_check_mark', 'x', 'repeat'] as the answers (listens while the run goes on); the answer is `vars.reaction` = { value, person, at }: v1 `reaction.reaction` is `vars.reaction.value` and `reaction.user_name` is `vars.reaction.person` (a Slack user id, not a name)
 - step n_ask: v1 posted the question, noted the pending read (n_pending), tagged stat-needs-attention (n_att_on), then armed the listener (w_dec); v2 arms the listener with the post itself (ask@1 listen), two quick steps earlier
-- step n_pending (update_appointment pending_read): our own column in v1, a fact in v2 (facts.record `appointment.pending_read`); reading it back as `appointment.pending_read` (Call outcome filed does) depends on the appointments projection (piece 3 onward). The confidence is a percentage, as v1 wrote it (`| percent`)
+- step n_pending (update_appointment pending_read): our own column in v1, a fact in v2 (facts.record `appointment.pending_read`); Call outcome filed reads it back as `appointment.pending_read`, from the appointments projection (piece 5). The confidence is a percentage, as v1 wrote it (`| percent`)
 - `{{vars.decided}}` is set to "" on purpose by an earlier step (v1 wrote nothing there); v2 holds a message with a blank, so the words read it with `| optional`
 - step n_cx (update_appointment status cancelled) is three visible steps (H1, H2): the fact's words (set), scheduling.cancel (effect contact: behind the delivery gate and the send lock, which v1's was not), and facts.record `appointment.status_changed` with startsWorkflows (v1 dispatched it, starting Call cancelled). The fact does not rewrite the appointment's own status: v1 checked the premise once per pass, so the ❌ post after it still went out; v2 checks it before each outbound step, and a folded "cancelled" would end the run before the post
 - `| date:HH` compared as text ("09") became `| hour`, a number (9)
 - what a failing step does once its tries are spent is v1's rule for each step; where v2's default (hold a step whose answer is read later, else skip) differs, the step says so (onFailure): n_ask, rec_un, rec
 
 **Where the spec left a choice.**
-- The pending read (update_appointment pending_read) is a fact, `appointment.pending_read`; Call outcome filed reads it back as `appointment.pending_read`, which depends on the appointments projection.
+- The pending read (update_appointment pending_read) is a fact, `appointment.pending_read`; Call outcome filed reads it back as `appointment.pending_read`, from the appointments projection (piece 5).
 
 **Restored in piece 4 (was a gap).**
 - n_ask quotes `{{reply.last_outbound.body}}`, what we last sent them, from the outbox; c1 reads the reply against it (GAP 19).
@@ -274,7 +325,7 @@ Decision: keep / change / drop —
 **What it does.** A Fathom recording, or a dialer call Setter call logged handed over as a closing call. The whole conversation is looked up (a dropped line read as one call). Jev checks a recording is a sales call and reads how it ended; the AI writes notes and a scorecard. Matched to a booking: showed is recorded (telling the other workflows), stat-showed, the setter card won in Showed, ✅ on the booking post. The review goes to the calls channel with the scorecard in its thread, the Sales Call is written, and a CRM note. A phone closing call with no booking: the attention channel is asked which booking it was (two days to tap); a tap links it.
 
 **Written differently from v1, and why.**
-- step l_conv: `facts.lookup call_conversation` answers from the projections (piece 3 onward); the simulator answers from each scenario
+- step l_conv: `facts.lookup call_conversation` answers from the calls projection (piece 5); the conversation's words are the recorder's (a vendor read)
 - step a1: the read lands in `vars.kind` = { value, confidence, guesses } (v1: `vars.classify.kind`, with the confidence as a percentage in `reply.intent_confidence`)
 - step a3: the read lands in `vars.disposition` = { value, confidence, guesses } (v1: `vars.outcome.disposition`, with the confidence as a percentage in `reply.intent_confidence`)
 - step a2: v1 kept one answer in 2 variables (vars.notes, vars.rubric); v2 keeps it in `vars.review` and they read `vars.review.<key>`
@@ -287,14 +338,14 @@ Decision: keep / change / drop —
 - `| date_company` (v1 "Thu Oct 29 · 2:00 PM EDT") became `| offer_date:medium` ("Thu, Oct 29 at 2:00 PM"): GAP 10, no zone name
 - step l_opts: "<time> -14d" became `| minus:14d`
 - step l_opts: "<time> +14d" became `| plus:14d`
-- step l_opts: `facts.lookup appointments_for_contact` answers from the projections (piece 3 onward); the simulator answers from each scenario
+- step l_opts: `facts.lookup appointments_for_contact` answers from the appointments projection (piece 5)
 - step q_which and the wait for a tap on it (w_which, "Wait two days for the tap") are one v2 step, ask@1 with the reactions ['one', 'two', 'three', 'x'] as the answers (waits for the answer); the answer is `vars.reaction` = { value, person, at }: v1 `reaction.reaction` is `vars.reaction.value` and `reaction.user_name` is `vars.reaction.person` (a Slack user id, not a name)
 - `{{vars.chosen}}` is set to "" on purpose by an earlier step (v1 wrote nothing there); v2 holds a message with a blank, so the words read it with `| optional`
 - what a failing step does once its tries are spent is v1's rule for each step; where v2's default (hold a step whose answer is read later, else skip) differs, the step says so (onFailure): o1, o1_said, o1_held, r1, rec_link
 
 **Where the spec left a choice.**
 - step a1: v1 read its options from the database (domain recording_kind); the criteria's options are used, and a read below the threshold counts as "other" (v2 needs one named)
-- The recording's facts (closer, share URL, provider) are read from the fact's payload (`recording`); a `call.closing` that Setter call logged records carries only ids, so in v2 the recordings projection must give `recording.*` for that path.
+- The recording's facts (closer, share URL, provider) come from the calls projection (piece 5): a `call.closing` that Setter call logged records carries only ids, and the recording is the one its call.logged projected.
 
 **Restored in piece 4 (was a gap).**
 - s1 reads the outcome in words (`| words`) and the pain, goal and objections as bullets (`| bullets`); s2 and n1 lay the AI's answer out as labelled lines (`| lines`) (GAP 11).
@@ -328,11 +379,11 @@ Decision: keep / change / drop —
 
 **Written differently from v1, and why.**
 - step w_hold: its v1 condition also tested `vars.__listen` (an engine-internal "a listener is armed"), always true on the only path that reaches it (just after the question is posted); v2 has no such variable, so only `vars.asking` is tested
-- steps l_conv, l_now, l_now2: `facts.lookup call_conversation` answers from the projections (piece 3 onward); the simulator answers from each scenario
+- steps l_conv, l_now, l_now2: `facts.lookup call_conversation` answers from the calls projection (piece 5): a later part is a later call.logged; the words are the recorder's (a vendor read)
 - step a1: the read lands in `vars.call_type` = { value, confidence, guesses } (v1: `vars.classify.call_type`, with the confidence as a percentage in `reply.intent_confidence`)
 - step l_book: "<time> -60m" became `| minus:60m`
 - step l_book: "<time> +60m" became `| plus:60m`
-- step l_book: `facts.lookup appointments_for_contact` answers from the projections (piece 3 onward); the simulator answers from each scenario
+- step l_book: `facts.lookup appointments_for_contact` answers from the appointments projection (piece 5)
 - `{{vars.booking_id}}` is set to "" on purpose by an earlier step (v1 wrote nothing there); v2 holds a message with a blank, so the words read it with `| optional`
 - step a3: the read lands in `vars.setter_result` = { value, confidence, guesses } (v1: `vars.classify.result`, with the confidence as a percentage in `reply.intent_confidence`)
 - `| date:X` (epoch seconds, to compare two times) dropped: v2 compares two date-times as instants
@@ -377,7 +428,7 @@ Decision: keep / change / drop —
 
 **Scenarios.** `a-later-part-before-the-set-window-closed` (a later part came in before the Set window closed), `a-later-part-came-in` (a later part of the call came in), `booked-during-the-call` (booked through a setter link during the call), `booked-in-the-set-window` (booked in the Set window after the post), `closing-call` (a closing call on the dialer), `confirmation-call` (a confirmation call), `discovery-call-write-fails` (the Discovery Call write fails), `dq-acted-stage-unset` (a setting call, disqualified (acting on), with Hair's DQ stage unset), `dq-acted` (a setting call, disqualified (acting on)), `follow-up-acted` (a setting call, follow up (acting on)), `follow-up-acting-off` (today: follow up with acting off), `follow-up-on-a-friday` (follow up on a Friday), `follow-up-on-a-saturday` (follow up on a Saturday), `no-transcript` (no transcript), `not-a-setting-call` (a voicemail), `not-interested-acted` (a setting call, not interested (acting on)), `too-short` (under a minute), `trace-posted` (trace: Jev read Set, the booking came after the post), `trace-too-short` (trace: a 1-second call), `unsure-nobody-answers` (Jev unsure: nobody answers), `unsure-team-taps-follow-up` (Jev unsure: the team taps 🔁), `unsure-team-taps-set` (Jev unsure: the team taps ✅).
 
-**Settings it reads.** `calls.conversation_gap_min`, `crm.assoc_discovery_call_contact`, `crm.location_id`, `crm.pipeline_setter`, `picklist.discovery_call_result.dq`, `picklist.discovery_call_result.follow_up`, `picklist.discovery_call_result.not_interested`, `picklist.discovery_call_result.set`, `setter_result.act`, `slack.channel.ops`, `slack.channel.setter_calls`; optional (it does without them): `crm.stage_setter_dq`, `crm.stage_setter_not_interested`.
+**Settings it reads.** `calls.conversation_gap_min`, `crm.assoc_discovery_call_contact`, `crm.location_id`, `crm.pipeline_setter`, `picklist.discovery_call_result.dq`, `picklist.discovery_call_result.follow_up`, `picklist.discovery_call_result.not_interested`, `picklist.discovery_call_result.set`, `setter_result.act`, `setter_result.set_within_min`, `slack.channel.ops`, `slack.channel.setter_calls`; optional (it does without them): `crm.stage_setter_dq`, `crm.stage_setter_not_interested`.
 
 Decision: keep / change / drop — 
 
@@ -509,20 +560,20 @@ Decision: keep / change / drop —
 - `{{vars.pay.sign}}` is set to "" on purpose by an earlier step (v1 wrote nothing there); v2 holds a message with a blank, so the words read it with `| optional`
 - step n4: its associations are their own steps, crm.relate_records (H13), reading the record id the write gave back; a branch first checks the write gave one back (in v1 a failed write took its links with it)
 - `| date_company` (v1 "Thu Oct 29 · 2:00 PM EDT") became `| offer_date:medium` ("Thu, Oct 29 at 2:00 PM"): GAP 10, no zone name
-- step n5: the persona name was `{{vars.pay.head}}` ("Refund" or "Payment received"); the post picks one of two content entries with the same words by `event.kind`, each with its persona (a persona from a value is possible now, GAP 15; the pick says the same)
-- step p_book: the reaction on the parent post was `{{vars.pay.react}}` (money_with_wings on a refund, else dollar); v2 emoji names are fixed, so a branch on `event.kind` picks one of two slack.react steps
-- step p_rev: the reaction on the parent post was `{{vars.pay.react}}` (money_with_wings on a refund, else dollar); v2 emoji names are fixed, so a branch on `event.kind` picks one of two slack.react steps
+- step n5: the persona name was `{{vars.pay.head}}` ("Refund" or "Payment received"); the post picks one of two content entries with the same words by `payment.kind`, each with its persona (a persona from a value is possible now, GAP 15; the pick says the same)
+- step p_book: the reaction on the parent post was `{{vars.pay.react}}` (money_with_wings on a refund, else dollar); v2 emoji names are fixed, so a branch on `payment.kind` picks one of two slack.react steps
+- step p_rev: the reaction on the parent post was `{{vars.pay.react}}` (money_with_wings on a refund, else dollar); v2 emoji names are fixed, so a branch on `payment.kind` picks one of two slack.react steps
 - what a failing step does once its tries are spent is v1's rule for each step; where v2's default (hold a step whose answer is read later, else skip) differs, the step says so (onFailure): o_won_rec, n4
 
 **Edges no run can take.** `g1_if → n4 (else)`: g1's v1 condition (only on a refund) is the same as the branch edge that leads to it (n3: refund), so it always holds there.
 
 **Known findings.**
-- E6 / E7 / E8 / E9 (inventory): opening an opportunity on a payment (with the default contract value), deciding paid in full (and dispatching `payment.paid_in_full`), relinking earlier unlinked payments and the deposit-names alert are engine actions in v1, before this workflow runs; it reads their result (`event.cleared`, `event.running_total`, `event.kind`). They are proposed as steps (E8 is GAP 14) and wait for sign-off, so they are not in the JSON.
+- E6 / E7 / E8 / E9 (inventory): opening an opportunity on a payment (with the default contract value), deciding paid in full (and dispatching `payment.paid_in_full`), relinking earlier unlinked payments and the deposit-names alert are engine actions in v1, before this workflow runs. v2 works out what it read (`payment.kind`, `payment.cleared`, `payment.running_total`, from the payments projection by Hair's payment rules, piece 5); opening the opportunity, dispatching `payment.paid_in_full`, relinking (GAP 14) and the deposit-names alert are proposed as steps and wait for sign-off, so they are not in the JSON. Until a step opens the deal, a contact's price is `payments.contract_value`, as v1's opened opportunity had it.
 - Choice (engine/14 §1): the card to Agreement Sent vs Purchase.
 
 **Scenarios.** `first-payment-beyond-deposit` (the first payment beyond a deposit, unsigned), `paid-in-full-signed` (paid in full, already signed, deal already won), `payment-record-write-fails` (the Payment record write fails), `refund` (a refund), `trace-recorded-deposit` (trace: a deposit).
 
-**Settings it reads.** `crm.agreement_sender`, `crm.agreement_template`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.location_id`, `crm.object_payment`, `crm.object_sales_call`, `crm.pipeline_closer`, `crm.stage_closer_agreement_sent`, `slack.channel.bookings`, `slack.channel.calls`, `slack.channel.payments`.
+**Settings it reads.** `crm.agreement_sender`, `crm.agreement_template`, `crm.assoc_payment_contact`, `crm.assoc_payment_opportunity`, `crm.location_id`, `crm.object_payment`, `crm.object_sales_call`, `crm.pipeline_closer`, `crm.stage_closer_agreement_sent`, `payments.cleared_tolerance`, `payments.contract_value`, `payments.deposit_by_name`, `payments.deposit_products`, `people.closer_from`, `people.setter_from`, `slack.channel.bookings`, `slack.channel.calls`, `slack.channel.payments`.
 
 Decision: keep / change / drop — 
 
@@ -537,7 +588,7 @@ Decision: keep / change / drop —
 
 **Scenarios.** `posted` (a failed payment is posted), `sandbox-test-channel` (today: before live, in the test channel).
 
-**Settings it reads.** `crm.location_id`, `slack.channel.payments`.
+**Settings it reads.** `crm.location_id`, `people.closer_from`, `people.setter_from`, `slack.channel.payments`.
 
 Decision: keep / change / drop — 
 
@@ -588,7 +639,7 @@ Decision: keep / change / drop —
 
 **Scenarios.** `already-a-customer` (already a customer), `closed-no-sales-call` (paid and signed, no Sales Call record), `closed-with-sales-call` (paid and signed, with a Sales Call), `trace-closed-deposit` (trace: closed on a deposit (version 5)), `trace-not-yet` (trace: signed before paying).
 
-**Settings it reads.** `crm.location_id`, `crm.object_sales_call`, `crm.pipeline_closer`, `crm.pipeline_setter`, `crm.stage_closer_closed_won`, `picklist.sales_call_outcome.showed`, `slack.channel.deals`.
+**Settings it reads.** `crm.location_id`, `crm.object_sales_call`, `crm.pipeline_closer`, `crm.pipeline_setter`, `crm.stage_closer_closed_won`, `payments.contract_value`, `payments.deposit_by_name`, `payments.deposit_products`, `people.closer_from`, `people.setter_from`, `picklist.sales_call_outcome.showed`, `slack.channel.deals`.
 
 Decision: keep / change / drop — 
 
@@ -627,7 +678,7 @@ Decision: keep / change / drop —
 
 **Scenarios.** `already-signed` (already signed), `locked-sends` (today: sends locked), `sent` (not signed yet: sent).
 
-**Settings it reads.** `crm.agreement_sender`, `crm.agreement_template`.
+**Settings it reads.** `crm.agreement_sender`, `crm.agreement_template`; optional (it does without them): `crm.default_closer`.
 
 Decision: keep / change / drop — 
 
@@ -647,7 +698,7 @@ Decision: keep / change / drop —
 
 **Scenarios.** `signed-after-first-nudge` (signed after the first nudge), `signed-after-second-nudge` (signed after the second nudge), `signed-before-first-nudge` (signed within the day), `trace-signed-deposit` (trace: a deposit (version 5)), `unsigned-after-3` (never signed: three nudges, then the alert).
 
-**Settings it reads.** `crm.location_id`, `slack.channel.alerts`.
+**Settings it reads.** `crm.location_id`, `payments.cleared_tolerance`, `payments.contract_value`, `payments.deposit_by_name`, `payments.deposit_products`, `slack.channel.alerts`; optional (it does without them): `crm.default_closer`.
 
 Decision: keep / change / drop — 
 
@@ -747,7 +798,7 @@ Decision: keep / change / drop —
 
 <a id="daily-wrap-up"></a>`workflows/daily-wrap-up.json` · v1: on, mode live, sends locked; runs again: always; re-checked: nothing.
 
-**What it does.** At 7pm every day, today's numbers (leads, bookings, calls, shows, closes, revenue, cash, refunds, dials, speed to lead, what leads said, by closer and setter) are posted. The layout is Hair's own (its copy is edited): the report definition is kept as it is in `reports.json`.
+**What it does.** At 7pm every day, today's numbers (leads, bookings, calls, shows, closes, revenue, cash, refunds, dials, speed to lead, what leads said, by closer and setter) are posted. The layout is Hair's own (its copy is edited), kept in `reports.json` with its `{{ }}` in v2's template words (GAP 10's named dates: "Mon, Oct 26" for v1's "Mon Oct 26"); the numbers are the metrics there, from the fact log (piece 5).
 
 **Written differently from v1, and why.**
 - step n_post: the channel id C0BT26R4695 written into the v1 step became the setting `slack.channel.team_reports`
@@ -769,7 +820,7 @@ Decision: keep / change / drop —
 
 <a id="weekly-wrap-up"></a>`workflows/weekly-wrap-up.json` · v1: on, mode live, sends locked; runs again: always; re-checked: nothing.
 
-**What it does.** At 8am every Monday, last week's numbers (leads, bookings, calls, shows, closes, revenue, cash, refunds, dials, speed to lead, what leads said, by closer and setter) are posted. The layout is Hair's own (its copy is edited): the report definition is kept as it is in `reports.json`.
+**What it does.** At 8am every Monday, last week's numbers (leads, bookings, calls, shows, closes, revenue, cash, refunds, dials, speed to lead, what leads said, by closer and setter) are posted. The layout is Hair's own (its copy is edited), kept in `reports.json` with its `{{ }}` in v2's template words (GAP 10's named dates: "Mon, Oct 26" for v1's "Mon Oct 26"); the numbers are the metrics there, from the fact log (piece 5).
 
 **Written differently from v1, and why.**
 - step n_post: the channel id C0BT26R4695 written into the v1 step became the setting `slack.channel.team_reports`
@@ -788,7 +839,7 @@ Decision: keep / change / drop —
 
 <a id="monthly-wrap-up"></a>`workflows/monthly-wrap-up.json` · v1: on, mode live, sends locked; runs again: always; re-checked: nothing.
 
-**What it does.** At 8am on the 1st, last month's numbers (leads, bookings, calls, shows, closes, revenue, cash, refunds, dials, speed to lead, what leads said, by closer and setter) are posted. The layout is Hair's own (its copy is edited): the report definition is kept as it is in `reports.json`.
+**What it does.** At 8am on the 1st, last month's numbers (leads, bookings, calls, shows, closes, revenue, cash, refunds, dials, speed to lead, what leads said, by closer and setter) are posted. The layout is Hair's own (its copy is edited), kept in `reports.json` with its `{{ }}` in v2's template words (GAP 10's named dates: "Mon, Oct 26" for v1's "Mon Oct 26"); the numbers are the metrics there, from the fact log (piece 5).
 
 **Written differently from v1, and why.**
 - step n_post: the channel id C0BT26R4695 written into the v1 step became the setting `slack.channel.team_reports`

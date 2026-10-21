@@ -1,4 +1,4 @@
-# v1 steps in v2: how each is written (2026-10-21; Hair's translation added to it; its gaps closed in piece 4)
+# v1 steps in v2: how each is written (2026-10-21; Hair's translation added to it; its gaps closed in piece 4; the projections in piece 5)
 
 How every behavior v1's workflow format can express (`platform/src/engine/definition.ts`, `engine/04-build-a-workflow.md`)
 is written in v2's format (`src/workflow/`). Hidden effects from the engine-action inventory
@@ -40,7 +40,7 @@ Three rules change how things are written, everywhere:
 | v1 type | v2 |
 |---|---|
 | `trigger` (event + `match`) | `trigger@1` `on: { event, match? }` |
-| `trigger` `event: "schedule"` | `trigger@1` `on: { schedule: { every } \| { at, days?, dayOfMonth? }, for: "offer" \| { role } }` (`for: company` → `offer`, `for: closer` → `{ role: "closer" }`) |
+| `trigger` `event: "schedule"` | `trigger@1` `on: { schedule: { every } \| { at, days?, dayOfMonth? }, for: "offer" \| { role } }` (`for: company` → `offer`, `for: closer` → `{ role: "closer" }`). Fired by its timer (a job at the next time): once per period (the local date, or the interval's bucket) per subject; a late job runs its period once, a period missed entirely is not made up, as v1's clock. A role's runs are one per active person with it, from the people projection (v1: users with role closer or setter) |
 | (none) | `trigger@1` `on: { manual: { about } }`: started by a person |
 | `wait` `rule: { anchor, offset, tz, guard, earliest, latest, window }` | `wait@1` `until: { anchor, offset, zone, guard, earliest, latest }`; `tz` → `zone`, now required; `window` → workflow `sendWindow` |
 | `wait_for_reply` `{ timeout, channel, settle, until }` | `wait@1` `reply: { channel, settle }`, `timeout`, `until`; leaves by `arrived` or `timeout` |
@@ -56,7 +56,7 @@ Three rules change how things are written, everywhere:
 | `check` `else_pause` | a `branch@1` whose else edge goes to `wait@1 person: { reason }`: the run is paused for a person until an operator resumes it (`on: resumed`) or ends it |
 | `set_var` `{ key, value }` | `set@1` `{ var, value }` |
 | `set_var` `pick` / `when` + `else_value` | `set@1` value `{ $pick, cases, else }` / `{ $if, then, else }`. Words chosen this way move to `message` `content: { pick, cases, else }` so they stay approved content |
-| `lookup` `{ query, params, into }` | `action@1 facts.lookup` `{ query, params }`, `into` |
+| `lookup` `{ query, params, into }` | `action@1 facts.lookup` `{ query, params }`, `into`: answered from the projections with v1's filters and answers (`src/projections/lookups.ts`); `call_conversation`'s words (`transcript_text`) are the recorder's, a vendor read |
 | `send_sms` `{ template, kind, validity, on_stale, substitute_template }` | `message@1` `to: { contact: "sms" }`, `content`, `kind`, `validity: { before, minLead } \| { after, maxLag }`, `whenStale: "skip" \| { send: <content key> }` |
 | `send_sms` / `send_email` `ghl_template` (the CRM's own copy wins) | **GAP 4** (deliberately not carried: copy is content) |
 | `send_sms` `on_stale: escalate` | **GAP 5** (Hair has none) |
@@ -92,7 +92,7 @@ Three rules change how things are written, everywhere:
 | `note` | `action@1 crm.add_note` with a content key |
 | `update_appointment` `set.status: cancelled` | `action@1 scheduling.cancel`: effect contact, so behind the send lock (H1) |
 | `update_appointment` other statuses | `action@1 scheduling.set_status` (confirmed, showed, noshow) |
-| `update_appointment` `set.pending_read` | `action@1 facts.record` of a read-pending fact; reading it back as `appointment.pending_read` depends on the appointments projection (piece 3 onward) |
+| `update_appointment` `set.pending_read` | `action@1 facts.record` of `appointment.pending_read`; read back as `appointment.pending_read` from the appointments projection (`appointment.pending_read_cleared` clears it) |
 | `update_opportunity` `status` won / lost / open | v1's is our ledger's opportunity, not the CRM card (that is `card`), so: `facts.record deal.won` / `deal.lost` / `deal.reopened` with `startsWorkflows` (H9); `from` is a `branch` on `{{deal.status}}` first. Only `card` writes the CRM (`crm.move_deal` / `crm.set_deal_status`) |
 | `update_opportunity` `set.contract_value` / `installments` | `action@1 facts.record` of the deal's terms; `card` → `crm.move_deal` |
 | `send_document` | `action@1 esign.send` (effect contact) |
@@ -100,7 +100,7 @@ Three rules change how things are written, everywhere:
 | `health_check` | `report@1` of the health report, then a `message` per finding kind; its repairs are **GAP 9** |
 | `availability_check` | `report@1` of the availability report with `params` (min slots, days) |
 | `eod_due` | `report@1` of the closer's unfiled days |
-| `report` `{ kind, breakdowns, sections, layout, period }` | `report@1` `{ report: <definition key>, period, params }`; layout and sections live in the report definition |
+| `report` `{ kind, breakdowns, sections, layout, period }` | `report@1` `{ report: <definition key>, period, params }`; the definition is data (an offer's `reports.json`): its metrics (a small query vocabulary over the projections, `src/reports/metrics.ts`) and its layout, whose templates read `report.*` (`n`, `raw`, `calls`, `rates`, `money_moved`, `said`, `by`, `start`, `end`, `read_at`) |
 | `leaderboard` | `report@1` of the leaderboard definition |
 | `record` `{ event, data, appointment, start }` | `action@1 facts.record` `{ type, data, appointment, startsWorkflows }`; `start: true` on a fact this same workflow listens for is `startsThisWorkflow: true` (opt-in; within the depth limit of 8) |
 | `start_workflow` | `call@1` |
@@ -119,12 +119,12 @@ Three rules change how things are written, everywhere:
 
 Conditions keep v1's shape: `eq`, `ne` (v1 `neq`), `gt`, `gte`, `lt`, `lte`, `in`, `has`, `exists`, `and`, `or`, `not`. Two
 date-times now compare as instants. New in v2: `within: [a, b, tolerance]`, two numbers at most `tolerance` apart.
-Filters are a fixed set of 32:
+Filters are a fixed set of 33:
 
 | v1 filter | v2 |
 |---|---|
 | `default`, `upper`, `lower`, `first_name`, `truncate`, `money`, `abs`, `join`, `oneof`, `prefix`, `line`, `link`, `relative`, `hours_until` | the same |
-| `date:<luxon format>` | `date:<format name>`: long, medium, day, short_day, time, time_zone, weekday, iso_date (contact's zone). Arbitrary patterns are **GAP 10** |
+| `date:<luxon format>` | `date:<format name>`: long, medium, day, short_day, time, time_zone, weekday, iso_date, month_day ("Oct 26"), month ("October"), month_year ("October 2026") (contact's zone). Arbitrary patterns are **GAP 10** |
 | `date_company` | `offer_date:<format name>` |
 | `date:HH` used in conditions | `hour` (a number) |
 | (none: v1 had `timeParam` offsets inside a few step params) | `plus:<duration>` / `minus:<duration>`: a date-time moved, as an ISO time, anywhere a template goes (params, conditions, `since`, and a wait anchor written as one `{{…}}`) |
@@ -132,7 +132,8 @@ Filters are a fixed set of 32:
 | `each`, `first`, `bullets`, `lines`, `words`, `plural`, `nonzero`, `then`, `suffix`, `fixed` | the same (v1's words exactly). `each:"…"` renders its own template per item, with `item`, `index`, `number` and `parent` (the item around it) beside the context; those roots exist only inside an each. Every blank inside an item is reported with which item it was, and an empty list is a blank like any value (`optional` or `default` after it says it may be). `then` and `suffix` may be blank, like `prefix` |
 | `option:<picklist>` | the same: the offer's own option keys from the setting `picklist.<picklist>` (a list or a map), an optional setting; unset, the value as it is |
 | `reply.intent_confidence` (a percentage) | `{{vars.<into>.confidence \| percent}}`: 0.92 → 92 (the words keep their `%`) |
-| `tz`, `json`, `duration` | dropped (Hair's workflows use none; `duration` is only in report definitions) |
+| `duration` (minutes as words) | the same: 45 → "45 min", 95 → "1 h 35 min" (report layouts use it) |
+| `tz`, `json` | dropped (Hair's workflows use neither) |
 
 v1 context paths, as v2 writes them:
 
@@ -142,7 +143,9 @@ v1 context paths, as v2 writes them:
 | `company.name` / `slug` / `timezone` / `base_url` / `operator_slack_id` | `offer.name` / `slug` / `zone`, `setting.platform.base_url`, `setting.bot.escalate_to` |
 | `user.*` (a run about a person on the team) | `person.*` |
 | `picklist.<list>.<meaning>` | `setting.picklist.<list>.<meaning>` |
-| `records.<object>.*`, `cards.<board>.*`, `opportunity.*` | `contact.records.*`, `contact.cards.*`, `deal.*` (from the projections) |
+| `records.<object>.*`, `cards.<board>.*`, `opportunity.*` | `contact.records.*`, `contact.cards.*`, `deal.*` (from the projections: the records and cards our CRM writes made, a card moved by hand, the ledger's deal facts) |
+| a payment event's `kind`, `cleared`, `running_total`, `prior_total`, `prior_non_deposit_total`, `contract_value`, `outstanding` (v1 put them on the event, E7) | `payment.*`, worked out from the payments projection by the offer's rules (`payments.deposit_products`, `payments.deposit_by_name`, `payments.contract_value`, `payments.cleared_tolerance`); the provider's own `event.amount`, `event.paid_at` stay |
+| `contact.paid_non_deposit`, `owner`, `closer`, `setter`, `has_upcoming_call`, `agreement_signed`, `cash_collected`, `first_booked_at`, `days_to_close`, `revenue`, `latest_appointment_id`, `latest_recording_id`; `appointment.outcome`, `call_outcome`, `pending_read`, `started`; `recording.caller`, `set_until`, `connected`, `has_transcript` | the same names, from the projections; those that rest on a rule read its settings (`src/projections/facts.ts`: `people.closer_from`, `people.setter_from`, `setter_result.set_within_min`, and the payment rules): while one is unset the fact is not there and a workflow that reads it cannot be enabled. A fact's own snapshot of these (a vendor's copy) is never read |
 | `reaction.reaction` / `reaction.user_name` | `vars.<ask into>.value` / `.person` (a Slack user id) |
 | `reply.inbound_since_send` | `reply.body` |
 | `reply.last_outbound` (what we last sent them) | `reply.last_outbound` `{ body, channel, at, content_key }`: the latest text or email to the run's contact that went out (any workflow), from the outbox; in every step of a run about a contact |
@@ -226,7 +229,8 @@ Found translating Hair (piece 3; closed in piece 4 except where it says):
 23. ~~**An unbound setting a step may do without**~~ `skipWhenUnset: [<setting>]` on the step: skipped while unset,
     listed in `requires.optionalSettings` (with a channel's fallback and `option`'s picklist), never filled from code.
 
-Not a format gap, a dependency: the facts v1 worked out for every run (the contact's payments, signature, owner, closer,
-setter, next call, CRM record keys and cards; the appointment's outcome, pending read and whether it has started; a
-recording's caller, Set window and transcript) are read from the projections (piece 3 onward). Until then the
-simulator takes them from each fact's payload.
+Not a format gap, a dependency, closed in piece 5: the facts v1 worked out for every run (the contact's payments,
+signature, owner, closer, setter, next call, CRM record keys and cards; the appointment's outcome, pending read and
+whether it has started; a recording's caller and Set window) are read from the projections, built only from the fact log
+(`src/projections/`). The CRM's own attributes of a contact (name, timezone, tags, fields, source, owner as
+`assigned_user_id`) are what the CRM last said with a fact. A transcript stays the recorder's (a vendor read).
