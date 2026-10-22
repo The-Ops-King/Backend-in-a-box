@@ -5953,3 +5953,7 @@ not name him); it is the company's closer call. Nelly's own consultation stays w
 setter; his link is the new consultation's with `?utm_medium=setter&utm_content=jake`. The closing texts name no one. Saving them
 locked the Closing pre-call's sends again (D151) until Tyler unlocks the new words. The split's "kept the other owner" check no longer
 fires when both sides are one person.
+Then (2026-10-22): the Typeform moved to a new round-robin Strategy Session, `calendly.com/d/d3pq-hgw-r22/...` (03ad5f45); the one
+before it (aac238a5) is gone from Calendly. 03ad5f45 is watched as a Triage call, self-booked, owned by Mitch, and is the self-book
+link; no booking had landed on it before it was watched. Jake is not in Slack yet: Tyler, "send them to me", so Jake's Slack is
+Tyler's (slackUsers) until Jake joins.
