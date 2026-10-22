@@ -18,7 +18,7 @@ import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } fro
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
 import { classifyError } from "./failures";
 import { withButtons } from "./slack-blocks";
-import { claimEffect, markEffect, PENDING_WHY, type EffectKind } from "./effects";
+import { claimEffect, markEffect, PENDING_WHY, releasePending, type EffectKind } from "./effects";
 import { callTime } from "./sales-call";
 import { APPOINTMENT_FACTS, APPOINTMENT_JOINS, appointmentRow, runLookup } from "./lookup";
 import { dropTranscripts, hydrateTranscripts } from "./transcripts";
@@ -693,10 +693,23 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         if ("why" in found) return { status: "skipped", next, result: { kind: "noop", why: `no ${objectKey} record in the CRM to update: ${found.why}` } };
         ghlId = matched = found.id;
       }
+      let recoveredHow: string | undefined;
       if (!ghost(d)) {
         // D66: a create the CRM answered but our row never recorded becomes an update of that record; one it never answered is not asked twice
         const cl = ghlId ? null : await claim(d, node, "record");
-        if (cl && !cl.fresh) { if (cl.done && cl.external_id) ghlId = cl.external_id; else return { status: "skipped", next, result: { kind: "blocked", why: `${objectKey} record not created twice: ${PENDING_WHY}` } }; }
+        if (cl && !cl.fresh) {
+          if (cl.done && cl.external_id) ghlId = cl.external_id;
+          else {
+            // D215 (Tyler: "it should see what exists, and if it makes sense exactly what happened, it should work to fix it"): the CRM never
+            // answered the create, so the engine looks for the record that create would have made, by the key it stamps on it. Exactly one:
+            // the create landed, so it is this record (adopted, then updated as any second write is). None: nothing was written, so it is
+            // created now. Several, no key on the record to look for, or the CRM cannot be read: a person decides, as before.
+            const look = await lostCreate(d, objectKey, key, properties);
+            if (look.found) { ghlId = look.found; await done(d, node, "record", ghlId); recoveredHow = `found in the CRM by its key (${look.found}) and adopted`; }
+            else if (look.none) { await releasePending(d.c, d.run.id, node.id); const again = await claim(d, node, "record"); if (!again?.fresh) return { status: "skipped", next, result: { kind: "blocked", why: `${objectKey} record not created twice: ${PENDING_WHY}` } }; recoveredHow = "not in the CRM (the lost create never landed), so created now"; }
+            else return { status: "skipped", next, result: { kind: "blocked", why: `${objectKey} record not created twice: ${PENDING_WHY}; ${look.why}` } };
+          }
+        }
         if (ghlId) await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, { ...properties, ...cleared }, owner);
         else { ghlId = (await d.adapters.write.createRecord(d.adapterCompany, objectKey, properties, owner)).id; await done(d, node, "record", ghlId); }
       }
@@ -707,7 +720,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
       d.ctx.record = { id: ghlId ?? "", key, object: objectKey, properties };
       const related = await relate(d, node);
-      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
+      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), ...(recoveredHow ? { recovered: recoveredHow } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
     }
     case "update_contact": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
@@ -1154,6 +1167,23 @@ async function relate(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>):
  * create claim; `clear` empties what this answer does not set; properties the object lacks were already dropped and are named.
  * Shadow writes nothing, not even our ledger's copy (we did not write the CRM, so the ledger must not say we did).
  */
+/**
+ * D215: after a create the CRM never answered, the record that create would have made, looked up by the key the step stamps on it
+ * (`external_id`), and, when the step names the contact, only that contact's. One: it. None: it was never written. Anything else
+ * is said, not guessed.
+ */
+async function lostCreate(d: ExecDeps, objectKey: string, key: string, properties: Record<string, unknown>): Promise<{ found: string; none?: undefined; why?: undefined } | { none: true; found?: undefined; why?: undefined } | { why: string; found?: undefined; none?: undefined }> {
+  const stamped = typeof properties.external_id === "string" ? properties.external_id.trim() : "";
+  if (!stamped || stamped !== key) return { why: "this record carries no key of its own to look it up by in the CRM" };
+  let records: Awaited<ReturnType<ExecDeps["adapters"]["read"]["objectRecords"]>>;
+  try { records = await d.adapters.read.objectRecords(d.adapterCompany, objectKey); } catch (e) { return { why: `the CRM could not be read to check: ${String((e as Error).message).slice(0, 120)}` }; }
+  const contact = typeof properties.contact_id === "string" ? properties.contact_id.trim() : "";
+  const hits = records.filter((r) => String(r.properties.external_id ?? "").trim() === key && (!contact || !String(r.properties.contact_id ?? "").trim() || String(r.properties.contact_id).trim() === contact));
+  if (hits.length === 1) return { found: hits[0].id };
+  if (!hits.length) return { none: true };
+  return { why: `${hits.length} records in the CRM carry its key (${hits.map((h) => h.id).join(", ")}): which is it is a person's call` };
+}
+
 async function recordById(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>, next: string | null, objectKey: string, key: string, ghlId: string, properties: Record<string, unknown>, cleared: Record<string, null>, owner: string | undefined, dropped: string[]): Promise<StepOutcome> {
   const write = { ...properties, ...cleared };
   if (!Object.keys(write).length) return { status: "skipped", next, result: { kind: "noop", why: "nothing to write: every value rendered empty", crm_id: ghlId } };

@@ -5967,3 +5967,16 @@ reminders, cancels and end of day. A calendar's `alerts: false` (install mapping
 calendar, alerts, why, dryRun }`) keeps its bookings watched and leaves it out of the availability reads; its open alerts close at the
 next sweep. Nelly: off on 86985d27, aac238a5 and 80955126; on for the two new links (03ad5f45 Strategy Session, 6a643c89 consultation).
 `GET /api/admin/calendars` shows the switch. Tests: `health.calendar-alerts.test.ts`.
+
+## D215. A record create whose answer was lost is put right from what the CRM holds (2026-10-22)
+
+Tyler, on "Sales call recorded couldn't create the Sales Call record for Corina Raducanu ... asked the CRM once already and never
+heard back": "we shouldn't try to create a sales call record if one already exists ... I want this to be pretty hands free", and for
+every offer, "it should see what exists, and if it makes sense exactly what happened, it should work to fix it. it should alert me
+mainly when it can't figure out what to do." D66's claim still never asks the CRM twice blind. Now, when a record step finds its
+own create unanswered, it looks in the CRM for the record that create would have made, by the key it stamps on it (`external_id`,
+and the contact when the step names one): exactly one, the create landed, so that record is adopted (and updated as a second write
+is); none, nothing was written, so it is created now; several, a record with no key to look for, or a CRM that cannot be read, a
+person decides, as before, the reason said. Engine code for every offer: no saved workflow changes; only this failure case acts
+instead of alerting. `POST /api/admin/runs/retry { company, runs: [one], node }` re-runs one step of a run (the alert's Retry).
+Tests: `retry.test.ts`.
