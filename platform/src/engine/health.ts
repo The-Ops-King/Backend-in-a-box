@@ -505,7 +505,9 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
   const connected = !!ac.pit && !!ac.locationId;
   const slotReads: SlotRead[] = [];
   const known = new Map<string, string[]>();   // pooled reads made here, so the per-closer table does not ask again
-  const cals = (await many<{ external_id: string; name: string; source: string; booking_url: string | null }>(c, "select external_id, name, source, booking_url from calendars where company_id=$1 and active and source=$2", [company.id, ac.booking.source])).filter((k) => !only || only.includes(k.external_id));
+  // D213: a calendar kept only for the calls already booked on it (`alerts: false`, an old link) is still watched for bookings, but
+  // its availability (or its being gone from the booking tool) is no one's news
+  const cals = (await many<{ external_id: string; name: string; source: string; booking_url: string | null }>(c, "select external_id, name, source, booking_url from calendars where company_id=$1 and active and source=$2 and coalesce(config->>'alerts', 'true') <> 'false'", [company.id, ac.booking.source])).filter((k) => !only || only.includes(k.external_id));
   const link = (k: { external_id: string; source: string; booking_url: string | null }) => calendarLink(k, ac.locationId);
   const ok = (check: string, text: string, item?: string, detail?: Record<string, unknown>, href?: string) => out.push({ check, item, ok: true, level: "warning", text, detail, href, hrefLabel: href ? "Open the calendar" : undefined });
   const bad = (check: string, level: Level, text: string, item?: string, detail?: Record<string, unknown>, href?: string) => out.push({ check, item, ok: false, level, text, detail, href, hrefLabel: href ? "Open the calendar" : undefined });

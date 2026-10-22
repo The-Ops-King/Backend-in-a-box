@@ -79,13 +79,15 @@
       "term": "first_call",
       "name": "Triage call",
       "booking": "self",
-      "owner": "mitch@revsignals.io"
+      "owner": "mitch@revsignals.io",
+      "alerts": false
     },
     "aac238a5-f530-4a6b-8908-a5c56c905081": {
       "term": "first_call",
       "name": "Triage call",
       "booking": "self",
-      "owner": "mitch@revsignals.io"
+      "owner": "mitch@revsignals.io",
+      "alerts": false
     },
     "03ad5f45-89a1-4d07-8728-c180e5e2213e": {
       "term": "first_call",
@@ -102,7 +104,8 @@
     "80955126-29fe-48ea-a85e-ba4bcd145790": {
       "term": "closing",
       "name": "Closing call",
-      "booking": "utm"
+      "booking": "utm",
+      "alerts": false
     }
   },
   "closerCall": "6a643c89-68fc-4272-9188-a7a42648d2fd",

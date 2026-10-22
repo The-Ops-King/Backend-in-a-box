@@ -5957,3 +5957,13 @@ Then (2026-10-22): the Typeform moved to a new round-robin Strategy Session, `ca
 before it (aac238a5) is gone from Calendly. 03ad5f45 is watched as a Triage call, self-booked, owned by Mitch, and is the self-book
 link; no booking had landed on it before it was watched. Jake is not in Slack yet: Tyler, "send them to me", so Jake's Slack is
 Tyler's (slackUsers) until Jake joins.
+
+## D213. An old booking link's availability is not alerted on (2026-10-22)
+
+Tyler: "update the engine alerts to point to the two new Calendly links." The health check and the availability alerts read every
+watched calendar, so Nelly's old links (her own Strategy Session and consultation, and the round robin since deleted) alerted on
+having no times and on being gone. They cannot simply stop being watched: 92 upcoming calls are booked on them and still need their
+reminders, cancels and end of day. A calendar's `alerts: false` (install mapping, or `POST /api/admin/calendars/alerts { company,
+calendar, alerts, why, dryRun }`) keeps its bookings watched and leaves it out of the availability reads; its open alerts close at the
+next sweep. Nelly: off on 86985d27, aac238a5 and 80955126; on for the two new links (03ad5f45 Strategy Session, 6a643c89 consultation).
+`GET /api/admin/calendars` shows the switch. Tests: `health.calendar-alerts.test.ts`.
