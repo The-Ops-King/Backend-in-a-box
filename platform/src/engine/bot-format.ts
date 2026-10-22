@@ -265,7 +265,7 @@ export const SHORTCUTS: { command: string; about: string; example: string; hint?
   { command: "/show-rate", about: "show rate by closer and by source, and whose calls have no EOD outcome (default this month)", example: "/show-rate last month", hint: "[last month]" },
   { command: "/close-rate", about: "close rate by closer and by source (default this month)", example: "/close-rate last 30 days", hint: "[last month]" },
   { command: "/cash", about: "cash collected, payments and refunds, by closer (default this month)", example: "/cash last week", hint: "[last week]" },
-  { command: "/availability", about: "open slots for the next 7 days (or fewer), per day and per closer", example: "/availability 3", hint: "[days, up to 7]" },
+  { command: "/availability", about: "open slots for the next 7 days (or fewer): each calendar, then per person", example: "/availability 3", hint: "[days, up to 7]" },
   { command: "/leads", about: "leads, MQLs and marketing DQs by source (default this month)", example: "/leads yesterday", hint: "[yesterday]" },
   { command: "/closes", about: "every close by closer: who, cash collected / revenue, the day it was won (default this month)", example: "/closes last month", hint: "[last month]" },
   { command: "/leaderboard", about: "closers ranked by cash (closes and close rate beside), setters ranked by sets (show rate of their sets beside) (default this week)", example: "/leaderboard last week", hint: "[last week]" },

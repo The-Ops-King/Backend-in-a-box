@@ -446,6 +446,9 @@ unsigned document) and `sign` (completed) stage the document side.
 maps one booking-tool calendar as install would (call type, booking, owner), without a re-install. Its first poll is a baseline; run
 the history backfill (`steps: ["appointments"]`) and the Sales Call backfill for the calls it already held.
 
+**Who took a call** (D218): `POST /api/admin/appointments/closer { company, appointments, closer, why, dryRun = true }` sets the
+closer on specific calls, past ones too, in the replica and on their Sales Calls in GHL.
+
 ## Pipeline cards (D19)
 
 Templates create and move cards on the CRM's pipeline boards (`pipeline_card` node). Pipeline,

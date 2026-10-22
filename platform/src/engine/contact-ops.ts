@@ -1,7 +1,9 @@
+import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { checkpoint, many, one } from "@/db/client";
 import { bookingFor, type Adapters, type BookingMode } from "@/adapters/types";
 import { watchCalendar } from "./install";
+import { closerOptions } from "./sales-call";
 import { loadCompany } from "./context";
 import { callOutcome } from "./recordings";
 import { testContactSql, testDomains, TEST_DOMAINS_KEY } from "./mode";
@@ -248,4 +250,40 @@ export async function calendarWatch(c: PoolClient, adapters: Adapters, a: { comp
   const maps = await watchCalendar(c, co.id, ac.booking.source, k, m, terms);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calendar.watched','calendar',$2,$3)", [co.id, k.id, { ...m, maps, why: a.why }]);
   return { ok: true, dryRun: false, calendar: k.name, id: k.id, was, maps };
+}
+
+/**
+ * D218: who took a call, set on calls already held (D204 moves a calendar's upcoming ones; this is for one call, past or ahead).
+ * Tyler: Ana Magno, Fabiola E and Christie Laney were hosted on a shared Calendly seat; "assume that it's probably JP." The booking's
+ * closer in the replica (their end of day lists it, their numbers count it) and the Closer field on its Sales Call in GHL, by the
+ * company's option key (D118). A dry run (the default) lists each call and what changes.
+ */
+export async function callCloser(c: PoolClient, adapters: Adapters, a: { company: string; appointments: string[]; closer: string; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; closer: string; calls: { id: string; who: string; when: string; was: string | null; sales_call: string | null; ghl_closer?: string }[] } | Fail> {
+  if (!a.appointments?.length || !a.closer || !a.why?.trim()) return { ok: false, status: 400, error: "appointments, closer and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
+  const to = await one<{ id: string; name: string; email: string; ghl_user_id: string | null }>(c, "select id, name, email, ghl_user_id from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, a.closer.trim()]);
+  if (!to) return { ok: false, status: 404, error: `${a.closer} is not on this offer's roster` };
+  const object = bindings["crm.object_sales_call"];
+  const roster = await many<{ name: string; email: string | null; ghl_user_id: string | null }>(c, "select name, email, ghl_user_id from users where company_id=$1", [co.id]);
+  const key = (closerOptions(bindings, roster) ?? {})[to.name.trim().toLowerCase()] ?? to.name;
+  const calls: { id: string; who: string; when: string; was: string | null; sales_call: string | null; ghl_closer?: string }[] = [];
+  for (const ref of a.appointments) {
+    const ap = await one<{ id: string; who: string; starts_at: Date; was: string | null; slot: string }>(c, `select a.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as who, a.starts_at, u.name as was, coalesce(a.slot_key, a.external_id) as slot
+      from appointments a join contacts ct on ct.id=a.contact_id left join users u on u.id=a.assigned_user_id where a.company_id=$1 and (a.id::text=$2 or a.external_id=$2 or a.slot_key=$2)`, [co.id, ref.trim()]);
+    if (!ap) return { ok: false, status: 404, error: `no booking ${ref}` };
+    const rec = object ? await one<{ ghl_record_id: string | null }>(c, "select ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [co.id, object, ap.slot]) : null;
+    calls.push({ id: ap.id, who: ap.who, when: DateTime.fromJSDate(ap.starts_at).setZone(ac.timezone ?? "UTC").toFormat("ccc LLL d, h:mm a"), was: ap.was, sales_call: rec?.ghl_record_id ?? null, ...(rec?.ghl_record_id ? { ghl_closer: key } : {}) });
+  }
+  if (a.dryRun !== false) return { ok: true, dryRun: true, closer: to.name, calls };
+  for (const k of calls) {
+    await c.query("update appointments set assigned_user_id=$2 where id=$1", [k.id, to.id]);
+    if (k.sales_call && object) {
+      await adapters.write.updateRecord(ac, object, k.sales_call, { closer: key });
+      await c.query("update crm_records set properties = properties || jsonb_build_object('closer', $3::text), updated_at=now() where company_id=$1 and ghl_record_id=$2", [co.id, k.sales_call, key]);
+    }
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'call.closer','appointment',$2,$3,$4)", [co.id, k.id, { closer: k.was }, { closer: to.name, sales_call: k.sales_call, why: a.why }]);
+  }
+  return { ok: true, dryRun: false, closer: to.name, calls };
 }
