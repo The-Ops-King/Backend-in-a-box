@@ -33,16 +33,31 @@ let cardMode: "ok" | "400" | "503" = "ok";
 const tries = { addTag: 0, createOpportunity: 0 };
 let oppSeq = 0;   // card ids stay unique across the file
 let noteCrash = false;
+// D223: a record create whose answer is lost: `landed` the CRM kept it, `lost` it never got it
+let recCrash: "off" | "landed" | "lost" = "off";
+const lostRecs: { id: string; createdAt: string; properties: Record<string, unknown> }[] = [];
+const recUpdates: string[] = [];
 // the body GHL sent Hair's Call booked (2026-10-10): a Sales Call whose External ID another record already has
 const DUPLICATE = '{"message":"A record with the same value for External ID - test-20254447 already exists.","errors":[{"errorCode":"duplicate_record","message":"A record with the same value for External ID - test-20254447 already exists.","field":"external_id"}],"statusCode":400}';      // the CRM wrote the note, then the socket died before it answered
 let smsMode: "ok" | "503" = "ok";
 const base = fakeAdapters();
 const fake: Adapters = {
   ...base,
+  read: { ...base.read, objectRecords: async (_c, object) => (object === "custom_objects.lost_rec" ? lostRecs : []) },
   write: { ...base.write,
     addTag: async (_c, id, t) => { tries.addTag++; if (tagMode === "503") throw new GhlError(503, "upstream connect error", `/contacts/${id}/tags`); if (tagMode === "401") throw new GhlError(401, "Invalid Private Integration token", `/contacts/${id}/tags`); tags.push(t); },
     addNote: async (_c, _id, body) => { notes.push(body); if (noteCrash) throw new Error("socket hang up"); },
-    createRecord: async (_c, object) => { if (object === "custom_objects.sales_call") throw new GhlError(400, DUPLICATE, "/objects/custom_objects.sales_call/records"); return { id: "rec-x" }; },
+    createRecord: async (_c, object, props) => {
+      if (object === "custom_objects.sales_call") throw new GhlError(400, DUPLICATE, "/objects/custom_objects.sales_call/records");
+      if (object === "custom_objects.lost_rec") {
+        if (recCrash === "lost") throw new Error("socket hang up");
+        const rec = { id: `lost-${lostRecs.length + 1}`, createdAt: "", properties: { ...props } }; lostRecs.push(rec);
+        if (recCrash === "landed") throw new Error("socket hang up");
+        return { id: rec.id };
+      }
+      return { id: "rec-x" };
+    },
+    updateRecord: async (_c, _o, id) => { recUpdates.push(id); },
     createOpportunity: async (_c, input) => { tries.createOpportunity++; if (cardMode === "503") throw new GhlError(503, "no healthy upstream", "/opportunities/"); if (cardMode === "400") throw new GhlError(400, '{"message":"stageId is invalid"}', "/opportunities/"); cards.push(input); return { id: `ghl-opp-${++oppSeq}` }; } },
   sender: { ...base.sender, sendSms: async (_c, _to, body) => { if (smsMode === "503") return { externalId: "", accepted: false, error: "GHL 503 on /conversations/messages: upstream unavailable" }; texts.push(body); return { externalId: `s${texts.length}`, accepted: true }; } },
 };
@@ -77,6 +92,7 @@ const DEFS = [
   workflow("Note it", "note", { type: "note", template: "Hello {{contact.first_name}}" }),
   workflow("Text it", "text", { type: "send_sms", template: "Hi {{contact.first_name}}", kind: "transactional" }),
   workflow("Book it", "book", { type: "set_tag", tag: ["booked"] }, { trigger: { event: "appointment.booked" } }),
+  workflow("Lost record", "lostrec", { type: "crm_record", object: "custom_objects.lost_rec", key: "key-{{contact.first_name}}", properties: { external_id: "key-{{contact.first_name}}", name: "{{contact.first_name}}" }, blocking: true }),
   workflow("Call booked", "record", { type: "crm_record", object: "custom_objects.sales_call", key: "{{event.tag}}", properties: { external_id: "test-20254447" }, blocking: true }),
   // D77: a tag nothing reads, then a note: the tag is non-blocking
   { schema: 1, reentry: "always", premise: { check: "contact_exists" }, name: "Tag then note",
@@ -318,6 +334,38 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
       expect(s.map((x) => x.status)).toEqual(["failed", "skipped"]);
       expect(s[1].result).toMatchObject({ kind: "blocked", why: expect.stringMatching(/not written twice/) });
     } finally { noteCrash = false; notes.length = 0; }
+  });
+
+  it("D223: a record create whose answer was lost is put right by what the CRM holds: there, adopted; not there, created once; two with its key, a person's call", async () => {
+    const t0 = DateTime.now();
+    const crash = async (first: string, mode: "landed" | "lost") => {
+      const ct = await newContact(`L-${first}`, first);
+      recCrash = mode;
+      const { runId } = await fire(ct, "lostrec");
+      await tickAt(t0);
+      recCrash = "off";
+      await wake(runId); await tickAt(t0.plus({ minutes: 1 }));
+      return { runId, ct };
+    };
+    try {
+      // the CRM kept it, the answer was lost: found by its key and adopted, no second record
+      const a = await crash("Ana", "landed");
+      expect(await run(a.runId)).toMatchObject({ status: "completed" });
+      expect(lostRecs.filter((r) => r.properties.external_id === "key-Ana")).toHaveLength(1);
+      expect((await steps(a.runId, "n1")).at(-1)).toMatchObject({ status: "ok", result: { recovered: expect.stringMatching(/found in the CRM by its key \(lost-1\) and adopted/), crm_id: "lost-1" } });
+      expect(recUpdates).toContain("lost-1");
+      expect(await asOperator((c) => one(c, "select ghl_record_id from crm_records where company_id=$1 and record_key='key-Ana'", [companyId]))).toEqual({ ghl_record_id: "lost-1" });
+      // the CRM never got it: created now, once
+      const b = await crash("Bo", "lost");
+      expect(await run(b.runId)).toMatchObject({ status: "completed" });
+      expect(lostRecs.filter((r) => r.properties.external_id === "key-Bo")).toHaveLength(1);
+      expect((await steps(b.runId, "n1")).at(-1)).toMatchObject({ status: "ok", result: { recovered: expect.stringMatching(/never landed/) } });
+      // two records already carry its key: not guessed
+      lostRecs.push({ id: "dup-1", createdAt: "", properties: { external_id: "key-Cy" } }, { id: "dup-2", createdAt: "", properties: { external_id: "key-Cy" } });
+      const c3 = await crash("Cy", "lost");
+      const last = (await steps(c3.runId, "n1")).at(-1)!;
+      expect(last).toMatchObject({ status: "skipped", result: { kind: "blocked", why: expect.stringMatching(/2 records in the CRM carry its key \(dup-1, dup-2\)/) } });
+    } finally { recCrash = "off"; }
   });
 
   it("a text the CRM could not take (503) is retried and goes out once; a retry of a step whose text already went out sends nothing (the sends key)", async () => {
