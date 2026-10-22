@@ -5939,7 +5939,7 @@ Tyler: "put triage calls into the new channel #dating-triage-booked and leave th
 copies.json can name a `channel` slot (booked, triageCancelled, triageFiled): its posts to the bookings channel go to
 `slack.channel.<slot>` instead (a setting, CLAUDE.md "configurable"). Nelly's triage booked, cancelled and filed copies name
 `triage_bookings`; a thread reply follows its card wherever the card is, so the whole triage thread moves with it. The closing call's
-posts stay in bookings. Applied once the bot is in #dating-triage-booked (a private channel) and the setting has its id.
+posts stay in bookings. Applied 2026-10-22: the channel is #dating-traige-booked (C0CB7DYMA57, spelled so in Slack); Triage call booked v5, cancelled v3, filed v3.
 
 ## D212. Nelly takes no calls: Mitch closes and takes triage, Jake sets (2026-10-22)
 
