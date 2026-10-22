@@ -84,7 +84,7 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
   const byEmail = new Set<string>();
   for (const e of emails) { const r = await one<{ contact_id: string }>(c, "select i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and ct.merged_into is null", [companyId, e]); if (r) byEmail.add(r.contact_id); }
   if (byEmail.size === 1) { const contactId = [...byEmail][0], { hit } = await byMeeting(contactId); return { match: { contactId, by: "email", ...(hit ? { appointmentId: hit.id } : {}) } }; }
-  if (byEmail.size > 1) return { match: null, reason: `attendees match ${byEmail.size} different contacts (${emails.join(", ")})` };
+  if (byEmail.size > 1) return pickBooked(c, companyId, input, [...byEmail], byMeeting, `attendees match ${byEmail.size} different contacts (${emails.join(", ")})`);
   // 2. meeting link (D102): the booking's own join link is the recording's; exact when only one booking has it
   const meeting = await byMeeting();
   if (meeting.hit) return { match: { contactId: meeting.hit.contact_id, by: "meeting", appointmentId: meeting.hit.id } };
@@ -108,6 +108,41 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
   }
   const seen = [...emails, ...names].join(", ");
   return { match: null, reason: (emails.length || names.length ? `nobody in the CRM matches ${seen}${closer ? "; no appointment on the closer's calendar near the start" : ""}` : staffDropped.length ? `every attendee is staff (${staffDropped.join(", ")})` : "no attendees on the recording") + shared };
+}
+
+/**
+ * D215: several of our contacts on one invite (a partner, a second address the person also used): the call is the booking's, so the
+ * one whose live booking carries the recording's meeting link, else the one whose live booking starts near the recording. Exactly
+ * one, or the recording stays unlinked with the reason, as before.
+ */
+async function pickBooked(c: PoolClient, companyId: string, input: RecordingInput, contactIds: string[], byMeeting: () => Promise<{ hit: { id: string; contact_id: string } | null }>, why: string): Promise<{ match: Match | null; reason?: string }> {
+  const { hit } = await byMeeting();
+  if (hit && contactIds.includes(hit.contact_id)) return { match: { contactId: hit.contact_id, by: "meeting", appointmentId: hit.id } };
+  const near = await many<{ id: string; contact_id: string }>(c, `select distinct on (contact_id) id, contact_id from appointments where company_id=$1 and contact_id = any($2::uuid[]) and status<>'cancelled'
+    and abs(extract(epoch from (starts_at - $3::timestamptz))) <= $4 order by contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))`, [companyId, contactIds, input.startedAt, CALENDAR_WINDOW_MIN * 60]);
+  if (near.length === 1) return { match: { contactId: near[0].contact_id, by: "email", appointmentId: near[0].id } };
+  return { match: null, reason: `${why}, and ${near.length ? `${near.length} of them have` : "none of them has"} a booking within ${CALENDAR_WINDOW_MIN / 60} hours of the start` };
+}
+
+/**
+ * D215: the recordings the ladder could not place, tried again (the ladder has learned since, or the person and their booking arrived
+ * after the recording did). A match is linked the backfill's way, silently: no event, no run; the Sales Call backfill reads it after.
+ */
+export async function rematchRecordings(c: PoolClient, companyId: string, opts: { from: Date; to: Date; dryRun: boolean }): Promise<{ linked: { id: string; title: string | null; started_at: string; contact_id: string; appointment_id: string | null; by: string }[]; still: { id: string; title: string | null; started_at: string; reason: string }[] }> {
+  const rows = await many<RecordingRow>(c, "select * from recordings where company_id=$1 and link_status='unlinked' and provider<>'ghl' and started_at >= $2 and started_at < $3 order by started_at", [companyId, opts.from, opts.to]);
+  const linked: Awaited<ReturnType<typeof rematchRecordings>>["linked"] = [], still: Awaited<ReturnType<typeof rematchRecordings>>["still"] = [];
+  for (const r of rows) {
+    const input: RecordingInput = { provider: r.provider, externalId: r.external_id, startedAt: r.started_at, recordedBy: { name: r.recorded_by_name ?? undefined, email: r.recorded_by_email ?? undefined }, invitees: r.invitees ?? [] };
+    const { match, reason } = await resolveRecording(c, companyId, input);
+    if (!match) {
+      if (!opts.dryRun && reason && reason !== r.unlinked_reason) await c.query("update recordings set unlinked_reason=$2 where id=$1", [r.id, reason]);
+      still.push({ id: r.id, title: r.title, started_at: r.started_at.toISOString(), reason: reason ?? "no match" }); continue;
+    }
+    const appointmentId = opts.dryRun ? match.appointmentId ?? await appointmentNear(c, companyId, match.contactId, r.started_at) : (await settle(c, companyId, r, match.contactId, match.by, match.appointmentId ?? null, true)).appointmentId;
+    linked.push({ id: r.id, title: r.title, started_at: r.started_at.toISOString(), contact_id: match.contactId, appointment_id: appointmentId, by: match.by });
+  }
+  if (!opts.dryRun && linked.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'recordings.rematched','company',$2,$3)", [companyId, companyId, { from: opts.from, to: opts.to, linked }]);
+  return { linked, still };
 }
 
 /** The contact's appointment nearest the recording, within a day; a reschedule means several, and the nearest one is the one held. */

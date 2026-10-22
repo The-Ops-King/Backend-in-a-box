@@ -5995,3 +5995,43 @@ works), turned on with its own mode `test` so a test contact gets it while PMU s
 addresses). Payment recorded v4: a payment no longer sends `crm.agreement_template` (one contract where PMU has four); when nothing
 has gone out, the contact's owner is told in Slack to run `/agreement` (alerts channel when the owner is not in Slack). Which
 agreement a payment implies is for later (Tyler).
+
+## D215. A recording with several of our contacts on the invite is the booked one's (2026-10-22)
+
+Tyler: "If the engine is missing people with multiple people on the invite, you need to fix that as well." PMU, Oct 20: Carly's
+33-minute call with Shay Cox stayed unlinked because a second contact's address was on the invite ("attendees match 2 different
+contacts"), so the call had no recording, no review and no disposition.
+
+- **The rule.** When more than one invitee email is a contact, the recording belongs to the one whose live booking carries the
+  recording's meeting link, else the one whose live (not cancelled) booking starts within two hours of the recording. Exactly one:
+  linked by email, to that booking. None or several: unlinked as before, the reason now saying which.
+- **Already missed.** `POST /api/admin/recordings/rematch { company, from?, to? | days?, dryRun = true }` runs a window's unlinked
+  recordings through the ladder again. A dry run lists what would link and what stays; the write links silently (no event, no run,
+  as the history backfill does) so the Sales Call backfill (D115) reads them, and keeps each one still unlinked with its reason now.
+  Audited (`recordings.rematched`).
+
+Engine code, the same on every offer: only recordings that matched nobody before can link now; a recording that linked before links
+the same way. Tests: `recordings.test.ts`.
+
+**D215 addendum: one more calendar watched without a re-install (2026-10-22).** Tyler: "JP's Strategy is an 'individual' calendar
+for follow up / reschedule if needed. track it. carly has one too." A re-install re-applies an offer's whole file and has no dry run,
+so `POST /api/admin/calendars/watch { company, calendar: id or name, term, name?, owner?, booking?, why, dryRun = true }` maps one
+calendar exactly as install maps one (`watchCalendar`, now shared by both): its call type, how it is booked, its owner and that
+owner's upcoming bookings. The poll's first read of it is a baseline (rows, no events), so the calls it already held come in through
+the history and Sales Call backfills. A calendar already watched is left as it is. Audited (`calendar.watched`). Tests:
+`contact-ops.reassign.test.ts`.
+
+## D216. /availability shows every calendar the engine watches, each on its own (2026-10-22)
+
+Tyler: "I do want the availability to also show both calendars that we're watching, or any calendars that we're watching. If we've
+got a demo calendar and a setting calendar and everything, I want that to all show there. That's important." Then: "Layout works.
+low availability is any calendar we're watching. Yes ship slack / availability to all offers."
+
+- **What it reads.** Every active calendar the engine watches, whatever its call type (D72 read only the closing ones).
+- **What it says.** First *By calendar*: each calendar with its call type, its open times over the window and a line of them per
+  day (a time once, however many hosts are free then; "no open times" when it has none). Then *By person*: the D72 table, now over
+  every watched calendar (a setter's setting calendar gives the setter a column).
+- **Low availability** already alerted on every watched calendar (D33, less D213's `alerts: false`); it is unchanged.
+
+Code, the same on every offer: `/availability`, the bot's `get_availability` and the low-availability thread. Tests:
+`availability.test.ts`, `bot.test.ts`, `alerts.test.ts`.

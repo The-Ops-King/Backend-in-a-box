@@ -150,9 +150,14 @@ export function closesBody(k: ClosesList): string[] {
 }
 export const formatCloses = (k: ClosesList, o: Foot = {}) => [`📊 ${closesKey(k)}`, ...closesBody(k), "", footer([k], o)].join("\n");
 
-/** Availability (D72): the days down the side, a column per closer, then the day's total. */
+/** Availability (D72): each calendar with its times per day (D215), then the days down the side, a column per person, then the day's total. */
 export function availabilityBody(a: Availability): string {
   const L: string[] = [];
+  if (a.calendars?.length) {
+    L.push("*By calendar*");
+    for (const k of a.calendars) L.push(`*${k.name}* (${k.type}): ${k.total.toLocaleString("en-US")}`, k.total ? `> ${a.days.map((d, i) => `${d.label.split(" ")[0]} ${k.per_day[i]}`).join(" · ")}` : "> no open times");
+    L.push("", "*By person*");
+  }
   const total = ["Total", ...a.closers.map((c) => String(c.total)), String(a.total)];
   L.push(table(["Day", ...a.closers.map((c) => c.short), "All"], [...a.days.map((d, i) => [d.label, ...a.closers.map((c) => String(c.per_day[i])), String(d.total)]), total], 40));
   if (a.split_error) L.push(a.split_error);

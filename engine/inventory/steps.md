@@ -6,7 +6,7 @@ Every step also takes `title`, `only_if` (skipped when false) and `blocking`.
 | step | parameters | what it does | company settings it reads |
 |---|---|---|---|
 | `analyze` | `prompt`, `input`, `into`, `format`, `max_tokens`, `optional` | Reads a transcript or text with the AI and keeps what it returns. | secret.anthropic_key, prompt.* |
-| `availability_check` | `min_slots`, `days` | Counts bookable times on the closing calendars and raises a low-availability alert. | booking source token |
+| `availability_check` | `min_slots`, `days` | Counts bookable times on every watched calendar and raises a low-availability alert. | booking source token |
 | `branch` | `on` | Follows the first way on whose condition holds, else the `else` way. | none |
 | `check` | `when`, `else_exit`, `else_pause`, `retry` | A gate: goes on when its condition holds, else exits or pauses (can look again for a while first). | none |
 | `classify` | `input`, `state`, `domain`, `threshold`, `into`, `question`, `criteria`, `ambiguity_max` | Asks Jev which of a domain's options a reply or transcript means. | secret.jev_key |
