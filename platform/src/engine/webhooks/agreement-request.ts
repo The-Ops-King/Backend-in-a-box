@@ -199,14 +199,14 @@ async function outcome(runIds: string[], choice: AgreementChoice, contact: Who):
     const r = await one<{ status: string; exit_reason: string | null }>(c, "select status, exit_reason from runs where id = any($1::uuid[]) order by started_at limit 1", [runIds]);
     if (r?.exit_reason === "already_signed") return `${contact.name} has already signed. Nothing sent.`;
     const step = await one<{ result: Record<string, unknown> | null; error: string | null }>(c, "select s.result, s.error from run_steps s where s.run_id = any($1::uuid[]) and s.node_id='d1' order by s.id desc limit 1", [runIds]);
-    if (step?.result?.document) {
-      // a closer may send another, or a different one, to someone who signed before: said, so it is never a surprise
-      const signed = await one<{ at: Date }>(c, "select max(signed_at) as at from agreements where contact_id=$1 and signed_at is not null and external_id is distinct from $2", [contact.id, String(step.result.document)]);
-      return `✅ ${choice.label} sent to ${named(contact)}.${signed?.at ? ` (They signed an earlier agreement on ${signed.at.toISOString().slice(0, 10)}.)` : ""}`;
-    }
     if (step?.result?.ghost || step?.result?.quiet) return `Not sent: the offer isn't live yet (${step.result.ghost ? "ghost" : "quiet"}), so nothing reaches a contact. It would have sent ${choice.label} to ${contact.name}.`;
     if (step?.result?.would_send_document) return `Not sent: ${String(step.result.why ?? "held")}. It would have sent ${choice.label} to ${contact.name}.`;
     if (step?.error) return `Couldn't send ${choice.label} to ${contact.name}: ${step.error}`;
+    // sent: GHL's send answers without the document's id, so the step's having gone (the run past it, ended "sent") is the proof
+    if (step?.result?.document || (step?.result && "document" in step.result) || r?.exit_reason === "sent") {
+      const signed = await one<{ at: Date | null }>(c, "select max(signed_at) as at from agreements where contact_id=$1 and signed_at is not null and external_id is distinct from $2", [contact.id, String(step?.result?.document ?? "")]);
+      return `✅ ${choice.label} sent to ${named(contact)}.${signed?.at ? ` (They signed an earlier agreement on ${signed.at.toISOString().slice(0, 10)}.)` : ""}`;
+    }
     return `${choice.label} for ${contact.name} hasn't gone yet (${r?.status ?? "queued"}); the minute check will send it.`;
   });
 }

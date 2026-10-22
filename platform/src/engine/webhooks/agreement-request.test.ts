@@ -167,10 +167,14 @@ describe.skipIf(!process.env.DATABASE_URL)("D202: /agreement end to end", () => 
     if ("errors" in ok) throw new Error(JSON.stringify(ok.errors));
     expect(await requestAgreement(fake, co, "U-CY", ok.contact, ok.choice, ok.by)).toBe("✅ Deposit agreement sent to Rae Lee (rae@example.com). (They signed an earlier agreement on 2026-09-21.)");
     expect(sentDocs.at(-1)).toMatchObject({ templateId: "T-DEP" });
+    // GHL's send answers without the document's id: it went all the same, and the closer is told so
+    const send = fake.write.sendDocumentTemplate;
+    fake.write.sendDocumentTemplate = async (_c, input) => { sentDocs.push(input); return { id: "" }; };
+    try { expect(await requestAgreement(fake, co, "U-CY", ok.contact, ok.choice, ok.by)).toMatch(/^✅ Deposit agreement sent to Rae Lee/); } finally { fake.write.sendDocumentTemplate = send; }
     const n = sentDocs.length;
     await asOperator(async (c) => { await c.query("delete from agreements where company_id=$1", [co]); await c.query("update companies set mode='ghost' where id=$1", [co]); });
     expect(await requestAgreement(fake, co, "U-CY", ok.contact, ok.choice, ok.by)).toMatch(/^Not sent: the offer isn't live yet \(ghost\)/);
     expect(sentDocs.length).toBe(n);
-    expect(await asOperator((c) => many(c, "select 1 from events where company_id=$1 and event_type='agreement.requested'", [co]))).toHaveLength(4);
+    expect(await asOperator((c) => many(c, "select 1 from events where company_id=$1 and event_type='agreement.requested'", [co]))).toHaveLength(5);
   });
 });
