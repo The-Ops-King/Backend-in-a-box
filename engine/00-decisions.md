@@ -6102,3 +6102,22 @@ workflow was on.
 
 Engine code, every offer; it changes only what happens at the moment a workflow is switched on. Tests: `clock.enable.test.ts`;
 `eod.test.ts` and `flowmode.test.ts` now switch their workflows on the day before, since they test the reminder and the rung.
+
+## D222. A merge in GHL is followed; the backfill never makes a record for someone GHL dropped (2026-10-22)
+
+PMU: Lyric B booked under a Gmail address, cancelled two minutes later and rebooked the same slot under Yahoo; GHL then merged the
+Gmail contact away. The engine kept two people, one gone, and the Sales Call backfill (D115) created a record for the gone one,
+failed to link it and never recorded it: an orphan the drift check asked about every hour. Tyler: "Yes that needs to happen" (follow
+the merge), "ok fix that" (the backfill), and for anything like this, "unless it's not 100% sure."
+
+- **Following a merge** (`merge.ts`, `followMerge`). When the engine finds a contact gone from GHL (the live check before a run
+  acts, a write that answers 404, the duplicates sweep), it looks for the one it became: GHL asked by each of its emails, or the
+  duplicates sweep's own match by phone or email. Exactly one live GHL contact: the gone one's calls, deals, cards, payments, records,
+  recordings, forms, agreements, messages, emails and phones move to it; the gone row stays, `merged_into` it, with its own history
+  (events, runs, sends); audited (`contact.merged`); no alert, since nothing is left to do. None or several: nothing moves, and the
+  "gone" alert now says why it was not followed. A phone already makes one engine person of two records (D60), so GHL is asked by
+  email. A moved Sales Call GHL still relates to the dropped contact is the drift check's to relink, in the offer's mode.
+- **The backfill** checks a person is still in GHL before making a record for them (gone: no record, the row says why), and records
+  every record it makes before linking it, so a link that fails leaves a record the engine knows, never an orphan.
+
+Engine code, every offer. Tests: `merge.test.ts`, `sales-call-backfill.test.ts`.

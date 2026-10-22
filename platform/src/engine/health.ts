@@ -5,6 +5,7 @@ import type { Adapters, Company } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { reconcile, type AlertInput, type Level } from "./alerts";
 import { slackLiveSet, TEST_CHANNEL_KEY } from "./mode";
+import { followMerge } from "./merge";
 import { missingSources } from "./readiness";
 import { ghlCatalog, type Catalog } from "@/adapters/ghl/catalog";
 import { ghlCalendarTeam, ghlFreeSlots, ghlLocationOk } from "@/adapters/ghl/health";
@@ -476,6 +477,8 @@ async function findDuplicates(c: PoolClient, company: CompanyRow, ac: Company, a
       if (pr === "unknown") { confirmed = false; continue; }
       if (pr !== "gone") continue;
       await c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [id]); gone.add(id);
+      // D222: the pair was matched by its phone or email, so the other one is where GHL merged it: its calls and records follow
+      await followMerge(c, company.id, company.timezone, ac, adapters, id, id === p.a_id ? p.b_id : p.a_id);
     }
     if (gone.has(p.a_id) || gone.has(p.b_id) || !confirmed) continue;
     const a = nameOf({ first_name: p.a_first, last_name: p.a_last }), b = nameOf({ first_name: p.b_first, last_name: p.b_last });

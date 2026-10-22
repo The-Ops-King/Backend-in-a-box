@@ -640,12 +640,18 @@ async function applyRows(c: PoolClient, co: LoadedCompany, adapters: Adapters, r
       }
       let record: "created" | "updated";
       if (crmId) { if (Object.keys(props).length) await adapters.write.updateRecord(co.adapterCompany, w.object, crmId, props); record = "updated"; }
-      else { crmId = (await adapters.write.createRecord(co.adapterCompany, w.object, props)).id; record = "created"; existing.set(w.key, { id: crmId, createdAt: new Date().toISOString(), properties: props }); }
-      const related: string[] = [];
-      for (const r of w.relate) { const first = r.first === RECORD_ID ? crmId : r.first, second = r.second === RECORD_ID ? crmId : r.second; await adapters.write.relateRecords(co.adapterCompany, r.association, first, second); related.push(`${first}→${second}`); }
+      else {
+        // D222: a new record only for a person GHL still has; one it merged away or deleted would be made attached to no one
+        const ghlContact = row.contact.ghl_contact_id;
+        if (ghlContact && !(await adapters.read.getContact(co.adapterCompany, ghlContact))) throw new Error(`${row.contact.name ?? "the contact"} is gone from GHL (merged or deleted): no Sales Call made`);
+        crmId = (await adapters.write.createRecord(co.adapterCompany, w.object, props)).id; record = "created"; existing.set(w.key, { id: crmId, createdAt: new Date().toISOString(), properties: props });
+      }
+      // D222: the engine owns the record from the moment it exists, so a link that fails below never leaves one it cannot see
       await c.query(`insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
         on conflict (company_id, object_key, record_key) do update set ghl_record_id=coalesce(crm_records.ghl_record_id, excluded.ghl_record_id), properties=crm_records.properties || excluded.properties, updated_at=now()`,
         [co.row.id, w.object, w.key, crmId, row.contact.id, props]);
+      const related: string[] = [];
+      for (const r of w.relate) { const first = r.first === RECORD_ID ? crmId : r.first, second = r.second === RECORD_ID ? crmId : r.second; await adapters.write.relateRecords(co.adapterCompany, r.association, first, second); related.push(`${first}→${second}`); }
       const ledger: string[] = [];
       if (w.ledger.appointment_id) {
         const a = await one<{ outcome_term: string | null; call_outcome_term: string | null }>(c, "select outcome_term, call_outcome_term from appointments where id=$1 and company_id=$2", [w.ledger.appointment_id, co.row.id]);
