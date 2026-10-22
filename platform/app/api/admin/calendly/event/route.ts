@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic"; export const maxDuration = 60;
 
 type Membership = { user: string; user_email?: string; user_name?: string };
 /**
- * D214: GET ?company=<slug>&event=<Calendly scheduled event uuid>: what Calendly holds about one booking, read live and only read:
+ * D224: GET ?company=<slug>&event=<Calendly scheduled event uuid>: what Calendly holds about one booking, read live and only read:
  * its status, hosts, location, and `calendar_event` (the event Calendly wrote to the host's connected calendar: its kind and id, or
  * null when Calendly wrote none), plus each host's busy times over the event's day, by type (`calendly` = Calendly's own bookings,
  * `external` = events from a connected calendar; none of the second is a calendar that may not be connected).

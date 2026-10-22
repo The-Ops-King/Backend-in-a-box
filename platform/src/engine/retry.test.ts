@@ -33,7 +33,7 @@ let cardMode: "ok" | "400" | "503" = "ok";
 const tries = { addTag: 0, createOpportunity: 0 };
 let oppSeq = 0;   // card ids stay unique across the file
 let noteCrash = false;
-// D215: a record create whose answer is lost: `landed` the CRM kept it, `lost` it never got it
+// D223: a record create whose answer is lost: `landed` the CRM kept it, `lost` it never got it
 let recCrash: "off" | "landed" | "lost" = "off";
 const lostRecs: { id: string; createdAt: string; properties: Record<string, unknown> }[] = [];
 const recUpdates: string[] = [];
@@ -336,7 +336,7 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
     } finally { noteCrash = false; notes.length = 0; }
   });
 
-  it("D215: a record create whose answer was lost is put right by what the CRM holds: there, adopted; not there, created once; two with its key, a person's call", async () => {
+  it("D223: a record create whose answer was lost is put right by what the CRM holds: there, adopted; not there, created once; two with its key, a person's call", async () => {
     const t0 = DateTime.now();
     const crash = async (first: string, mode: "landed" | "lost") => {
       const ct = await newContact(`L-${first}`, first);

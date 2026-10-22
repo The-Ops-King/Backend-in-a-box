@@ -700,7 +700,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         if (cl && !cl.fresh) {
           if (cl.done && cl.external_id) ghlId = cl.external_id;
           else {
-            // D215 (Tyler: "it should see what exists, and if it makes sense exactly what happened, it should work to fix it"): the CRM never
+            // D223 (Tyler: "it should see what exists, and if it makes sense exactly what happened, it should work to fix it"): the CRM never
             // answered the create, so the engine looks for the record that create would have made, by the key it stamps on it. Exactly one:
             // the create landed, so it is this record (adopted, then updated as any second write is). None: nothing was written, so it is
             // created now. Several, no key on the record to look for, or the CRM cannot be read: a person decides, as before.
@@ -1168,7 +1168,7 @@ async function relate(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>):
  * Shadow writes nothing, not even our ledger's copy (we did not write the CRM, so the ledger must not say we did).
  */
 /**
- * D215: after a create the CRM never answered, the record that create would have made, looked up by the key the step stamps on it
+ * D223: after a create the CRM never answered, the record that create would have made, looked up by the key the step stamps on it
  * (`external_id`), and, when the step names the contact, only that contact's. One: it. None: it was never written. Anything else
  * is said, not guessed.
  */

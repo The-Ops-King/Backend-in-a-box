@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"; export const maxDuration = 120;
  * POST { company, runs?: [ids], paused_like?: "<text in the pause reason>", dryRun = true } with Authorization: Bearer $CRON_SECRET:
  * the operator retries the step paused runs stopped at (D66's retry, the dashboard's button), e.g. every run paused because the
  * AI's credit ran out once it is topped up. Only paused runs of that company; each retry is audited by `retryStep`.
- * D215: `node` with one run: re-run that one step of it, the Retry an alert's button does for a step that could not run (the run may
+ * D223: `node` with one run: re-run that one step of it, the Retry an alert's button does for a step that could not run (the run may
  * have gone on and finished).
  */
 export async function POST(req: Request) {
@@ -23,7 +23,8 @@ export async function POST(req: Request) {
       const r = await one<{ id: string; status: string }>(c, "select id, status from runs where company_id=$1 and id=$2", [co.id, b.runs![0]]);
       if (!r) return NextResponse.json({ error: "no such run in this company" }, { status: 404 });
       if (b.dryRun !== false) return NextResponse.json({ ok: true, dryRun: true, run: r.id, status: r.status, node: b.node });
-      return NextResponse.json({ ok: true, dryRun: false, run: r.id, ...(await retryStep(c, r.id, "operator", { node: b.node, adapters: liveAdapters })) });
+      const out = await retryStep(c, r.id, "operator", { node: b.node, adapters: liveAdapters });
+      return out.ok ? NextResponse.json({ ...out, dryRun: false, run: r.id }) : NextResponse.json({ error: out.error }, { status: out.status });
     }
     const runs = await many<{ id: string; exit_reason: string | null }>(c, `select id, exit_reason from runs where company_id=$1 and status='paused' and (id = any($2::uuid[]) or ($3::text <> '' and exit_reason ilike '%' || $3 || '%'))`, [co.id, b.runs ?? [], b.paused_like?.trim() ?? ""]);
     if (b.dryRun !== false) return NextResponse.json({ ok: true, dryRun: true, runs });

@@ -5968,7 +5968,7 @@ calendar, alerts, why, dryRun }`) keeps its bookings watched and leaves it out o
 next sweep. Nelly: off on 86985d27, aac238a5 and 80955126; on for the two new links (03ad5f45 Strategy Session, 6a643c89 consultation).
 `GET /api/admin/calendars` shows the switch. Tests: `health.calendar-alerts.test.ts`.
 
-## D215. A record create whose answer was lost is put right from what the CRM holds (2026-10-22)
+## D223. A record create whose answer was lost is put right from what the CRM holds (2026-10-22)
 
 Tyler, on "Sales call recorded couldn't create the Sales Call record for Corina Raducanu ... asked the CRM once already and never
 heard back": "we shouldn't try to create a sales call record if one already exists ... I want this to be pretty hands free", and for
@@ -5980,3 +5980,11 @@ is); none, nothing was written, so it is created now; several, a record with no 
 person decides, as before, the reason said. Engine code for every offer: no saved workflow changes; only this failure case acts
 instead of alerting. `POST /api/admin/runs/retry { company, runs: [one], node }` re-runs one step of a run (the alert's Retry).
 Tests: `retry.test.ts`.
+
+## D224. A read-only look at one Calendly booking, or one member's calendar (2026-10-22)
+
+Nelly could not see two consultations on her calendar. `GET /api/admin/calendly/event?company=&event=<scheduled event uuid>` reads
+the booking live: status, hosts, location, and `calendar_event` (the event Calendly wrote to the host's calendar, or null), with each
+host's busy times by type; `user=<member email>` in place of `event` reads that member's busy times over 7 days (`external` ones mean a
+calendar is connected). Calendly's API does not say which calendar it writes new bookings to. It showed both of Nelly's were written
+to Google (her app showed them the next morning), and that Alex Pappas's call was the departed Nonie's ("Cam") with no calendar.
