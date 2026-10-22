@@ -8,7 +8,7 @@ import { findContact } from "./slack-link";
 
 /**
  * D202 (Tyler: "a slack slash command for instant agreement instead of the tag ... we can configure which agreement gets sent").
- * D210 (Tyler: "agreement email 12k guarantee" sends; "agreement email" asks which; "agreement 12k guarantee" asks who): the who
+ * D214 (Tyler: "agreement email 12k guarantee" sends; "agreement email" asks which; "agreement 12k guarantee" asks who): the who
  * and the which come in either order. `<who>` is a GHL contact link, an email or a phone (exact: sent at once) or a full name (one
  * match only; asked to confirm first). The which is any of the agreement's phrases (its key, its label, the offer's `match` list),
  * word for word in any order, read the same way everywhere ("$12,000" = "12,000" = "12k", "guaranteed" = "guarantee"): one

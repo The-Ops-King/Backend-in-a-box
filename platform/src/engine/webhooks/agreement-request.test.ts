@@ -18,7 +18,7 @@ const fake: Adapters = { ...base, write: { ...base.write, addNote: async (_c, _i
   notifier: { ...base.notifier, post: async (_t, channel, text) => { dms.push({ to: channel, text }); return { ts: "1.1" }; } } };
 let co = "", rae = "";
 
-// PMU's four (D210): the price and whether it carries the guarantee
+// PMU's four (D214): the price and whether it carries the guarantee
 const PMU = JSON.stringify([
   { key: "10k", label: "$9,997", template: "T-10", match: ["9997 no guarantee", "10k no guarantee"] },
   { key: "10k-g", label: "$9,997 + Guarantee", template: "T-10G", match: ["10k guarantee"] },
@@ -26,7 +26,7 @@ const PMU = JSON.stringify([
   { key: "12k-g", label: "$12,000 + Guarantee", template: "T-12G", match: ["12k guarantee"] },
 ]);
 
-describe("D202/D210: the agreement choices, the words and the form", () => {
+describe("D202/D214: the agreement choices, the words and the form", () => {
   it("the offer's list, else its one agreement; a bad list is not a choice", () => {
     expect(agreementChoices({ "agreements.list": JSON.stringify([{ label: "Deposit agreement", template: "T-DEP" }, { label: "", template: "x" }, { label: "Full", template: "T-FULL", key: "Paid in full" }]) }).map(({ key, label, template }) => ({ key, label, template })))
       .toEqual([{ key: "deposit", label: "Deposit agreement", template: "T-DEP" }, { key: "paid-in-full", label: "Full", template: "T-FULL" }]);
@@ -114,7 +114,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D202: /agreement end to end", () => 
     const ans = (who: string, user = "U-CY") => asOperator((c) => answerAgreementCommand(c, co, user, b, who));
     expect(await ans("rae@example.com full", "U-ST")).toEqual({ say: { response_type: "ephemeral", text: "Only closers, managers and the operator can send agreements." } });
     expect(await ans("")).toMatchObject({ form: [{ key: "deposit" }, { key: "full" }] });
-    expect(await ans("full")).toMatchObject({ form: [{ key: "deposit" }, { key: "full" }], picked: { key: "full" } });   // D210: the which alone asks who
+    expect(await ans("full")).toMatchObject({ form: [{ key: "deposit" }, { key: "full" }], picked: { key: "full" } });   // D214: the which alone asks who
     expect((await ans("full to Rae@Example.com")).send).toMatchObject({ contact: { id: rae }, choice: { key: "full" } });   // either order
     expect(await ans("Rae@Example.com full")).toMatchObject({ send: { contact: { id: rae, name: "Rae Lee", email: "rae@example.com" }, choice: { key: "full" }, by: { name: "Cy Closer", ghl_user_id: "GU-CY" } }, say: { text: "Sending Full agreement to Rae Lee (rae@example.com)…" } });
     expect(await ans("https://app.gohighlevel.com/v2/location/L/contacts/detail/GHLRAE00000000000AG deposit")).toMatchObject({ send: { contact: { id: rae }, choice: { key: "deposit" } } });
