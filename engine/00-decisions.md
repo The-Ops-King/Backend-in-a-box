@@ -6037,3 +6037,18 @@ low availability is any calendar we're watching. Yes ship slack / availability t
 
 Code, the same on every offer: `/availability`, the bot's `get_availability` and the low-availability thread. Tests:
 `availability.test.ts`, `bot.test.ts`, `alerts.test.ts`.
+
+## D217. A call nobody has filed is out of the show rate until it is (2026-10-22)
+
+Tyler, on `/show-rate` showing JP 1/9 while most of his calls had no outcome yet: "calls with no outcome are counted in no-show,
+that shouldn't be the case." D70 had applied D54's end-of-day presumption to the rate (a call nobody filed counts as not showed).
+
+- **Show rate is shows ÷ calls with an outcome**: showed, no-show or cancelled (cancellations stay in, Tyler 2026-10-22), a slot the
+  call was rescheduled away from still out. A call with no outcome filed is out of the rate until someone files it, and is still
+  listed under "No EOD outcome yet".
+- That list names each call with its day ("Renee G (Oct 21)"), so a person with several unfiled calls reads as several calls, not
+  a duplicate.
+- The same rule in `analyze` (the bot's own splits), so a question and `/show-rate` never disagree. "Calls booked" (`/mtd`,
+  `/weekly`) is unchanged: every call whose time has passed.
+
+Code, the same on every offer (the bot, the shortcuts, the wrap-ups). Tests: `bot.test.ts`.

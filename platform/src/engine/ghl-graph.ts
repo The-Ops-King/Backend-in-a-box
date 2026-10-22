@@ -359,7 +359,7 @@ function measure(unit: GraphUnit, a: Acc): Group & { showedPeople: number; close
   }
   const div = (n: number, d: number) => (d ? n / d : null);
   g.booked_rate = unit === "lead" ? div(g.booked, g.count) : null;
-  g.show_rate = unit === "close" ? null : div(g.showed, g.calls);
+  g.show_rate = unit === "close" ? null : div(g.showed, g.calls - g.missing);   // D217: a call nobody filed yet is out of the rate until it is
   g.close_rate = unit === "close" ? null : div(g.closed, g.showed);
   if (days.length) { const s = days.sort((x, y) => x - y), m = Math.floor(s.length / 2); g.days_to_close = s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
   return g;
@@ -399,7 +399,7 @@ export async function analyze(c: PoolClient, companyId: string, q: AnalyzeQuery,
   let test: Analysis["test"] = null;
   if (split && rate) {
     const answered = out.filter((x) => x.value !== NO_ANSWER);
-    const pair = (x: (typeof out)[number]) => (rate === "booked_rate" ? { n: x.count, s: x.booked } : rate === "show_rate" ? { n: x.calls, s: x.showed } : q.unit === "lead" ? { n: x.showedPeople, s: x.closedOfShowed } : { n: x.showed, s: x.closed });
+    const pair = (x: (typeof out)[number]) => (rate === "booked_rate" ? { n: x.count, s: x.booked } : rate === "show_rate" ? { n: x.calls - x.missing, s: x.showed } : q.unit === "lead" ? { n: x.showedPeople, s: x.closedOfShowed } : { n: x.showed, s: x.closed });
     const gs = answered.map(pair), n = gs.reduce((a, x) => a + x.n, 0), w = RATE_WORDS[rate];
     if (gs.filter((x) => x.n > 0).length < 2) test = { p: null, verdict: "Fewer than two different answers here, so there is nothing to compare." };
     else if (n < MIN_N) test = { p: null, verdict: `Only ${n} ${w.of} have an answer to this question: too few to tell a pattern from chance.` };

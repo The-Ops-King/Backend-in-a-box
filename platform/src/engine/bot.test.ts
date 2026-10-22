@@ -257,9 +257,9 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect((await metric("calls_due")).value).toBe(5);
       expect((await metric("calls_booked_due")).value).toBe(8);
       const sr = await metric("show_rate", { groupBy: "closer" });
-      expect(sr).toMatchObject({ numerator: 3, denominator: 8, source: "GHL, read just now" });
-      expect(sr.rows!.map((x) => [x.label, x.numerator, x.denominator])).toEqual([["Cara Closer", 1, 4], ["Dan Dealer", 2, 3], ["Zed Outsider", 0, 1]]);
-      expect(sr.shows_breakdown).toEqual({ booked: 8, showed: 3, noshow: 2, cancelled: 2, rescheduled: 1, missing: 1, missing_names: ["C4"],
+      expect(sr).toMatchObject({ numerator: 3, denominator: 7, source: "GHL, read just now" });
+      expect(sr.rows!.map((x) => [x.label, x.numerator, x.denominator])).toEqual([["Cara Closer", 1, 4], ["Dan Dealer", 2, 2], ["Zed Outsider", 0, 1]]);
+      expect(sr.shows_breakdown).toEqual({ booked: 8, showed: 3, noshow: 2, cancelled: 2, rescheduled: 1, missing: 1, missing_names: ["C4 (Oct 9)"],
         mismatches: [{ name: "C2", ghl_contact_id: "C2", record_id: "S6", ghl: "noshow", booking_source: "the GHL calendar" }] });
       expect((await metric("shows")).value).toBe(3);
       expect((await metric("no_shows")).value).toBe(2);       // S11 stands: cancelled after the start
@@ -353,13 +353,13 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(combined[combined.length - 1]).toBe("_Oct 1–10 · From GHL, read 12:00 PM MST · Asked by <@U-CARA>_");
       const summary = formatSummary("Month to date", [await metric("leads")], null, [], { now: NOW }).split("\n");
       expect(summary[0]).toBe("📊 *Month to date*"); expect(summary.join("\n")).not.toContain("people who entered");
-      expect(helpText()).toContain("*Show rate*: shows ÷ calls booked whose time has passed");
+      expect(helpText()).toContain("*Show rate*: shows ÷ calls with an outcome (showed, no-show or cancelled");
     });
     it("D95: show rate warns only about what someone has to fix: calls with no EOD outcome and GHL vs the calendar; MQLs only about answers nobody recognised", async () => {
       const text = formatAnswer([await metric("show_rate", { groupBy: "closer" }), await metric("show_rate", { groupBy: "source" })], { now: NOW });
       const lines = text.split("\n");
-      expect(lines[0]).toBe("*Show rate: 38%* (3 of 8 calls booked)");
-      expect(lines).toContain("⚠️ No EOD outcome yet: C4");
+      expect(lines[0]).toBe("*Show rate: 43%* (3 of 7 calls with an outcome)");
+      expect(lines).toContain("⚠️ No EOD outcome yet: C4 (Oct 9)");
       expect(lines).toContain("⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)");
       expect(text).toContain("Zed Outsider"); expect(text).not.toMatch(/Rescheduled|Missing from EOD disposition/);
       expect(formatAnswer([await metric("mqls")], { now: NOW }).split("\n").filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 qualifying answer not recognised: \"retired\""]);
@@ -398,10 +398,10 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const lines = posts[0].text.split("\n");
       expect(lines[0]).toBe("📊 *Month to date*");
       const tbl = lines.slice(lines.indexOf("```") + 1, lines.indexOf("```", lines.indexOf("```") + 1));
-      expect(tbl.map((l) => l.replace(/\s+/g, " "))).toEqual(["Leads 4 ▲ 4", "MQLs 1 ▲ 1", "Booked 8 ▲ 8", "Show rate 38%", "Close rate 67%", "Deposits 1 same", "Deposit cash $3,000 ▲ $1,000", "Cash $3,900 ▲ $1,900"]);   // D119: deposits on their own lines
+      expect(tbl.map((l) => l.replace(/\s+/g, " "))).toEqual(["Leads 4 ▲ 4", "MQLs 1 ▲ 1", "Booked 8 ▲ 8", "Show rate 43%", "Close rate 67%", "Deposits 1 same", "Deposit cash $3,000 ▲ $1,000", "Cash $3,900 ▲ $1,900"]);   // D119: deposits on their own lines
       expect(Math.max(...tbl.map((l) => l.length))).toBeLessThanOrEqual(PHONE_WIDTH);
       expect(lines).toContain("Top source: instagram ($2,500)");
-      expect(lines.filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 qualifying answer not recognised: \"retired\"", "⚠️ No EOD outcome yet: C4", "⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)"]);
+      expect(lines.filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 qualifying answer not recognised: \"retired\"", "⚠️ No EOD outcome yet: C4 (Oct 9)", "⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)"]);
       expect(posts[0].text).not.toMatch(/read just now|didn't answer|Rescheduled|÷/);
       expect(lines[lines.length - 1]).toBe("_Oct 1–10 vs Sep 1–10 · From GHL, read 12:00 PM MST · Asked by <@U-CARA>_"); expect(lines[lines.length - 2]).toBe("");
       const row = await asOperator((c) => one<{ messages: unknown[] }>(c, "select messages from bot_threads where company_id=$1 and channel='C-SALES' and thread_ts=$2", [companyId, (out as { ts: string }).ts]));
@@ -515,7 +515,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const tbl = lines.slice(lines.indexOf("```") + 1, lines.lastIndexOf("```"));
       expect(tbl[0]).toMatch(/^Answer\s+Calls\s+Showed$/); expect(text).toMatch(/\nEmployed full-time\s+2\s+50%\n/);
       expect(Math.max(...tbl.map((l) => l.length))).toBeLessThanOrEqual(PHONE_WIDTH);
-      expect(text).toContain("_Only 5 calls have an answer to this question: too few to tell a pattern from chance._");
+      expect(text).toContain("_Only 4 calls have an answer to this question: too few to tell a pattern from chance._");
       expect(text).toContain("\n\nToo few calls to call it a pattern.\n\n_Oct 1–10");
       expect(text).not.toMatch(/No answer on|Total/);
       const res = JSON.parse(lastToolResult().content);
