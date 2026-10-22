@@ -5924,3 +5924,11 @@ late should get. Test fixes on the way: two tests depended on rows an old shared
 0001 removed; a second `migrate()` dropping a row, which numbered migrations never do); both now hold on an empty database.
 Tests: `poll.calendly.test.ts` (D196 case with the lock), `backfill.test.ts`, `payments.test.ts`, `templates.scenarios.test.ts`,
 `run-now.test.ts`.
+
+## D210. Restart a booking's run of one workflow (2026-10-22)
+
+Erica booked Nelly's consultation three minutes before Tyler unlocked the pre-calls, so her booking text was held by the lock and
+her run went on to the day-before wait. Tyler: "I want her to get the immediate you're booked". `POST /api/admin/replay-bookings
+{ company, appointments, workflow, restart: true, dryRun }` stops that workflow's run of each named booking (exited, `restarted by
+the operator`, its re-entry key freed so a new run can take it) and hands the booking to the workflow afresh, which starts from its
+first step. Named bookings only; the dry run says which would restart. Tests: `replay.test.ts`.
