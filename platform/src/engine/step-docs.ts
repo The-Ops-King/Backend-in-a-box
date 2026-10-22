@@ -21,7 +21,7 @@ export const STEP_DOCS: Record<Node["type"], StepDoc> = {
   slack_post: { does: "Posts, replies in a thread, edits, reacts or offers buttons in Slack.", reads: ["test.slack_channel", "slack.live", "slack.channel.ops", "bot.escalate_to", "reports.quiet_when_empty", "slack.name", "slack.icon"] },
   webhook: { does: "Calls an outside URL (held in ghost and quiet; while its sends are locked, only for a run about Tyler, D145; the only step that reads secret.* values).", reads: ["the send lock"] },
   health_check: { does: "Runs the hourly checks and turns what fails into alerts (the checks and their words are the engine's).", reads: ["many: the GHL, Calendly, Whop, Fathom, Typeform, Slack and AI settings"] },
-  availability_check: { does: "Counts bookable times on the closing calendars and raises a low-availability alert.", reads: ["booking source token"] },
+  availability_check: { does: "Counts bookable times on every watched calendar and raises a low-availability alert.", reads: ["booking source token"] },
   eod_due: { does: "Lists the days a person still owes an end of day (the ledger and GHL's Sales Calls).", reads: ["crm.object_sales_call", "sales_call.outcomes", "sales_call.dispositions", "sales_call.closer_options"] },
   report: { does: "Builds a daily, weekly or monthly wrap-up from the company's numbers.", reads: ["test.domains"] },
   leaderboard: { does: "Builds the closer and setter leaderboard for a period." },

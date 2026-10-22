@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createHmac } from "node:crypto";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
-import { meetingKey, recordRecording, resolveRecording, type RecordingInput } from "./recordings";
+import { meetingKey, recordRecording, rematchRecordings, resolveRecording, type RecordingInput } from "./recordings";
 import { applyAppointment } from "./poll";
 import type { CompanyRow } from "./context";
 import type { Adapters, Company } from "@/adapters/types";
@@ -25,7 +25,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='recs'");
-      if (co) { for (const t of ["events", "sends", "recordings", "appointments", "calendars", "opportunities", "contact_identifiers", "contacts", "users", "company_terms"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["audit_log", "events", "sends", "recordings", "appointments", "calendars", "opportunities", "contact_identifiers", "contacts", "users", "company_terms"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('Recs','recs','America/New_York') returning id"))!.id;
       await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories`, [companyId]);
       term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
@@ -66,11 +66,37 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     const tie = await asOperator((c) => resolveRecording(c, companyId, rec("r7", { startedAt: new Date(base.getTime() + 60e3), invitees: [{ name: "Guest", email: "guest@phone.com" }] })));
     expect(tie.match).toBeNull(); expect(tie.reason).toMatch(/none clearly the one it started on/);
   });
-  it("two different contacts on one recording is ambiguous, not a guess; all-staff is named as such", async () => {
-    const amb = await asOperator((c) => resolveRecording(c, companyId, rec("r6", { invitees: [{ email: "ann@x.com" }, { email: "bob@x.com" }] })));
-    expect(amb.match).toBeNull(); expect(amb.reason).toMatch(/2 different contacts/);
+  it("two different contacts on one recording is ambiguous unless exactly one of them is booked then (D215); all-staff is named as such", async () => {
+    const amb = await asOperator((c) => resolveRecording(c, companyId, rec("r6", { startedAt: new Date("2020-01-01T00:00:00Z"), invitees: [{ email: "ann@x.com" }, { email: "bob@x.com" }] })));
+    expect(amb.match).toBeNull(); expect(amb.reason).toMatch(/2 different contacts .*none of them has a booking within 2 hours/);
+    // Ann is booked at `at`, Bob is not: the call is Ann's booking
+    const booked = await asOperator((c) => resolveRecording(c, companyId, rec("r6b", { startedAt: new Date(at.getTime() - 60e3), invitees: [{ email: "bob@x.com" }, { email: "ann@x.com" }] })));
+    const annAt = await asOperator(async (c) => (await one<{ id: string }>(c, "select id from appointments where company_id=$1 and external_id='A-ANN'", [companyId]))!.id);
+    expect(booked.match).toEqual({ contactId: ann, by: "email", appointmentId: annAt });
     const staff = await asOperator((c) => resolveRecording(c, companyId, rec("r7", { startedAt: new Date("2020-01-01T00:00:00Z"), invitees: [{ email: "closer@co.com" }] })));
     expect(staff.reason).toMatch(/every attendee is staff/);
+  });
+  it("an unlinked recording is tried again: a dry run says what would link, the write links it silently and keeps the rest with their reason (D215)", async () => {
+    const t0 = new Date("2026-11-03T15:00:00Z");
+    const ids = await asOperator(async (c) => {
+      const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 limit 1", [companyId]))!.id;
+      const appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status) values ($1,$2,'ghl','RM-ANN',$3,$4,$5,$6,$6,now(),'confirmed') returning id", [companyId, ann, cal, term, closer, t0]))!.id;
+      const add = async (ext: string, startedAt: Date) => (await one<{ id: string }>(c, "insert into recordings (company_id, provider, external_id, started_at, recorded_by_email, invitees, link_status, unlinked_reason) values ($1,'fathom',$2,$3,'closer@co.com',$4,'unlinked','attendees match 2 different contacts') returning id",
+        [companyId, ext, startedAt, JSON.stringify([{ email: "ann@x.com", isExternal: true }, { email: "bob@x.com", isExternal: true }, { email: "closer@co.com", isExternal: false }])]))!.id;
+      return { appt, hit: await add("RM-1", new Date(t0.getTime() + 30e3)), miss: await add("RM-2", new Date(t0.getTime() + 9 * 3600e3)) };
+    });
+    const window = { from: new Date(t0.getTime() - 3600e3), to: new Date(t0.getTime() + 12 * 3600e3) };
+    const dry = await asOperator((c) => rematchRecordings(c, companyId, { ...window, dryRun: true }));
+    expect(dry.linked).toEqual([expect.objectContaining({ id: ids.hit, contact_id: ann, appointment_id: ids.appt, by: "email" })]);
+    expect(dry.still).toEqual([expect.objectContaining({ id: ids.miss, reason: expect.stringMatching(/none of them has a booking/) })]);
+    expect(await asOperator((c) => one<{ link_status: string }>(c, "select link_status from recordings where id=$1", [ids.hit]))).toEqual({ link_status: "unlinked" });
+    const events = async () => (await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from events where company_id=$1", [companyId])))!.n;
+    const before = await events();
+    await asOperator((c) => rematchRecordings(c, companyId, { ...window, dryRun: false }));
+    expect(await asOperator((c) => one(c, "select link_status, contact_id, appointment_id, linked_by from recordings where id=$1", [ids.hit]))).toEqual({ link_status: "linked", contact_id: ann, appointment_id: ids.appt, linked_by: "email" });
+    expect(await asOperator((c) => one(c, "select link_status, unlinked_reason from recordings where id=$1", [ids.miss]))).toMatchObject({ link_status: "unlinked", unlinked_reason: expect.stringMatching(/none of them has a booking/) });
+    expect(await events()).toBe(before);   // silent: nothing starts
+    await asOperator(async (c) => { await c.query("delete from recordings where id = any($1::uuid[])", [[ids.hit, ids.miss]]); await c.query("delete from appointments where id=$1", [ids.appt]); });
   });
   it("records once: a linked row with event + appointment, a duplicate on replay, an unlinked row with its reason and a contact-less event", async () => {
     const r = await asOperator((c) => recordRecording(c, companyId, rec("f-1", { title: "Ann x Cal", invitees: [{ email: "ann@x.com", name: "Ann Lee", isExternal: true }], transcript: [{ speaker: "Ann", text: "hi" }] })));

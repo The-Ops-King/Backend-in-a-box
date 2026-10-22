@@ -100,6 +100,7 @@ describe.skipIf(!process.env.DATABASE_URL)("availability per closer on Calendly 
     expect(reads.sort()).toEqual([JOSH.uri, JAMES.uri].sort());   // one busy read per host, shared by both event types
     expect(formatAvailability(a, { now: NOW })).toBe([
       "*Open slots, next 3 days: 9*",
+      "*By calendar*", "*45 Min Strategy Call* (Closing): 6", "> Sat 1 · Sun 1 · Mon 4", "*45 Min Strategy Call - S* (Closing): 3", "> Sat 0 · Sun 0 · Mon 3", "", "*By person*",
       "```", "Day         James  Josh  All", "Sat Oct 10      0     1    1", "Sun Oct 11      0     1    1", "Mon Oct 12      4     3    7", "Total           4     5    9", "```",
       `_Sat Oct 10 to Mon Oct 12 · From Calendly, read ${NOW.setZone("America/New_York").toFormat("h:mm a ZZZZ")}_`].join("\n"));
   });

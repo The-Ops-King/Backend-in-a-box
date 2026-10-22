@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { checkpoint, many, one } from "@/db/client";
-import type { Adapters } from "@/adapters/types";
+import { bookingFor, type Adapters, type BookingMode } from "@/adapters/types";
+import { watchCalendar } from "./install";
 import { loadCompany } from "./context";
 import { callOutcome } from "./recordings";
 import { testContactSql, testDomains, TEST_DOMAINS_KEY } from "./mode";
@@ -222,4 +223,29 @@ export async function calendarAlerts(c: PoolClient, a: { company: string; calend
   await c.query(a.alerts ? "update calendars set config = config - 'alerts' where id=$1" : "update calendars set config = config || '{\"alerts\": false}'::jsonb where id=$1", [cal.id]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'calendar.alerts','calendar',$2,$3,$4)", [co.id, cal.id, { alerts: was }, { alerts: a.alerts, why: a.why }]);
   return { ok: true, dryRun: false, calendar: cal.name, was, alerts: a.alerts, upcoming };
+}
+
+/**
+ * D215: one more of the booking tool's calendars watched (Tyler: "JP's Strategy is an individual calendar for follow up / reschedule
+ * if needed. track it."), mapped exactly as install maps one (`watchCalendar`): its call type, how it is booked, its owner. The poll's
+ * first read of it is a baseline (its bookings land as rows, nothing starts), so the history and Sales Call backfills follow for the
+ * calls it already held. A dry run (the default) says what it would map; a calendar already watched answers so and changes nothing.
+ */
+export async function calendarWatch(c: PoolClient, adapters: Adapters, a: { company: string; calendar: string; term: string; name?: string; owner?: string; booking?: BookingMode; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; calendar: string; id: string; was: "watched" | "not watched"; maps: string } | Fail> {
+  if (!a.calendar || !a.term || !a.why?.trim()) return { ok: false, status: 400, error: "calendar, term and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const { adapterCompany: ac } = await loadCompany(c, co.id);
+  const want = a.calendar.trim().toLowerCase();
+  const k = (await bookingFor(adapters, ac).listCalendars(ac)).find((x) => x.id.toLowerCase() === want || x.name.trim().toLowerCase() === want);
+  if (!k) return { ok: false, status: 404, error: `the booking tool has no calendar ${a.calendar}` };
+  const terms = await many<{ id: string; category: string }>(c, "select id, category from company_terms where company_id=$1 and domain='appointment_type' and is_default", [co.id]);
+  if (!a.name?.trim() && !terms.some((t) => t.category === a.term)) return { ok: false, status: 400, error: `term: one of ${terms.map((t) => t.category).join(", ")}` };
+  if (a.owner && !(await one(c, "select 1 from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, a.owner.trim()]))) return { ok: false, status: 404, error: `${a.owner} is not on this offer's roster` };
+  const was = (await one(c, "select 1 from calendars where company_id=$1 and source=$2 and external_id=$3 and active", [co.id, ac.booking.source, k.id])) ? "watched" as const : "not watched" as const;
+  const m = { term: a.term, ...(a.name?.trim() ? { name: a.name.trim() } : {}), ...(a.owner ? { owner: a.owner.trim() } : {}), ...(a.booking ? { booking: a.booking } : {}) };
+  if (a.dryRun !== false || was === "watched") return { ok: true, dryRun: a.dryRun !== false, calendar: k.name, id: k.id, was, maps: was === "watched" ? "already watched: nothing changed" : JSON.stringify(m) };
+  const maps = await watchCalendar(c, co.id, ac.booking.source, k, m, terms);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calendar.watched','calendar',$2,$3)", [co.id, k.id, { ...m, maps, why: a.why }]);
+  return { ok: true, dryRun: false, calendar: k.name, id: k.id, was, maps };
 }

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { installCompany } from "./install";
-import { calendarOwner, callsByTime, contactsReassign } from "./contact-ops";
+import { calendarOwner, calendarWatch, callsByTime, contactsReassign } from "./contact-ops";
 import { fakeAdapters } from "./test-install";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 
@@ -90,6 +90,17 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     const rows = await asOperator((c) => c.query("select a.external_id, u.name from appointments a join users u on u.id=a.assigned_user_id where a.company_id=$1 order by a.external_id", [co]));
     expect(rows.rows.map((r) => [r.external_id, r.name])).toEqual([["P1", "Mitch Sapoff"], ["U1", "Nonie Wallace"], ["U2", "Nonie Wallace"]]);
     expect(await asOperator((c) => calendarOwner(c, args))).toMatchObject({ was: "Nonie Wallace", upcoming: 0 });
+  });
+  it("D215: one more calendar watched as install maps it: a dry run first, the owner's upcoming bookings, nothing twice", async () => {
+    const withCal: Adapters = { ...fake, booking: { ...fake.booking, ghl: { ...fake.booking.ghl, listCalendars: async () => [{ id: "CAL-JP", name: "JP Strategy", teamMemberIds: ["GN"], bookingUrl: "https://x/jp" }] } } } as Adapters;
+    const args = { company: SLUG, calendar: "jp strategy", term: "closing", name: "Follow-up call", owner: "nonie@x.com", booking: "self" as const, why: "test" };
+    expect(await asOperator((c) => calendarWatch(c, withCal, args))).toMatchObject({ ok: true, dryRun: true, calendar: "JP Strategy", id: "CAL-JP", was: "not watched" });
+    expect(await asOperator((c) => one(c, "select 1 from calendars where company_id=$1 and external_id='CAL-JP'", [co]))).toBeFalsy();
+    expect(await asOperator((c) => calendarWatch(c, withCal, { ...args, dryRun: false }))).toMatchObject({ ok: true, dryRun: false, was: "not watched", maps: '"JP Strategy" → Follow-up call (closing) (self-booked)' });
+    const row = await asOperator((c) => one<{ active: boolean; self_booked: boolean; booking_url: string; owner: string; term: string; category: string }>(c, "select cal.active, cal.self_booked, cal.booking_url, u.email as owner, t.name as term, t.category from calendars cal join users u on u.id=(cal.config->>'owner')::uuid join company_terms t on t.id=cal.appointment_term where cal.company_id=$1 and cal.external_id='CAL-JP'", [co]));
+    expect(row).toEqual({ active: true, self_booked: true, booking_url: "https://x/jp", owner: "nonie@x.com", term: "Follow-up call", category: "closing" });
+    expect(await asOperator((c) => calendarWatch(c, withCal, { ...args, dryRun: false }))).toMatchObject({ dryRun: false, was: "watched", maps: "already watched: nothing changed" });
+    expect(await asOperator((c) => calendarWatch(c, withCal, { ...args, calendar: "nope" }))).toMatchObject({ ok: false, status: 404 });
   });
   it("D205: upcoming calls to Nonie, past ones to Mitch, in the replica and on their Discovery records (Setter and owner, checked read back); limit proves one first", async () => {
     const recWrites: [string, Record<string, unknown>, string | undefined, string[] | undefined][] = [];

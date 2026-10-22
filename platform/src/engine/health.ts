@@ -566,6 +566,8 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
 export type Availability = {
   metric: "availability"; label: string; definition: string; timezone: string; source: string; read_at: string;
   days: { date: string; label: string; total: number }[];
+  /** D215: each watched calendar read, its call type and the times it offers per day (a time once, however many hosts are free then). */
+  calendars: { name: string; type: string; per_day: number[]; total: number }[];
   /** `short`: the column header, the first name when it is unique on the roster. Empty when the split failed its self-check. */
   closers: { name: string; short: string; per_day: number[]; total: number }[];
   total: number; unreadable: { calendar: string; error: string }[]; split_error?: string;
@@ -594,9 +596,10 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
   const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
   const n = Math.min(DAYS_AHEAD, Math.max(1, Math.round(days) || DAYS_AHEAD)), tz = row.timezone, ghl = ac.booking.source === "ghl";
   const vendor = ghl ? "GHL" : "Calendly";
-  const cals = await many<{ external_id: string; name: string; default_user_id: string | null }>(c, `select cal.external_id, cal.name, cal.default_user_id::text from calendars cal join company_terms t on t.id=cal.appointment_term
-    where cal.company_id=$1 and cal.active and cal.source=$2 and t.category='closing' order by cal.name`, [companyId, ac.booking.source]);
-  if (!cals.length) throw new AvailabilityUnreadable("no active closing calendars are mapped for this company");
+  // D215 (Tyler: "If we've got a demo calendar and a setting calendar and everything, I want that to all show there"): every calendar the engine watches
+  const cals = await many<{ external_id: string; name: string; default_user_id: string | null; type: string }>(c, `select cal.external_id, cal.name, cal.default_user_id::text, t.name as type from calendars cal join company_terms t on t.id=cal.appointment_term
+    where cal.company_id=$1 and cal.active and cal.source=$2 order by cal.name`, [companyId, ac.booking.source]);
+  if (!cals.length) throw new AvailabilityUnreadable("no active calendars are mapped for this company");
   const roster = await many<{ id: string; name: string; email: string; ghl_user_id: string | null; active: boolean }>(c, "select id::text, name, email, ghl_user_id, active from users where company_id=$1", [companyId]);
   // the API wants a start in the future and a window of at most 7 days (as readCalendars)
   const wFrom = ghl ? now.toJSDate() : now.plus({ minutes: 1 }).toJSDate(), wTo = ghl ? now.plus({ days: n }).toJSDate() : now.plus({ days: n - 1, hours: 23 }).toJSDate();
@@ -679,11 +682,12 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
     const per_day = perDay(p.times);
     return { name: p.name, short: everyone.filter((x) => first(x) === first(p.name)).length === 1 ? p.name.trim().split(/\s+/)[0] : p.name, per_day, total: per_day.reduce((a, b) => a + b, 0) };
   }).sort((a, b) => a.name.localeCompare(b.name));
+  const calendars = reads.map(({ cal, times }) => { const per_day = perDay(new Set(times.map(ms))); return { name: cal.name, type: cal.type, per_day, total: per_day.reduce((a, b) => a + b, 0) }; });
   const totals = why ? perDay(new Set(reads.flatMap((r) => r.times.map(ms)))) : keys.map((_, i) => closers.reduce((sum, x) => sum + x.per_day[i], 0));
   return {
     metric: "availability", label: "Calendar availability", timezone: tz, source: `${vendor}, read just now`, read_at: now.toISO()!,
-    definition: "open bookable start times on the active closing calendars, read live from the booking source, per closer: a time the calendar offers counts once for each closer free for the whole call then (two closers free at 2pm = 2 open), and once per closer however many calendars offer it",
-    days: dates.map((d, i) => ({ date: keys[i], label: d.toFormat("ccc LLL d"), total: totals[i] })), closers, total: totals.reduce((a, b) => a + b, 0), unreadable,
+    definition: "open bookable start times on every calendar the engine watches, read live from the booking source, per calendar (each time it offers, once) and per person: a time the calendar offers counts once for each closer free for the whole call then (two closers free at 2pm = 2 open), and once per closer however many calendars offer it",
+    days: dates.map((d, i) => ({ date: keys[i], label: d.toFormat("ccc LLL d"), total: totals[i] })), calendars, closers, total: totals.reduce((a, b) => a + b, 0), unreadable,
     ...(why ? { split_error: `Could not split by closer: ${why}` } : {}),
   };
 }
