@@ -442,6 +442,10 @@ failed, when the AI cannot run (the one-line congratulations on a close). `send_
 editable on the step), and the CRM's copy wins when it exists. Harness actions `agreement` (a sent,
 unsigned document) and `sign` (completed) stage the document side.
 
+**Watching one more calendar** (D215): `POST /api/admin/calendars/watch { company, calendar, term, name?, owner?, booking?, why, dryRun = true }`
+maps one booking-tool calendar as install would (call type, booking, owner), without a re-install. Its first poll is a baseline; run
+the history backfill (`steps: ["appointments"]`) and the Sales Call backfill for the calls it already held.
+
 ## Pipeline cards (D19)
 
 Templates create and move cards on the CRM's pipeline boards (`pipeline_card` node). Pipeline,

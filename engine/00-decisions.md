@@ -6005,3 +6005,11 @@ contacts"), so the call had no recording, no review and no disposition.
 
 Engine code, the same on every offer: only recordings that matched nobody before can link now; a recording that linked before links
 the same way. Tests: `recordings.test.ts`.
+
+**D215 addendum: one more calendar watched without a re-install (2026-10-22).** Tyler: "JP's Strategy is an 'individual' calendar
+for follow up / reschedule if needed. track it. carly has one too." A re-install re-applies an offer's whole file and has no dry run,
+so `POST /api/admin/calendars/watch { company, calendar: id or name, term, name?, owner?, booking?, why, dryRun = true }` maps one
+calendar exactly as install maps one (`watchCalendar`, now shared by both): its call type, how it is booked, its owner and that
+owner's upcoming bookings. The poll's first read of it is a baseline (rows, no events), so the calls it already held come in through
+the history and Sales Call backfills. A calendar already watched is left as it is. Audited (`calendar.watched`). Tests:
+`contact-ops.reassign.test.ts`.
