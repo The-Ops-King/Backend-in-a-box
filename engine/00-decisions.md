@@ -5989,6 +5989,13 @@ guarantee); the closer picks it, a payment plan does not change it.
 Code, the same on every offer; what an offer's closers may type is its own `agreements.list`. Tests:
 `agreement-request.test.ts` (PMU's four).
 
+**D214 applied on PMU (2026-10-22, Tyler).** `agreements.list`: $9,997 (also "10k", "9k"), $9,997 + Guarantee, $12,000, $12,000 +
+Guarantee, each its GHL template. Send agreement manually saved from the template (v2: the `/agreement` trigger; the tag still
+works), turned on with its own mode `test` so a test contact gets it while PMU stays ghost; sends locked (only Tyler's own
+addresses). Payment recorded v4: a payment no longer sends `crm.agreement_template` (one contract where PMU has four); when nothing
+has gone out, the contact's owner is told in Slack to run `/agreement` (alerts channel when the owner is not in Slack). Which
+agreement a payment implies is for later (Tyler).
+
 ## D215. A recording with several of our contacts on the invite is the booked one's (2026-10-22)
 
 Tyler: "If the engine is missing people with multiple people on the invite, you need to fix that as well." PMU, Oct 20: Carly's
