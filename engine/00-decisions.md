@@ -6142,3 +6142,12 @@ the booking live: status, hosts, location, and `calendar_event` (the event Calen
 host's busy times by type; `user=<member email>` in place of `event` reads that member's busy times over 7 days (`external` ones mean a
 calendar is connected). Calendly's API does not say which calendar it writes new bookings to. It showed both of Nelly's were written
 to Google (her app showed them the next morning), and that Alex Pappas's call was the departed Nonie's ("Cam") with no calendar.
+
+## D225. Who was on a call, read from the call itself (2026-10-22)
+
+Beth Huffman's consultation was filed on Corina Raducanu, and Tyler asked who actually showed up. Three read-only lookups, Bearer
+$CRON_SECRET: `GET /api/admin/recordings/people?company=&recording=` (the invite as the recorder sent it, and each person who spoke,
+from the transcript held on the row or read again from Fathom: name, email when given, lines, first and last time spoken, and the
+contacts and team members that name or email is; no words are returned or kept, D87); `GET /api/admin/contact/calls?company=&contact=`
+(every call the CRM's dialer logged with a person: when, which way, status, seconds, who); and `GET /api/admin/calendly/event` with
+`user=`, `from=` and `to=` (that member's own bookings in a window of up to two days, cancelled too, with who booked each).
