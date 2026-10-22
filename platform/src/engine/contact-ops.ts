@@ -204,3 +204,22 @@ export async function callsByTime(c: PoolClient, adapters: Adapters, a: { compan
     [co.id, a.calendar, { future: fut.name, past: pst.name, why: a.why, bookings: bookings.map((b) => ({ id: b.r.id, to: b.to.name })), records: doneRecords.length, failed: failed.length }]));
   return { ok: true, dryRun: false, bookings: bookings.map((b) => say(b, b.r.owner_name)), records: doneRecords, failed };
 }
+
+/**
+ * D213 (Tyler: "update the engine alerts to point to the two new Calendly links"): whether a watched calendar's availability is
+ * alerted on. Off, its bookings are still watched (reminders, cancels, the end of day), but the health check and the availability
+ * alerts leave it out: an old link kept for the calls already on it. A dry run (the default) says what would change.
+ */
+export async function calendarAlerts(c: PoolClient, a: { company: string; calendar: string; alerts: boolean; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; calendar: string; was: boolean; alerts: boolean; upcoming: number } | Fail> {
+  if (!a.calendar || typeof a.alerts !== "boolean" || !a.why?.trim()) return { ok: false, status: 400, error: "calendar, alerts (true or false) and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const cal = await one<{ id: string; name: string; alerts: string | null }>(c, "select id, name, config->>'alerts' as alerts from calendars where company_id=$1 and active and (external_id=$2 or lower(name)=lower($2))", [co.id, a.calendar.trim()]);
+  if (!cal) return { ok: false, status: 404, error: `no watched calendar is ${a.calendar}` };
+  const was = cal.alerts !== "false";
+  const upcoming = Number((await one<{ n: string }>(c, "select count(*) as n from appointments where calendar_id=$1 and starts_at > now() and status <> 'cancelled'", [cal.id]))?.n ?? 0);
+  if (a.dryRun !== false) return { ok: true, dryRun: true, calendar: cal.name, was, alerts: a.alerts, upcoming };
+  await c.query(a.alerts ? "update calendars set config = config - 'alerts' where id=$1" : "update calendars set config = config || '{\"alerts\": false}'::jsonb where id=$1", [cal.id]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'calendar.alerts','calendar',$2,$3,$4)", [co.id, cal.id, { alerts: was }, { alerts: a.alerts, why: a.why }]);
+  return { ok: true, dryRun: false, calendar: cal.name, was, alerts: a.alerts, upcoming };
+}
