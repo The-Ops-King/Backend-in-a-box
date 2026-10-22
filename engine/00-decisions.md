@@ -6064,3 +6064,10 @@ had no row for them.
 sets the booking's closer in the replica (their end of day lists it, their numbers count it) and the Closer field on its Sales
 Call in GHL, by the company's option key (D118). D204 still moves a calendar's upcoming calls; this is one call, past or ahead.
 Audited (`call.closer`). Tests: `contact-ops.reassign.test.ts`.
+
+## D219. The operator is named, never a bare Slack id (2026-10-22)
+
+PMU's test channel showed "Would have sent to U0C10N4GZ0E" for the end-of-day reminder's overdue note to Tyler. Before live a DM
+is held back and marked with who it was for, named from the offer's roster; the operator (`bot.escalate_to`) is on no offer's
+roster, so the id showed. A DM to `bot.escalate_to` now reads "Would have sent to <operator's name> (operator)". Slack, the same on
+every offer. Tests: `mode.test.ts`.
