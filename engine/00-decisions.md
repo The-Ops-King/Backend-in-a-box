@@ -6071,3 +6071,19 @@ PMU's test channel showed "Would have sent to U0C10N4GZ0E" for the end-of-day re
 is held back and marked with who it was for, named from the offer's roster; the operator (`bot.escalate_to`) is on no offer's
 roster, so the id showed. A DM to `bot.escalate_to` now reads "Would have sent to <operator's name> (operator)". Slack, the same on
 every offer. Tests: `mode.test.ts`.
+
+## D220. The closer's end-of-day page looks like the offer's, not like our dashboard (2026-10-22)
+
+Tyler: "let's make the formatting for the EOD form prettier ... more client facing." His picks: each offer's own branding, light,
+phone first, one card per call that folds when done, the totals row lined up, plainer words.
+
+- **The offer's look, as settings** (`brand.name`, `brand.logo_url` https, `brand.accent` #rrggbb; "configurable, not written in").
+  Unset: the offer's name on a neutral page. The accent colors the button and the brand mark; links and other text on white use a
+  darker shade of it so they stay readable. PMU: The Beauty Moguls, #F79478 (their site's coral; their logo is the name in type).
+- **Layout.** Light and phone first, its own palette scoped to the page; the numbers in an even grid (each helper line under its
+  box, none pushing a box out of line); one card per call with its number, name, time and links; a call with its outcome and every
+  answer it needs folds to one line with the outcome, "Edit" opens it; "N to go" counts what is left; the send button stays at the
+  bottom of the screen.
+- **Words** for the closer, not for us ("We filled in what we could ... then send it in", "Send my day", "Update my day").
+
+Nothing about what is asked, required or filed changes. The same page on every offer; each offer's words and options stay its own.
