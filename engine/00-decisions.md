@@ -5888,6 +5888,20 @@ overdue; one whose Discovery Call record in GHL already has an outcome other tha
 open it and file it. Off (every other offer): nothing changes; the new `url` is only there for a template that uses it. Nelly: on,
 and her reminder's operator line links each day. Tests: `eod.triage-overdue.test.ts`.
 
+## D208. Nelly's pre-calls are three texts and nothing else (2026-10-21)
+
+Tyler: "We're going to drop reply handling for right now ... Jev is strictly going to be the recordings ... Keep the safety rules
+... Remove the no-link pieces for now", and, with Nonie gone from the offer again, the texts name no setter or closer ("my teammate").
+`words.preCall.<call>.replies: false` takes out everything that read a reply (the 4-hour wait, Jev's read, ✅ ⏳ ❌ 🔁 on the card,
+the ask in the booking channel, the attention tags, the read's score): the booking text leads straight to the day-before wait.
+A reply stays in GHL's conversation for a person. Kept: D193 (evening reminders earlier the same day), D194 (no hour-before text
+within an hour of another text), D199 (no day-before text for a call booked within 24 hours); a booking cancelled through its link
+still ends the run (the run's premise). The closing call's no-link alert and no-link hour text are gone; its hour text carries the
+link. Her words, Tyler's: triage "Hi Sarah, you're booked for your free 15-minute call on ... My teammate will be calling you. Reply
+YES to confirm, or reply here if you need a different time."; "quick reminder about your dating strategy session tomorrow at ...";
+"your call is in about an hour (...)"; closing "you're booked for your private consultation with Nelly on ...". Tests:
+`dating-copies.test.ts`.
+
 ## D209. Three contact-safety fixes, and the ten-second document check runs for 30 minutes (2026-10-21)
 
 Tyler, on the v1 bugs in the rebuild's engine-action inventory (§5): "Yeah think we should do all of them ... Calendly cancel
@@ -5910,6 +5924,49 @@ late should get. Test fixes on the way: two tests depended on rows an old shared
 0001 removed; a second `migrate()` dropping a row, which numbered migrations never do); both now hold on an empty database.
 Tests: `poll.calendly.test.ts` (D196 case with the lock), `backfill.test.ts`, `payments.test.ts`, `templates.scenarios.test.ts`,
 `run-now.test.ts`.
+
+## D210. Restart a booking's run of one workflow (2026-10-22)
+
+Erica booked Nelly's consultation three minutes before Tyler unlocked the pre-calls, so her booking text was held by the lock and
+her run went on to the day-before wait. Tyler: "I want her to get the immediate you're booked". `POST /api/admin/replay-bookings
+{ company, appointments, workflow, restart: true, dryRun }` stops that workflow's run of each named booking (exited, `restarted by
+the operator`, its re-entry key freed so a new run can take it) and hands the booking to the workflow afresh, which starts from its
+first step. Named bookings only; the dry run says which would restart. Tests: `replay.test.ts`.
+
+## D211. Nelly's triage calls post in their own channel (2026-10-22)
+
+Tyler: "put triage calls into the new channel #dating-triage-booked and leave the closing call booked where it is." A copy in
+copies.json can name a `channel` slot (booked, triageCancelled, triageFiled): its posts to the bookings channel go to
+`slack.channel.<slot>` instead (a setting, CLAUDE.md "configurable"). Nelly's triage booked, cancelled and filed copies name
+`triage_bookings`; a thread reply follows its card wherever the card is, so the whole triage thread moves with it. The closing call's
+posts stay in bookings. Applied 2026-10-22: the channel is #dating-traige-booked (C0CB7DYMA57, spelled so in Slack); Triage call booked v5, cancelled v3, filed v3.
+
+## D212. Nelly takes no calls: Mitch closes and takes triage, Jake sets (2026-10-22)
+
+Tyler: "Nelly is going to not take calls anymore, so all triage and setter calls go to Mitch for now"; "the new link we're using
+for set calls is ... Private Dating Consultation, the 45-minute-long one, round robin ... only Mitch as the host"; "the setter's name
+is Jake". Nonie had left: her Strategy Session ownership (both event types, 91 upcoming calls), 96 Discovery records (Setter field and
+owner, read back) and 303 contacts went to Mitch, and her role came off. Mitch is a closer (one role a person; nothing setter-side
+reads it, and a closer can ask for /agreement). The new consultation (6a643c89, `calendly.com/d/dwb4-pxx-46q/...`) is watched as a
+Closing call booked through a setter's link, owned by Mitch outright (his Calendly email is not his GHL one, so the host alone would
+not name him); it is the company's closer call. Nelly's own consultation stays watched for the calls booked on it. Jake Taylor is a
+setter; his link is the new consultation's with `?utm_medium=setter&utm_content=jake`. The closing texts name no one. Saving them
+locked the Closing pre-call's sends again (D151) until Tyler unlocks the new words. The split's "kept the other owner" check no longer
+fires when both sides are one person.
+Then (2026-10-22): the Typeform moved to a new round-robin Strategy Session, `calendly.com/d/d3pq-hgw-r22/...` (03ad5f45); the one
+before it (aac238a5) is gone from Calendly. 03ad5f45 is watched as a Triage call, self-booked, owned by Mitch, and is the self-book
+link; no booking had landed on it before it was watched. Jake is not in Slack yet: Tyler, "send them to me", so Jake's Slack is
+Tyler's (slackUsers) until Jake joins.
+
+## D213. An old booking link's availability is not alerted on (2026-10-22)
+
+Tyler: "update the engine alerts to point to the two new Calendly links." The health check and the availability alerts read every
+watched calendar, so Nelly's old links (her own Strategy Session and consultation, and the round robin since deleted) alerted on
+having no times and on being gone. They cannot simply stop being watched: 92 upcoming calls are booked on them and still need their
+reminders, cancels and end of day. A calendar's `alerts: false` (install mapping, or `POST /api/admin/calendars/alerts { company,
+calendar, alerts, why, dryRun }`) keeps its bookings watched and leaves it out of the availability reads; its open alerts close at the
+next sweep. Nelly: off on 86985d27, aac238a5 and 80955126; on for the two new links (03ad5f45 Strategy Session, 6a643c89 consultation).
+`GET /api/admin/calendars` shows the switch. Tests: `health.calendar-alerts.test.ts`.
 
 ## D214. /agreement takes the who and the which in either order, in the closer's own words (2026-10-22)
 

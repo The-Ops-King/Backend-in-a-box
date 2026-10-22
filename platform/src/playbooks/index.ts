@@ -37,14 +37,14 @@ export type Playbook = {
   forOffer(params: unknown, offer: string): unknown;
 };
 
-const preCallWords = z.object({ booked: z.string().min(1), day: z.string().min(1), hour: z.string().min(1), hourNoLink: z.string().min(1).optional() });   // D186: hourNoLink
+const preCallWords = z.object({ booked: z.string().min(1), day: z.string().min(1), hour: z.string().min(1), hourNoLink: z.string().min(1).optional(), replies: z.boolean().optional() });   // D186: hourNoLink; D208: replies
 const words = z.object({ welcome: z.object({ subject: z.string(), email: z.string(), sms: z.string() }), setterDq: z.object({ result: z.string(), reasons: z.record(z.string()) }),
   setterCall: z.object({ setting: z.string().min(1) }).optional(),   // D154
   preCall: z.object({ triage: preCallWords, closing: preCallWords }).optional() });   // D155
 // D142 (main): a booked call records a Sales Call (`sales`, the default, which needs its salesCallType) or, for a triage call, a Discovery Call
-const booked = z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1), salesCallType: z.string().min(1).optional(), record: z.enum(["sales", "discovery"]).optional(), card: z.string().min(1).optional(), tags: z.array(z.string()).optional() })
+const booked = z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1), salesCallType: z.string().min(1).optional(), record: z.enum(["sales", "discovery"]).optional(), card: z.string().min(1).optional(), tags: z.array(z.string()).optional(), channel: z.string().regex(/^[a-z][a-z0-9_]*$/).optional() })
   .refine((b) => b.record === "discovery" || !!b.salesCallType, { message: "a booked call that writes a Sales Call needs its salesCallType", path: ["salesCallType"] });
-const own = z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1) });
+const own = z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1), channel: z.string().regex(/^[a-z][a-z0-9_]*$/).optional() });   // D211: channel
 const setup = z.object({ booked: z.array(booked), fromForm: z.object({ workflow: z.string().min(1), name: z.string().min(1) }).optional(),
   triageCancelled: own.optional(), triageFiled: own.optional(),   // D142, D143 (dropped here by the onboarding merge, so a build left them out)
   setterCallReadOnly: z.boolean().optional(),   // D154

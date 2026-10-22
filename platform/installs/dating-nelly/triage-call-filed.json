@@ -165,7 +165,7 @@
    {
     "id": "n1",
     "type": "slack_post",
-    "channel": "{{slack.channel.bookings}}",
+    "channel": "{{slack.channel.triage_bookings}}",
     "thread_of": "tag:appointment:{{appointment.id}}",
     "thread_only": true,
     "only_if": {

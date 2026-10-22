@@ -56,308 +56,13 @@
     "id": "s1",
     "type": "send_sms",
     "kind": "transactional",
-    "template": "Hi {{contact.first_name}}, it's Nelly. You're booked for your free 15-minute strategy call on {{appointment.starts_at | date:\"cccc, LLL d 'at' h:mm a ZZZZ\"}}. My teammate {{appointment.closer.first_name}} will be the one calling you. Reply YES to confirm, or reply here if you need a different time.",
+    "template": "Hi {{contact.first_name}}, you're booked for your free 15-minute call on {{appointment.starts_at | date:\"cccc, LLL d 'at' h:mm a ZZZZ\"}}. My teammate will be calling you. Reply YES to confirm, or reply here if you need a different time.",
     "validity": {
      "anchor": "before_event",
      "min_lead": "15m"
     },
     "on_stale": "skip",
     "title": "Booking text"
-   },
-   {
-    "id": "w1",
-    "type": "wait_for_reply",
-    "timeout": "4h",
-    "channel": "sms",
-    "until": {
-     "anchor": "appointment.starts_at",
-     "offset": "-1h",
-     "tz": "contact"
-    }
-   },
-   {
-    "id": "c1",
-    "type": "classify",
-    "input": "{{reply.inbound_since_send}}",
-    "state": "{{reply.last_outbound.body | default:}}",
-    "domain": "reply_intent",
-    "threshold": 0.8,
-    "into": "reply.intent",
-    "criteria": {
-     "confirmed": "They clearly confirm or accept the call: yes, ok, see you then, a thumbs up, a positive or celebratory emoji.",
-     "cancelled": "They clearly say, in words, that they will not attend or want to cancel.",
-     "reschedule_request": "They ask for a different day or time.",
-     "question": "They ask something and do not confirm, cancel or ask to move the call.",
-     "unclear": "The meaning is not plain: a negative or ambiguous emoji on its own, 'maybe', 'idk', 'hmm', or an unrelated message."
-    },
-    "ambiguity_max": 0.8
-   },
-   {
-    "id": "b1",
-    "type": "branch"
-   },
-   {
-    "id": "n_conf",
-    "type": "tags",
-    "add": [
-     "stat-confirmed"
-    ],
-    "remove": [
-     "stat-unconfirmed"
-    ]
-   },
-   {
-    "id": "n_conf_slack",
-    "type": "slack_post",
-    "channel": "{{slack.channel.bookings}}",
-    "thread_of": "tag:appointment:{{appointment.id}}",
-    "react": "white_check_mark",
-    "as": {
-     "name": "Confirmed",
-     "icon": ":white_check_mark:"
-    },
-    "template": "✅ {{contact.first_name}}'s call {{appointment.starts_at | relative:auto}} is confirmed.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
-    "title": "React ✅, note who confirmed",
-    "unreact": {
-     "of": "tag:decision:{{appointment.id}}",
-     "emojis": [
-      "white_check_mark",
-      "x",
-      "repeat"
-     ]
-    },
-    "react_on": {
-     "of": "tag:decision:{{appointment.id}}",
-     "emojis": [
-      "white_check_mark"
-     ]
-    }
-   },
-   {
-    "id": "n_unc",
-    "type": "set_tag",
-    "tag": "stat-unconfirmed"
-   },
-   {
-    "id": "n_unc_slack",
-    "type": "slack_post",
-    "channel": "{{slack.channel.bookings}}",
-    "as": {
-     "name": "Not confirmed yet",
-     "icon": ":hourglass_flowing_sand:"
-    },
-    "template": "⏳ No reply to the booking text in 4 hours. Not confirmed yet; the reminders keep going.",
-    "title": "React ⏳ in the booking thread",
-    "thread_of": "tag:appointment:{{appointment.id}}",
-    "react": "hourglass_flowing_sand",
-    "only_if": {
-     "gt": [
-      "{{appointment.starts_at | hours_until}}",
-      1.5
-     ]
-    }
-   },
-   {
-    "id": "n_cx",
-    "type": "update_appointment",
-    "set": {
-     "status": "cancelled"
-    }
-   },
-   {
-    "id": "n_cx_slack",
-    "type": "slack_post",
-    "channel": "{{slack.channel.bookings}}",
-    "template": "❌ {{contact.first_name}}'s call is cancelled.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
-    "as": {
-     "name": "Call cancelled",
-     "icon": ":x:"
-    },
-    "title": "React ❌, note who cancelled",
-    "thread_of": "tag:appointment:{{appointment.id}}",
-    "react": "x",
-    "unreact": {
-     "of": "tag:decision:{{appointment.id}}",
-     "emojis": [
-      "white_check_mark",
-      "x",
-      "repeat"
-     ]
-    },
-    "react_on": {
-     "of": "tag:decision:{{appointment.id}}",
-     "emojis": [
-      "x"
-     ]
-    }
-   },
-   {
-    "id": "n_rs_slack",
-    "type": "slack_post",
-    "channel": "{{slack.channel.bookings}}",
-    "thread_of": "tag:appointment:{{appointment.id}}",
-    "react": "repeat",
-    "as": {
-     "name": "Reschedule",
-     "icon": ":repeat:"
-    },
-    "template": "🔁 {{contact.first_name}} wants a new time: moving the call by hand.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}",
-    "title": "React 🔁, note who is moving it (by hand)",
-    "unreact": {
-     "of": "tag:decision:{{appointment.id}}",
-     "emojis": [
-      "white_check_mark",
-      "x",
-      "repeat"
-     ]
-    },
-    "react_on": {
-     "of": "tag:decision:{{appointment.id}}",
-     "emojis": [
-      "repeat"
-     ]
-    }
-   },
-   {
-    "id": "v_read",
-    "type": "set_var",
-    "key": "jev_read",
-    "value": "{{reply.intent}}",
-    "pick": {
-     "cancelled": "Jev is {{reply.intent_confidence}}% sure they want to cancel.",
-     "reschedule_request": "Jev is {{reply.intent_confidence}}% sure they want to reschedule.",
-     "question": "Jev read it as a question, not an answer ({{reply.intent_confidence}}% sure)."
-    },
-    "else_value": "Jev couldn't tell what they meant (its guesses: {{reply.top_guesses}})."
-   },
-   {
-    "id": "n_ask",
-    "type": "slack_post",
-    "channel": "{{slack.channel.bookings}}",
-    "as": {
-     "name": "Keep, cancel or reschedule?",
-     "icon": ":grey_question:"
-    },
-    "template": "{{appointment.closer.mention | default:Heads up}} — {{contact.first_name}} replied to the booking text for the call {{appointment.starts_at | date_company}}. {{vars.jev_read}}\n*We sent:*\n> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}\n*They wrote:*\n> {{reply.inbound_since_send}}\nTap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out). The reminders keep going until you do.",
-    "title": "Ask in the booking channel: keep, cancel or reschedule?",
-    "tag": "decision:{{appointment.id}}",
-    "offer": [
-     "white_check_mark",
-     "x",
-     "repeat"
-    ],
-    "fallback_channel": "{{slack.channel.bookings}}"
-   },
-   {
-    "id": "w_dec",
-    "type": "wait_for_reaction",
-    "of": "tag:decision:{{appointment.id}}",
-    "emojis": [
-     "white_check_mark",
-     "x",
-     "repeat"
-    ],
-    "blocking": false,
-    "until": {
-     "anchor": "appointment.starts_at",
-     "offset": "-0m",
-     "tz": "contact"
-    },
-    "title": "Listen for the tap while the reminders go on"
-   },
-   {
-    "id": "v_decided",
-    "type": "set_var",
-    "key": "decided",
-    "value": "{{reaction.reaction | default:}}",
-    "pick": {
-     "white_check_mark": "confirmed",
-     "x": "cancelled",
-     "repeat": "reschedule_request"
-    },
-    "else_value": ""
-   },
-   {
-    "id": "v_agreed",
-    "type": "set_var",
-    "key": "agreed",
-    "value": true,
-    "when": {
-     "eq": [
-      "{{reply.intent}}",
-      "{{vars.decided}}"
-     ]
-    },
-    "else_value": false
-   },
-   {
-    "id": "rec",
-    "type": "record",
-    "event": "intent.reviewed",
-    "data": {
-     "predicted": "{{reply.intent}}",
-     "predicted_confidence": "{{reply.intent_confidence}}",
-     "decided": "{{vars.decided}}",
-     "agreed": "{{vars.agreed}}",
-     "decided_by": "{{reaction.user_name}}",
-     "appointment_id": "{{appointment.id}}"
-    },
-    "title": "Score Jev: did the person agree with the read?"
-   },
-   {
-    "id": "b_dec",
-    "type": "branch"
-   },
-   {
-    "id": "n_pending",
-    "type": "update_appointment",
-    "set": {
-     "pending_read": {
-      "intent": "{{reply.intent}}",
-      "confidence": "{{reply.intent_confidence}}",
-      "at": "{{now}}"
-     }
-    },
-    "title": "Note Jev's pending read on the appointment"
-   },
-   {
-    "id": "n_att_on",
-    "type": "tags",
-    "add": [
-     "stat-needs-attention"
-    ]
-   },
-   {
-    "id": "n_clear",
-    "type": "update_appointment",
-    "set": {
-     "pending_read": null
-    },
-    "title": "Clear the pending read: a person decided"
-   },
-   {
-    "id": "n_att_off",
-    "type": "tags",
-    "remove": [
-     "stat-needs-attention"
-    ]
-   },
-   {
-    "id": "rec_un",
-    "type": "record",
-    "event": "intent.unanswered",
-    "data": {
-     "predicted": "{{reply.intent}}",
-     "predicted_confidence": "{{reply.intent_confidence}}",
-     "hours_before_call": "{{appointment.starts_at | hours_until}}",
-     "appointment_id": "{{appointment.id}}"
-    },
-    "title": "Record that nobody answered before the call"
-   },
-   {
-    "id": "rs",
-    "type": "resume",
-    "title": "Back to the reminder the run was on"
    },
    {
     "id": "v_lead",
@@ -381,7 +86,7 @@
    {
     "id": "m24s",
     "type": "send_sms",
-    "template": "Hi {{contact.first_name}}, Nelly here. Quick reminder that {{appointment.closer.first_name}} is calling you tomorrow at {{appointment.starts_at | date:\"h:mm a ZZZZ\"}} for your strategy call. It's only 15 minutes, so find a spot where you can talk freely.",
+    "template": "Hi {{contact.first_name}}, quick reminder about your dating strategy session tomorrow at {{appointment.starts_at | date:\"h:mm a ZZZZ\"}}. It's only 15 minutes, so find a spot where you can talk freely.",
     "validity": {
      "anchor": "before_event",
      "min_lead": "18h"
@@ -418,7 +123,7 @@
    {
     "id": "m1",
     "type": "send_sms",
-    "template": "{{contact.first_name}}, your call with {{appointment.closer.first_name}} is {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Keep your phone close.",
+    "template": "{{contact.first_name}}, your call is {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Keep your phone close.",
     "validity": {
      "anchor": "before_event",
      "min_lead": "15m"
@@ -445,16 +150,6 @@
     "id": "x_done",
     "type": "exit",
     "reason": "done"
-   },
-   {
-    "id": "x_cancelled",
-    "type": "exit",
-    "reason": "cancelled"
-   },
-   {
-    "id": "x_reschedule",
-    "type": "exit",
-    "reason": "reschedule_sent"
    }
   ],
   "edges": [
@@ -469,54 +164,6 @@
    {
     "from": "c0",
     "to": "s1"
-   },
-   {
-    "from": "s1",
-    "to": "w1"
-   },
-   {
-    "from": "w1",
-    "to": "c1",
-    "label": "replied"
-   },
-   {
-    "from": "w1",
-    "to": "n_unc",
-    "label": "timeout"
-   },
-   {
-    "from": "c1",
-    "to": "b1"
-   },
-   {
-    "from": "b1",
-    "to": "n_conf",
-    "when": {
-     "eq": [
-      "{{reply.intent}}",
-      "confirmed"
-     ]
-    }
-   },
-   {
-    "from": "n_unc",
-    "to": "n_unc_slack"
-   },
-   {
-    "from": "n_unc_slack",
-    "to": "v_lead"
-   },
-   {
-    "from": "n_cx",
-    "to": "n_cx_slack"
-   },
-   {
-    "from": "n_cx_slack",
-    "to": "x_cancelled"
-   },
-   {
-    "from": "n_rs_slack",
-    "to": "x_reschedule"
    },
    {
     "from": "r24",
@@ -535,114 +182,7 @@
     "to": "x_done"
    },
    {
-    "from": "b1",
-    "to": "v_read",
-    "else": true
-   },
-   {
-    "from": "v_read",
-    "to": "n_ask"
-   },
-   {
-    "from": "v_decided",
-    "to": "v_agreed"
-   },
-   {
-    "from": "v_agreed",
-    "to": "rec"
-   },
-   {
-    "from": "b_dec",
-    "to": "n_conf",
-    "when": {
-     "eq": [
-      "{{reaction.reaction}}",
-      "white_check_mark"
-     ]
-    },
-    "label": "✅ keep the call"
-   },
-   {
-    "from": "b_dec",
-    "to": "n_cx",
-    "when": {
-     "eq": [
-      "{{reaction.reaction}}",
-      "x"
-     ]
-    },
-    "label": "❌ cancel it"
-   },
-   {
-    "from": "b_dec",
-    "to": "n_rs_slack",
-    "when": {
-     "eq": [
-      "{{reaction.reaction}}",
-      "repeat"
-     ]
-    },
-    "label": "🔁 reschedule"
-   },
-   {
-    "from": "n_conf",
-    "to": "n_conf_slack"
-   },
-   {
-    "from": "n_ask",
-    "to": "n_pending"
-   },
-   {
-    "from": "n_pending",
-    "to": "n_att_on"
-   },
-   {
-    "from": "n_att_on",
-    "to": "w_dec"
-   },
-   {
-    "from": "w_dec",
-    "to": "v_lead",
-    "label": "the reminders go on"
-   },
-   {
-    "from": "w_dec",
-    "to": "v_decided",
-    "label": "tap"
-   },
-   {
-    "from": "w_dec",
-    "to": "rec_un",
-    "label": "until"
-   },
-   {
-    "from": "rec",
-    "to": "n_clear"
-   },
-   {
-    "from": "n_clear",
-    "to": "n_att_off"
-   },
-   {
-    "from": "rec_un",
-    "to": "n_att_off"
-   },
-   {
-    "from": "n_att_off",
-    "to": "b_dec"
-   },
-   {
-    "from": "b_dec",
-    "to": "rs",
-    "else": true,
-    "label": "nobody decided: back to where the reminders were"
-   },
-   {
-    "from": "n_conf_slack",
-    "to": "rs"
-   },
-   {
-    "from": "rs",
+    "from": "s1",
     "to": "v_lead"
    },
    {
@@ -651,5 +191,5 @@
    }
   ]
  },
- "note": "the Triage call's pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; no rebooking text (a reschedule is moved by hand, 🔁 notes who)"
+ "note": "the Triage call's pre-call texts (D208): the booking text, a day before and an hour before, and nothing else; a reply is a person's to answer in the CRM; no emails"
 }

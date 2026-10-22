@@ -29,7 +29,7 @@ import { writeDefaults } from "./setting-defaults";
  */
 /** `name`: the company's own call type for this calendar ("Demo call"), counted under `term`'s core category; made once, kept by name (D101). Without it the calendar takes the category's default type. */
 /** `owner` (D142): the team member who takes this calendar's calls whoever hosts them (their GHL email or user id): its bookings are theirs, the card, the record and the contact too. */
-export type CalendarMapping = string | { term: string; name?: string; selfBooked?: boolean; booking?: BookingMode; questions?: Record<string, string>; owner?: string };
+export type CalendarMapping = string | { term: string; name?: string; selfBooked?: boolean; booking?: BookingMode; questions?: Record<string, string>; owner?: string; alerts?: boolean };
 export type InstallInput = {
   name: string; slug: string; timezone: string; locationId: string;
   /** The CRM private integration token. Required the first time; a re-install may omit it and keeps the one already stored (tokens rotate; template upgrades should not need the secret again). */
@@ -196,7 +196,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   // D148: "ignore" is a calendar the company keeps at its source but the engine does not watch (no polling, no health check)
   const ignored = new Set(Object.entries(input.calendars ?? {}).filter(([, v]) => v === "ignore").map(([k]) => k));
-  const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: BookingMode; questions?: Record<string, string>; owner?: string }> = Object.fromEntries(Object.entries(input.calendars ?? {}).filter(([k]) => !ignored.has(k)).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
+  const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: BookingMode; questions?: Record<string, string>; owner?: string; alerts?: boolean }> = Object.fromEntries(Object.entries(input.calendars ?? {}).filter(([k]) => !ignored.has(k)).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
   // Omitting `booking` on a re-install keeps whatever the company already uses; it never silently flips it back to GHL.
   let booking: BookingConfig = { source: "ghl" };
@@ -393,7 +393,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
       const selfBooked = m.selfBooked ?? (m.booking === "self" ? true : m.booking === "setter" ? false : null);
       const owner = m.owner ? await one<{ id: string }>(c, "select id from users where company_id=$1 and (lower(email)=lower($2) or ghl_user_id=$2)", [companyId, m.owner]) : null;
       if (m.owner && !owner) throw new Error(`calendars: no one on the roster is "${m.owner}" (the owner of "${k.name}")`);
-      const config = { ...(m.booking ? { booking: m.booking } : {}), ...(m.questions ? { questions: m.questions } : {}), ...(owner ? { owner: owner.id } : {}) };
+      const config = { ...(m.booking ? { booking: m.booking } : {}), ...(m.questions ? { questions: m.questions } : {}), ...(owner ? { owner: owner.id } : {}), ...(m.alerts === false ? { alerts: false } : {}) };   // D213: alerts false: bookings still watched, availability not alerted
       await c.query(`insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id, self_booked, booking_url, config) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         on conflict (company_id, source, external_id) do update set name=excluded.name, appointment_term=excluded.appointment_term, self_booked=excluded.self_booked, booking_url=coalesce(excluded.booking_url, calendars.booking_url), config=case when excluded.config='{}'::jsonb then calendars.config else excluded.config end, active=true`,
         [companyId, booking.source, k.id, k.name, term, du?.id ?? null, selfBooked, k.bookingUrl ?? null, JSON.stringify(config)]);

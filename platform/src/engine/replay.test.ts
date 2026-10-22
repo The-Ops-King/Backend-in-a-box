@@ -70,6 +70,12 @@ describe.skipIf(!process.env.DATABASE_URL)("D138: replaying bookings", () => {
     expect(await byWf(a)).toEqual([{ name: "Pre-call" }]);
     expect(await byWf(cleared)).toEqual([{ name: "Pre-call" }]);
     expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false, workflowId: pre }))).toMatchObject([{ would: "skip", why: "a run of it is still going" }]);
+    // D210: restart stops the one still going (its key freed) and starts it afresh; a dry run only says so
+    const live = () => asOperator((c) => many<{ status: string; exit_reason: string | null }>(c, "select status, exit_reason from runs where appointment_id=$1 and workflow_id=$2 order by started_at", [a, pre]));
+    expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: true, workflowId: pre, restart: true }))).toMatchObject([{ would: "restart" }]);
+    expect((await live()).map((r) => r.status)).toEqual(["active"]);
+    expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false, workflowId: pre, restart: true }))).toMatchObject([{ would: "restart", runs_started: 1 }]);
+    expect(await live()).toEqual([{ status: "exited", exit_reason: "restarted by the operator" }, { status: "active", exit_reason: null }]);
   });
 
   it("D200: handed on again, what the earlier run already emailed them is not emailed again; force sends it; one only held in quiet still goes", async () => {

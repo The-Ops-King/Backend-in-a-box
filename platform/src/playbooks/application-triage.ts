@@ -28,20 +28,22 @@ export type DatingWords = {
   /** D155: the pre-call texts, in the company's voice: a triage call's and a closing call's booking text and reminders */
   preCall?: { triage: PreCallWords; closing: PreCallWords };
 };
-/** D155: the booking text, the reminder a day before and the one an hour before; `hourNoLink` (D186): the hour-before text when the booking has no meeting link */
-export type PreCallWords = { booked: string; day: string; hour: string; hourNoLink?: string };
+/** D155: the booking text, the reminder a day before and the one an hour before; `hourNoLink` (D186): the hour-before text when the booking has no meeting link; `replies: false` (D208): the texts alone, no reading of replies */
+export type PreCallWords = { booked: string; day: string; hour: string; hourNoLink?: string; replies?: boolean };
 /**
  * D123: `booked`, one per call type a calendar of the install books (its `calendars[…].name`): the workflow's file and name, the
  * Sales Call's `call_type` option it writes, and any tags a booking of that type adds. `fromForm`: the applicant workflow.
  */
 export type DatingSetup = {
   /** `record` (D142): the call's record, a Sales Call (`sales`, the default, with `salesCallType`) or, for a triage call, a Discovery Call (`discovery`: no Sales Call, no closer card); `card`: the Slack card's words for the call ("triage call") */
-  booked: { workflow: string; name: string; callType: string; salesCallType?: string; record?: "sales" | "discovery"; card?: string; tags?: string[] }[];
+  booked: { workflow: string; name: string; callType: string; salesCallType?: string; record?: "sales" | "discovery"; card?: string; tags?: string[]; channel?: string }[];
   fromForm?: { workflow: string; name: string };
   /** D142: a triage call's cancel (Call cancelled takes closing calls only): its own workflow for that call type */
-  triageCancelled?: { workflow: string; name: string; callType: string };
+  triageCancelled?: { workflow: string; name: string; callType: string; channel?: string };
   /** D143: a triage call's filed outcome (Call outcome filed takes closing calls only) */
-  triageFiled?: { workflow: string; name: string; callType: string };
+  triageFiled?: { workflow: string; name: string; callType: string; channel?: string };
+  /* D211: `channel` on a booked, triageCancelled or triageFiled entry: the Slack channel slot (slack.channel.<slot>) its posts use in
+     place of the bookings channel; a thread reply follows its card wherever that is */
   /** D154: Setter call logged reads and posts only; the end of day writes the Discovery Call record and moves the setter card */
   setterCallReadOnly?: boolean;
   /** D156: an outbound call's answer on the end of day (setter_call.filed): its own workflow */
@@ -152,15 +154,27 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     Object.assign(node(d, "s1"), { template: w.booked, title: "Booking text" });
     Object.assign(node(d, "m24s"), { template: w.day, title: "The day before" });
     Object.assign(node(d, "m1"), { template: w.hour, title: "An hour before" });
-    Object.assign(node(d, "n_rs_slack"), { template: "🔁 {{contact.first_name}} wants a new time: moving the call by hand.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}", title: "React 🔁, note who is moving it (by hand)" });
+    // D208 (Tyler: "we're going to drop reply handling for right now"): the booking text leads straight to the reminders; a reply
+    // stays in the CRM's conversation for a person. Everything that read a reply, asked about it or marked the card goes
+    const replies = w.replies !== false;
+    if (!replies) {
+      const READ = ["w1", "c1", "b1", "n_conf", "n_conf_slack", "n_unc", "n_unc_slack", "n_cx", "n_cx_slack", "n_rs_slack", "v_read", "n_ask", "w_dec", "v_decided", "v_agreed", "rec", "b_dec", "n_pending", "n_att_on", "n_clear", "n_att_off", "rec_un", "rs", "x_cancelled", "x_reschedule"];
+      for (const id of READ) node(d, id);   // each still there to take out, or the template changed under us
+      d.nodes = d.nodes.filter((n) => !READ.includes(n.id));
+      d.edges = (d.edges as Edge[]).filter((e) => !READ.includes(e.from) && !READ.includes(e.to));
+      (d.edges as Edge[]).push({ from: "s1", to: "r24" });
+    }
+    if (replies) Object.assign(node(d, "n_rs_slack"), { template: "🔁 {{contact.first_name}} wants a new time: moving the call by hand.\n> {{reply.inbound_since_send}}{{reaction.user_name | line:Decided by}}", title: "React 🔁, note who is moving it (by hand)" });
     // D186: the keep / cancel / reschedule ask goes to the booking channel, and 🔁 sends nothing (the call is moved by hand)
-    const ask = node(d, "n_ask");
-    const offer = "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link).";
-    if (!String(ask.template).includes(offer)) throw new Error(`${t.name}: the ask no longer offers the rebooking link`);
-    // a reply can come when no text of ours went out (refused, DND): the ask says so instead of failing on the missing text
-    const sent = "> {{reply.last_outbound.body}}";
-    if (!String(ask.template).includes(sent)) throw new Error(`${t.name}: the ask no longer quotes what we sent`);
-    Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out).").replace(sent, "> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}"), title: "Ask in the booking channel: keep, cancel or reschedule?" });
+    if (replies) {
+      const ask = node(d, "n_ask");
+      const offer = "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (they get the rebooking link).";
+      if (!String(ask.template).includes(offer)) throw new Error(`${t.name}: the ask no longer offers the rebooking link`);
+      // a reply can come when no text of ours went out (refused, DND): the ask says so instead of failing on the missing text
+      const sent = "> {{reply.last_outbound.body}}";
+      if (!String(ask.template).includes(sent)) throw new Error(`${t.name}: the ask no longer quotes what we sent`);
+      Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out).").replace(sent, "> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}"), title: "Ask in the booking channel: keep, cancel or reschedule?" });
+    }
     // D186: a booking with no meeting link is said at once in the channel the company names (slack.channel.no_link), the closer
     // tagged; the hour-before text then leaves the link line out
     if (w.hourNoLink !== undefined) {
@@ -178,7 +192,7 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     for (const id of ["r24", "r1"]) (node(d, id).rule as Record<string, unknown>).window = "before";
     // D194: a booking close to its call: no "no reply in 4 hours" note when the wait was cut short by the call, and no hour-before
     // text right on the heels of the booking text
-    node(d, "n_unc_slack").only_if = { gt: ["{{appointment.starts_at | hours_until}}", 1.5] };
+    if (replies) node(d, "n_unc_slack").only_if = { gt: ["{{appointment.starts_at | hours_until}}", 1.5] };
     const notJustSent = { or: [{ not: { exists: "reply.last_outbound.at" } }, { lt: ["{{reply.last_outbound.at | hours_until}}", -1] }] };
     for (const id of ["m1", "m1_nolink"]) { const m = d.nodes.find((n) => n.id === id); if (m) m.only_if = m.only_if ? { and: [m.only_if, notJustSent] } : notJustSent; }
     // D199: a call booked within 24 hours gets no day-before text (Tyler: "if its booked within 24 hours we don't get that"): how far
@@ -193,7 +207,7 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
     const left = JSON.stringify(d.nodes);
     if (left.includes("send_email") || left.includes("[placeholder") || d.nodes.filter((n) => n.type === "send_sms").length !== (w.hourNoLink !== undefined ? 4 : 3)) throw new Error(`${t.name}: a send of the template is left unwritten`);
     return { workflow: t.workflow, name: t.name, create: { stage: pc.stage, sort: pc.sort + (t.key === "triage" ? 0 : 1), takesOver: "pre-call-sequence" }, definition: d as unknown as Record<string, unknown>,
-      note: `the ${t.callType}'s pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; no rebooking text (a reschedule is moved by hand, 🔁 notes who)` };
+      note: replies ? `the ${t.callType}'s pre-call texts, all from Nelly (D155): the booking text with its reply handling, a day before and an hour before; no emails; no rebooking text (a reschedule is moved by hand, 🔁 notes who)` : `the ${t.callType}'s pre-call texts (D208): the booking text, a day before and an hour before, and nothing else; a reply is a person's to answer in the CRM; no emails` };
   });
 }
 
@@ -231,6 +245,13 @@ function bookedWithFork(): Def {
 }
 
 const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+/** D211 (Tyler: "put triage calls into the new channel #dating-triage-booked and leave the closing call booked where it is"): a copy's
+ * posts to the bookings channel go to the slot it names instead (a setting, not written in: slack.channel.<slot>) */
+const rechannel = (d: Def, slot?: string) => {
+  if (!slot) return;
+  if (!/^[a-z][a-z0-9_]*$/.test(slot)) throw new Error(`copies.json: channel "${slot}" is not a slot name`);
+  for (const n of d.nodes) if (n.type === "slack_post" && n.channel === "{{slack.channel.bookings}}") n.channel = `{{slack.channel.${slot}}}`;
+};
 /**
  * D142: a triage call (Tyler: "it should be in the discovery call section"): Call booked's booking paths (the person in GHL, the
  * contact's owner and date, the setter card, the tags), then the call's Discovery Call record, owned by whoever takes the call (the
@@ -367,6 +388,7 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
     if (b.record !== "discovery") { if (!b.salesCallType) throw new Error(`copies.json: ${b.workflow} writes a Sales Call and needs its salesCallType`); (node(d, "k4").properties as Record<string, string>).call_type = b.salesCallType; }
     if (b.card) { const v4 = node(d, "v4"); (v4.value as Record<string, unknown>).name = `${cap(b.card)} rescheduled`; (v4.else_value as Record<string, unknown>).name = `New ${b.card} booked`; }
     if (b.tags?.length) for (const id of ["s5", "b6"]) { const n = node(d, id); n.add = [...(n.add as string[]), ...b.tags]; }
+    rechannel(d, b.channel);
     out.push({ workflow: b.workflow, name: b.name, create: { stage: cb.stage, sort: cb.sort, takesOver: "call-booked" }, definition: d as unknown as Record<string, unknown>,
       note: b.record === "discovery"
         ? `${company}: Call booked for a ${b.callType} booking only (its calendar's call type), a triage call: the setter card and a Discovery Call record, owned by the calendar's owner (D142); no Sales Call, no closer card${b.tags?.length ? `; the tag${b.tags.length > 1 ? "s" : ""} ${b.tags.join(", ")}` : ""}`
@@ -375,13 +397,13 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
   if (setup.triageCancelled) {
     const tc = setup.triageCancelled, cc = template("call-cancelled");
     if (!setup.booked.some((b) => b.callType === tc.callType && b.record === "discovery")) throw new Error(`copies.json triageCancelled: no triage booked workflow takes "${tc.callType}"`);
-    out.push({ workflow: tc.workflow, name: tc.name, create: { stage: cc.stage, sort: cc.sort + 1 }, definition: triageCancelled(tc.callType) as unknown as Record<string, unknown>,
+    out.push({ workflow: tc.workflow, name: tc.name, create: { stage: cc.stage, sort: cc.sort + 1 }, definition: (() => { const d = triageCancelled(tc.callType); rechannel(d, tc.channel); return d; })() as unknown as Record<string, unknown>,
       note: `${company}: Call cancelled for a ${tc.callType} (a triage call, which Call cancelled leaves to it): the setter card to Cancelled, the Discovery Call record cancelled, the tags, ❌ in the booking thread; no closer card, no task, no Sales Call (D142)` });
   }
   if (setup.triageFiled) {
     const tf = setup.triageFiled, co = template("call-outcome");
     if (!setup.booked.some((b) => b.callType === tf.callType && b.record === "discovery")) throw new Error(`copies.json triageFiled: no triage booked workflow takes "${tf.callType}"`);
-    out.push({ workflow: tf.workflow, name: tf.name, create: { stage: co.stage, sort: co.sort + 1 }, definition: triageFiled(tf.callType) as unknown as Record<string, unknown>,
+    out.push({ workflow: tf.workflow, name: tf.name, create: { stage: co.stage, sort: co.sort + 1 }, definition: (() => { const d = triageFiled(tf.callType); rechannel(d, tf.channel); return d; })() as unknown as Record<string, unknown>,
       note: `${company}: a ${tf.callType}'s outcome, filed on the end of day (or a no-show marked in the CRM): the Discovery Call record (showed or no-show, set / follow up / DQ / not interested), the setter card to Showed (won), DQ, Not Interested or Cancelled / No Show (lost), a line in the booking thread (D143)` });
   }
   if (setup.setterFiled) {
