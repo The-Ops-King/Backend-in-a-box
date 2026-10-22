@@ -5988,3 +5988,20 @@ guarantee); the closer picks it, a payment plan does not change it.
 
 Code, the same on every offer; what an offer's closers may type is its own `agreements.list`. Tests:
 `agreement-request.test.ts` (PMU's four).
+
+## D215. A recording with several of our contacts on the invite is the booked one's (2026-10-22)
+
+Tyler: "If the engine is missing people with multiple people on the invite, you need to fix that as well." PMU, Oct 20: Carly's
+33-minute call with Shay Cox stayed unlinked because a second contact's address was on the invite ("attendees match 2 different
+contacts"), so the call had no recording, no review and no disposition.
+
+- **The rule.** When more than one invitee email is a contact, the recording belongs to the one whose live booking carries the
+  recording's meeting link, else the one whose live (not cancelled) booking starts within two hours of the recording. Exactly one:
+  linked by email, to that booking. None or several: unlinked as before, the reason now saying which.
+- **Already missed.** `POST /api/admin/recordings/rematch { company, from?, to? | days?, dryRun = true }` runs a window's unlinked
+  recordings through the ladder again. A dry run lists what would link and what stays; the write links silently (no event, no run,
+  as the history backfill does) so the Sales Call backfill (D115) reads them, and keeps each one still unlinked with its reason now.
+  Audited (`recordings.rematched`).
+
+Engine code, the same on every offer: only recordings that matched nobody before can link now; a recording that linked before links
+the same way. Tests: `recordings.test.ts`.

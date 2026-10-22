@@ -147,6 +147,10 @@ recorder's calendar (one appointment within two hours), or left **unmatched** wi
 emits `recording.received` (with the contact's appointment nearest the start, within a day) and
 templates take it from there. Facts about Fathom's API are in `fathom/01-api-facts.md`.
 
+D215: several contacts on one invite is the booked one's: the contact whose live booking has the recording's meeting link, else
+the one booked within two hours of its start; still none or several, unlinked with the reason. `POST /api/admin/recordings/rematch
+{ company, from?, to? | days?, dryRun = true }` tries a window's unlinked recordings again and links the matches silently (no event, no run).
+
 ### Phone calls the dialer logs (D28)
 
 A call placed or taken in GHL is a `TYPE_CALL` entry in the contact's conversation, and the
