@@ -5,6 +5,7 @@ import type { Adapters, Company } from "@/adapters/types";
 import type { CompanyRow } from "./context";
 import { boundFieldIds, upsertContact } from "./poll";
 import { raise } from "./alerts";
+import { followMerge } from "./merge";
 
 /**
  * D68: GHL is the source of truth about a person; the `contacts` replica is a cache. Before a run acts, the contact is
@@ -46,9 +47,12 @@ export async function refreshContact(c: PoolClient, company: CompanyRow, adapter
   // G21's mark, learned before a send instead of from its refusal; the premise `contact_exists` exits every run about them
   const r = await c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [contactId]);
   if (r.rowCount) {
+    // D222: a merge in GHL is followed when where it went is certain: the person's calls and records are the survivor's now
+    const m = await followMerge(c, company.id, company.timezone, adapterCompany, adapters, contactId);
+    if (m.folded) return { ok: false, why: "contact gone" };   // this run's person is gone either way; their calls now live on the survivor
     const who = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || primary;
     await raise(c, { companyId: company.id, key: `contact:gone:${contactId}`, level: "warning", source: "engine", href: `/app/c/${company.slug}`,
-      text: `${who} is gone from the CRM (deleted or merged there); the runs about them exit instead of sending.`,
+      text: `${who} is gone from the CRM (deleted or merged there); the runs about them exit instead of sending. Not followed to another contact: ${m.why}.`,
       detail: { contact_id: contactId, ghl_contact_id: primary, tried: [primary, ...others.map((o) => o.value)] } }, now.toJSDate());
   }
   return { ok: false, why: "contact gone" };
