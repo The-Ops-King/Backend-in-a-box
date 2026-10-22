@@ -5,7 +5,7 @@
   "stage": "closing",
   "sort": 10,
   "origin": "spec",
-  "description": "Sends the purchase agreement, or the one a closer picked with /agreement in Slack (agreement.requested, D202), unless the agreement is already signed: from the closer who asked (else the bound sender), stat-agreement-sent is added, the tag sys-send-agreement-manually comes off if it was the trigger, and a note records who sent which. The tag (sys-send-agreement-manually) still starts it until it is retired per offer.",
+  "description": "Sends the purchase agreement, or the one a closer picked with /agreement in Slack (agreement.requested, D202), unless the agreement is already signed (a closer's /agreement sends whatever was signed before): from the closer who asked (else the bound sender), stat-agreement-sent is added, the tag sys-send-agreement-manually comes off if it was the trigger, and a note records who sent which. The tag (sys-send-agreement-manually) still starts it until it is retired per offer.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -33,12 +33,20 @@
         "id": "c1",
         "type": "check",
         "when": {
-          "eq": [
-            "{{contact.agreement_signed}}",
-            false
+          "or": [
+            {
+              "exists": "event.template"
+            },
+            {
+              "eq": [
+                "{{contact.agreement_signed}}",
+                false
+              ]
+            }
           ]
         },
-        "else_exit": "already_signed"
+        "else_exit": "already_signed",
+        "title": "Not already signed, unless a closer asked for this one in Slack (they may send another, or a different one)"
       },
       {
         "id": "v_tpl",

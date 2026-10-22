@@ -5968,6 +5968,160 @@ calendar, alerts, why, dryRun }`) keeps its bookings watched and leaves it out o
 next sweep. Nelly: off on 86985d27, aac238a5 and 80955126; on for the two new links (03ad5f45 Strategy Session, 6a643c89 consultation).
 `GET /api/admin/calendars` shows the switch. Tests: `health.calendar-alerts.test.ts`.
 
+## D214. /agreement takes the who and the which in either order, in the closer's own words (2026-10-22)
+
+Tyler: "I would like them to be able to say 'agreement email 12k guarantee' and have it send the correct one, or 'agreement email'
+and then it says 'Which agreement do you want to send?' If they say 'agreement 12k guarantee,' it says 'Who do you want to send it
+to?' ... as flexible as possible while still being code-based." PMU has four agreements (the price, and whether it carries the
+guarantee); the closer picks it, a payment plan does not change it.
+
+- **Words, read one way, no guessing.** Each agreement in `agreements.list` is `{label, template, key?, match?}`; what a closer may
+  type for it is its key, its label and each `match` phrase. Both sides are read the same way: money as digits ("$12,000",
+  "12,000", "12k" → 12000), a trailing "s"/"ed" dropped ("guaranteed" → guarantee), "no X"/"without X" one word (so "no guarantee"
+  never reads as "guarantee"), filler dropped (to, with, the, send, agreement, ...); word order does not matter.
+- **Which part is which.** The which is the longest run of words at the start or the end of the command that names an agreement;
+  the rest is the who. Exactly one agreement whose phrase is those words: that one. Words every one of several agreements holds
+  ("guarantee"): those, as buttons. Nothing names one: all of it is the who.
+- **What happens.** Who and which: as D202 (an email, phone or GHL link sends at once; a full name asks first). Who only: a button
+  per agreement. Which only: the form asks "Who do you want to send <it> to?", the agreement already picked. Nothing: the form.
+- An agreement with no key still takes its label's first word as its key ("Deposit agreement" → deposit), as before.
+
+Code, the same on every offer; what an offer's closers may type is its own `agreements.list`. Tests:
+`agreement-request.test.ts` (PMU's four).
+
+**D214 applied on PMU (2026-10-22, Tyler).** `agreements.list`: $9,997 (also "10k", "9k"), $9,997 + Guarantee, $12,000, $12,000 +
+Guarantee, each its GHL template. Send agreement manually saved from the template (v2: the `/agreement` trigger; the tag still
+works), turned on with its own mode `test` so a test contact gets it while PMU stays ghost; sends locked (only Tyler's own
+addresses). Payment recorded v4: a payment no longer sends `crm.agreement_template` (one contract where PMU has four); when nothing
+has gone out, the contact's owner is told in Slack to run `/agreement` (alerts channel when the owner is not in Slack). Which
+agreement a payment implies is for later (Tyler).
+
+## D215. A recording with several of our contacts on the invite is the booked one's (2026-10-22)
+
+Tyler: "If the engine is missing people with multiple people on the invite, you need to fix that as well." PMU, Oct 20: Carly's
+33-minute call with Shay Cox stayed unlinked because a second contact's address was on the invite ("attendees match 2 different
+contacts"), so the call had no recording, no review and no disposition.
+
+- **The rule.** When more than one invitee email is a contact, the recording belongs to the one whose live booking carries the
+  recording's meeting link, else the one whose live (not cancelled) booking starts within two hours of the recording. Exactly one:
+  linked by email, to that booking. None or several: unlinked as before, the reason now saying which.
+- **Already missed.** `POST /api/admin/recordings/rematch { company, from?, to? | days?, dryRun = true }` runs a window's unlinked
+  recordings through the ladder again. A dry run lists what would link and what stays; the write links silently (no event, no run,
+  as the history backfill does) so the Sales Call backfill (D115) reads them, and keeps each one still unlinked with its reason now.
+  Audited (`recordings.rematched`).
+
+Engine code, the same on every offer: only recordings that matched nobody before can link now; a recording that linked before links
+the same way. Tests: `recordings.test.ts`.
+
+**D215 addendum: one more calendar watched without a re-install (2026-10-22).** Tyler: "JP's Strategy is an 'individual' calendar
+for follow up / reschedule if needed. track it. carly has one too." A re-install re-applies an offer's whole file and has no dry run,
+so `POST /api/admin/calendars/watch { company, calendar: id or name, term, name?, owner?, booking?, why, dryRun = true }` maps one
+calendar exactly as install maps one (`watchCalendar`, now shared by both): its call type, how it is booked, its owner and that
+owner's upcoming bookings. The poll's first read of it is a baseline (rows, no events), so the calls it already held come in through
+the history and Sales Call backfills. A calendar already watched is left as it is. Audited (`calendar.watched`). Tests:
+`contact-ops.reassign.test.ts`.
+
+## D216. /availability shows every calendar the engine watches, each on its own (2026-10-22)
+
+Tyler: "I do want the availability to also show both calendars that we're watching, or any calendars that we're watching. If we've
+got a demo calendar and a setting calendar and everything, I want that to all show there. That's important." Then: "Layout works.
+low availability is any calendar we're watching. Yes ship slack / availability to all offers."
+
+- **What it reads.** Every active calendar the engine watches, whatever its call type (D72 read only the closing ones). One kept
+  only for the calls already on it (D213, `alerts: false`) stays out unless it is a closing one, which D72 always read, so no
+  offer's numbers lose a calendar they had (Nelly's old ♡ triage links, one gone from Calendly, stay out; her closing link stays in).
+- **What it says.** First *By calendar*: each calendar with its call type, its open times over the window and a line of them per
+  day (a time once, however many hosts are free then; "no open times" when it has none). Then *By person*: the D72 table, now over
+  every watched calendar (a setter's setting calendar gives the setter a column).
+- **Low availability** already alerted on every watched calendar (D33, less D213's `alerts: false`); it is unchanged.
+
+Code, the same on every offer: `/availability`, the bot's `get_availability` and the low-availability thread. Tests:
+`availability.test.ts`, `bot.test.ts`, `alerts.test.ts`.
+
+## D217. A call nobody has filed is out of the show rate until it is (2026-10-22)
+
+Tyler, on `/show-rate` showing JP 1/9 while most of his calls had no outcome yet: "calls with no outcome are counted in no-show,
+that shouldn't be the case." D70 had applied D54's end-of-day presumption to the rate (a call nobody filed counts as not showed).
+
+- **Show rate is shows ÷ calls with an outcome**: showed, no-show or cancelled (cancellations stay in, Tyler 2026-10-22), a slot the
+  call was rescheduled away from still out. A call with no outcome filed is out of the rate until someone files it, and is still
+  listed under "No EOD outcome yet".
+- That list names each call with its day ("Renee G (Oct 21)"), so a person with several unfiled calls reads as several calls, not
+  a duplicate.
+- The same rule in `analyze` (the bot's own splits), so a question and `/show-rate` never disagree. "Calls booked" (`/mtd`,
+  `/weekly`) is unchanged: every call whose time has passed.
+
+Code, the same on every offer (the bot, the shortcuts, the wrap-ups). Tests: `bot.test.ts`.
+
+## D218. Who took a call, set on calls already held (2026-10-22)
+
+PMU: Ana Magno, Fabiola E and Christie Laney were hosted on a shared Calendly seat (team@thebeautymoguls.com), so the bookings
+had no closer. Tyler: "assume that it's probably JP." The Sales Call backfill put JP on their GHL records, but the replica's
+booking stayed closer-less, so JP's end-of-day reminder (which reads GHL) owed them while his form (which lists his bookings)
+had no row for them.
+
+`POST /api/admin/appointments/closer { company, appointments: [id, booking id or slot key], closer: email, why, dryRun = true }`
+sets the booking's closer in the replica (their end of day lists it, their numbers count it) and the Closer field on its Sales
+Call in GHL, by the company's option key (D118). D204 still moves a calendar's upcoming calls; this is one call, past or ahead.
+Audited (`call.closer`). Tests: `contact-ops.reassign.test.ts`.
+
+## D219. The operator is named, never a bare Slack id (2026-10-22)
+
+PMU's test channel showed "Would have sent to U0C10N4GZ0E" for the end-of-day reminder's overdue note to Tyler. Before live a DM
+is held back and marked with who it was for, named from the offer's roster; the operator (`bot.escalate_to`) is on no offer's
+roster, so the id showed. A DM to `bot.escalate_to` now reads "Would have sent to <operator's name> (operator)". Slack, the same on
+every offer. Tests: `mode.test.ts`.
+
+## D220. The closer's end-of-day page looks like the offer's, not like our dashboard (2026-10-22)
+
+Tyler: "let's make the formatting for the EOD form prettier ... more client facing." His picks: each offer's own branding, light,
+phone first, one card per call that folds when done, the totals row lined up, plainer words.
+
+- **The offer's look, as settings** (`brand.name`, `brand.logo_url` https, `brand.accent` #rrggbb; "configurable, not written in").
+  Unset: the offer's name on a neutral page. The accent colors the button and the brand mark; links and other text on white use a
+  darker shade of it so they stay readable. PMU: The Beauty Moguls, #F79478 (their site's coral; their logo is the name in type).
+- **Layout.** Light and phone first, its own palette scoped to the page; the numbers in an even grid (each helper line under its
+  box, none pushing a box out of line); one card per call with its number, name, time and links; a call with its outcome and every
+  answer it needs folds to one line with the outcome, "Edit" opens it; "N to go" counts what is left; the send button stays at the
+  bottom of the screen.
+- **Words** for the closer, not for us ("We filled in what we could ... then send it in", "Send my day", "Update my day").
+
+Nothing about what is asked, required or filed changes. The same page on every offer; each offer's words and options stay its own.
+
+## D221. Switching a scheduled workflow on does not fire the slots that already passed (2026-10-22)
+
+PMU: EOD reminders were switched on at 10:07 PM and posted twice per closer at once, the day's 9 AM and 6 PM slots both "missed".
+Tyler: "yes switch fix". The clock's catch-up (a slot missed sends late, once) is for an outage, not for slots that came before the
+workflow was on.
+
+- **When it was switched on** is `workflows.enabled_at` (migration 0007), stamped by a database trigger whenever `enabled` turns
+  on, whichever path does it (the admin door, the dashboard, install). Workflows already on keep it empty and behave as before.
+- **The clock**: a fixed-time slot (09:00, 18:00, Monday 09:00) whose time came before `enabled_at` does not fire; the next one
+  does. A slot missed while the workflow was on still sends late, once. Interval schedules (every hour) start at once, as before.
+  A stamp later than the moment the clock runs for (a replay, clock skew) is ignored.
+
+Engine code, every offer; it changes only what happens at the moment a workflow is switched on. Tests: `clock.enable.test.ts`;
+`eod.test.ts` and `flowmode.test.ts` now switch their workflows on the day before, since they test the reminder and the rung.
+
+## D222. A merge in GHL is followed; the backfill never makes a record for someone GHL dropped (2026-10-22)
+
+PMU: Lyric B booked under a Gmail address, cancelled two minutes later and rebooked the same slot under Yahoo; GHL then merged the
+Gmail contact away. The engine kept two people, one gone, and the Sales Call backfill (D115) created a record for the gone one,
+failed to link it and never recorded it: an orphan the drift check asked about every hour. Tyler: "Yes that needs to happen" (follow
+the merge), "ok fix that" (the backfill), and for anything like this, "unless it's not 100% sure."
+
+- **Following a merge** (`merge.ts`, `followMerge`). When the engine finds a contact gone from GHL (the live check before a run
+  acts, a write that answers 404, the duplicates sweep), it looks for the one it became: GHL asked by each of its emails, or the
+  duplicates sweep's own match by phone or email. Exactly one live GHL contact: the gone one's calls, deals, cards, payments, records,
+  recordings, forms, agreements, messages, emails and phones move to it; the gone row stays, `merged_into` it, with its own history
+  (events, runs, sends); audited (`contact.merged`); no alert, since nothing is left to do. None or several: nothing moves, and the
+  "gone" alert now says why it was not followed. A phone already makes one engine person of two records (D60), so GHL is asked by
+  email. A moved Sales Call GHL still relates to the dropped contact is the drift check's to relink, in the offer's mode.
+- **The backfill** checks a person is still in GHL before making a record for them (gone: no record, the row says why), and records
+  every record it makes before linking it, so a link that fails leaves a record the engine knows, never an orphan.
+
+Engine code, every offer. Tests: `merge.test.ts`, `sales-call-backfill.test.ts`.
+
 ## D223. A record create whose answer was lost is put right from what the CRM holds (2026-10-22)
 
 Tyler, on "Sales call recorded couldn't create the Sales Call record for Corina Raducanu ... asked the CRM once already and never

@@ -12,14 +12,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   const { token } = await params; const q = new URL(req.url).searchParams.get("day");
   const data = await asOperator(async (c) => {
     const closer = await closerByToken(c, token); if (!closer || !closer.active || !closer.company_id) return null;
-    const { row: company } = await loadCompany(c, closer.company_id);
+    const { row: company, bindings } = await loadCompany(c, closer.company_id);
     const day = q && DateTime.fromFormat(q, DAY_FMT).isValid ? q : todayFor(company.timezone);
     const filed = await reportFor(c, company.id, closer.id, day);
     const pre = await prefill(c, company, closer, day, DateTime.now());
     const fields = await loadEodForm(c, company.id);
     const shown: EodPrefill = filed?.answers ? { ...pre, ...pickAnswers(filed.answers, pre) } : pre;
     const d = DateTime.fromFormat(day, DAY_FMT, { zone: company.timezone });
-    return { closer: { first_name: closer.name.split(" ")[0], name: closer.name }, company: { name: company.name, timezone: company.timezone }, day, is_today: day === todayFor(company.timezone), prev: d.minus({ days: 1 }).toFormat(DAY_FMT), next: d.plus({ days: 1 }).toFormat(DAY_FMT),
+    return { closer: { first_name: closer.name.split(" ")[0], name: closer.name }, company: { name: company.name, timezone: company.timezone }, brand: brandOf(bindings, company.name), day, is_today: day === todayFor(company.timezone), prev: d.minus({ days: 1 }).toFormat(DAY_FMT), next: d.plus({ days: 1 }).toFormat(DAY_FMT),
       filed: filed?.submitted_at ? { at: filed.submitted_at, changes: filed.changes?.length ?? 0 } : null, pre: shown, seen: { calls: pre.calls_count, cash: pre.cash }, fields, day_answers: filed?.answers?.day_answers ?? {}, outcomes: outcomesOf(fields) };
   });
   return data ? ok(data) : fail(404, "this link is not for anyone");
@@ -50,4 +50,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
 function pickAnswers(a: EodAnswers, pre: EodPrefill): Partial<EodPrefill> {
   const byId = new Map(a.calls.map((c) => [c.appointment_id, c]));
   return { calls_count: a.calls_count, closes: a.closes, deposits: a.deposits ?? 0, cash: a.cash, revenue: a.revenue, calls: pre.calls.map((c) => { const x = byId.get(c.appointment_id); return x ? { ...c, ...x, extra: x.extra ?? {}, href_contact: c.href_contact, recording_url: c.recording_url } : c; }) };
+}
+
+/** D220: what the closer's page shows of the offer: its own name, logo and color (settings, Tyler: "configurable, not written in"); unset, a clean neutral page. */
+function brandOf(b: Record<string, string>, fallback: string): { name: string; logo_url: string | null; accent: string | null } {
+  const logo = (b["brand.logo_url"] ?? "").trim(), accent = (b["brand.accent"] ?? "").trim();
+  return { name: (b["brand.name"] ?? "").trim() || fallback, logo_url: /^https:\/\/\S+$/.test(logo) ? logo : null, accent: /^#[0-9a-f]{6}$/i.test(accent) ? accent : null };
 }

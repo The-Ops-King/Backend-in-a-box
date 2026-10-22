@@ -6,7 +6,7 @@ type EodPrefill = { day: string; calls_count: number; closes: number; deposits: 
 import { dayFields, fieldsFor, isSetterCall, outcomeLabel, totalsOf, valueOf, DIAL_OUTCOMES, TRIAGE_OUTCOMES, type CallOutcome } from "@/engine/eod-form";
 import { Skeleton } from "~/ui/pieces";
 
-type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] };
+type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; brand?: { name: string; logo_url: string | null; accent: string | null }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] };
 
 /**
  * The closer's end-of-day page (D34): bare, no nav, nothing but their day. One question per call first (what happened), then
@@ -16,19 +16,29 @@ export function Eod() {
   const { token = "" } = useParams(); const [sp, setSp] = useSearchParams();
   const day = sp.get("day");
   const q = usePage<Page>(["closer-eod", token, day], `/api/eod/${token}${day ? `?day=${day}` : ""}`, { every: 0 });
-  useEffect(() => { document.title = "End of day"; }, []);
-  if (!q.data) return <div className="bare">{q.error ? <p className="note">{q.error.status === 404 ? "This link is not for anyone." : q.error.message}</p> : <Skeleton lines={6} />}</div>;
+  useEffect(() => { document.title = "End of day"; document.body.classList.add("eodx-body"); return () => document.body.classList.remove("eodx-body"); }, []);
+  if (!q.data) return <div className="eodx"><div className="eodx-wrap">{q.error ? <p className="eodx-note">{q.error.status === 404 ? "This link isn't active. Ask your manager for a new one." : q.error.message}</p> : <Skeleton lines={6} />}</div></div>;
   const d = q.data;
+  const brand = d.brand ?? { name: d.company.name, logo_url: null, accent: null };
   const label = new Date(`${d.day}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const short = (s: string) => new Date(`${s}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  return <div className="bare">
-    <div className="crumb" style={{ marginBottom: 6 }}>{d.company.name} · end of day</div>
-    <h1 className="name">{d.closer.first_name}, your {d.is_today ? "day" : label.split(",")[0]}</h1>
-    <div className="tagline"><a href="#" onClick={(e) => { e.preventDefault(); setSp({ day: d.prev }); }} style={{ color: "var(--fg-3)" }}>‹ {short(d.prev)}</a><span>·</span><b style={{ color: "var(--fg)" }}>{label}</b>{d.is_today ? <span>(today)</span> : <><span>·</span><a href="#" onClick={(e) => { e.preventDefault(); setSp({ day: d.next }); }} style={{ color: "var(--fg-3)" }}>{short(d.next)} ›</a></>}</div>
-    {d.filed ? <div className="banner">Already filed at {new Date(d.filed.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: d.company.timezone })}. Submitting again replaces it.</div> : null}
-    <p className="note" style={{ marginTop: 12 }}>Prefilled from your calendar, the recordings and the day's payments. Fix anything that's off, then submit.</p>
+  const go = (day: string) => (e: React.MouseEvent) => { e.preventDefault(); setSp({ day }); };
+  // D220: the offer's own look (brand.*), light and phone-first; the accent is the offer's color, else a quiet default
+  return <div className="eodx" style={brand.accent ? ({ "--brand": brand.accent } as React.CSSProperties) : undefined}><div className="eodx-wrap">
+    <header className="eodx-top">
+      {brand.logo_url ? <img className="eodx-logo" src={brand.logo_url} alt={brand.name} /> : <span className="eodx-mark">{brand.name}</span>}
+      <span className="eodx-kicker">End of day</span>
+    </header>
+    <h1 className="eodx-h1">{d.is_today ? `How did today go, ${d.closer.first_name}?` : `${d.closer.first_name}, here's ${label.split(",")[0]}`}</h1>
+    <nav className="eodx-days">
+      <a href="#" onClick={go(d.prev)}>‹ {short(d.prev)}</a>
+      <b>{d.is_today ? "Today" : label}</b>
+      {d.is_today ? <span /> : <a href="#" onClick={go(d.next)}>{short(d.next)} ›</a>}
+    </nav>
+    {d.filed ? <div className="eodx-banner ok">You sent this day in at {new Date(d.filed.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: d.company.timezone })}. Change anything below and send it again to update it.</div> : null}
+    <p className="eodx-note">We filled in what we could from your calendar, your call recordings and the day's payments. Check each call, fix anything that's off, then send it in.</p>
     <Form key={`${token}:${d.day}`} token={token} d={d} onFiled={() => q.refetch()} />
-  </div>;
+  </div></div>;
 }
 
 function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => void }) {
@@ -36,8 +46,11 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const [callsCount, setCallsCount] = useState(String(d.pre.calls_count));
   const [touched, setTouched] = useState<{ closes?: string; deposits?: string; cash?: string; revenue?: string }>({});
   const [dayAnswers, setDayAnswers] = useState<Record<string, string>>(d.day_answers);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false); const [done, setDone] = useState<{ recorded: number; changes: number } | null>(null); const [err, setErr] = useState<string | null>(null); const [editing, setEditing] = useState(false);
   const t = totalsOf(calls, d.fields);
+  // a call is done when it has its outcome and every required answer that outcome asks for; done calls fold to one line
+  const complete = (c: CallEntry) => !!c.outcome && !c.moved && fieldsFor(d.fields, c.outcome, c.kind).every((f) => !f.required || String(valueOf(c, f.key) ?? "").trim() !== "");
   const set = (i: number, patch: Partial<CallEntry>) => setCalls((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const setField = (i: number, key: string, v: string) => {
     if (key === "revenue" || key === "cash") set(i, { [key]: v === "" ? null : Number(v.replace(/[,$]/g, "")) || 0 });
@@ -60,44 +73,59 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   if (done && !editing) {
     const counts = Object.entries(calls.reduce<Record<string, number>>((m, c) => { const k = outcomeLabel(c.outcome, d.fields, c.kind); m[k] = (m[k] ?? 0) + 1; return m; }, {}));
     const dayWords = new Date(`${d.day}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-    return <div className="thanks" style={{ marginTop: 14 }}>
-      <h2>Thanks, {d.closer.first_name}. Your end of day for {dayWords} is in.</h2>
-      <p>{calls.length} call{calls.length === 1 ? "" : "s"} filed{counts.length ? `: ${counts.map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ")}` : ""}.</p>
-      {done.changes ? <p className="note">{done.changes} answer{done.changes === 1 ? "" : "s"} differed from what the engine had; the team will see the corrections.</p> : null}
-      <button className="submit" type="button" onClick={() => setEditing(true)}>Change an answer</button>
+    return <div className="eodx-thanks">
+      <div className="eodx-check" aria-hidden>✓</div>
+      <h2>Thanks, {d.closer.first_name}. {dayWords} is in.</h2>
+      <p>{calls.length} call{calls.length === 1 ? "" : "s"} sent{counts.length ? `: ${counts.map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ")}` : ""}.</p>
+      {done.changes ? <p className="eodx-note">You changed {done.changes} answer{done.changes === 1 ? "" : "s"} from what we had filled in. The team will see your corrections.</p> : null}
+      <button className="eodx-btn ghost" type="button" onClick={() => setEditing(true)}>Change an answer</button>
     </div>;
   }
-  return <form className="form" onSubmit={submit} style={{ marginTop: 14 }}>
-    {err ? <div className="banner warn"><strong>Not saved.</strong> {err}. Your answers are still here; fix and press Submit again.</div> : null}
-    <div className="call"><div className="g2" style={{ gridTemplateColumns: showDeposits ? "repeat(auto-fit, minmax(130px, 1fr))" : "repeat(auto-fit, minmax(150px, 1fr))" }}>
-      <label>How many calls today?<input type="number" min={0} value={callsCount} onChange={(e) => setCallsCount(e.target.value)} /><span className="note">{d.seen.calls} on your calendar</span></label>
-      {closing ? <>
-      <label>Closes<input type="number" min={0} value={touched.closes ?? String(t.closes)} onChange={(e) => setTouched((x) => ({ ...x, closes: e.target.value }))} /></label>
-      {showDeposits ? <label>Deposits<input type="number" min={0} value={touched.deposits ?? String(t.deposits)} onChange={(e) => setTouched((x) => ({ ...x, deposits: e.target.value }))} /></label> : null}
-      <label>Cash collected ($)<input type="text" inputMode="decimal" value={touched.cash ?? String(t.cash)} onChange={(e) => setTouched((x) => ({ ...x, cash: e.target.value }))} /><span className="note">{d.seen.cash ? `$${d.seen.cash.toLocaleString("en-US")} seen in payments` : "nothing seen in payments"}</span></label>
-      <label>Revenue generated ($)<input type="text" inputMode="decimal" value={touched.revenue ?? String(t.revenue)} onChange={(e) => setTouched((x) => ({ ...x, revenue: e.target.value }))} /></label>
-      </> : null}
-    </div></div>
-    <h3 className="sec">Your calls <small>{calls.length}</small></h3>
-    {calls.length === 0 ? <div className="empty">No calls on your calendar for this day.</div> : null}
+  const left = calls.filter((c) => !complete(c)).length;
+  return <form className="eodx-form" onSubmit={submit}>
+    {err ? <div className="eodx-banner warn"><strong>That didn't save.</strong> {err}. Your answers are still here, so fix that and send it again.</div> : null}
+    <section className="eodx-card">
+      <h2 className="eodx-h2">Your numbers</h2>
+      <div className="eodx-totals">
+        <label><span>Calls taken</span><input type="number" min={0} value={callsCount} onChange={(e) => setCallsCount(e.target.value)} /><small>{d.seen.calls} on your calendar</small></label>
+        {closing ? <>
+        <label><span>Closes</span><input type="number" min={0} value={touched.closes ?? String(t.closes)} onChange={(e) => setTouched((x) => ({ ...x, closes: e.target.value }))} /><small>&nbsp;</small></label>
+        {showDeposits ? <label><span>Deposits</span><input type="number" min={0} value={touched.deposits ?? String(t.deposits)} onChange={(e) => setTouched((x) => ({ ...x, deposits: e.target.value }))} /><small>&nbsp;</small></label> : null}
+        <label><span>Cash collected</span><div className="eodx-money"><i>$</i><input type="text" inputMode="decimal" value={touched.cash ?? String(t.cash)} onChange={(e) => setTouched((x) => ({ ...x, cash: e.target.value }))} /></div><small>{d.seen.cash ? `$${d.seen.cash.toLocaleString("en-US")} in payments today` : "No payments seen yet"}</small></label>
+        <label><span>Revenue</span><div className="eodx-money"><i>$</i><input type="text" inputMode="decimal" value={touched.revenue ?? String(t.revenue)} onChange={(e) => setTouched((x) => ({ ...x, revenue: e.target.value }))} /></div><small>Total contract value</small></label>
+        </> : null}
+      </div>
+    </section>
+    <h2 className="eodx-h2 out">Your calls <small>{calls.length ? (left ? `${left} to go` : "all set") : ""}</small></h2>
+    {calls.length === 0 ? <div className="eodx-empty">No calls on your calendar this day.</div> : null}
     {calls.map((c, i) => { const after = fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : c.kind === "dial" ? DIAL_OUTCOMES : d.outcomes;
-      return <div key={c.appointment_id} className="call">
-        <div className="hd"><b>{i + 1}. {c.contact}</b><span className="note">{time(c.starts_at)}{c.kind === "triage" ? " · triage call" : c.kind === "dial" ? " · outbound call" : calls.some((x) => isSetterCall(x.kind)) ? " · closing call" : ""}</span>{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">CRM ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}</div>
-        <label>{outcomeField.label}{outcomeField.required ? <span className="req"> *</span> : null}<select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">—</option>{choices.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
-        {c.hint && !c.outcome ? <p className="hint">{c.hint}</p> : null}
-        {c.moved ? <p className="hint">{c.moved}</p> : null}
-        {after.length ? <div className="after">{after.map((f) => <Field key={f.key} f={f} value={valueOf(c, f.key)} onChange={(v) => setField(i, f.key, v)} />)}</div> : null}
-      </div>; })}
-    {dayFields(d.fields).map((f) => <div key={f.key} className="call"><Field f={f} value={dayAnswers[f.key] ?? ""} onChange={(v) => setDayAnswers((x) => ({ ...x, [f.key]: v }))} /></div>)}
-    <button className="submit" type="submit" disabled={busy}>{busy ? "Filing…" : "Submit my day"}</button>
+      const done_ = complete(c), shown = !done_ || open[c.appointment_id];
+      const kind = c.kind === "triage" ? "Triage call" : c.kind === "dial" ? "Outbound call" : calls.some((x) => isSetterCall(x.kind)) ? "Closing call" : null;
+      return <section key={c.appointment_id} className={`eodx-call${done_ ? " done" : ""}`}>
+        <button type="button" className="eodx-call-hd" onClick={() => done_ && setOpen((o) => ({ ...o, [c.appointment_id]: !o[c.appointment_id] }))} aria-expanded={!!shown}>
+          <span className="eodx-dot" aria-hidden>{done_ ? "✓" : i + 1}</span>
+          <span className="eodx-who"><b>{c.contact}</b><small>{time(c.starts_at)}{kind ? ` · ${kind}` : ""}</small></span>
+          {done_ ? <span className="eodx-pill">{outcomeLabel(c.outcome, d.fields, c.kind)}</span> : null}
+          {done_ ? <span className="eodx-edit">{shown ? "Close" : "Edit"}</span> : null}
+        </button>
+        {shown ? <div className="eodx-call-bd">
+          {c.href_contact || c.recording_url ? <div className="eodx-links">{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">Open contact ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}</div> : null}
+          <label className="eodx-field"><span>{outcomeField.label}{outcomeField.required ? <em> *</em> : null}</span><select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">Choose one</option>{choices.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+          {c.hint && !c.outcome ? <p className="eodx-hint">{c.hint}</p> : null}
+          {c.moved ? <p className="eodx-hint warn">{c.moved}</p> : null}
+          {after.length ? <div className="eodx-after">{after.map((f) => <Field key={f.key} f={f} value={valueOf(c, f.key)} onChange={(v) => setField(i, f.key, v)} />)}</div> : null}
+        </div> : null}
+      </section>; })}
+    {dayFields(d.fields).map((f) => <section key={f.key} className="eodx-card"><Field f={f} value={dayAnswers[f.key] ?? ""} onChange={(v) => setDayAnswers((x) => ({ ...x, [f.key]: v }))} /></section>)}
+    <div className="eodx-bar"><button className="eodx-btn" type="submit" disabled={busy}>{busy ? "Sending…" : d.filed ? "Update my day" : "Send my day"}</button></div>
   </form>;
 }
 
 function Field({ f, value, onChange }: { f: EodField; value: string; onChange: (v: string) => void }) {
-  const label = <>{f.label}{f.required ? <span className="req"> *</span> : null}{f.help ? <span className="note"> · {f.help}</span> : null}</>;
-  return <label className={f.type === "textarea" ? "wide" : ""}>{label}
-    {f.type === "select" ? <select value={value} required={f.required} onChange={(e) => onChange(e.target.value)}><option value="">—</option>{(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}</select>
-      : f.type === "textarea" ? <textarea rows={2} value={value} required={f.required} onChange={(e) => onChange(e.target.value)} />
+  const label = <span>{f.label}{f.required ? <em> *</em> : null}{f.help ? <small> {f.help}</small> : null}</span>;
+  return <label className={`eodx-field${f.type === "textarea" ? " wide" : ""}`}>{label}
+    {f.type === "select" ? <select value={value} required={f.required} onChange={(e) => onChange(e.target.value)}><option value="">Choose one</option>{(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}</select>
+      : f.type === "textarea" ? <textarea rows={3} value={value} required={f.required} onChange={(e) => onChange(e.target.value)} />
       : f.type === "money" ? <input type="text" inputMode="decimal" value={value} required={f.required} onChange={(e) => onChange(e.target.value)} />
       : f.type === "number" ? <input type="number" value={value} required={f.required} onChange={(e) => onChange(e.target.value)} />
       : f.type === "date" ? <input type="date" value={value} required={f.required} onChange={(e) => onChange(e.target.value)} />

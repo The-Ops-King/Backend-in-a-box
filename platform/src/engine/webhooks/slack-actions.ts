@@ -33,7 +33,8 @@ export function parseSlackInteraction(raw: string): SlackPress | SlackSubmit | {
   }
   if (p?.type !== "block_actions") return { kind: "ignored", type: String(p?.type ?? "?") };
   const a = ((p.actions as Record<string, unknown>[] | undefined) ?? [])[0] ?? {};
-  const action = SLACK_ACTIONS.find((x) => x === a.action_id);
+  // an action_id may carry ":<n>" so it is unique among a message's buttons (Slack refuses two alike); the action is what precedes it
+  const action = SLACK_ACTIONS.find((x) => typeof a.action_id === "string" && x === a.action_id.split(":")[0]);
   const user = (p.user ?? {}) as Record<string, unknown>;
   if (!action || typeof a.value !== "string" || typeof user.id !== "string") return { kind: "ignored", type: `action ${String(a.action_id ?? "?")}` };
   const container = (p.container ?? {}) as Record<string, unknown>, message = (p.message ?? {}) as Record<string, unknown>, channel = (p.channel ?? {}) as Record<string, unknown>;

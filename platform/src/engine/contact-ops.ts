@@ -1,6 +1,9 @@
+import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { checkpoint, many, one } from "@/db/client";
-import type { Adapters } from "@/adapters/types";
+import { bookingFor, type Adapters, type BookingMode } from "@/adapters/types";
+import { watchCalendar } from "./install";
+import { closerOptions } from "./sales-call";
 import { loadCompany } from "./context";
 import { callOutcome } from "./recordings";
 import { testContactSql, testDomains, TEST_DOMAINS_KEY } from "./mode";
@@ -222,4 +225,65 @@ export async function calendarAlerts(c: PoolClient, a: { company: string; calend
   await c.query(a.alerts ? "update calendars set config = config - 'alerts' where id=$1" : "update calendars set config = config || '{\"alerts\": false}'::jsonb where id=$1", [cal.id]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'calendar.alerts','calendar',$2,$3,$4)", [co.id, cal.id, { alerts: was }, { alerts: a.alerts, why: a.why }]);
   return { ok: true, dryRun: false, calendar: cal.name, was, alerts: a.alerts, upcoming };
+}
+
+/**
+ * D215: one more of the booking tool's calendars watched (Tyler: "JP's Strategy is an individual calendar for follow up / reschedule
+ * if needed. track it."), mapped exactly as install maps one (`watchCalendar`): its call type, how it is booked, its owner. The poll's
+ * first read of it is a baseline (its bookings land as rows, nothing starts), so the history and Sales Call backfills follow for the
+ * calls it already held. A dry run (the default) says what it would map; a calendar already watched answers so and changes nothing.
+ */
+export async function calendarWatch(c: PoolClient, adapters: Adapters, a: { company: string; calendar: string; term: string; name?: string; owner?: string; booking?: BookingMode; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; calendar: string; id: string; was: "watched" | "not watched"; maps: string } | Fail> {
+  if (!a.calendar || !a.term || !a.why?.trim()) return { ok: false, status: 400, error: "calendar, term and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const { adapterCompany: ac } = await loadCompany(c, co.id);
+  const want = a.calendar.trim().toLowerCase();
+  const k = (await bookingFor(adapters, ac).listCalendars(ac)).find((x) => x.id.toLowerCase() === want || x.name.trim().toLowerCase() === want);
+  if (!k) return { ok: false, status: 404, error: `the booking tool has no calendar ${a.calendar}` };
+  const terms = await many<{ id: string; category: string }>(c, "select id, category from company_terms where company_id=$1 and domain='appointment_type' and is_default", [co.id]);
+  if (!a.name?.trim() && !terms.some((t) => t.category === a.term)) return { ok: false, status: 400, error: `term: one of ${terms.map((t) => t.category).join(", ")}` };
+  if (a.owner && !(await one(c, "select 1 from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, a.owner.trim()]))) return { ok: false, status: 404, error: `${a.owner} is not on this offer's roster` };
+  const was = (await one(c, "select 1 from calendars where company_id=$1 and source=$2 and external_id=$3 and active", [co.id, ac.booking.source, k.id])) ? "watched" as const : "not watched" as const;
+  const m = { term: a.term, ...(a.name?.trim() ? { name: a.name.trim() } : {}), ...(a.owner ? { owner: a.owner.trim() } : {}), ...(a.booking ? { booking: a.booking } : {}) };
+  if (a.dryRun !== false || was === "watched") return { ok: true, dryRun: a.dryRun !== false, calendar: k.name, id: k.id, was, maps: was === "watched" ? "already watched: nothing changed" : JSON.stringify(m) };
+  const maps = await watchCalendar(c, co.id, ac.booking.source, k, m, terms);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calendar.watched','calendar',$2,$3)", [co.id, k.id, { ...m, maps, why: a.why }]);
+  return { ok: true, dryRun: false, calendar: k.name, id: k.id, was, maps };
+}
+
+/**
+ * D218: who took a call, set on calls already held (D204 moves a calendar's upcoming ones; this is for one call, past or ahead).
+ * Tyler: Ana Magno, Fabiola E and Christie Laney were hosted on a shared Calendly seat; "assume that it's probably JP." The booking's
+ * closer in the replica (their end of day lists it, their numbers count it) and the Closer field on its Sales Call in GHL, by the
+ * company's option key (D118). A dry run (the default) lists each call and what changes.
+ */
+export async function callCloser(c: PoolClient, adapters: Adapters, a: { company: string; appointments: string[]; closer: string; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; closer: string; calls: { id: string; who: string; when: string; was: string | null; sales_call: string | null; ghl_closer?: string }[] } | Fail> {
+  if (!a.appointments?.length || !a.closer || !a.why?.trim()) return { ok: false, status: 400, error: "appointments, closer and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
+  const to = await one<{ id: string; name: string; email: string; ghl_user_id: string | null }>(c, "select id, name, email, ghl_user_id from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, a.closer.trim()]);
+  if (!to) return { ok: false, status: 404, error: `${a.closer} is not on this offer's roster` };
+  const object = bindings["crm.object_sales_call"];
+  const roster = await many<{ name: string; email: string | null; ghl_user_id: string | null }>(c, "select name, email, ghl_user_id from users where company_id=$1", [co.id]);
+  const key = (closerOptions(bindings, roster) ?? {})[to.name.trim().toLowerCase()] ?? to.name;
+  const calls: { id: string; who: string; when: string; was: string | null; sales_call: string | null; ghl_closer?: string }[] = [];
+  for (const ref of a.appointments) {
+    const ap = await one<{ id: string; who: string; starts_at: Date; was: string | null; slot: string }>(c, `select a.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as who, a.starts_at, u.name as was, coalesce(a.slot_key, a.external_id) as slot
+      from appointments a join contacts ct on ct.id=a.contact_id left join users u on u.id=a.assigned_user_id where a.company_id=$1 and (a.id::text=$2 or a.external_id=$2 or a.slot_key=$2)`, [co.id, ref.trim()]);
+    if (!ap) return { ok: false, status: 404, error: `no booking ${ref}` };
+    const rec = object ? await one<{ ghl_record_id: string | null }>(c, "select ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [co.id, object, ap.slot]) : null;
+    calls.push({ id: ap.id, who: ap.who, when: DateTime.fromJSDate(ap.starts_at).setZone(ac.timezone ?? "UTC").toFormat("ccc LLL d, h:mm a"), was: ap.was, sales_call: rec?.ghl_record_id ?? null, ...(rec?.ghl_record_id ? { ghl_closer: key } : {}) });
+  }
+  if (a.dryRun !== false) return { ok: true, dryRun: true, closer: to.name, calls };
+  for (const k of calls) {
+    await c.query("update appointments set assigned_user_id=$2 where id=$1", [k.id, to.id]);
+    if (k.sales_call && object) {
+      await adapters.write.updateRecord(ac, object, k.sales_call, { closer: key });
+      await c.query("update crm_records set properties = properties || jsonb_build_object('closer', $3::text), updated_at=now() where company_id=$1 and ghl_record_id=$2", [co.id, k.sales_call, key]);
+    }
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'call.closer','appointment',$2,$3,$4)", [co.id, k.id, { closer: k.was }, { closer: to.name, sales_call: k.sales_call, why: a.why }]);
+  }
+  return { ok: true, dryRun: false, closer: to.name, calls };
 }

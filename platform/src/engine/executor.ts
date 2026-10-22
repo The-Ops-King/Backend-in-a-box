@@ -10,6 +10,7 @@ import { predicateWords, durationWords, skippedWords } from "./describe";
 import { syncCards, pickCard, latestCard } from "./cards";
 import { computeWaitUntil, deferIntoWindow, pullBackIntoWindow, timeParam } from "./waitrule";
 import type { CompanyRow, RunRow } from "./context";
+import { followMerge } from "./merge";
 import { TEST_CHANNEL_KEY, slackLiveSet, type Effective, type Mode } from "./mode";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
@@ -250,15 +251,18 @@ const cardGone = (e: unknown) => { const f = classifyError(e); return f.answered
 /** The CRM's way of saying the contact is gone: a 404 from the client, or its "Contact with id … not found" body. */
 export const contactGone = (error?: string) => !!error && (/^GHL 404 /.test(error) || /\bcontact (with id \S+ )?not found\b/i.test(error));
 /** Marks the replica once and raises one alert per contact; the premise `contact_exists` does the exiting. */
-const markContactGone = (d: ExecDeps, error: string) => markGone(d.c, d.company, d.run, d.ctx, error, d.now);
+const markContactGone = (d: ExecDeps, error: string) => markGone(d.c, d.company, d.run, d.ctx, error, d.now, { ac: d.adapterCompany, adapters: d.adapters });
 /** The same, callable by the runner when any contact write comes back 404 (D66): true when this is the first time the person is found gone. */
-export async function markGone(c: PoolClient, company: Pick<CompanyRow, "id" | "slug">, run: Pick<RunRow, "id" | "contact_id">, ctx: Record<string, unknown>, error: string, now: DateTime): Promise<boolean> {
+export async function markGone(c: PoolClient, company: Pick<CompanyRow, "id" | "slug"> & { timezone?: string }, run: Pick<RunRow, "id" | "contact_id">, ctx: Record<string, unknown>, error: string, now: DateTime, follow?: { ac: Company; adapters: Adapters }): Promise<boolean> {
   if (!run.contact_id) return false;
   const r = await c.query("update contacts set gone_at=now(), updated_at=now() where id=$1 and gone_at is null", [run.contact_id]);
   if (!r.rowCount) return false;
+  // D222: a merge in GHL is followed when where it went is certain; then there is nothing for a person to do
+  const m = follow ? await followMerge(c, company.id, company.timezone ?? "UTC", follow.ac, follow.adapters, run.contact_id) : null;
+  if (m?.folded) return true;
   const who = ctx.contact as { name?: string | null; ghl_contact_id?: string | null } | undefined;
   await raise(c, { companyId: company.id, key: `contact:gone:${run.contact_id}`, level: "warning", source: "engine", href: `/app/c/${company.slug}`,
-    text: `${who?.name ?? who?.ghl_contact_id ?? "A contact"} is gone from the CRM (deleted or merged there); the runs about them exit instead of sending. The CRM said: ${error.slice(0, 160)}`,
+    text: `${who?.name ?? who?.ghl_contact_id ?? "A contact"} is gone from the CRM (deleted or merged there); the runs about them exit instead of sending.${m && !m.folded ? ` Not followed to another contact: ${m.why}.` : ""} The CRM said: ${error.slice(0, 160)}`,
     detail: { contact_id: run.contact_id, ghl_contact_id: who?.ghl_contact_id ?? null, run_id: run.id, error: error.slice(0, 300) } }, now.toJSDate());
   return true;
 }
@@ -276,7 +280,9 @@ async function slackRoute(d: ExecDeps, target: string | undefined, unlinked?: st
   if (!target && unlinked === undefined) return null;
   // D140, live: a DM for someone not in Slack yet goes to the operator, marked who it was for (the health check flags the person until they are linked)
   if (slackLive(d)) { const op = d.bindings["bot.escalate_to"]; return !target && op ? { to: op, prefix: `For ${unlinked} (not in Slack yet):\n` } : null; }
-  const nameOf = async (u: string) => (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, u]))?.name ?? u;
+  // D219: the operator (`bot.escalate_to`) is on no offer's roster: named as such, never as a bare Slack id
+  const nameOf = async (u: string) => (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, u]))?.name
+    ?? (u === d.bindings["bot.escalate_to"] ? `${(await one<{ name: string }>(d.c, "select name from users where company_id is null and role='operator' order by created_at limit 1"))?.name ?? "the operator"} (operator)` : u);
   const to = async () => target ? `Would have sent to ${await nameOf(target)}:\n` : `Would have sent to ${unlinked} (no Slack account linked yet):\n`;
   const test = d.bindings[TEST_CHANNEL_KEY];
   if (test) return target === test ? null : { to: test, prefix: !target || isSlackUser(target) ? await to() : `For <#${target}>:\n` };

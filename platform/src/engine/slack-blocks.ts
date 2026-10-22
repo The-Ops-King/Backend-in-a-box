@@ -21,7 +21,7 @@ export type RenderedButton = { text: string; action: string; value: string; styl
 /** D93: the post's own words as sections, then one row of buttons. */
 export const withButtons = (text: string, buttons: RenderedButton[]): SlackBlock[] => [
   ...sectionBlocks(text),
-  { type: "actions", block_id: "engine_actions", elements: buttons.map((b) => ({ type: "button", action_id: b.action, text: { type: "plain_text", text: b.text, emoji: true }, value: b.value, ...(b.style ? { style: b.style } : {}) })) },
+  { type: "actions", block_id: "engine_actions", elements: buttons.map((b, i) => ({ type: "button", action_id: buttons.filter((x) => x.action === b.action).length > 1 ? `${b.action}:${i}` : b.action, text: { type: "plain_text", text: b.text, emoji: true }, value: b.value, ...(b.style ? { style: b.style } : {}) })) },
 ];
 
 /** D93: the message once a press settled it: the same words, the buttons gone, one line saying what happened and who did it. */

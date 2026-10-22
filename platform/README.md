@@ -147,6 +147,10 @@ recorder's calendar (one appointment within two hours), or left **unmatched** wi
 emits `recording.received` (with the contact's appointment nearest the start, within a day) and
 templates take it from there. Facts about Fathom's API are in `fathom/01-api-facts.md`.
 
+D215: several contacts on one invite is the booked one's: the contact whose live booking has the recording's meeting link, else
+the one booked within two hours of its start; still none or several, unlinked with the reason. `POST /api/admin/recordings/rematch
+{ company, from?, to? | days?, dryRun = true }` tries a window's unlinked recordings again and links the matches silently (no event, no run).
+
 ### Phone calls the dialer logs (D28)
 
 A call placed or taken in GHL is a `TYPE_CALL` entry in the contact's conversation, and the
@@ -438,6 +442,13 @@ failed, when the AI cannot run (the one-line congratulations on a close). `send_
 editable on the step), and the CRM's copy wins when it exists. Harness actions `agreement` (a sent,
 unsigned document) and `sign` (completed) stage the document side.
 
+**Watching one more calendar** (D215): `POST /api/admin/calendars/watch { company, calendar, term, name?, owner?, booking?, why, dryRun = true }`
+maps one booking-tool calendar as install would (call type, booking, owner), without a re-install. Its first poll is a baseline; run
+the history backfill (`steps: ["appointments"]`) and the Sales Call backfill for the calls it already held.
+
+**Who took a call** (D218): `POST /api/admin/appointments/closer { company, appointments, closer, why, dryRun = true }` sets the
+closer on specific calls, past ones too, in the replica and on their Sales Calls in GHL.
+
 ## Pipeline cards (D19)
 
 Templates create and move cards on the CRM's pipeline boards (`pipeline_card` node). Pipeline,
@@ -583,7 +594,8 @@ short. **Preview** any answer without posting: `POST /api/admin/bot-preview` wit
 `{ "company": "hair", "command": "/mtd", "text": "" }` or `{ "company": "hair", "question": "…" }` (bearer `CRON_SECRET`).
 
 **Availability per closer (D72).** The times come only from what the booking source offers (Calendly available times,
-GHL free slots) on the active closing calendars. A round robin's offered times are pooled, so each one is given to every
+GHL free slots) on every calendar the engine watches (D215: demo, setting and follow-up calendars too). Each calendar is
+listed first with the times it offers per day, then the per-person table. A round robin's offered times are pooled, so each one is given to every
 host free for the whole call then: on Calendly by the schedule the event type uses for that host
 (`/event_type_availability_schedules`) and the host's busy times (`/user_busy_times`, buffered), on GHL by each team
 member's own free slots. A closer's times are a union across calendars (a time two event types offer counts once for

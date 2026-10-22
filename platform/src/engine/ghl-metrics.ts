@@ -302,8 +302,9 @@ export async function showBreakdown(x: GhlCtx): Promise<ShowBreakdown> {
   const pool = x.filters.source ? await (async () => { const s = await sourcesOf(x, list); return list.filter((k) => (s.get(k.ghl) ?? "unknown").toLowerCase() === x.filters.source!.toLowerCase()); })() : list;
   const n = (c: Call["cls"]) => pool.filter((k) => k.cls === c).length;
   // D76: a slot the call moved away from is listed, but it is no call that could show: outside the rate
+  // D217: each unfiled call with its day, so a person with two of them reads as two calls
   return { booked: pool.filter((k) => k.cls !== "rescheduled").length, showed: n("showed"), noshow: n("noshow"), cancelled: n("cancelled"), rescheduled: n("rescheduled"), missing: n("missing"),
-    missing_names: pool.filter((k) => k.cls === "missing").map((k) => k.name), mismatches: pool.flatMap((k) => { const m = mismatchOf(k); return m ? [m] : []; }) };
+    missing_names: pool.filter((k) => k.cls === "missing").map((k) => `${k.name} (${k.at.toFormat("LLL d")})`), mismatches: pool.flatMap((k) => { const m = mismatchOf(k); return m ? [m] : []; }) };
 }
 
 /** For the health sweep's repair: every due Sales Call in a window, classified and matched. */
@@ -374,7 +375,7 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     const dqs = salesCallConfig(x.bindings)?.dqDispositions ?? [];
     if (metric === "sales_dqs" && !dqs.length) throw new MetricError("sales DQs are the Sales Call records whose disposition is a DQ, and no DQ disposition is set (sales_call.dq_dispositions)");
     const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, list) : null;
-    const counts = (k: Call) => (metric === "calls_booked_due" && k.cls !== "rescheduled") || (metric === "shows" ? k.cls === "showed" : metric === "no_shows" ? k.cls === "noshow" : metric === "sales_dqs" ? dqs.includes(k.disposition) : k.cls === "cancelled");
+    const counts = (k: Call) => (metric === "calls_booked_due" && k.cls !== "rescheduled") || (metric === "calls_filed" && k.cls !== "rescheduled" && k.cls !== "missing") || (metric === "shows" ? k.cls === "showed" : metric === "no_shows" ? k.cls === "noshow" : metric === "sales_dqs" ? dqs.includes(k.disposition) : k.cls === "cancelled");
     for (const k of list) {
       if (!counts(k) || (x.filters.closer && k.closer !== x.filters.closer) || (x.filters.setter && k.setter !== x.filters.setter)) continue;
       if (x.filters.source && src(sources!.get(k.ghl)) !== src(x.filters.source)) continue;

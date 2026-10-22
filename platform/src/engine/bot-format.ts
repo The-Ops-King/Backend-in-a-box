@@ -150,9 +150,14 @@ export function closesBody(k: ClosesList): string[] {
 }
 export const formatCloses = (k: ClosesList, o: Foot = {}) => [`📊 ${closesKey(k)}`, ...closesBody(k), "", footer([k], o)].join("\n");
 
-/** Availability (D72): the days down the side, a column per closer, then the day's total. */
+/** Availability (D72): each calendar with its times per day (D215), then the days down the side, a column per person, then the day's total. */
 export function availabilityBody(a: Availability): string {
   const L: string[] = [];
+  if (a.calendars?.length) {
+    L.push("*By calendar*");
+    for (const k of a.calendars) L.push(`*${k.name}* (${k.type}): ${k.total.toLocaleString("en-US")}`, k.total ? `> ${a.days.map((d, i) => `${d.label.split(" ")[0]} ${k.per_day[i]}`).join(" · ")}` : "> no open times");
+    L.push("", "*By person*");
+  }
   const total = ["Total", ...a.closers.map((c) => String(c.total)), String(a.total)];
   L.push(table(["Day", ...a.closers.map((c) => c.short), "All"], [...a.days.map((d, i) => [d.label, ...a.closers.map((c) => String(c.per_day[i])), String(d.total)]), total], 40));
   if (a.split_error) L.push(a.split_error);
@@ -260,11 +265,11 @@ export const SHORTCUTS: { command: string; about: string; example: string; hint?
   { command: "/show-rate", about: "show rate by closer and by source, and whose calls have no EOD outcome (default this month)", example: "/show-rate last month", hint: "[last month]" },
   { command: "/close-rate", about: "close rate by closer and by source (default this month)", example: "/close-rate last 30 days", hint: "[last month]" },
   { command: "/cash", about: "cash collected, payments and refunds, by closer (default this month)", example: "/cash last week", hint: "[last week]" },
-  { command: "/availability", about: "open slots for the next 7 days (or fewer), per day and per closer", example: "/availability 3", hint: "[days, up to 7]" },
+  { command: "/availability", about: "open slots for the next 7 days (or fewer): each calendar, then per person", example: "/availability 3", hint: "[days, up to 7]" },
   { command: "/leads", about: "leads, MQLs and marketing DQs by source (default this month)", example: "/leads yesterday", hint: "[yesterday]" },
   { command: "/closes", about: "every close by closer: who, cash collected / revenue, the day it was won (default this month)", example: "/closes last month", hint: "[last month]" },
   { command: "/leaderboard", about: "closers ranked by cash (closes and close rate beside), setters ranked by sets (show rate of their sets beside) (default this week)", example: "/leaderboard last week", hint: "[last week]" },
-  { command: "/agreement", about: "send an agreement: their email, phone or GHL link sends at once; a full name asks you first; leave off the type to pick it; nothing typed opens a form", example: "/agreement rae@example.com full", hint: "[name, email or GHL link] [type]" },
+  { command: "/agreement", about: "send an agreement: who and which, either order; leave either off and you're asked", example: "/agreement rae@example.com 12k guarantee", hint: "[who] [which agreement], either order" },
   { command: "/support", about: "something broke, or you need something: logs it for Tyler with a number (add a Loom or a screenshot in its thread)", example: "/support the EOD form won't load", hint: "[what's wrong or what you need]" },
 ];
 export function helpText(botMention = "@bot"): string {

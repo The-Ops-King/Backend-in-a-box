@@ -162,6 +162,11 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     await setMode("test"); await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.ops','channel',$2)", [companyId, Buffer.from("COPS")]));
     dms.length = 0; await filed(); await tick(fake, undefined, companyId);
     expect(dms.map((m) => [m.channel, m.text.replace(/^🧪 \*\w+\* — /, "")])).toEqual([["COPS", "Would have sent to James Closer:\nYour end of day, James"]]);
+    // D219: the operator off the roster is named as the operator, never as a bare Slack id
+    await asOperator(async (c) => { await c.query("update users set slack_user_id=null where company_id=$1 and email='tyler@ladder.test'", [companyId]); await c.query("insert into users (company_id, email, name, role) select null, 'op@ladder.test', 'Tyler', 'operator' where not exists (select 1 from users where company_id is null and role='operator')"); });
+    dms.length = 0; await lead(await owned("D3", "real3@gmail.com", [])); await tick(fake, undefined, companyId);
+    expect(dms.filter((m) => m.channel === "COPS").map((m) => m.text.replace(/^🧪 \*\w+\* — /, "")).filter((t) => t.endsWith("Operator: Pat"))).toEqual([expect.stringMatching(/^Would have sent to \S.* \(operator\):\nOperator: Pat$/)]);
+    await asOperator((c) => c.query("update users set slack_user_id='UOP' where company_id=$1 and email='tyler@ladder.test'", [companyId]));
     // neither bound: held back, written down, posted nowhere
     await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('bot.escalate_to','slack.channel.ops')", [companyId]));
     dms.length = 0; await filed(); await tick(fake, undefined, companyId);

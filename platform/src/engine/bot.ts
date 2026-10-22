@@ -158,7 +158,7 @@ export const BOT_TOOLS: BotToolDef[] = [
       filter: { type: "array", description: "Only rows whose column has this answer; [] for none", items: { type: "object", additionalProperties: false, required: ["column", "equals"], properties: { column: { type: "string" }, equals: { type: "string", description: "an answer as listed, or \"(no answer)\"" } } } },
       list: { type: "boolean", description: "true to also name each row with its answer (\"who said…\", \"which calls…\")" },
       rate: { type: "string", enum: ["", "booked_rate", "show_rate", "close_rate"], description: "The rate the test and the share follow; empty for the unit's main one (lead: booked rate, call: show rate). close_rate for close-rate questions." } } } },
-  { name: "get_availability", description: "Open bookable calendar slots for the next days (at most 7), per day and per closer, read live from the booking calendars.",
+  { name: "get_availability", description: "Open bookable calendar slots for the next days (at most 7), per calendar, per day and per person, read live from every calendar the engine watches.",
     input_schema: { type: "object", additionalProperties: false, required: ["days"], properties: { days: { type: "integer", description: "1 to 7; 7 when not said" } } } },
   { name: "run_readonly_query", description: "Last resort, only when no metric and no GHL column fits (for example a list of individual people): one read-only SELECT over the company's own tables. The answer is labelled ad hoc.",
     input_schema: { type: "object", additionalProperties: false, required: ["sql", "why"], properties: { sql: { type: "string" }, why: { type: "string", description: "What the query returns, in plain words, shown to the asker" } } } },

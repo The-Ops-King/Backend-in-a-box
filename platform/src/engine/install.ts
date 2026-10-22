@@ -196,7 +196,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
   const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
   // D148: "ignore" is a calendar the company keeps at its source but the engine does not watch (no polling, no health check)
   const ignored = new Set(Object.entries(input.calendars ?? {}).filter(([, v]) => v === "ignore").map(([k]) => k));
-  const calMap: Record<string, { term: string; name?: string; selfBooked?: boolean; booking?: BookingMode; questions?: Record<string, string>; owner?: string; alerts?: boolean }> = Object.fromEntries(Object.entries(input.calendars ?? {}).filter(([k]) => !ignored.has(k)).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
+  const calMap: Record<string, CalendarMap> = Object.fromEntries(Object.entries(input.calendars ?? {}).filter(([k]) => !ignored.has(k)).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));
   // resolve the booking source outside the transaction: it talks to Calendly.
   // Omitting `booking` on a re-install keeps whatever the company already uses; it never silently flips it back to GHL.
   let booking: BookingConfig = { source: "ghl" };
@@ -384,25 +384,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
         calendarsOut.push(`"${k.name}" → not watched (ignore)${was.rowCount ? "; the engine stopped watching it" : ""}`); continue;
       }
       const m = calMap[k.id]; if (!m) { calendarsOut.push(`skip "${k.name}" (${k.id}) — no mapping${k.note ? ` [${k.note}]` : ""}`); continue; }
-      if (!terms.some((t) => t.category === m.term)) { calendarsOut.push(`unknown category ${m.term} for ${k.id}`); continue; }
-      const term = m.name?.trim()
-        ? (await one<{ id: string }>(c, `insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'appointment_type',$2,$3,false,50)
-            on conflict (company_id, domain, name) do update set category=excluded.category, active=true returning id`, [companyId, m.name.trim(), m.term]))!.id
-        : terms.find((t) => t.category === m.term)!.id;
-      const du = k.teamMemberIds[0] ? await one<{ id: string }>(c, "select id from users where company_id=$1 and ghl_user_id=$2", [companyId, k.teamMemberIds[0]]) : undefined;
-      const selfBooked = m.selfBooked ?? (m.booking === "self" ? true : m.booking === "setter" ? false : null);
-      const owner = m.owner ? await one<{ id: string }>(c, "select id from users where company_id=$1 and (lower(email)=lower($2) or ghl_user_id=$2)", [companyId, m.owner]) : null;
-      if (m.owner && !owner) throw new Error(`calendars: no one on the roster is "${m.owner}" (the owner of "${k.name}")`);
-      const config = { ...(m.booking ? { booking: m.booking } : {}), ...(m.questions ? { questions: m.questions } : {}), ...(owner ? { owner: owner.id } : {}), ...(m.alerts === false ? { alerts: false } : {}) };   // D213: alerts false: bookings still watched, availability not alerted
-      await c.query(`insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id, self_booked, booking_url, config) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        on conflict (company_id, source, external_id) do update set name=excluded.name, appointment_term=excluded.appointment_term, self_booked=excluded.self_booked, booking_url=coalesce(excluded.booking_url, calendars.booking_url), config=case when excluded.config='{}'::jsonb then calendars.config else excluded.config end, active=true`,
-        [companyId, booking.source, k.id, k.name, term, du?.id ?? null, selfBooked, k.bookingUrl ?? null, JSON.stringify(config)]);
-      // D142: a calendar's bookings are its call type and its owner's, the ones already held too (an upcoming one, for the owner: a past call was whoever took it)
-      const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and source=$2 and external_id=$3", [companyId, booking.source, k.id]))!;
-      await c.query("update appointments set appointment_term=$2 where calendar_id=$1 and appointment_term<>$2", [cal.id, term]);
-      if (owner) await c.query("update appointments set assigned_user_id=$2 where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]);
-      const how = m.booking === "question" ? " (setter decided by the booking question)" : m.booking === "utm" ? " (setter-booked through a setter's link: utm_medium=setter, utm_content=<their name>)" : selfBooked === null ? "" : selfBooked ? " (self-booked)" : " (setter-booked)";
-      calendarsOut.push(`"${k.name}" → ${m.name?.trim() ? `${m.name.trim()} (${m.term})` : m.term}${how}${m.questions ? `; questions: ${Object.keys(m.questions).join(", ")}` : ""}`);
+      calendarsOut.push(await watchCalendar(c, companyId, booking.source, k, m, terms));
     }
     for (const unknownId of Object.keys(calMap).filter((id) => !listed.some((k) => k.id === id))) calendarsOut.push(`mapping for ${unknownId} matches no calendar at the booking source`);
     // calendars of the other source go quiet rather than being deleted: their appointments and history stay
@@ -447,4 +429,29 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
     if (r.cleared) return { ...out, ...(to === "live" ? { wentLive: r.cleared } : { wentQuiet: r.cleared }) };
   }
   return out;
+}
+
+/** One calendar the engine watches, as install maps it (D215 shares it with `POST /api/admin/calendars/watch`): its call type, how it
+ *  is booked, its owner; the bookings it already holds take the call type, the upcoming ones the owner. Answers the line install prints. */
+export type CalendarMap = { term: string; name?: string; selfBooked?: boolean; booking?: BookingMode; questions?: Record<string, string>; owner?: string; alerts?: boolean };
+export async function watchCalendar(c: import("pg").PoolClient, companyId: string, source: string, k: { id: string; name: string; teamMemberIds: string[]; bookingUrl?: string | null }, m: CalendarMap, terms: { id: string; category: string }[]): Promise<string> {
+  if (!terms.some((t) => t.category === m.term)) return `unknown category ${m.term} for ${k.id}`;
+  const term = m.name?.trim()
+    ? (await one<{ id: string }>(c, `insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'appointment_type',$2,$3,false,50)
+        on conflict (company_id, domain, name) do update set category=excluded.category, active=true returning id`, [companyId, m.name.trim(), m.term]))!.id
+    : terms.find((t) => t.category === m.term)!.id;
+  const du = k.teamMemberIds[0] ? await one<{ id: string }>(c, "select id from users where company_id=$1 and ghl_user_id=$2", [companyId, k.teamMemberIds[0]]) : undefined;
+  const selfBooked = m.selfBooked ?? (m.booking === "self" ? true : m.booking === "setter" ? false : null);
+  const owner = m.owner ? await one<{ id: string }>(c, "select id from users where company_id=$1 and (lower(email)=lower($2) or ghl_user_id=$2)", [companyId, m.owner]) : null;
+  if (m.owner && !owner) throw new Error(`calendars: no one on the roster is "${m.owner}" (the owner of "${k.name}")`);
+  const config = { ...(m.booking ? { booking: m.booking } : {}), ...(m.questions ? { questions: m.questions } : {}), ...(owner ? { owner: owner.id } : {}), ...(m.alerts === false ? { alerts: false } : {}) };   // D213: alerts false: bookings still watched, availability not alerted
+  await c.query(`insert into calendars (company_id, source, external_id, name, appointment_term, default_user_id, self_booked, booking_url, config) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    on conflict (company_id, source, external_id) do update set name=excluded.name, appointment_term=excluded.appointment_term, self_booked=excluded.self_booked, booking_url=coalesce(excluded.booking_url, calendars.booking_url), config=case when excluded.config='{}'::jsonb then calendars.config else excluded.config end, active=true`,
+    [companyId, source, k.id, k.name, term, du?.id ?? null, selfBooked, k.bookingUrl ?? null, JSON.stringify(config)]);
+  // D142: a calendar's bookings are its call type and its owner's, the ones already held too (an upcoming one, for the owner: a past call was whoever took it)
+  const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and source=$2 and external_id=$3", [companyId, source, k.id]))!;
+  await c.query("update appointments set appointment_term=$2 where calendar_id=$1 and appointment_term<>$2", [cal.id, term]);
+  if (owner) await c.query("update appointments set assigned_user_id=$2 where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]);
+  const how = m.booking === "question" ? " (setter decided by the booking question)" : m.booking === "utm" ? " (setter-booked through a setter's link: utm_medium=setter, utm_content=<their name>)" : selfBooked === null ? "" : selfBooked ? " (self-booked)" : " (setter-booked)";
+  return `"${k.name}" → ${m.name?.trim() ? `${m.name.trim()} (${m.term})` : m.term}${how}${m.questions ? `; questions: ${Object.keys(m.questions).join(", ")}` : ""}`;
 }

@@ -254,6 +254,24 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect((await counts()).runs).toBe(0);
   });
 
+  it("D222: a person GHL merged away gets no new record (the row says why); a record that is made is the engine's before it is linked", async () => {
+    // evt-H's record is gone from GHL and from the engine, and so is its person: the pass must not make one attached to no one
+    world.records = world.records.filter((r) => r.properties.external_id !== "evt-H");
+    await asOperator((c) => c.query("delete from crm_records where company_id=$1 and record_key='evt-H'", [companyId]));
+    const gone: Adapters = { ...adapters(), read: { ...adapters().read, getContact: async (_c, id) => (id === "GH" ? null : { id, tags: [], customFields: {}, dateUpdated: "2026-10-01T00:00:00Z", dateAdded: "2026-10-01T00:00:00Z" }) } };
+    const created = world.creates;
+    const dryH = await asOperator(async (c) => backfillSalesCalls(c, await loadCompany(c, companyId), gone, { ...window(), closer: "carly@x.com", dryRun: true, eodObject: "custom_objects.closer_eod" }));
+    const w = await asOperator(async (c) => applySalesCallPlan(c, await loadCompany(c, companyId), gone, [dryH.plan_id!]));
+    expect(world.creates).toBe(created);
+    expect(rowOf(w, "evt-H").error).toMatch(/gone from GHL \(merged or deleted\): no Sales Call made/);
+    expect(await asOperator((c) => one(c, "select 1 from crm_records where company_id=$1 and record_key='evt-H'", [companyId]))).toBeFalsy();
+    // a link that fails after the record is made leaves it the engine's own, never an orphan
+    const failing: Adapters = { ...adapters(), write: { ...adapters().write, relateRecords: async () => { throw new Error("GHL 422 on /associations/relations"); } } };
+    const w2 = await asOperator(async (c) => applySalesCallPlan(c, await loadCompany(c, companyId), failing, [dryH.plan_id!]));
+    expect(rowOf(w2, "evt-H").error).toMatch(/422/);
+    const made = world.records.find((r) => r.properties.external_id === "evt-H")!;
+    expect(await asOperator((c) => one(c, "select ghl_record_id from crm_records where company_id=$1 and record_key='evt-H'", [companyId]))).toEqual({ ghl_record_id: made.id });
+  });
   it("another closer's pass sees only theirs", async () => {
     const r = await run({ dryRun: true, closer: "annabelle@x.com" });
     expect(r.rows.map((x) => x.slot_key)).toEqual(["evt-F"]);
