@@ -1,5 +1,5 @@
 {
-  "_note": "D123: Dating (Nelly)'s own workflows, read by scripts/build-copies.ts with installs/dating-nelly.json. Each booked workflow is Call booked for one call type (D142: a triage call writes a Discovery Call, a closing call a Sales Call) (the calendar's own type in the install file's calendars), so a booking runs exactly one; together they take Call booked's place for her. fromForm: what an applicant gets on form.submitted (the scope tag, New lead once). setterCallReadOnly (D154): Setter call logged reads, posts and logs Jev's read for the end of day; the end of day writes the CRM. setterFiled (D156): an outbound call answered on the end of day writes its Discovery Call record and moves the setter card.",
+  "_note": "D123: Dating (Nelly)'s own workflows, read by scripts/build-copies.ts with installs/dating-nelly.json. Each booked workflow is Call booked for one call type (D142: a triage call writes a Discovery Call, a closing call a Sales Call) (the calendar's own type in the install file's calendars), so a booking runs exactly one; together they take Call booked's place for her. fromForm: what an applicant gets on form.submitted (the scope tag, New lead once). setterCallReadOnly (D154): Setter call logged reads, posts and logs Jev's read for the end of day; the end of day writes the CRM. setterFiled (D156): an outbound call answered on the end of day writes its Discovery Call record and moves the setter card. D211: the triage call's posts (the booking card, its cancel, its filed outcome) go to the triage_bookings channel (#dating-triage-booked); the closing call's stay in bookings.",
   "booked": [
     {
       "workflow": "triage-call-booked",
@@ -9,7 +9,8 @@
       "card": "triage call",
       "tags": [
         "stat-triage-first"
-      ]
+      ],
+      "channel": "triage_bookings"
     },
     {
       "workflow": "closing-call-booked",
@@ -26,12 +27,14 @@
   "triageCancelled": {
     "workflow": "triage-call-cancelled",
     "name": "Triage call cancelled",
-    "callType": "Triage call"
+    "callType": "Triage call",
+    "channel": "triage_bookings"
   },
   "triageFiled": {
     "workflow": "triage-call-filed",
     "name": "Triage call filed",
-    "callType": "Triage call"
+    "callType": "Triage call",
+    "channel": "triage_bookings"
   },
   "setterCallReadOnly": true,
   "setterFiled": {

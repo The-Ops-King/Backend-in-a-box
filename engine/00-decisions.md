@@ -5932,3 +5932,11 @@ her run went on to the day-before wait. Tyler: "I want her to get the immediate 
 { company, appointments, workflow, restart: true, dryRun }` stops that workflow's run of each named booking (exited, `restarted by
 the operator`, its re-entry key freed so a new run can take it) and hands the booking to the workflow afresh, which starts from its
 first step. Named bookings only; the dry run says which would restart. Tests: `replay.test.ts`.
+
+## D211. Nelly's triage calls post in their own channel (2026-10-22)
+
+Tyler: "put triage calls into the new channel #dating-triage-booked and leave the closing call booked where it is." A copy in
+copies.json can name a `channel` slot (booked, triageCancelled, triageFiled): its posts to the bookings channel go to
+`slack.channel.<slot>` instead (a setting, CLAUDE.md "configurable"). Nelly's triage booked, cancelled and filed copies name
+`triage_bookings`; a thread reply follows its card wherever the card is, so the whole triage thread moves with it. The closing call's
+posts stay in bookings. Applied once the bot is in #dating-triage-booked (a private channel) and the setting has its id.
