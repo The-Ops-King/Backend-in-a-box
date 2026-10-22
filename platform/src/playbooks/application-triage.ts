@@ -36,12 +36,14 @@ export type PreCallWords = { booked: string; day: string; hour: string; hourNoLi
  */
 export type DatingSetup = {
   /** `record` (D142): the call's record, a Sales Call (`sales`, the default, with `salesCallType`) or, for a triage call, a Discovery Call (`discovery`: no Sales Call, no closer card); `card`: the Slack card's words for the call ("triage call") */
-  booked: { workflow: string; name: string; callType: string; salesCallType?: string; record?: "sales" | "discovery"; card?: string; tags?: string[] }[];
+  booked: { workflow: string; name: string; callType: string; salesCallType?: string; record?: "sales" | "discovery"; card?: string; tags?: string[]; channel?: string }[];
   fromForm?: { workflow: string; name: string };
   /** D142: a triage call's cancel (Call cancelled takes closing calls only): its own workflow for that call type */
-  triageCancelled?: { workflow: string; name: string; callType: string };
+  triageCancelled?: { workflow: string; name: string; callType: string; channel?: string };
   /** D143: a triage call's filed outcome (Call outcome filed takes closing calls only) */
-  triageFiled?: { workflow: string; name: string; callType: string };
+  triageFiled?: { workflow: string; name: string; callType: string; channel?: string };
+  /* D211: `channel` on a booked, triageCancelled or triageFiled entry: the Slack channel slot (slack.channel.<slot>) its posts use in
+     place of the bookings channel; a thread reply follows its card wherever that is */
   /** D154: Setter call logged reads and posts only; the end of day writes the Discovery Call record and moves the setter card */
   setterCallReadOnly?: boolean;
   /** D156: an outbound call's answer on the end of day (setter_call.filed): its own workflow */
@@ -243,6 +245,13 @@ function bookedWithFork(): Def {
 }
 
 const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+/** D211 (Tyler: "put triage calls into the new channel #dating-triage-booked and leave the closing call booked where it is"): a copy's
+ * posts to the bookings channel go to the slot it names instead (a setting, not written in: slack.channel.<slot>) */
+const rechannel = (d: Def, slot?: string) => {
+  if (!slot) return;
+  if (!/^[a-z][a-z0-9_]*$/.test(slot)) throw new Error(`copies.json: channel "${slot}" is not a slot name`);
+  for (const n of d.nodes) if (n.type === "slack_post" && n.channel === "{{slack.channel.bookings}}") n.channel = `{{slack.channel.${slot}}}`;
+};
 /**
  * D142: a triage call (Tyler: "it should be in the discovery call section"): Call booked's booking paths (the person in GHL, the
  * contact's owner and date, the setter card, the tags), then the call's Discovery Call record, owned by whoever takes the call (the
@@ -379,6 +388,7 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
     if (b.record !== "discovery") { if (!b.salesCallType) throw new Error(`copies.json: ${b.workflow} writes a Sales Call and needs its salesCallType`); (node(d, "k4").properties as Record<string, string>).call_type = b.salesCallType; }
     if (b.card) { const v4 = node(d, "v4"); (v4.value as Record<string, unknown>).name = `${cap(b.card)} rescheduled`; (v4.else_value as Record<string, unknown>).name = `New ${b.card} booked`; }
     if (b.tags?.length) for (const id of ["s5", "b6"]) { const n = node(d, id); n.add = [...(n.add as string[]), ...b.tags]; }
+    rechannel(d, b.channel);
     out.push({ workflow: b.workflow, name: b.name, create: { stage: cb.stage, sort: cb.sort, takesOver: "call-booked" }, definition: d as unknown as Record<string, unknown>,
       note: b.record === "discovery"
         ? `${company}: Call booked for a ${b.callType} booking only (its calendar's call type), a triage call: the setter card and a Discovery Call record, owned by the calendar's owner (D142); no Sales Call, no closer card${b.tags?.length ? `; the tag${b.tags.length > 1 ? "s" : ""} ${b.tags.join(", ")}` : ""}`
@@ -387,13 +397,13 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
   if (setup.triageCancelled) {
     const tc = setup.triageCancelled, cc = template("call-cancelled");
     if (!setup.booked.some((b) => b.callType === tc.callType && b.record === "discovery")) throw new Error(`copies.json triageCancelled: no triage booked workflow takes "${tc.callType}"`);
-    out.push({ workflow: tc.workflow, name: tc.name, create: { stage: cc.stage, sort: cc.sort + 1 }, definition: triageCancelled(tc.callType) as unknown as Record<string, unknown>,
+    out.push({ workflow: tc.workflow, name: tc.name, create: { stage: cc.stage, sort: cc.sort + 1 }, definition: (() => { const d = triageCancelled(tc.callType); rechannel(d, tc.channel); return d; })() as unknown as Record<string, unknown>,
       note: `${company}: Call cancelled for a ${tc.callType} (a triage call, which Call cancelled leaves to it): the setter card to Cancelled, the Discovery Call record cancelled, the tags, ❌ in the booking thread; no closer card, no task, no Sales Call (D142)` });
   }
   if (setup.triageFiled) {
     const tf = setup.triageFiled, co = template("call-outcome");
     if (!setup.booked.some((b) => b.callType === tf.callType && b.record === "discovery")) throw new Error(`copies.json triageFiled: no triage booked workflow takes "${tf.callType}"`);
-    out.push({ workflow: tf.workflow, name: tf.name, create: { stage: co.stage, sort: co.sort + 1 }, definition: triageFiled(tf.callType) as unknown as Record<string, unknown>,
+    out.push({ workflow: tf.workflow, name: tf.name, create: { stage: co.stage, sort: co.sort + 1 }, definition: (() => { const d = triageFiled(tf.callType); rechannel(d, tf.channel); return d; })() as unknown as Record<string, unknown>,
       note: `${company}: a ${tf.callType}'s outcome, filed on the end of day (or a no-show marked in the CRM): the Discovery Call record (showed or no-show, set / follow up / DQ / not interested), the setter card to Showed (won), DQ, Not Interested or Cancelled / No Show (lost), a line in the booking thread (D143)` });
   }
   if (setup.setterFiled) {
