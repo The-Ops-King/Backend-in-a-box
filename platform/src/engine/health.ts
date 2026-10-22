@@ -596,9 +596,10 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
   const { row, adapterCompany: ac, bindings } = await loadCompany(c, companyId);
   const n = Math.min(DAYS_AHEAD, Math.max(1, Math.round(days) || DAYS_AHEAD)), tz = row.timezone, ghl = ac.booking.source === "ghl";
   const vendor = ghl ? "GHL" : "Calendly";
-  // D215 (Tyler: "If we've got a demo calendar and a setting calendar and everything, I want that to all show there"): every calendar the engine watches
+  // D216 (Tyler: "If we've got a demo calendar and a setting calendar and everything, I want that to all show there"): every calendar the engine
+  // watches; one kept only for the calls already on it (D213, `alerts: false`) stays out unless it is a closing one, which D72 always read
   const cals = await many<{ external_id: string; name: string; default_user_id: string | null; type: string }>(c, `select cal.external_id, cal.name, cal.default_user_id::text, t.name as type from calendars cal join company_terms t on t.id=cal.appointment_term
-    where cal.company_id=$1 and cal.active and cal.source=$2 order by cal.name`, [companyId, ac.booking.source]);
+    where cal.company_id=$1 and cal.active and cal.source=$2 and (t.category='closing' or coalesce(cal.config->>'alerts', 'true') <> 'false') order by cal.name`, [companyId, ac.booking.source]);
   if (!cals.length) throw new AvailabilityUnreadable("no active calendars are mapped for this company");
   const roster = await many<{ id: string; name: string; email: string; ghl_user_id: string | null; active: boolean }>(c, "select id::text, name, email, ghl_user_id, active from users where company_id=$1", [companyId]);
   // the API wants a start in the future and a window of at most 7 days (as readCalendars)

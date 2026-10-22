@@ -6027,7 +6027,9 @@ Tyler: "I do want the availability to also show both calendars that we're watchi
 got a demo calendar and a setting calendar and everything, I want that to all show there. That's important." Then: "Layout works.
 low availability is any calendar we're watching. Yes ship slack / availability to all offers."
 
-- **What it reads.** Every active calendar the engine watches, whatever its call type (D72 read only the closing ones).
+- **What it reads.** Every active calendar the engine watches, whatever its call type (D72 read only the closing ones). One kept
+  only for the calls already on it (D213, `alerts: false`) stays out unless it is a closing one, which D72 always read, so no
+  offer's numbers lose a calendar they had (Nelly's old ♡ triage links, one gone from Calendly, stay out; her closing link stays in).
 - **What it says.** First *By calendar*: each calendar with its call type, its open times over the window and a line of them per
   day (a time once, however many hosts are free then; "no open times" when it has none). Then *By person*: the D72 table, now over
   every watched calendar (a setter's setting calendar gives the setter a column).

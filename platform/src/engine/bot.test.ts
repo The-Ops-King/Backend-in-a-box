@@ -382,7 +382,10 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
         const a = await asOperator((c) => getAvailability(c, companyId, probes, 3, NOW));
         expect(a.calendars.map((k) => [k.name, k.type, k.total])).toEqual([["Calendar CAL-CARA", "Closing", 4], ["Calendar CAL-DAN", "Closing", 6], ["Setting Call", "First call", 0]]);
         expect(formatAvailability(a, { now: NOW })).toContain("*Setting Call* (First call): 0\n> no open times");
-      } finally { await asOperator((c) => c.query("delete from calendars where id=$1", [set])); }
+        // D213: a setting calendar kept only for the calls on it is left out; a closing one stays, as D72 read it
+        await asOperator((c) => c.query("update calendars set config = config || '{\"alerts\": false}'::jsonb where company_id=$1 and external_id in ('CAL-SET','CAL-DAN')", [companyId]));
+        expect((await asOperator((c) => getAvailability(c, companyId, probes, 3, NOW))).calendars.map((k) => k.name)).toEqual(["Calendar CAL-CARA", "Calendar CAL-DAN"]);
+      } finally { await asOperator(async (c) => { await c.query("delete from calendars where id=$1", [set]); await c.query("update calendars set config = config - 'alerts' where company_id=$1 and external_id='CAL-DAN'", [companyId]); }); }
     });
   });
 
