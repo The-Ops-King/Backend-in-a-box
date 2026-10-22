@@ -17,7 +17,7 @@ import { syncTriggers } from "@/engine/install";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { GhlError } from "@/adapters/ghl/client";
 import { alertPressed, parseSlackInteraction, ONLY_MANAGERS, type SlackPress } from "@/engine/webhooks/slack-actions";
-import { sectionBlocks } from "@/engine/slack-blocks";
+import { sectionBlocks, withButtons } from "@/engine/slack-blocks";
 import type { Adapters, SlackBlock, SlackPersona } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -103,6 +103,10 @@ describe.skipIf(!HAS_DB)("D93: Retry and Resolve in Slack", () => {
     expect(okRes.status).toBe(200); expect(pending).toHaveLength(1); pending.length = 0;
     expect(parseSlackInteraction(raw)).toEqual({ kind: "press", teamId: "T-BTN", user: MANAGER, userName: "mia", action: "alert_resolve", value: "00000000-0000-0000-0000-000000000001", channel: "CALERTS", ts: "9.1", responseUrl: "https://hooks.slack.com/actions/T/1/x", message: { text: "🔴 hi", blocks: payload.message.blocks } });
     expect(parseSlackInteraction(new URLSearchParams({ payload: JSON.stringify({ ...payload, actions: [{ action_id: "something_else", value: "x" }] }) }).toString())).toMatchObject({ kind: "ignored" });
+    // Slack refuses a message whose buttons share an action_id: alike ones are told apart, a press reads the action before the ":"
+    const ids = (withButtons("x", [{ text: "A", action: "agreement_send", value: "1" }, { text: "B", action: "agreement_send", value: "2" }, { text: "C", action: "agreement_cancel", value: "c" }]).at(-1)!.elements as { action_id: string }[]).map((e) => e.action_id);
+    expect(ids).toEqual(["agreement_send:0", "agreement_send:1", "agreement_cancel"]);
+    expect(parseSlackInteraction(new URLSearchParams({ payload: JSON.stringify({ ...payload, actions: [{ action_id: "alert_resolve:3", value: "v" }] }) }).toString())).toMatchObject({ kind: "press", action: "alert_resolve" });
     expect(parseSlackInteraction(new URLSearchParams({ payload: JSON.stringify({ type: "view_submission" }) }).toString())).toMatchObject({ kind: "ignored" });
     expect(parseSlackInteraction("nonsense")).toMatchObject({ kind: "ignored" });
   });

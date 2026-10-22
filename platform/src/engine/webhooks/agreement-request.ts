@@ -62,6 +62,9 @@ function fits(words: string[], choices: AgreementChoice[]): { exact: AgreementCh
   return { exact: choices.filter((x) => x.phrases.some((p) => sameWords(p, words))), some: choices.filter((x) => x.phrases.some((p) => words.every((w) => p.includes(w)))) };
 }
 
+/** Slack may hand back an email, phone or link it formatted (`<mailto:rae@x.com|rae@x.com>`): the address itself. */
+export const unlinked = (text: string) => text.replace(/<(?:mailto:|tel:)?([^|>]+)(?:\|[^>]*)?>/g, "$1");
+
 /**
  * The command's words: the which is the longest run at the start or the end of them that names an agreement (exactly one, else
  * several to choose from); the rest, filler aside, is the who. Nothing that names an agreement: all of it is the who.
@@ -110,7 +113,8 @@ const NOT_ALLOWED = "Only closers, managers and the operator can send agreements
 const NO_ONE = (who: string) => `No one in the CRM matches "${who}". Use their full name, email, phone or GHL contact link.`;
 const named = (p: Who) => `${p.name}${p.email ? ` (${p.email})` : ""}`;
 
-const sendButton = (p: Who, x: AgreementChoice, text: string) => ({ type: "button", text: { type: "plain_text", text: text.slice(0, 75) }, action_id: "agreement_send", value: JSON.stringify({ c: p.id, t: x.template }), style: "primary" });
+// action_ids differ (agreement_send:<n>): Slack refuses a message whose buttons share one
+const sendButton = (p: Who, x: AgreementChoice, text: string, n = 0) => ({ type: "button", text: { type: "plain_text", text: text.slice(0, 75) }, action_id: `agreement_send:${n}`, value: JSON.stringify({ c: p.id, t: x.template }), style: "primary" });
 const cancelButton = { type: "button", text: { type: "plain_text", text: "Cancel" }, action_id: "agreement_cancel", value: "cancel" };
 const ask = (text: string, buttons: unknown[]) => ({ response_type: "ephemeral", text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }, { type: "actions", elements: buttons }] });
 
@@ -125,13 +129,13 @@ export async function answerAgreementCommand(c: PoolClient, companyId: string, s
   if (!by) return { say: { response_type: "ephemeral", text: NOT_ALLOWED } };
   const choices = agreementChoices(bindings);
   if (!choices.length) return { say: { response_type: "ephemeral", text: "This offer has no agreement set up yet (crm.agreement_template or agreements.list)." } };
-  const { who, choice, candidates } = parseAgreementText(text, choices);
+  const { who, choice, candidates } = parseAgreementText(unlinked(text), choices);
   if (!who) return { form: choices, ...(choice ? { picked: choice } : {}) };
   const r = await resolveWho(c, companyId, who);
   if ("none" in r) return { say: { response_type: "ephemeral", text: NO_ONE(who) } };
   if ("many" in r) return { say: { response_type: "ephemeral", text: `More than one person is "${who}":\n${r.many.map((p) => `• ${named(p)}`).join("\n")}\nUse their email or GHL contact link. Nothing was sent.` } };
   const pick = choice ?? (choices.length === 1 ? choices[0] : undefined);
-  if (!pick) return { say: ask(`Which agreement for ${named(r.found)}?`, [...(candidates ?? choices).map((x) => sendButton(r.found, x, `Send ${x.label}`)), cancelButton]) };
+  if (!pick) return { say: ask(`Which agreement for ${named(r.found)}?`, [...(candidates ?? choices).map((x, n) => sendButton(r.found, x, `Send ${x.label}`, n)), cancelButton]) };
   if (!r.exact) return { say: ask(`Send ${pick.label} to ${named(r.found)}?`, [sendButton(r.found, pick, "Send"), cancelButton]) };
   return { send: { contact: r.found, choice: pick, by }, say: { response_type: "ephemeral", text: `Sending ${pick.label} to ${named(r.found)}…` } };
 }

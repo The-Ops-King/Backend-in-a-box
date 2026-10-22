@@ -71,6 +71,8 @@ describe("D202/D214: the agreement choices, the words and the form", () => {
     const payload = { type: "view_submission", user: { id: "U1" }, team: { id: "T1" }, view: { callback_id: view.callback_id, private_metadata: view.private_metadata,
       state: { values: { who: { who: { type: "plain_text_input", value: "rae@example.com" } }, which: { which: { type: "static_select", selected_option: { value: "T-FULL" } } } } } } };
     expect(parseSlackInteraction(new URLSearchParams({ payload: JSON.stringify(payload) }).toString())).toMatchObject({ kind: "submit", callbackId: "send_agreement", values: { who: "rae@example.com", which: "T-FULL" } });
+    const press = { type: "block_actions", user: { id: "U1" }, team: { id: "T1" }, actions: [{ action_id: "agreement_send:2", value: "{}" }] };
+    expect(parseSlackInteraction(new URLSearchParams({ payload: JSON.stringify(press) }).toString())).toMatchObject({ kind: "press", action: "agreement_send", value: "{}" });   // the press, whichever button
   });
 });
 
@@ -121,10 +123,12 @@ describe.skipIf(!process.env.DATABASE_URL)("D202: /agreement end to end", () => 
     const named = await ans("rae lee full");
     expect(named.send).toBeUndefined();
     expect(named.say).toMatchObject({ text: "Send Full agreement to Rae Lee (rae@example.com)?" });
-    expect(JSON.stringify(named.say)).toContain('"action_id":"agreement_send"');
+    expect(JSON.stringify(named.say)).toContain('"action_id":"agreement_send:0"');
     const which = await ans("rae@example.com");
     expect(which.say).toMatchObject({ text: "Which agreement for Rae Lee (rae@example.com)?" });
-    expect((JSON.stringify(which.say).match(/"action_id":"agreement_send"/g) ?? []).length).toBe(2);
+    const ids = [...JSON.stringify(which.say).matchAll(/"action_id":"([^"]+)"/g)].map((m) => m[1]);
+    expect(ids).toEqual(["agreement_send:0", "agreement_send:1", "agreement_cancel"]);   // Slack refuses a message whose buttons share an action_id
+    expect((await ans("<mailto:rae@example.com|rae@example.com> full")).send).toMatchObject({ contact: { id: rae } });   // as Slack hands a typed email back
     expect((await ans("Sam Park full")).say).toMatchObject({ text: expect.stringMatching(/^More than one person is "Sam Park":\n• Sam Park \(sam1@example.com\)\n• Sam Park \(sam2@example.com\)\n.*Nothing was sent\.$/s) });
     expect((await ans("Rae deposit")).say).toMatchObject({ text: expect.stringContaining('No one in the CRM matches "Rae"') });   // a first name alone is no one
     expect((await ans("nobody@example.com")).say).toMatchObject({ text: expect.stringContaining("No one in the CRM") });
