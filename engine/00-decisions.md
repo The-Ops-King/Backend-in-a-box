@@ -6087,3 +6087,18 @@ phone first, one card per call that folds when done, the totals row lined up, pl
 - **Words** for the closer, not for us ("We filled in what we could ... then send it in", "Send my day", "Update my day").
 
 Nothing about what is asked, required or filed changes. The same page on every offer; each offer's words and options stay its own.
+
+## D221. Switching a scheduled workflow on does not fire the slots that already passed (2026-10-22)
+
+PMU: EOD reminders were switched on at 10:07 PM and posted twice per closer at once, the day's 9 AM and 6 PM slots both "missed".
+Tyler: "yes switch fix". The clock's catch-up (a slot missed sends late, once) is for an outage, not for slots that came before the
+workflow was on.
+
+- **When it was switched on** is `workflows.enabled_at` (migration 0007), stamped by a database trigger whenever `enabled` turns
+  on, whichever path does it (the admin door, the dashboard, install). Workflows already on keep it empty and behave as before.
+- **The clock**: a fixed-time slot (09:00, 18:00, Monday 09:00) whose time came before `enabled_at` does not fire; the next one
+  does. A slot missed while the workflow was on still sends late, once. Interval schedules (every hour) start at once, as before.
+  A stamp later than the moment the clock runs for (a replay, clock skew) is ignored.
+
+Engine code, every offer; it changes only what happens at the moment a workflow is switched on. Tests: `clock.enable.test.ts`;
+`eod.test.ts` and `flowmode.test.ts` now switch their workflows on the day before, since they test the reminder and the rung.
