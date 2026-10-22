@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { installCompany } from "./install";
-import { calendarOwner, calendarWatch, callsByTime, contactsReassign } from "./contact-ops";
+import { calendarOwner, calendarWatch, callCloser, callsByTime, contactsReassign } from "./contact-ops";
 import { fakeAdapters } from "./test-install";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 
@@ -101,6 +101,25 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     expect(row).toEqual({ active: true, self_booked: true, booking_url: "https://x/jp", owner: "nonie@x.com", term: "Follow-up call", category: "closing" });
     expect(await asOperator((c) => calendarWatch(c, withCal, { ...args, dryRun: false }))).toMatchObject({ dryRun: false, was: "watched", maps: "already watched: nothing changed" });
     expect(await asOperator((c) => calendarWatch(c, withCal, { ...args, calendar: "nope" }))).toMatchObject({ ok: false, status: 404 });
+  });
+  it("D218: a past call's closer, in the replica and on its Sales Call by the option key; a dry run changes nothing", async () => {
+    const recs: [string, Record<string, unknown>][] = [];
+    const w: Adapters = { ...fake, write: { ...fake.write, updateRecord: async (_c, _o, id, p) => { recs.push([id, p]); } } } as Adapters;
+    const appt = await asOperator(async (c) => {
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'crm.object_sales_call','id',$2),($1,'sales_call.closer_options','text',$3) on conflict do nothing", [co, Buffer.from("custom_objects.sales_call"), Buffer.from(JSON.stringify({ "nonie@x.com": "nonie" }))]);
+      const cal = await one<{ id: string; appointment_term: string }>(c, "select id, appointment_term from calendars where company_id=$1 and external_id='CAL-T'", [co]);
+      const ct = await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='B'", [co]);
+      const id = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, external_id, calendar_id, appointment_term, starts_at, ends_at, booked_at, status, source) values ($1,$2,'HOSTLESS',$3,$4, now() - interval '3 days', now() - interval '3 days' + interval '30 minutes', now() - interval '4 days','confirmed','ghl') returning id", [co, ct!.id, cal!.id, cal!.appointment_term]))!.id;
+      await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, properties) values ($1,'custom_objects.sales_call','HOSTLESS','SC-1','{}')", [co]);
+      return id;
+    });
+    const args = { company: SLUG, appointments: ["HOSTLESS"], closer: "nonie@x.com", why: "test" };
+    expect(await asOperator((c) => callCloser(c, w, args))).toMatchObject({ ok: true, dryRun: true, closer: "Nonie Wallace", calls: [{ id: appt, was: null, sales_call: "SC-1", ghl_closer: "nonie" }] });
+    expect(recs).toEqual([]);
+    expect(await asOperator((c) => callCloser(c, w, { ...args, dryRun: false }))).toMatchObject({ ok: true, dryRun: false });
+    expect(recs).toEqual([["SC-1", { closer: "nonie" }]]);
+    expect(await asOperator((c) => one(c, "select u.email from appointments a join users u on u.id=a.assigned_user_id where a.id=$1", [appt]))).toEqual({ email: "nonie@x.com" });
+    expect(await asOperator((c) => callCloser(c, w, { ...args, closer: "nobody@x.com" }))).toMatchObject({ ok: false, status: 404 });
   });
   it("D205: upcoming calls to Nonie, past ones to Mitch, in the replica and on their Discovery records (Setter and owner, checked read back); limit proves one first", async () => {
     const recWrites: [string, Record<string, unknown>, string | undefined, string[] | undefined][] = [];

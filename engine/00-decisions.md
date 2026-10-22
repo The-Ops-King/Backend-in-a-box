@@ -6052,3 +6052,15 @@ that shouldn't be the case." D70 had applied D54's end-of-day presumption to the
   `/weekly`) is unchanged: every call whose time has passed.
 
 Code, the same on every offer (the bot, the shortcuts, the wrap-ups). Tests: `bot.test.ts`.
+
+## D218. Who took a call, set on calls already held (2026-10-22)
+
+PMU: Ana Magno, Fabiola E and Christie Laney were hosted on a shared Calendly seat (team@thebeautymoguls.com), so the bookings
+had no closer. Tyler: "assume that it's probably JP." The Sales Call backfill put JP on their GHL records, but the replica's
+booking stayed closer-less, so JP's end-of-day reminder (which reads GHL) owed them while his form (which lists his bookings)
+had no row for them.
+
+`POST /api/admin/appointments/closer { company, appointments: [id, booking id or slot key], closer: email, why, dryRun = true }`
+sets the booking's closer in the replica (their end of day lists it, their numbers count it) and the Closer field on its Sales
+Call in GHL, by the company's option key (D118). D204 still moves a calendar's upcoming calls; this is one call, past or ahead.
+Audited (`call.closer`). Tests: `contact-ops.reassign.test.ts`.
