@@ -15,7 +15,7 @@ import { deferIntoWindow } from "./waitrule";
 import { emitEvent, startRun, type EventRow } from "./dispatch";
 import { raise, resolve } from "./alerts";
 import { classifyError, HOLD_RECHECK_MIN, pauseReason, plainError, RETRY_SCHEDULE, type Classified } from "./failures";
-import { releasePending } from "./effects";
+import { PENDING_WHY, releasePending } from "./effects";
 import { dependentsWords, doingWords, failureRoles } from "./blocking";
 
 const LEASE_MIN = 5, MAX_STEPS = 50, BATCH = 100;
@@ -337,12 +337,15 @@ async function executeClaimed(adapters: Adapters, runs: RunRow[], now: DateTime,
  * now, against the run's saved context; nothing before or after it moves and the run keeps its own place. Idempotent through
  * the ledgers (the sends key, step_effects): a send already out or a note already written is not done again, and a step that
  * already passed is refused. Passing closes the step's alert.
+ * D223: also a step blocked on its own unanswered write (PENDING_WHY: the alert says "check the CRM, then retry or skip"). The claim
+ * still guards it: a record step settles it from what the CRM holds, anything else is blocked again and nothing is written twice.
  */
 export async function rerunStep(c: import("pg").PoolClient, adapters: Adapters, runId: string, nodeId: string, by: string, now = DateTime.now()): Promise<{ ok: true; run_id: string; node: string; status: string } | { ok: false; status: number; error: string }> {
   const run = await one<RunRow>(c, "select * from runs where id=$1", [runId]);
   if (!run) return { ok: false, status: 404, error: "no such run" };
-  const last = await one<{ status: string; result: { kind?: string } }>(c, "select status, result from run_steps where run_id=$1 and node_id=$2 order by started_at desc, id desc limit 1", [runId, nodeId]);
-  if (!last || last.status !== "skipped" || last.result?.kind !== "gave_up") return { ok: false, status: 409, error: last?.status === "ok" ? `step ${nodeId} already passed on a retry` : `step ${nodeId} was not skipped after its tries in this run; only such a step can be retried on its own` };
+  const last = await one<{ status: string; result: { kind?: string; why?: string } }>(c, "select status, result from run_steps where run_id=$1 and node_id=$2 order by started_at desc, id desc limit 1", [runId, nodeId]);
+  const unanswered = last?.result?.kind === "blocked" && String(last.result.why ?? "").includes(PENDING_WHY);
+  if (!last || last.status !== "skipped" || (last.result?.kind !== "gave_up" && !unanswered)) return { ok: false, status: 409, error: last?.status === "ok" ? `step ${nodeId} already passed on a retry` : `step ${nodeId} was not skipped after its tries in this run; only such a step can be retried on its own` };
   const { row: company, adapterCompany, bindings } = await loadCompany(c, run.company_id);
   const ver = await one<{ definition: unknown }>(c, "select definition from workflow_versions where workflow_id=$1 and version=$2", [run.workflow_id, run.workflow_version]);
   const def = parseDefinition(ver!.definition); const { nodes, edgesFrom } = indexDefinition(def);
@@ -361,6 +364,12 @@ export async function rerunStep(c: import("pg").PoolClient, adapters: Adapters, 
     await c.query("update run_steps set status='skipped', result=$2, error=$3, finished_at=now() where id=$1", [step!.id, { kind: "gave_up", tries: 1, retried_by: by, why: `retried by ${by}: still couldn't ${doingWords(node)}` }, error]);
     await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'run.step_retried','run',$2,$3)", [run.company_id, run.id, { node: node.id, by, ok: false, error }]);
     return { ok: false, status: 502, error };
+  }
+  if (out.status === "skipped" && (out.result as { kind?: string } | undefined)?.kind === "blocked") {   // D223: still a person's call; recorded blocked again, so its alert stays
+    const why = String((out.result as { why?: string }).why ?? "blocked");
+    await c.query("update run_steps set status='skipped', result=$2, finished_at=now() where id=$1", [step!.id, { ...out.result, retried_by: by }]);
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'run.step_retried','run',$2,$3)", [run.company_id, run.id, { node: node.id, by, ok: false, error: why }]);
+    return { ok: false, status: 409, error: why };
   }
   await c.query("update run_steps set status=$2, result=$3, finished_at=now() where id=$1", [step!.id, out.status === "exit" || out.status === "resume" ? "ok" : out.status, { ...("result" in out ? out.result ?? {} : {}), retried_by: by }]);
   await resolve(c, run.company_id, `skipped:${run.workflow_id}:${node.id}:${run.contact_id ?? run.user_id ?? run.id}`, now.toJSDate());

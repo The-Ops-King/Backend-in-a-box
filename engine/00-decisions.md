@@ -6133,7 +6133,7 @@ and the contact when the step names one): exactly one, the create landed, so tha
 is); none, nothing was written, so it is created now; several, a record with no key to look for, or a CRM that cannot be read, a
 person decides, as before, the reason said. Engine code for every offer: no saved workflow changes; only this failure case acts
 instead of alerting. `POST /api/admin/runs/retry { company, runs: [one], node }` re-runs one step of a run (the alert's Retry).
-Tests: `retry.test.ts`.
+The alert's Retry (and `POST /api/admin/runs/retry { company, runs: [one], node }`) takes a step blocked this way, not only one that gave up after its tries: the claim still guards it, so a record step settles from what the CRM holds and anything else is blocked again with nothing written twice; a step that settles closes its alert on the next sweep. Tests: `retry.test.ts`.
 
 ## D224. A read-only look at one Calendly booking, or one member's calendar (2026-10-22)
 
