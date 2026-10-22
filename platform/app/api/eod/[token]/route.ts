@@ -36,7 +36,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const fields = await loadEodForm(c, closer.company_id);
     const extraKeys = fields.filter((x) => x.scope === "call" && !x.builtin).map((x) => x.key);
     const calls: CallEntry[] = body.calls!.map((x) => ({ appointment_id: String(x.appointment_id), contact_id: String(x.contact_id ?? ""), contact: String(x.contact ?? ""), starts_at: String(x.starts_at ?? ""), href_contact: null, recording_url: null,
-      outcome: String(x.outcome ?? "") as CallOutcome, revenue: num(x.revenue), cash: num(x.cash), next_date: x.next_date ? String(x.next_date) : null, next_steps: String(x.next_steps ?? ""), dq_reason: String(x.dq_reason ?? ""), dq_note: String(x.dq_note ?? ""), lost_reason: String(x.lost_reason ?? ""), about: String(x.about ?? ""), notes: String(x.notes ?? ""),
+      outcome: String(x.outcome ?? "") as CallOutcome, revenue: num(x.revenue), cash: num(x.cash), next_date: x.next_date ? String(x.next_date) : null, next_steps: String(x.next_steps ?? ""), dq_reason: String(x.dq_reason ?? ""), dq_note: String(x.dq_note ?? ""), lost_reason: String(x.lost_reason ?? ""), pitched: String(x.pitched ?? ""), about: String(x.about ?? ""), notes: String(x.notes ?? ""),
       extra: Object.fromEntries(extraKeys.map((k) => [k, String((x.extra ?? {})[k] ?? "")]).filter(([, v]) => v !== "")) }));
     const t = totalsOf(calls, fields);
     const dayKeys = dayFields(fields).map((f) => f.key);

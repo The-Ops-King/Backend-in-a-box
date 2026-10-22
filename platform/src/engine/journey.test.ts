@@ -262,7 +262,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(tags.slice(nTags)).toEqual(["stat-showed", "stat-closed-won"]);
       expect(threadOf(bookingTs).at(-1)).toBe("✅ Showed, per Sam Closer: closed.");
       expect(oppWrites.length).toBe(nOpp);
-      expect(recordWrites.slice(nRec)).toEqual([{ op: "update", id: expect.any(String), external_id: "A-JV", outcome: "showed", disposition: "closed_won" }]);
+      expect(recordWrites.slice(nRec)).toEqual([{ op: "update", id: expect.any(String), external_id: "A-JV", outcome: "showed", disposition: "closed_won", pitched: "yes" }]);   // D225: a close was pitched
       expect((await apptRow(jordan))!.call_outcome).toBe("closed");
     });
 

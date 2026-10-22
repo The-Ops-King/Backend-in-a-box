@@ -258,6 +258,7 @@ create table appointments (
   disposition_id       uuid,                                       -- → form_submissions
   dispositioned_at     timestamptz,
   dispositioned_by     uuid references users(id),
+  pitched              boolean,                                    -- D225: the closer pitched them (end of day); null: no call, or not said
   created_at           timestamptz not null default now(),
   unique (company_id, source, external_id)
 );

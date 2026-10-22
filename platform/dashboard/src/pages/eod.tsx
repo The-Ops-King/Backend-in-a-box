@@ -55,7 +55,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const setField = (i: number, key: string, v: string) => {
     if (key === "revenue" || key === "cash") set(i, { [key]: v === "" ? null : Number(v.replace(/[,$]/g, "")) || 0 });
     else if (key === "next_date") set(i, { next_date: v || null });
-    else if (key === "next_steps" || key === "dq_reason" || key === "dq_note" || key === "lost_reason" || key === "about" || key === "notes") set(i, { [key]: v });
+    else if (key === "next_steps" || key === "dq_reason" || key === "dq_note" || key === "lost_reason" || key === "pitched" || key === "about" || key === "notes") set(i, { [key]: v });
     else setCalls((cs) => cs.map((c, j) => (j === i ? { ...c, extra: { ...c.extra, [key]: v } } : c)));
   };
   const time = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: d.company.timezone });

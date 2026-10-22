@@ -478,7 +478,8 @@
           "objection_primary",
           "next_step",
           "next_step_date",
-          "payment_terms"
+          "payment_terms",
+          "pitched"
         ]
       },
       {
@@ -489,6 +490,18 @@
         "title": "The closer's answer as the CRM's disposition, in the company's own option (sales_call.dispositions): a deposit is its Deposit option, never closed won"
       },
       {
+        "id": "v_pitch",
+        "type": "set_var",
+        "key": "pitched",
+        "value": "{{event.pitched | default:}}",
+        "pick": {
+          "true": "yes",
+          "false": "no"
+        },
+        "else_value": "",
+        "title": "Whether the closer pitched them, from the end of day (D225); blank when not said"
+      },
+      {
         "id": "r1",
         "type": "crm_record",
         "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
@@ -497,9 +510,10 @@
         "properties": {
           "external_id": "{{appointment.slot_key}}",
           "outcome": "{{picklist.sales_call_outcome.showed}}",
-          "disposition": "{{vars.disposition | default:}}"
+          "disposition": "{{vars.disposition | default:}}",
+          "pitched": "{{vars.pitched | default:}}"
         },
-        "title": "Sales Call record: showed, with the disposition",
+        "title": "Sales Call record: showed, with the disposition and whether they were pitched",
         "clear": [
           "disposition"
         ]
@@ -551,7 +565,8 @@
           "objection_primary",
           "next_step",
           "next_step_date",
-          "payment_terms"
+          "payment_terms",
+          "pitched"
         ]
       }
     ],
@@ -726,7 +741,7 @@
       },
       {
         "from": "v_disp",
-        "to": "r1"
+        "to": "v_pitch"
       },
       {
         "from": "r1",
@@ -783,6 +798,10 @@
       {
         "from": "o_lost",
         "to": "x1"
+      },
+      {
+        "from": "v_pitch",
+        "to": "r1"
       }
     ]
   }

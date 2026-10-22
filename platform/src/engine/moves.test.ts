@@ -15,6 +15,8 @@ import { mergeEodFields, outcomesOf, choiceOf, totalsOf } from "@/engine/eod-for
 import { prefill, submitEod, tokenFor, saveEodForm, loadEodForm, eodFacts } from "@/engine/eod";
 import { reportFacts, renderLayout, shippedLayout } from "@/engine/reports";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
+/** D225: a call short of a close says whether they were pitched; these tests are about other answers, so yes */
+const pitch = <T extends { pitched?: string }>(calls: T[]): T[] => calls.map((x) => ({ ...x, pitched: x.pitched || "Yes" }));
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 process.env.PUBLIC_URL = "https://engine.test";
@@ -164,7 +166,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day form's outcomes 
     const token = await asOperator((c) => tokenFor(c, sam));
     const pre = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: sam, name: "Sam Closer", email: "sam@x.test" }, day()));
     const calls = pre.calls.map((x) => ({ ...x, outcome: "half" }));
-    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, ...totalsOf(calls, fields), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 1 });
+    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, ...totalsOf(calls, fields), calls: pitch(calls), day_answers: {} } }))).toMatchObject({ ok: true, recorded: 1 });
     expect(await asOperator((c) => one(c, "select ot.category as outcome, cot.category as call_outcome from appointments a join company_terms ot on ot.id=a.outcome_term join company_terms cot on cot.id=a.call_outcome_term where a.id=$1", [appt]))).toEqual({ outcome: "showed", call_outcome: "pending" });
     expect(totalsOf(calls, fields).closes).toBe(0);
     // the form shows the ledger's answer in the company's own word
@@ -188,9 +190,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day form's outcomes 
     const facts = await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, sam, "https://engine.test"));
     expect(facts.today).toMatchObject({ calls: 1, filed: false, moved: [appt] });   // owed: the closer has not said why
     const token = await asOperator((c) => tokenFor(c, sam));
-    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, calls: pre.calls, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Lee Park: Why were they lost?" });
+    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, calls: pitch(pre.calls), day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Lee Park: Why were they lost?" });
     const calls = pre.calls.map((x) => ({ ...x, lost_reason: "Timing" }));
-    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, calls, day_answers: {} } }))).toMatchObject({ ok: true });
+    expect(await asOperator((c) => submitEod(c, { token, day: day(), answers: { ...pre, calls: pitch(calls), day_answers: {} } }))).toMatchObject({ ok: true });
     await run();
     expect(posts.find((p) => p.channel === "CEOD")!.text).toMatch(/\n• Lee Park: Lost · Timing$/);
     expect((await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, sam, "https://engine.test"))).today).toMatchObject({ filed: true });

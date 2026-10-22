@@ -12,6 +12,8 @@ import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { totalsOf, DQ_REASONS, mergeEodFields } from "@/engine/eod-form";
 import { loadCompany } from "@/engine/context";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
+/** D225: a call short of a close says whether they were pitched; these tests are about other answers, so yes */
+const pitch = <T extends { pitched?: string }>(calls: T[]): T[] => calls.map((x) => ({ ...x, pitched: x.pitched || "Yes" }));
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 process.env.PUBLIC_URL = "https://engine.test";
@@ -75,7 +77,8 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
 
   it("the form is the defaults until the company edits it: labels, required flags and option lists are theirs, the keys stay", async () => {
     const def = await asOperator((c) => loadEodForm(c, companyId));
-    expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "lost_reason", "about", "notes", "general_notes"]);
+    expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "lost_reason", "pitched", "about", "notes", "general_notes"]);
+    expect(def.find((f) => f.key === "pitched")).toMatchObject({ required: true, options: ["Yes", "No"], when: ["pending", "follow_up", "lost", "dq"] });   // D225: asked short of a close
     expect(def.find((f) => f.key === "dq_reason")!.options).toEqual(DQ_REASONS);
     expect(def.filter((f) => f.key === "cash" || f.key === "revenue").map((f) => f.label)).toEqual(["Cash collected ($)", "Revenue generated ($)"]);
     // a form saved with the old default label follows the rename; a label the company chose stays theirs
@@ -92,7 +95,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(own.find((f) => f.key === "dq_reason")).toMatchObject({ label: "DQ because", options: ["Broke", "Other"], when: ["dq"] });
     expect(own.find((f) => f.key === "did_well")).toMatchObject({ scope: "day", builtin: false });
     expect(own.find((f) => f.key === "energy")).toMatchObject({ scope: "call", when: ["closed", "deposit", "follow_up"], options: ["Low", "OK", "High"] });
-    expect(own.map((f) => f.key).slice(0, 11)).toEqual(def.map((f) => f.key));
+    expect(own.map((f) => f.key).slice(0, 12)).toEqual(def.map((f) => f.key));
   });
 
   it("the reminder is a workflow: at its evening time, each closer with calls and no filed report gets one DM with the standing link, once; staff never do", async () => {
@@ -127,8 +130,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const calls = pre.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, outcome: "closed" as const, cash: 2000, notes: "paid in full on the call" } : { ...x, extra: { energy: "High" } }));
     const half = { ...pre, ...totalsOf(calls), calls_count: 3, calls, day_answers: { did_well: "Stayed on the objection" } };
     // the company made notes required: Sarah's is blank
-    expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: half }))).toEqual({ ok: false, why: "Still needed: Sarah Kim: Call notes" });
-    const answers = { ...half, calls: calls.map((x) => (x.contact === "Sarah Kim" ? { ...x, notes: "warm, wants her partner on the next one" } : x)) };
+    // D225: a follow up asks whether they were pitched
+    expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: half }))).toEqual({ ok: false, why: "Still needed: Sarah Kim: Did you pitch them?; Sarah Kim: Call notes" });
+    const answers = { ...half, calls: calls.map((x) => (x.contact === "Sarah Kim" ? { ...x, notes: "warm, wants her partner on the next one", pitched: "Yes" } : x)) };
     // more cash than revenue on one call can't be true: nothing is filed until it is fixed
     const over = { ...answers, calls: answers.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, cash: 5000 } : x)) };
     expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than revenue generated" });
@@ -146,17 +150,20 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const rows = await asOperator((c) => many<{ id: string; status: string; oc: string | null; cc: string | null }>(c, "select a.id, a.status, ot.category as oc, ct.category as cc from appointments a left join company_terms ot on ot.id=a.outcome_term left join company_terms ct on ct.id=a.call_outcome_term where a.company_id=$1 and a.assigned_user_id=$2 order by a.starts_at", [companyId, allan]));
     expect(rows.map((x) => [x.oc, x.cc])).toEqual([["showed", "follow_up"], ["showed", "closed"]]);
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='call.held'", [companyId])))!.n).toBe("2");
+    // D225: pitched is kept on the call and carried on its events: Sarah said yes, Leo closed so yes without being asked
+    expect(await asOperator((c) => many<{ pitched: boolean | null }>(c, "select pitched from appointments where company_id=$1 and outcome_term is not null order by starts_at", [companyId]))).toEqual([{ pitched: true }, { pitched: true }]);
+    expect(await asOperator((c) => many<{ p: string }>(c, "select data->>'pitched' as p from events where company_id=$1 and event_type='call.held' order by id", [companyId]))).toEqual([{ p: "true" }, { p: "true" }]);
     const note = (await asOperator((c) => one<{ notes: string }>(c, "select answers->>'notes' as notes from form_submissions where appointment_id=$1 order by submitted_at desc limit 1", [apptSarah])))!.notes;
-    expect(note).toBe("About: Good call, price is the hang-up.\nPains: thinning at the crown\nGoals: keep what she has\nObjections: price\nwarm, wants her partner on the next one\nNext: decide with her partner by " + answers.calls.find((x) => x.contact === "Sarah Kim")!.next_date + "\nEnergy on the call: High");
+    expect(note).toBe("About: Good call, price is the hang-up.\nPains: thinning at the crown\nGoals: keep what she has\nObjections: price\nwarm, wants her partner on the next one\nPitched: Yes\nNext: decide with her partner by " + answers.calls.find((x) => x.contact === "Sarah Kim")!.next_date + "\nEnergy on the call: High");
     // the event started the filed workflow: the summary with the corrections and the day's answers to the eod channel, a ✅ and a reply threaded under the reminder DM
     const filedRun = await asOperator((c) => one<{ id: string; user_id: string }>(c, "select r.id, r.user_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: post the closer''s day'", [companyId]));
     expect(filedRun?.user_id).toBe(allan);
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1 and tag like 'eod-reminder:%'", [companyId])))!.ts);
     expect(reactions).toEqual([{ channel: "UALLAN", ts: reminderTs, emoji: "white_check_mark" }]);
-    const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 1 close, $2,000 collected, $4,000 revenue generated.");
+    const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 2 pitched, 1 close, $2,000 collected, $4,000 revenue generated.");
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
-    expect(summary.text).toMatch(/^📝 \*Allan P\* filed .*: 3 calls, 1 close, \$2,000 collected, \$4,000 revenue generated\.\n• Sarah Kim: Follow up · next \w{3} \w{3} \d{1,2}\n• Leo Ortiz: Closed · \$2,000 collected · \$4,000 revenue\n\*What did I do well\?\* Stayed on the objection$/);   // what happened on each call, not what was corrected
+    expect(summary.text).toMatch(/^📝 \*Allan P\* filed .*: 3 calls, 2 pitched, 1 close, \$2,000 collected, \$4,000 revenue generated\.\n• Sarah Kim: Follow up · next \w{3} \w{3} \d{1,2}\n• Leo Ortiz: Closed · \$2,000 collected · \$4,000 revenue\n\*What did I do well\?\* Stayed on the objection$/);   // what happened on each call, not what was corrected
     const filed = await asOperator((c) => one<{ submitted_at: Date | null; changes: unknown[] }>(c, "select submitted_at, changes from eod_reports where company_id=$1 and user_id=$2", [companyId, allan]));
     expect(filed?.submitted_at).toBeTruthy(); expect(filed?.changes).toHaveLength(3);
     // filed: the clock finds nothing more to send for that day
@@ -199,7 +206,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     // Theo is left out of the filing (the CRM will mark him below); Mia confirmed no-show, Noah confirmed follow-up
     const calls = pre.calls.filter((x) => x.contact !== "Theo Park").map((x) => ({ ...x, outcome: x.contact === "Mia Chen" ? "no_show" as const : x.outcome, notes: x.contact === "Mia Chen" ? "never joined" : "wants Friday", next_date: x.contact === "Mia Chen" ? null : DateTime.now().plus({ days: 2 }).toISODate() }));
     const n = posts.length, nr = reactions.length;
-    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toEqual({ ok: true, recorded: 2, changes: expect.any(Array) });
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls: pitch(calls), day_answers: {} } }))).toEqual({ ok: true, recorded: 2, changes: expect.any(Array) });
     const runs = await asOperator((c) => many<{ id: string; appointment_id: string }>(c, "select r.id, r.appointment_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]));
     expect(runs.map((r) => r.appointment_id).sort()).toEqual([apptMia, apptNoah].sort());   // one run per call; the eod-filed run starts too
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 3, completed: 3, failed: 0 });
@@ -229,15 +236,15 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const calls = pre.calls.map((x) => ({ ...x, outcome: x.outcome || "no_show" as const, notes: x.notes || "never joined either", next_date: x.next_date ?? (x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : null), next_steps: x.next_steps || (x.outcome === "follow_up" ? "call back" : "") }));
     const outcomeRuns = () => asOperator(async (c) => Number((await one<{ n: string }>(c, "select count(*)::text as n from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId]))!.n));
     const before = await outcomeRuns(), n = posts.length;
-    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });   // all three are on the ledger
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls: pitch(calls), day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });   // all three are on the ledger
     expect(await outcomeRuns()).toBe(before);
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK")).toEqual([]);
     // Noah turns out to be a loss: that one call is filed, once
     const lostNoReason = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const } : x));
-    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(lostNoReason), calls: lostNoReason, day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Noah Reyes: Why were they lost?" });   // A1 (D88): a loss says why
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(lostNoReason), calls: pitch(lostNoReason), day_answers: {} } }))).toEqual({ ok: false, why: "Still needed: Noah Reyes: Why were they lost?" });   // A1 (D88): a loss says why
     const changed = calls.map((x) => (x.contact === "Noah Reyes" ? { ...x, outcome: "lost" as const, lost_reason: "Price" } : x));
-    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(changed), calls: changed, day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });
+    expect(await asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(changed), calls: pitch(changed), day_answers: {} } }))).toMatchObject({ ok: true, recorded: 3 });
     expect(await outcomeRuns()).toBe(before + 1);
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK").map((p) => p.text)).toEqual(["✅ Showed, per Allan P: lost."]);
@@ -347,7 +354,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       const token = await asOperator((c) => tokenFor(c, allan));
       const calls = pre.calls.map((x) => ({ ...x, notes: x.notes || "n", next_date: x.outcome === "follow_up" ? DateTime.now().plus({ days: 2 }).toISODate() : x.next_date, next_steps: x.next_steps || "call back", lost_reason: x.lost_reason || "Price", outcome: x.outcome || "no_show" as const }));
       const stale = [...calls, { ...calls[0], appointment_id: "ghl:Sol", contact_id: "", contact: "Sol Before", outcome: "no_show" as const }];
-      expect(await asOperator((c) => submitEod(c, { token, day: dayStr, answers: { ...pre, ...totalsOf(stale), calls: stale, day_answers: {} } }))).toMatchObject({ ok: true });
+      expect(await asOperator((c) => submitEod(c, { token, day: dayStr, answers: { ...pre, ...totalsOf(stale), calls: pitch(stale), day_answers: {} } }))).toMatchObject({ ok: true });
       await tick(fake, DateTime.now(), companyId);
       expect(writes).toEqual([]);
       const stored = await asOperator((c) => one<{ answers: { calls: { appointment_id: string }[] } }>(c, "select answers from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, allan, dayStr]));
@@ -392,7 +399,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await asOperator(async (c) => { for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]); });
     const outcomeRuns = () => asOperator(async (c) => (await many<{ appt: string }>(c, "select r.appointment_id::text as appt from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='Call outcome filed'", [companyId])).length);
     try {
-      const file = () => asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls, day_answers: {} }, adapters: fake }));
+      const file = () => asOperator((c) => submitEod(c, { token, day, answers: { ...pre, ...totalsOf(calls), calls: pitch(calls), day_answers: {} }, adapters: fake }));
       fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [record("")] : []);
       let n = await outcomeRuns();
       expect(await file()).toMatchObject({ ok: true });

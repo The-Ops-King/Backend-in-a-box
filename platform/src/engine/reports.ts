@@ -44,7 +44,7 @@ export type Layout = { heading: Record<string, string>; sections: { title: strin
  * `nothing` (D124): true when nothing happened (every number read is zero or unread, the show-rate breakdown is all zero,
  * nothing was said on a form, no per-person number, and GHL was read), else null; a company quiet when empty posts nothing then.
  */
-export type ReportFacts = { kind: ReportKind; to_date: boolean; start: string; end: string; read_at: string; period: Period; n: Numbers; raw: Record<string, number>; calls: Record<keyof CallsSeen, number | null> | null; rates: { show_rate: number | null; close_rate: number | null }; money_moved: true | null;
+export type ReportFacts = { kind: ReportKind; to_date: boolean; start: string; end: string; read_at: string; period: Period; n: Numbers; raw: Record<string, number>; calls: Record<keyof CallsSeen, number | null> | null; rates: { show_rate: number | null; close_rate: number | null; pitch_rate: number | null; pitched_close_rate: number | null }; money_moved: true | null;
   said: { label: string; answered: number; top: { answer: string; count: number }[]; rest: number; rest_kinds: number }[]; by: { closer: Breakdown[]; setter: Breakdown[] }; ghl_error: string | null; nothing: true | null };
 
 /** D124: nothing happened in the period, from the numbers (never the words): see `ReportFacts.nothing`. A GHL read that failed is not nothing: what it would have said is not known. */
@@ -81,7 +81,8 @@ export function reportFacts(args: { kind: ReportKind; period: Period; tz: string
     kind: args.kind, to_date: args.toDate, start: at(args.period.start), end: at(args.period.end), read_at: DateTime.fromJSDate(args.readAt ?? new Date()).setZone(args.tz).toISO()!, period: args.period,
     n: Object.fromEntries(Object.entries(numbers).map(([key, x]) => [key, nz(x)])), raw: Object.fromEntries(Object.entries(numbers).map(([key]) => [key, v(key)])),
     calls: k ? { booked: nz(k.booked), showed: nz(k.showed), noshow: nz(k.noshow), cancelled: nz(k.cancelled), missing: nz(k.missing), rescheduled: nz(k.rescheduled) } : null,
-    rates: { show_rate: k && k.booked > 0 ? Math.round((k.showed / k.booked) * 100) : null, close_rate: k ? pct(v("closes"), k.showed) : null },
+    rates: { show_rate: k && k.booked > 0 ? Math.round((k.showed / k.booked) * 100) : null, close_rate: k ? pct(v("closes"), k.showed) : null,
+      pitch_rate: k ? pct(v("pitched"), k.showed) : null, pitched_close_rate: pct(v("closes"), v("pitched")) },   // D225
     money_moved: v("cash_gross") > 0 || v("refunds") > 0 ? true : null,
     said: args.said.slice(0, 10).map((q) => ({ label: q.label, answered: q.answered, top: q.top.map(([a, n]) => ({ answer: a.length > 62 ? `${a.slice(0, 59)}…` : a, count: n })), rest: q.rest, rest_kinds: q.restKinds })),
     by: args.by ?? { closer: [], setter: [] }, ghl_error: args.ghlError ?? null,
@@ -125,7 +126,9 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   const { totals, setters, closers } = await readMetrics(c, company.id, period.start, period.end);
   const p = { from: period.start, to: period.end, label: "", name: "" };
   const numbers: Numbers = {}; const errors: string[] = [];
-  for (const m of opts.metrics?.length ? opts.metrics : WRAPUP_METRICS) {
+  const listed = opts.metrics?.length ? opts.metrics : WRAPUP_METRICS;
+  // D225: pitched is read whatever the layout lists, so a wrap-up's words can show the pitch rate without its list changing
+  for (const m of listed.includes("pitched") ? listed : [...listed, "pitched"]) {
     try { const r = await getMetric(c, company.id, { metric: m, period: p, now: opts.now }, opts.reads); numbers[m] = typeof r.value === "number" ? r.value : null; }
     catch (e) { numbers[m] = null; const msg = String((e as Error).message); if (/GHL/.test(msg) && !/no object is bound|not mapped|none is bound|not connected|no field is bound|no answers are set/.test(msg)) errors.push(msg); }
   }
