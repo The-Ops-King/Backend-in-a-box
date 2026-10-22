@@ -276,7 +276,9 @@ async function slackRoute(d: ExecDeps, target: string | undefined, unlinked?: st
   if (!target && unlinked === undefined) return null;
   // D140, live: a DM for someone not in Slack yet goes to the operator, marked who it was for (the health check flags the person until they are linked)
   if (slackLive(d)) { const op = d.bindings["bot.escalate_to"]; return !target && op ? { to: op, prefix: `For ${unlinked} (not in Slack yet):\n` } : null; }
-  const nameOf = async (u: string) => (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, u]))?.name ?? u;
+  // D219: the operator (`bot.escalate_to`) is on no offer's roster: named as such, never as a bare Slack id
+  const nameOf = async (u: string) => (await one<{ name: string }>(d.c, "select name from users where company_id=$1 and slack_user_id=$2 limit 1", [d.company.id, u]))?.name
+    ?? (u === d.bindings["bot.escalate_to"] ? `${(await one<{ name: string }>(d.c, "select name from users where company_id is null and role='operator' order by created_at limit 1"))?.name ?? "the operator"} (operator)` : u);
   const to = async () => target ? `Would have sent to ${await nameOf(target)}:\n` : `Would have sent to ${unlinked} (no Slack account linked yet):\n`;
   const test = d.bindings[TEST_CHANNEL_KEY];
   if (test) return target === test ? null : { to: test, prefix: !target || isSlackUser(target) ? await to() : `For <#${target}>:\n` };
