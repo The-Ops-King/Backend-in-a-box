@@ -66,4 +66,16 @@ export const MIGRATIONS: Migration[] = [
               and not exists (select 1 from agreements g where g.company_id=co.id and g.contact_id=p.contact_id and g.signed_at is not null)));
       end $fn$`);
   } },
+  // D221: when a workflow was last switched on, stamped by the database whichever path switched it (the admin door, the dashboard,
+  // install), so the clock does not fire a fixed-time slot that had already passed before the workflow was on
+  { id: "0007-workflow-enabled-at", run: async (c) => {
+    await c.query("alter table workflows add column if not exists enabled_at timestamptz");
+    await c.query(`create or replace function bb_workflow_enabled_at() returns trigger language plpgsql as $fn$
+      begin
+        if new.enabled and (tg_op = 'INSERT' or not old.enabled) then new.enabled_at := now(); end if;
+        return new;
+      end $fn$`);
+    await c.query("drop trigger if exists workflows_enabled_at on workflows");
+    await c.query("create trigger workflows_enabled_at before insert or update of enabled on workflows for each row execute function bb_workflow_enabled_at()");
+  } },
 ];

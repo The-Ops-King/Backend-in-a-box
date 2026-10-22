@@ -97,6 +97,8 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
 
   it("the reminder is a workflow: at its evening time, each closer with calls and no filed report gets one DM with the standing link, once; staff never do", async () => {
     await asOperator((c) => installTemplateForTest(c, companyId, "eod-reminder", { patch: (d) => { for (const n of d.nodes) if (n.type === "trigger" && n.schedule?.at === "18:00") n.schedule.at = "17:00"; } }));
+    // D221: switched on yesterday, so today's slots are this test's, not a switch-on catch-up
+    await asOperator((c) => c.query("update workflows set enabled_at = now() - interval '1 day' where company_id=$1 and name='EOD: remind closers to file'", [companyId]));
     // 4:59pm: the morning trigger (9am) is due for today and runs once; nothing earlier is unfiled, so it ends with nothing to file and no DM
     const before = DateTime.now().setZone(TZ).set({ hour: 16, minute: 59 }) as DateTime<true>;
     expect((await asOperator((c) => dispatchSchedules(c, before, companyId))).started).toEqual([{ company: "eod", workflow: "EOD: remind closers to file", node: "t_morning", period: before.toISODate(), user: "Allan P" }]);
