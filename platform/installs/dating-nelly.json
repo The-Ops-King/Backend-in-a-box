@@ -257,7 +257,8 @@
     "ops": "C0C9ZC15Q59",
     "setter_calls": "C0CB00CSDCG",
     "no_link": "C0C9Q7MEANT",
-    "no_link_alerts": "C0C9ZC29FK5"
+    "no_link_alerts": "C0C9ZC29FK5",
+    "triage_bookings": "C0CB7DYMA57"
   },
   "alerts": {
     "slackChannel": "C0C9ZC29FK5"
