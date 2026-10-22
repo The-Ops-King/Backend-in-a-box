@@ -160,13 +160,14 @@ describe.skipIf(!process.env.DATABASE_URL)("D202: /agreement end to end", () => 
     expect(notes.at(-1)).toMatch(/^AGREEMENT SENT — .+ · Full agreement · sent from Slack by Cy Closer$/);
   });
 
-  it("someone who already signed gets nothing; an offer that isn't live holds it and says why", async () => {
+  it("someone who signed before still gets the one a closer asked for, and the closer is told they had signed; an offer that isn't live holds it and says why", async () => {
     const b = await bindings();
-    await asOperator((c) => c.query("insert into agreements (company_id, contact_id, external_id, status, sent_at, signed_at) values ($1,$2,'doc-x','completed',now(),now())", [co, rae]));
-    const n = sentDocs.length;
+    await asOperator((c) => c.query("insert into agreements (company_id, contact_id, external_id, status, sent_at, signed_at) values ($1,$2,'doc-x','completed','2026-09-21','2026-09-21')", [co, rae]));
     const ok = await asOperator((c) => checkAgreementSubmit(c, co, "U-CY", b, "rae@example.com", "T-DEP"));
     if ("errors" in ok) throw new Error(JSON.stringify(ok.errors));
-    expect(await requestAgreement(fake, co, "U-CY", ok.contact, ok.choice, ok.by)).toBe("Rae Lee has already signed. Nothing sent.");
+    expect(await requestAgreement(fake, co, "U-CY", ok.contact, ok.choice, ok.by)).toBe("✅ Deposit agreement sent to Rae Lee (rae@example.com). (They signed an earlier agreement on 2026-09-21.)");
+    expect(sentDocs.at(-1)).toMatchObject({ templateId: "T-DEP" });
+    const n = sentDocs.length;
     await asOperator(async (c) => { await c.query("delete from agreements where company_id=$1", [co]); await c.query("update companies set mode='ghost' where id=$1", [co]); });
     expect(await requestAgreement(fake, co, "U-CY", ok.contact, ok.choice, ok.by)).toMatch(/^Not sent: the offer isn't live yet \(ghost\)/);
     expect(sentDocs.length).toBe(n);
