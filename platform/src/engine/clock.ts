@@ -18,8 +18,8 @@ export type ClockReport = { started: { company: string; workflow: string; node: 
 /** Every enabled schedule trigger whose period has come and has not run: a run per subject. Called every tick, before the runs advance, so the new run executes this tick. */
 export async function dispatchSchedules(c: PoolClient, now = DateTime.now(), onlyCompanyId?: string): Promise<ClockReport> {
   const out: ClockReport = { started: [], errors: [] };
-  const trigs = await many<{ id: string; workflow_id: string; node_id: string; company_id: string; slug: string; timezone: string; name: string }>(c, `
-    select t.id, t.workflow_id, t.node_id, co.id as company_id, co.slug, co.timezone, w.name from workflow_triggers t join workflows w on w.id=t.workflow_id join companies co on co.id=t.company_id
+  const trigs = await many<{ id: string; workflow_id: string; node_id: string; company_id: string; slug: string; timezone: string; name: string; enabled_at: Date | null }>(c, `
+    select t.id, t.workflow_id, t.node_id, co.id as company_id, co.slug, co.timezone, w.name, w.enabled_at from workflow_triggers t join workflows w on w.id=t.workflow_id join companies co on co.id=t.company_id
     where t.event_type='schedule' and t.enabled and w.enabled and ${runningSql()} and ($1::uuid is null or co.id=$1) order by co.slug, w.name`, [onlyCompanyId ?? null]);
   for (const t of trigs) {
     try {
@@ -28,6 +28,13 @@ export async function dispatchSchedules(c: PoolClient, now = DateTime.now(), onl
       if (!node || node.type !== "trigger" || !node.schedule) continue;
       const local = now.setZone(t.timezone);
       const period = periodOf(node.schedule, local); if (!period) continue;
+      // D221: a fixed-time slot (09:00, 18:00) that came before the workflow was switched on is not caught up; one missed while it
+      // was on still sends late (an outage). Interval schedules (every hour) start at once, as before.
+      // A stamp later than the moment the clock runs for (a replay, clock skew) says nothing about this slot.
+      if (node.schedule.at && t.enabled_at && t.enabled_at.getTime() <= now.toMillis()) {
+        const [hh, mm] = node.schedule.at.split(":").map(Number);
+        if (local.startOf("day").set({ hour: hh, minute: mm }) < DateTime.fromJSDate(t.enabled_at).setZone(t.timezone)) continue;
+      }
       const subjects: { id: string | null; name?: string }[] = node.schedule.for === "closer"
         ? await many<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and active and role in ('closer','setter') order by name", [t.company_id]) : [{ id: null }];
       for (const who of subjects) {

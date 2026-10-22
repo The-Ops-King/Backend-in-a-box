@@ -195,6 +195,7 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
       const def = parseDefinition(v);
       await c.query("update workflow_versions set definition=$2 where workflow_id=$1 and version=1", [report, def]);
       await syncTriggers(c, companyId, report, def);
+      await c.query("update workflows set enabled_at = now() - interval '1 day' where id=$1", [report]);   // D221: on since yesterday, so today's midnight slot is due
     });
     const now = DateTime.now();
     const first = await asOperator((c) => dispatchSchedules(c, now, companyId));

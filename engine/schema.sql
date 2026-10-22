@@ -457,6 +457,7 @@ create table workflows (
   diverged_at       timestamptz,
   sends_unlocked_at timestamptz,                          -- D145: null = the send lock is on (only an operator's own addresses get a text, email, agreement or webhook); set only on Tyler's word
   sends_unlocked_by text,
+  enabled_at        timestamptz,                          -- D221: when it was last switched on (a trigger stamps it, migration 0007); a fixed-time slot that passed before this does not fire
   created_at        timestamptz not null default now()
 );
 
