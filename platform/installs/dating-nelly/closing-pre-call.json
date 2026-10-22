@@ -56,7 +56,7 @@
     "id": "s1",
     "type": "send_sms",
     "kind": "transactional",
-    "template": "Hi {{contact.first_name}}, you're booked for your private consultation with Nelly on {{appointment.starts_at | date:\"cccc, LLL d 'at' h:mm a ZZZZ\"}}. It runs about an hour, so block off the time. Reply YES to confirm, or let me know if you need to move it.",
+    "template": "Hi {{contact.first_name}}, you're booked for your private consultation on {{appointment.starts_at | date:\"cccc, LLL d 'at' h:mm a ZZZZ\"}}. It runs about an hour, so block off the time. Reply YES to confirm, or let me know if you need to move it.",
     "validity": {
      "anchor": "before_event",
      "min_lead": "15m"
@@ -86,7 +86,7 @@
    {
     "id": "m24s",
     "type": "send_sms",
-    "template": "Hi {{contact.first_name}}, looking forward to our consultation tomorrow at {{appointment.starts_at | date:\"h:mm a ZZZZ\"}}. Come ready to talk about what you want in a partner and what hasn't worked so far. Nelly",
+    "template": "Hi {{contact.first_name}}, looking forward to your consultation tomorrow at {{appointment.starts_at | date:\"h:mm a ZZZZ\"}}. Come ready to talk about what you want in a partner and what hasn't worked so far.",
     "validity": {
      "anchor": "before_event",
      "min_lead": "18h"
@@ -123,7 +123,7 @@
    {
     "id": "m1",
     "type": "send_sms",
-    "template": "{{contact.first_name}}, we're on {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Join here: {{appointment.meeting_url}} See you soon! Nelly",
+    "template": "{{contact.first_name}}, your consultation is {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). Join here: {{appointment.meeting_url}} See you soon!",
     "validity": {
      "anchor": "before_event",
      "min_lead": "15m"

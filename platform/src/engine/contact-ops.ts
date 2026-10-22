@@ -182,7 +182,9 @@ export async function callsByTime(c: PoolClient, adapters: Adapters, a: { compan
       left join crm_records r on r.company_id=a.company_id and r.object_key=$3 and r.record_key=a.slot_key
     where a.company_id=$1 and k.active and (k.external_id=$2 or lower(k.name)=lower($2)) order by a.starts_at`, [co.id, a.calendar.trim(), objectKey]);
   if (!rows.length) return { ok: false, status: 404, error: `no bookings on a watched calendar ${a.calendar}` };
-  const side = (r: { future: boolean }) => (r.future ? { id: fut.id, name: fut.name, ghl: fut.ghl_user_id!, other: pst.ghl_user_id! } : { id: pst.id, name: pst.name, ghl: pst.ghl_user_id!, other: fut.ghl_user_id! });
+  // the other side's owner comes off the record; when both sides are one person there is no other side (D212)
+  const otherOf = (mine: string, theirs: string) => (mine === theirs ? null : theirs);
+  const side = (r: { future: boolean }) => (r.future ? { id: fut.id, name: fut.name, ghl: fut.ghl_user_id!, other: otherOf(fut.ghl_user_id!, pst.ghl_user_id!) } : { id: pst.id, name: pst.name, ghl: pst.ghl_user_id!, other: otherOf(pst.ghl_user_id!, fut.ghl_user_id!) });
   const bookings = rows.filter((r) => r.assigned !== side(r).id).map((r) => ({ r, to: side(r) }));
   const records = rows.filter((r) => r.ghl_record_id && r.setter !== side(r).name).map((r) => ({ r, to: side(r) })).slice(0, a.limit && a.limit > 0 ? a.limit : undefined);
   const say = (x: { r: (typeof rows)[number]; to: { name: string } }, from: string | null) => ({ who: x.r.who, when: x.r.when, from: from ?? "nobody", to: x.to.name });
@@ -191,10 +193,10 @@ export async function callsByTime(c: PoolClient, adapters: Adapters, a: { compan
   for (const b of bookings) await checkpoint(c, (c) => c.query("update appointments set assigned_user_id=$2 where id=$1", [b.r.id, b.to.id]));
   for (const x of records) {
     try {
-      await adapters.write.updateRecord(ac, objectKey, x.r.ghl_record_id!, { setter: x.to.name }, x.to.ghl, [x.to.other]);
+      await adapters.write.updateRecord(ac, objectKey, x.r.ghl_record_id!, { setter: x.to.name }, x.to.ghl, x.to.other ? [x.to.other] : undefined);
       await checkpoint(c, (c) => c.query("update crm_records set properties = properties || jsonb_build_object('setter', $2::text) where id=$1", [x.r.rec_id, x.to.name]));
       const back = adapters.read.objectRecord ? await adapters.read.objectRecord(ac, objectKey, x.r.ghl_record_id!) : undefined;
-      const checked = back === undefined ? "not read back" : !back ? "gone from GHL" : !back.owners.includes(x.to.ghl) ? `GHL owners: ${back.owners.join(", ") || "none"} (${x.to.name} not added)` : back.owners.includes(x.to.other) ? `GHL kept the other owner too (${back.owners.join(", ")})` : "owner swapped";
+      const checked = back === undefined ? "not read back" : !back ? "gone from GHL" : !back.owners.includes(x.to.ghl) ? `GHL owners: ${back.owners.join(", ") || "none"} (${x.to.name} not added)` : x.to.other && back.owners.includes(x.to.other) ? `GHL kept the other owner too (${back.owners.join(", ")})` : "owner swapped";
       doneRecords.push({ ...say(x, x.r.setter), checked });
     } catch (e) { failed.push({ who: x.r.who, why: `GHL refused: ${String((e as Error).message).slice(0, 160)}` }); }
   }

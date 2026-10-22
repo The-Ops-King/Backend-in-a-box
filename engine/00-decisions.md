@@ -5940,3 +5940,16 @@ copies.json can name a `channel` slot (booked, triageCancelled, triageFiled): it
 `slack.channel.<slot>` instead (a setting, CLAUDE.md "configurable"). Nelly's triage booked, cancelled and filed copies name
 `triage_bookings`; a thread reply follows its card wherever the card is, so the whole triage thread moves with it. The closing call's
 posts stay in bookings. Applied once the bot is in #dating-triage-booked (a private channel) and the setting has its id.
+
+## D212. Nelly takes no calls: Mitch closes and takes triage, Jake sets (2026-10-22)
+
+Tyler: "Nelly is going to not take calls anymore, so all triage and setter calls go to Mitch for now"; "the new link we're using
+for set calls is ... Private Dating Consultation, the 45-minute-long one, round robin ... only Mitch as the host"; "the setter's name
+is Jake". Nonie had left: her Strategy Session ownership (both event types, 91 upcoming calls), 96 Discovery records (Setter field and
+owner, read back) and 303 contacts went to Mitch, and her role came off. Mitch is a closer (one role a person; nothing setter-side
+reads it, and a closer can ask for /agreement). The new consultation (6a643c89, `calendly.com/d/dwb4-pxx-46q/...`) is watched as a
+Closing call booked through a setter's link, owned by Mitch outright (his Calendly email is not his GHL one, so the host alone would
+not name him); it is the company's closer call. Nelly's own consultation stays watched for the calls booked on it. Jake Taylor is a
+setter; his link is the new consultation's with `?utm_medium=setter&utm_content=jake`. The closing texts name no one. Saving them
+locked the Closing pre-call's sends again (D151) until Tyler unlocks the new words. The split's "kept the other owner" check no longer
+fires when both sides are one person.
