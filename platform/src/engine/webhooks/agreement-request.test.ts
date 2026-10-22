@@ -7,7 +7,7 @@ import { loadCompany } from "@/engine/context";
 import { encrypt } from "@/engine/crypto";
 import { fakeAdapters, installTemplateForTest, unlockSendsForTest } from "@/engine/test-install";
 import { parseSlackInteraction } from "./slack-actions";
-import { agreementChoices, agreementForm, answerAgreementCommand, checkAgreementPress, checkAgreementSubmit, parseAgreementText, requestAgreement } from "./agreement-request";
+import { agreementChoices, agreementForm, answerAgreementCommand, checkAgreementPress, checkAgreementSubmit, parseAgreementText, phraseWords, requestAgreement } from "./agreement-request";
 import type { Adapters } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -18,24 +18,56 @@ const fake: Adapters = { ...base, write: { ...base.write, addNote: async (_c, _i
   notifier: { ...base.notifier, post: async (_t, channel, text) => { dms.push({ to: channel, text }); return { ts: "1.1" }; } } };
 let co = "", rae = "";
 
-describe("D202: the agreement choices and the form", () => {
+// PMU's four (D210): the price and whether it carries the guarantee
+const PMU = JSON.stringify([
+  { key: "10k", label: "$9,997", template: "T-10", match: ["9997 no guarantee", "10k no guarantee"] },
+  { key: "10k-g", label: "$9,997 + Guarantee", template: "T-10G", match: ["10k guarantee"] },
+  { key: "12k", label: "$12,000", template: "T-12", match: ["12k no guarantee"] },
+  { key: "12k-g", label: "$12,000 + Guarantee", template: "T-12G", match: ["12k guarantee"] },
+]);
+
+describe("D202/D210: the agreement choices, the words and the form", () => {
   it("the offer's list, else its one agreement; a bad list is not a choice", () => {
-    expect(agreementChoices({ "agreements.list": JSON.stringify([{ label: "Deposit agreement", template: "T-DEP" }, { label: "", template: "x" }, { label: "Full", template: "T-FULL", key: "Paid in full" }]) }))
-      .toEqual([{ key: "deposit", label: "Deposit agreement", template: "T-DEP" }, { key: "paid", label: "Full", template: "T-FULL" }]);
-    expect(agreementChoices({ "crm.agreement_template": "T-ONE" })).toEqual([{ key: "purchase", label: "Purchase agreement", template: "T-ONE" }]);
-    expect(agreementChoices({ "agreements.list": "not json", "crm.agreement_template": "T-ONE" })).toEqual([{ key: "purchase", label: "Purchase agreement", template: "T-ONE" }]);
+    expect(agreementChoices({ "agreements.list": JSON.stringify([{ label: "Deposit agreement", template: "T-DEP" }, { label: "", template: "x" }, { label: "Full", template: "T-FULL", key: "Paid in full" }]) }).map(({ key, label, template }) => ({ key, label, template })))
+      .toEqual([{ key: "deposit", label: "Deposit agreement", template: "T-DEP" }, { key: "paid-in-full", label: "Full", template: "T-FULL" }]);
+    expect(agreementChoices({ "crm.agreement_template": "T-ONE" })).toEqual([{ key: "purchase", label: "Purchase agreement", template: "T-ONE", phrases: [["purchase"]] }]);
+    expect(agreementChoices({ "agreements.list": "not json", "crm.agreement_template": "T-ONE" })).toMatchObject([{ key: "purchase", template: "T-ONE" }]);
     expect(agreementChoices({})).toEqual([]);
   });
-  it("the command's words: who, then which when its last word is an agreement's key", () => {
-    const ch = [{ key: "deposit", label: "Deposit agreement", template: "T-DEP" }, { key: "full", label: "Full agreement", template: "T-FULL" }];
-    expect(parseAgreementText("Rae Lee full", ch)).toEqual({ who: "Rae Lee", choice: ch[1] });
-    expect(parseAgreementText(" rae@example.com   Deposit ", ch)).toEqual({ who: "rae@example.com", choice: ch[0] });
-    expect(parseAgreementText("Rae Lee", ch)).toEqual({ who: "Rae Lee" });
-    expect(parseAgreementText("full", ch)).toEqual({ who: "full" });   // one word is a person, not a type
-    expect(parseAgreementText("", ch)).toEqual({ who: "" });
+  it("money and words read one way", () => {
+    expect(phraseWords("$12,000 + Guarantee")).toEqual(["12000", "guarantee"]);
+    expect(phraseWords("12k guaranteed")).toEqual(["12000", "guarantee"]);
+    expect(phraseWords("9.997k")).toEqual(["9997"]);
+    expect(phraseWords("send the agreement with guarantees")).toEqual(["guarantee"]);
+    expect(phraseWords("12k no guarantee")).toEqual(["12000", "no-guarantee"]);
+    expect(phraseWords("without guarantee")).toEqual(["no-guarantee"]);
   });
-  it("the form sent back gives what was typed and what was picked", () => {
-    const view = agreementForm([{ key: "full", label: "Full", template: "T-FULL" }], { channel: "C1" });
+  it("the who and the which, either order: exactly one fits, it is that one; words that fit several offer those; no which, all of it is the who", () => {
+    const ch = agreementChoices({ "agreements.list": PMU });
+    const key = (r: ReturnType<typeof parseAgreementText>) => ({ who: r.who, choice: r.choice?.key, candidates: r.candidates?.map((x) => x.key) });
+    expect(key(parseAgreementText("rae@example.com 12k guarantee", ch))).toEqual({ who: "rae@example.com", choice: "12k-g", candidates: undefined });
+    expect(key(parseAgreementText("12k guarantee rae@example.com", ch))).toEqual({ who: "rae@example.com", choice: "12k-g", candidates: undefined });
+    expect(key(parseAgreementText("Rae Lee $12,000 + Guarantee", ch))).toEqual({ who: "Rae Lee", choice: "12k-g", candidates: undefined });
+    expect(key(parseAgreementText("12k to Rae Lee", ch))).toEqual({ who: "Rae Lee", choice: "12k", candidates: undefined });
+    expect(key(parseAgreementText("rae@example.com 10k", ch))).toEqual({ who: "rae@example.com", choice: "10k", candidates: undefined });
+    expect(key(parseAgreementText("rae@example.com 9,997 no guarantee", ch))).toEqual({ who: "rae@example.com", choice: "10k", candidates: undefined });
+    expect(key(parseAgreementText("rae@example.com guarantee", ch))).toEqual({ who: "rae@example.com", choice: undefined, candidates: ["10k-g", "12k-g"] });
+    expect(key(parseAgreementText("12k guarantee", ch))).toEqual({ who: "", choice: "12k-g", candidates: undefined });
+    expect(key(parseAgreementText("rae@example.com", ch))).toEqual({ who: "rae@example.com", choice: undefined, candidates: undefined });
+    expect(key(parseAgreementText("Rae Lee", ch))).toEqual({ who: "Rae Lee", choice: undefined, candidates: undefined });
+    expect(key(parseAgreementText("", ch))).toEqual({ who: "", choice: undefined, candidates: undefined });
+    // the offer with one agreement: its words are the which, anything else the who
+    const one = agreementChoices({ "agreements.list": JSON.stringify([{ label: "Deposit agreement", template: "T-DEP", key: "deposit" }, { label: "Full agreement", template: "T-FULL", key: "full" }]) });
+    expect(key(parseAgreementText("Rae Lee full", one))).toEqual({ who: "Rae Lee", choice: "full", candidates: undefined });
+    expect(key(parseAgreementText(" rae@example.com   Deposit ", one))).toEqual({ who: "rae@example.com", choice: "deposit", candidates: undefined });
+  });
+  it("the form asks who, with the agreement already picked when the command named it; sent back it gives what was typed and picked", () => {
+    const ch = agreementChoices({ "agreements.list": PMU });
+    const asked = agreementForm(ch, { channel: "C1" }, ch[3]) as { blocks: { label: { text: string }; element: { initial_option?: { value: string } } }[] };
+    expect(asked.blocks[0].label.text).toBe("Who do you want to send $12,000 + Guarantee to?");
+    expect(asked.blocks[1].element.initial_option?.value).toBe("T-12G");
+    expect((agreementForm(ch, { channel: "C1" }) as typeof asked).blocks[1].element.initial_option).toBeUndefined();
+    const view = agreementForm([{ key: "full", label: "Full", template: "T-FULL", phrases: [["full"]] }], { channel: "C1" });
     const payload = { type: "view_submission", user: { id: "U1" }, team: { id: "T1" }, view: { callback_id: view.callback_id, private_metadata: view.private_metadata,
       state: { values: { who: { who: { type: "plain_text_input", value: "rae@example.com" } }, which: { which: { type: "static_select", selected_option: { value: "T-FULL" } } } } } } };
     expect(parseSlackInteraction(new URLSearchParams({ payload: JSON.stringify(payload) }).toString())).toMatchObject({ kind: "submit", callbackId: "send_agreement", values: { who: "rae@example.com", which: "T-FULL" } });
@@ -82,6 +114,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D202: /agreement end to end", () => 
     const ans = (who: string, user = "U-CY") => asOperator((c) => answerAgreementCommand(c, co, user, b, who));
     expect(await ans("rae@example.com full", "U-ST")).toEqual({ say: { response_type: "ephemeral", text: "Only closers, managers and the operator can send agreements." } });
     expect(await ans("")).toMatchObject({ form: [{ key: "deposit" }, { key: "full" }] });
+    expect(await ans("full")).toMatchObject({ form: [{ key: "deposit" }, { key: "full" }], picked: { key: "full" } });   // D210: the which alone asks who
+    expect((await ans("full to Rae@Example.com")).send).toMatchObject({ contact: { id: rae }, choice: { key: "full" } });   // either order
     expect(await ans("Rae@Example.com full")).toMatchObject({ send: { contact: { id: rae, name: "Rae Lee", email: "rae@example.com" }, choice: { key: "full" }, by: { name: "Cy Closer", ghl_user_id: "GU-CY" } }, say: { text: "Sending Full agreement to Rae Lee (rae@example.com)…" } });
     expect(await ans("https://app.gohighlevel.com/v2/location/L/contacts/detail/GHLRAE00000000000AG deposit")).toMatchObject({ send: { contact: { id: rae }, choice: { key: "deposit" } } });
     const named = await ans("rae lee full");

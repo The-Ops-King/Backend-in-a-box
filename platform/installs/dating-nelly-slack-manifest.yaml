@@ -26,7 +26,7 @@ features:
     - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "What the bot can answer", should_escape: false }
     - { command: /support, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Something broke, or you need something: logs it for Tyler with a number", usage_hint: "[what's wrong or what you need]", should_escape: false }
     - { command: /team, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "Operator only: add or remove a setter or closer, and what's left to set up", usage_hint: "[add <email> <setter|closer>]", should_escape: false }
-    - { command: /agreement, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "send an agreement: their email, phone or GHL link sends at once; a full name asks you first; leave", usage_hint: "[name, email or GHL link] [type]", should_escape: false }
+    - { command: /agreement, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/eb8d10d2-bf83-4041-8f8a-560516504ddb/commands", description: "send an agreement: who and which, either order; leave either off and you're asked", usage_hint: "[who] [which agreement], either order", should_escape: false }
 oauth_config:
   scopes:
     bot:

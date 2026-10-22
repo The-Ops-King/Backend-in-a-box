@@ -36,7 +36,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
       if (a.form) {
         const bot = await slackBot(c, companyId), trigger = f.get("trigger_id");
         if (!bot || !trigger || !liveAdapters.notifier.openView) return NextResponse.json({ response_type: "ephemeral", text: "Slack didn't give me a way to open the form; try again." });
-        await liveAdapters.notifier.openView(bot.token, trigger, agreementForm(a.form, { channel: cmd.channelId }));
+        await liveAdapters.notifier.openView(bot.token, trigger, agreementForm(a.form, { channel: cmd.channelId }, a.picked));
         return new Response(null, { status: 200 });
       }
       if (a.send) return { agreement: { ...a.send, user: cmd.userId, url: f.get("response_url") ?? "", say: a.say } };

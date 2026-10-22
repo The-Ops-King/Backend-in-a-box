@@ -5910,3 +5910,24 @@ late should get. Test fixes on the way: two tests depended on rows an old shared
 0001 removed; a second `migrate()` dropping a row, which numbered migrations never do); both now hold on an empty database.
 Tests: `poll.calendly.test.ts` (D196 case with the lock), `backfill.test.ts`, `payments.test.ts`, `templates.scenarios.test.ts`,
 `run-now.test.ts`.
+
+## D210. /agreement takes the who and the which in either order, in the closer's own words (2026-10-22)
+
+Tyler: "I would like them to be able to say 'agreement email 12k guarantee' and have it send the correct one, or 'agreement email'
+and then it says 'Which agreement do you want to send?' If they say 'agreement 12k guarantee,' it says 'Who do you want to send it
+to?' ... as flexible as possible while still being code-based." PMU has four agreements (the price, and whether it carries the
+guarantee); the closer picks it, a payment plan does not change it.
+
+- **Words, read one way, no guessing.** Each agreement in `agreements.list` is `{label, template, key?, match?}`; what a closer may
+  type for it is its key, its label and each `match` phrase. Both sides are read the same way: money as digits ("$12,000",
+  "12,000", "12k" → 12000), a trailing "s"/"ed" dropped ("guaranteed" → guarantee), "no X"/"without X" one word (so "no guarantee"
+  never reads as "guarantee"), filler dropped (to, with, the, send, agreement, ...); word order does not matter.
+- **Which part is which.** The which is the longest run of words at the start or the end of the command that names an agreement;
+  the rest is the who. Exactly one agreement whose phrase is those words: that one. Words every one of several agreements holds
+  ("guarantee"): those, as buttons. Nothing names one: all of it is the who.
+- **What happens.** Who and which: as D202 (an email, phone or GHL link sends at once; a full name asks first). Who only: a button
+  per agreement. Which only: the form asks "Who do you want to send <it> to?", the agreement already picked. Nothing: the form.
+- An agreement with no key still takes its label's first word as its key ("Deposit agreement" → deposit), as before.
+
+Code, the same on every offer; what an offer's closers may type is its own `agreements.list`. Tests:
+`agreement-request.test.ts` (PMU's four).

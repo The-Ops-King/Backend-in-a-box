@@ -8,42 +8,77 @@ import { findContact } from "./slack-link";
 
 /**
  * D202 (Tyler: "a slack slash command for instant agreement instead of the tag ... we can configure which agreement gets sent").
- * `/agreement <who> <type>` sends that agreement to that person; `<who>` is a GHL contact link, an email or a phone (exact: sent
- * at once) or a full name (one match only; asked to confirm first). Without `<type>`, a button for each of the offer's agreements
- * (one agreement: that one). Without anything, a form. Sending is the Send agreement workflow's (`agreement.requested`), at once,
- * under the offer's mode and send lock like any send; what came of it is said back to the closer.
+ * D210 (Tyler: "agreement email 12k guarantee" sends; "agreement email" asks which; "agreement 12k guarantee" asks who): the who
+ * and the which come in either order. `<who>` is a GHL contact link, an email or a phone (exact: sent at once) or a full name (one
+ * match only; asked to confirm first). The which is any of the agreement's phrases (its key, its label, the offer's `match` list),
+ * word for word in any order, read the same way everywhere ("$12,000" = "12,000" = "12k", "guaranteed" = "guarantee"): one
+ * agreement fits exactly, it is that one; words that fit several are offered as buttons. Without a which, a button for each of the
+ * offer's agreements (one agreement: that one); without a who, a form asking who, the agreement already picked. Sending is the Send
+ * agreement workflow's (`agreement.requested`), at once, under the offer's mode and send lock like any send; what came of it is said
+ * back to the closer.
  */
 export const AGREEMENT_COMMAND = "agreement";
 export const AGREEMENT_FORM = "send_agreement";
-/** `key`: the word after the person in the command (`/agreement rae@x.com deposit`). */
-export type AgreementChoice = { key: string; label: string; template: string };
+/** `phrases`: what a closer may type for it (its key, its label, the offer's `match`), each as its words. */
+export type AgreementChoice = { key: string; label: string; template: string; phrases: string[][] };
 type Meta = { channel?: string };
 export type Who = { id: string; name: string; email: string | null };
 type Requester = { name: string; ghl_user_id: string | null };
 
-const word = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ")[0] ?? "";
-/** `agreements.list`: [{label, template, key?}], the GHL document templates a closer may send; unset, the offer's one agreement (crm.agreement_template). */
+const NOT = new Set(["no", "non", "without"]);
+const FILLER = new Set(["a", "an", "the", "and", "with", "w", "plus", "for", "to", "send", "agreement", "contract"]);
+/** A phrase's words, read one way: money as plain digits ("$12,000", "12k" → 12000), a trailing "s" or "ed" ("guaranteed" → guarantee), "no X" as one word, no filler. */
+export function phraseWords(text: string): string[] {
+  const norm = text.toLowerCase().replace(/(\d),(?=\d{3}\b)/g, "$1").replace(/(\d+(?:\.\d+)?)\s*k\b/g, (_, n: string) => String(Math.round(parseFloat(n) * 1000)));
+  const words = norm.split(/[^a-z0-9]+/).filter(Boolean).map((w) => (/^[a-z]{4,}$/.test(w) ? w.replace(/(?<=e)d$|(?<!s)s$/, "") : w)).filter((w) => !FILLER.has(w));
+  // "no guarantee" is one word, so it never reads as "guarantee"
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i++) out.push(NOT.has(words[i]) && i + 1 < words.length ? `no-${words[++i]}` : words[i]);
+  return out;
+}
+const sameWords = (a: string[], b: string[]) => a.length === b.length && a.every((w) => b.includes(w)) && b.every((w) => a.includes(w));
+
+/** `agreements.list`: [{label, template, key?, match?}], the GHL document templates a closer may send; unset, the offer's one agreement (crm.agreement_template). */
 export function agreementChoices(bindings: Record<string, string>): AgreementChoice[] {
   let list: unknown;
   try { list = JSON.parse(bindings["agreements.list"] ?? "null"); } catch { list = null; }
-  const ok = Array.isArray(list) ? list.filter((x): x is { label: string; template: string; key?: string } => !!x && typeof x.label === "string" && !!x.label.trim() && typeof x.template === "string" && !!x.template.trim()) : [];
+  const ok = Array.isArray(list) ? list.filter((x): x is { label: string; template: string; key?: string; match?: unknown } => !!x && typeof x.label === "string" && !!x.label.trim() && typeof x.template === "string" && !!x.template.trim()) : [];
   const out: AgreementChoice[] = [];
   for (const x of ok) {
-    let key = word(typeof x.key === "string" && x.key.trim() ? x.key : x.label) || "agreement";
-    if (out.some((o) => o.key === key)) key = `${key}${out.length + 1}`;
-    out.push({ key, label: x.label.trim(), template: x.template.trim() });
+    // a key as written ("12k-g"); none, the label's first word ("Deposit agreement" → deposit)
+    let key = (typeof x.key === "string" && x.key.trim() ? x.key.trim().toLowerCase().replace(/\s+/g, "-") : x.label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ")[0]) || "agreement";
+    if (out.some((o) => o.key === key)) key = `${key}-${out.length + 1}`;
+    const said = [key, x.label, ...(Array.isArray(x.match) ? x.match.filter((m): m is string => typeof m === "string") : [])];
+    out.push({ key, label: x.label.trim(), template: x.template.trim(), phrases: said.map(phraseWords).filter((w) => w.length) });
   }
   if (out.length) return out;
   const one = bindings["crm.agreement_template"]?.trim();
-  return one ? [{ key: "purchase", label: "Purchase agreement", template: one }] : [];
+  return one ? [{ key: "purchase", label: "Purchase agreement", template: one, phrases: [["purchase"]] }] : [];
 }
 
-/** The command's words: who, then (if its last word is one of the offer's agreement keys) which. */
-export function parseAgreementText(text: string, choices: AgreementChoice[]): { who: string; choice?: AgreementChoice } {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const last = words.at(-1)?.toLowerCase();
-  const choice = words.length > 1 ? choices.find((c) => c.key === last) : undefined;
-  return { who: (choice ? words.slice(0, -1) : words).join(" "), ...(choice ? { choice } : {}) };
+/** The agreements some typed words name: the ones a phrase of which they are exactly, else the ones a phrase of which holds every word. */
+function fits(words: string[], choices: AgreementChoice[]): { exact: AgreementChoice[]; some: AgreementChoice[] } {
+  if (!words.length) return { exact: [], some: [] };
+  return { exact: choices.filter((x) => x.phrases.some((p) => sameWords(p, words))), some: choices.filter((x) => x.phrases.some((p) => words.every((w) => p.includes(w)))) };
+}
+
+/**
+ * The command's words: the which is the longest run at the start or the end of them that names an agreement (exactly one, else
+ * several to choose from); the rest, filler aside, is the who. Nothing that names an agreement: all of it is the who.
+ */
+export function parseAgreementText(text: string, choices: AgreementChoice[]): { who: string; choice?: AgreementChoice; candidates?: AgreementChoice[] } {
+  const raw = text.trim().split(/\s+/).filter(Boolean);
+  const who = (ws: string[]) => { const w = [...ws]; while (w.length && FILLER.has(w[0].toLowerCase())) w.shift(); while (w.length && FILLER.has(w.at(-1)!.toLowerCase())) w.pop(); return w.join(" "); };
+  let best: { who: string; exact: AgreementChoice[]; some: AgreementChoice[]; n: number } | null = null;
+  for (let n = raw.length; n >= 1; n--) {
+    for (const [span, rest] of [[raw.slice(raw.length - n), raw.slice(0, raw.length - n)], [raw.slice(0, n), raw.slice(n)]] as const) {
+      const f = fits(phraseWords(span.join(" ")), choices);
+      if (f.exact.length === 1) return { who: who([...rest]), choice: f.exact[0] };
+      if (!best && f.some.length) best = { who: who([...rest]), ...f, n };
+    }
+  }
+  if (best) return best.some.length === 1 ? { who: best.who, choice: best.some[0] } : { who: best.who, candidates: best.some };
+  return { who: who(raw) };
 }
 
 const WHO_SQL = `select ct.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as name,
@@ -81,7 +116,7 @@ const ask = (text: string, buttons: unknown[]) => ({ response_type: "ephemeral",
 
 export type CommandAnswer =
   | { say: Record<string, unknown>; send?: undefined; form?: undefined }
-  | { form: AgreementChoice[]; say?: undefined; send?: undefined }
+  | { form: AgreementChoice[]; picked?: AgreementChoice; say?: undefined; send?: undefined }
   | { send: { contact: Who; choice: AgreementChoice; by: Requester }; say: Record<string, unknown>; form?: undefined };
 
 /** The command, answered inside Slack's three seconds (a DB read only; any sending happens after the answer). */
@@ -90,13 +125,13 @@ export async function answerAgreementCommand(c: PoolClient, companyId: string, s
   if (!by) return { say: { response_type: "ephemeral", text: NOT_ALLOWED } };
   const choices = agreementChoices(bindings);
   if (!choices.length) return { say: { response_type: "ephemeral", text: "This offer has no agreement set up yet (crm.agreement_template or agreements.list)." } };
-  const { who, choice } = parseAgreementText(text, choices);
-  if (!who) return { form: choices };
+  const { who, choice, candidates } = parseAgreementText(text, choices);
+  if (!who) return { form: choices, ...(choice ? { picked: choice } : {}) };
   const r = await resolveWho(c, companyId, who);
   if ("none" in r) return { say: { response_type: "ephemeral", text: NO_ONE(who) } };
   if ("many" in r) return { say: { response_type: "ephemeral", text: `More than one person is "${who}":\n${r.many.map((p) => `• ${named(p)}`).join("\n")}\nUse their email or GHL contact link. Nothing was sent.` } };
   const pick = choice ?? (choices.length === 1 ? choices[0] : undefined);
-  if (!pick) return { say: ask(`Which agreement for ${named(r.found)}?`, [...choices.map((x) => sendButton(r.found, x, `Send ${x.label}`)), cancelButton]) };
+  if (!pick) return { say: ask(`Which agreement for ${named(r.found)}?`, [...(candidates ?? choices).map((x) => sendButton(r.found, x, `Send ${x.label}`)), cancelButton]) };
   if (!r.exact) return { say: ask(`Send ${pick.label} to ${named(r.found)}?`, [sendButton(r.found, pick, "Send"), cancelButton]) };
   return { send: { contact: r.found, choice: pick, by }, say: { response_type: "ephemeral", text: `Sending ${pick.label} to ${named(r.found)}…` } };
 }
@@ -114,15 +149,19 @@ export async function checkAgreementPress(c: PoolClient, companyId: string, slac
   return { contact: { ...contact, name: contact.name || "them" }, choice, by };
 }
 
-export const agreementForm = (choices: AgreementChoice[], meta: Meta) => ({
-  type: "modal", callback_id: AGREEMENT_FORM, private_metadata: JSON.stringify(meta),
-  title: { type: "plain_text", text: "Send an agreement" }, submit: { type: "plain_text", text: "Send" }, close: { type: "plain_text", text: "Cancel" },
-  blocks: [
-    { type: "input", block_id: "who", label: { type: "plain_text", text: "Their full name, email, phone, or GHL contact link" }, element: { type: "plain_text_input", action_id: "who", placeholder: { type: "plain_text", text: "rae@example.com" } } },
-    { type: "input", block_id: "which", label: { type: "plain_text", text: "Which agreement" }, element: { type: "static_select", action_id: "which",
-      options: choices.map((x) => ({ text: { type: "plain_text", text: x.label.slice(0, 75) }, value: x.template })), ...(choices.length === 1 ? { initial_option: { text: { type: "plain_text", text: choices[0].label.slice(0, 75) }, value: choices[0].template } } : {}) } },
-  ],
-});
+/** The form: who (and which, already picked when the command named it or the offer has one). */
+export const agreementForm = (choices: AgreementChoice[], meta: Meta, picked?: AgreementChoice) => {
+  const pre = picked ?? (choices.length === 1 ? choices[0] : undefined);
+  const option = (x: AgreementChoice) => ({ text: { type: "plain_text", text: x.label.slice(0, 75) }, value: x.template });
+  return {
+    type: "modal", callback_id: AGREEMENT_FORM, private_metadata: JSON.stringify(meta),
+    title: { type: "plain_text", text: "Send an agreement" }, submit: { type: "plain_text", text: "Send" }, close: { type: "plain_text", text: "Cancel" },
+    blocks: [
+      { type: "input", block_id: "who", label: { type: "plain_text", text: pre && picked ? `Who do you want to send ${pre.label} to?`.slice(0, 150) : "Who do you want to send it to?" }, hint: { type: "plain_text", text: "Their full name, email, phone or GHL contact link" }, element: { type: "plain_text_input", action_id: "who", placeholder: { type: "plain_text", text: "rae@example.com" } } },
+      { type: "input", block_id: "which", label: { type: "plain_text", text: "Which agreement" }, element: { type: "static_select", action_id: "which", options: choices.map(option), ...(pre ? { initial_option: option(pre) } : {}) } },
+    ],
+  };
+};
 
 /** The form sent back (its Send is the confirmation): checked before Slack's three seconds are up; an error goes back under its field. */
 export async function checkAgreementSubmit(c: PoolClient, companyId: string, slackUser: string, bindings: Record<string, string>, typed: string, template: string):
