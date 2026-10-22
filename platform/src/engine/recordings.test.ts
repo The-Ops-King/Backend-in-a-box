@@ -25,7 +25,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='recs'");
-      if (co) { for (const t of ["events", "sends", "recordings", "appointments", "calendars", "opportunities", "contact_identifiers", "contacts", "users", "company_terms"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["audit_log", "events", "sends", "recordings", "appointments", "calendars", "opportunities", "contact_identifiers", "contacts", "users", "company_terms"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('Recs','recs','America/New_York') returning id"))!.id;
       await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories`, [companyId]);
       term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
