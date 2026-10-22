@@ -1,16 +1,23 @@
 import type { PoolClient } from "pg";
+import { DateTime } from "luxon";
 import { many, one } from "@/db/client";
 import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 import { normEmail } from "./identity";
 
 /**
  * Call recordings (D22). Same shape as the payments ledger: every recording the provider reports becomes a row, linked
- * to a person or not. The ladder, most reliable first: an invitee email on a known contact (and, D102, that contact's
- * booking with the recording's meeting link, when they have one); the meeting link (D102: exactly one live booking of the
- * company has it, starting within a day of the recording; a link several bookings share, a personal meeting room, says
- * nothing); an invitee name that matches exactly one contact; the closer's own calendar (the recorder is a user we know,
- * and they had one appointment within two hours of the recording start, or one starting within 15 minutes of it with every
- * other at least 40 minutes away). One unambiguous hit or nothing. A miss is an unlinked row the team fixes by hand.
+ * to a person or not. D226 (Tyler, on Beth Huffman's call filed on Corina Raducanu: "this needs to be foolproof otherwise it's
+ * worthless"; "if the client doesn't join, we don't just link it to a random client"): a recording is linked only when WHO was on
+ * it and WHEN it was agree.
+ *
+ * - Who: the people who spoke (the transcript's speakers, the truth of who showed up), else who was invited (an invitee email on a
+ *   known contact, an invitee name exactly one contact has, the booking whose meeting link the call used). The team is never a
+ *   client: a call where only the team spoke (a roleplay, a training) is internal and is linked to no one, and no one is asked.
+ * - When: a booking fits a recording that starts at most 20 minutes before it and before it ends (a short or empty booking spans 15).
+ * - Linked: exactly one person on the call has a booking that fits, and (from the invite alone) no other booking of the recorder's
+ *   fits the time too; or the one person on the call has no booking then and nobody else's fits either (an unbooked call: linked to
+ *   them, no booking, nothing marked showed). Anything else stays unlinked with the reason, and the team is asked (the Unmatched
+ *   recording post, with its Link button). The closer's calendar alone never links a recording: someone on the call must be the person.
  */
 export type RecordingInput = {
   provider?: string; externalId: string;
@@ -26,15 +33,16 @@ export type RecordingInput = {
 export type RecordingRow = { id: string; company_id: string; contact_id: string | null; appointment_id: string | null; provider: string; external_id: string; title: string | null; started_at: Date; ended_at: Date | null; duration_min: number | null; url: string | null; share_url: string | null; recorded_by_email: string | null; recorded_by_name: string | null; invitees: { name?: string; email?: string; isExternal?: boolean }[]; transcript: { speaker: string; email?: string; text: string; timestamp?: string }[] | null; summary: string | null; analysis: Record<string, unknown>; link_status: string; linked_by: string | null; unlinked_reason: string | null; raw: Record<string, unknown>; received_at: Date };
 export type RecordResult =
   | { outcome: "duplicate"; recording: RecordingRow }
+  | { outcome: "internal"; recording: RecordingRow; reason: string }   // D226: only the team spoke; linked to no one, no one asked
   | { outcome: "linked"; recording: RecordingRow; event: EventRow; contactId: string; appointmentId: string | null }
   | { outcome: "unlinked"; recording: RecordingRow; event: EventRow; reason: string };
 /** `silent` (history, D115): the row is written and linked by the same ladder, and nothing is emitted, so no workflow starts and no waiting run wakes. */
 export type SilentRecordResult = { outcome: "duplicate" | "linked" | "unlinked"; recording: RecordingRow; reason?: string };
 
-const CALENDAR_WINDOW_MIN = 120;      // the closer's appointment must start within this of the recording
-const ON_TIME_MIN = 15;               // a recording starting this close to a call's start is that call…
-const CLEAR_GAP_MIN = 40;             // …when no other call of the closer's starts within this of the recording
-const APPOINTMENT_WINDOW_H = 24;      // once the person is known, their appointment nearest the recording, if this close
+const BEFORE_MIN = 20;                 // D226: a call may start this long before its booking (the room opened early)…
+const SHORT_CALL_MIN = 15;             // …and until the booking ends; a booking with no length spans this much
+const MEETING_WINDOW_H = 24;           // a booking's meeting link counts for a recording this close to it (D102)
+const GENERIC_SPEAKER = /^(speaker|unknown|participant|guest|user)\b|^\d+$/i;   // a transcript label that names no one
 
 /**
  * D102: one meeting, one key, whichever side reports it: a Zoom meeting id (`/j/<digits>`), a Google Meet code, otherwise the
@@ -70,58 +78,124 @@ export async function prospectsOnCall(c: PoolClient, companyId: string, input: P
   return { emails, names, staffDropped };
 }
 
-export type Match = { contactId: string; by: "email" | "meeting" | "name" | "calendar"; appointmentId?: string };
-export async function resolveRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<{ match: Match | null; reason?: string }> {
-  const { emails, names, staffDropped } = await prospectsOnCall(c, companyId, input);
-  const key = meetingKey(input.meetingUrl);
-  // the live bookings carrying the recording's meeting link (all of the company's, or one contact's): one, near the recording, or none of them counts
-  const byMeeting = async (contactId?: string) => {
-    if (!key) return { hit: null, shared: 0 };
-    const rows = await many<{ id: string; contact_id: string; off: number }>(c, `select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and meeting_key=$2 and status<>'cancelled'${contactId ? " and contact_id=$4" : ""}`, contactId ? [companyId, key, input.startedAt, contactId] : [companyId, key, input.startedAt]);
-    return { hit: rows.length === 1 && rows[0].off <= APPOINTMENT_WINDOW_H * 3600 ? rows[0] : null, shared: rows.length };
-  };
-  // 1. email: identities are unique per company, so a hit is exact
-  const byEmail = new Set<string>();
-  for (const e of emails) { const r = await one<{ contact_id: string }>(c, "select i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and ct.merged_into is null", [companyId, e]); if (r) byEmail.add(r.contact_id); }
-  if (byEmail.size === 1) { const contactId = [...byEmail][0], { hit } = await byMeeting(contactId); return { match: { contactId, by: "email", ...(hit ? { appointmentId: hit.id } : {}) } }; }
-  if (byEmail.size > 1) return pickBooked(c, companyId, input, [...byEmail], byMeeting, `attendees match ${byEmail.size} different contacts (${emails.join(", ")})`);
-  // 2. meeting link (D102): the booking's own join link is the recording's; exact when only one booking has it
-  const meeting = await byMeeting();
-  if (meeting.hit) return { match: { contactId: meeting.hit.contact_id, by: "meeting", appointmentId: meeting.hit.id } };
-  const shared = meeting.shared > 1 ? `; its meeting link is on ${meeting.shared} bookings` : "";
-  // 3. name: exact after normalisation, exactly one contact
-  const byName = new Set<string>();
-  for (const n of names.map(normName).filter((x): x is string => !!x)) {
-    const rows = await many<{ id: string }>(c, "select id from contacts where company_id=$1 and merged_into is null and lower(regexp_replace(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')), '[^[:alnum:]]+', ' ', 'g'))=$2", [companyId, n]);
-    if (rows.length === 1) byName.add(rows[0].id); else if (rows.length > 1) return { match: null, reason: `"${n}" is the name of ${rows.length} contacts` };
-  }
-  if (byName.size === 1) return { match: { contactId: [...byName][0], by: "name" } };
-  if (byName.size > 1) return { match: null, reason: `attendee names match ${byName.size} different contacts` };
-  // 4. the closer's calendar: the recorder is a user we know, with one appointment near the recording start
-  const closer = input.recordedBy?.email ? await one<{ id: string }>(c, "select id from users where company_id=$1 and lower(email)=$2 and active", [companyId, input.recordedBy.email.toLowerCase()]) : null;
-  if (closer) {
-    const near = await many<{ id: string; contact_id: string; off: number }>(c, `select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and assigned_user_id=$2 and status<>'cancelled' and abs(extract(epoch from (starts_at - $3::timestamptz))) <= $4 order by 3`, [companyId, closer.id, input.startedAt, CALENDAR_WINDOW_MIN * 60]);
-    if (near.length === 1) return { match: { contactId: near[0].contact_id, by: "calendar", appointmentId: near[0].id } };
-    // back-to-back calls are normal: the call the recording started on is the one beginning right then, when the next nearest is clearly another slot
-    if (near.length > 1 && near[0].off <= ON_TIME_MIN * 60 && near[1].off >= CLEAR_GAP_MIN * 60) return { match: { contactId: near[0].contact_id, by: "calendar", appointmentId: near[0].id } };
-    if (near.length > 1) return { match: null, reason: `the closer had ${near.length} appointments within ${CALENDAR_WINDOW_MIN / 60} hours of this recording, none clearly the one it started on${shared}` };
-  }
-  const seen = [...emails, ...names].join(", ");
-  return { match: null, reason: (emails.length || names.length ? `nobody in the CRM matches ${seen}${closer ? "; no appointment on the closer's calendar near the start" : ""}` : staffDropped.length ? `every attendee is staff (${staffDropped.join(", ")})` : "no attendees on the recording") + shared };
+export type Match = { contactId: string; by: "email" | "meeting" | "name" | "speaker"; appointmentId?: string };
+export type Resolution = { match: Match | null; reason?: string; internal?: boolean };
+type Fit = { id: string; contact_id: string; name: string; first: string | null; last: string | null; assigned_user_id: string | null; meeting_key: string | null; starts_at: Date };
+
+/** D226: the live bookings a recording starting at `at` fits: it starts no more than BEFORE_MIN before one, and before it ends. */
+const FIT_SQL = `select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as name, ct.first_name as first, ct.last_name as last, a.assigned_user_id, a.meeting_key, a.starts_at
+  from appointments a join contacts ct on ct.id=a.contact_id
+  where a.company_id=$1 and a.status<>'cancelled' and ct.merged_into is null
+    and $2::timestamptz >= a.starts_at - make_interval(mins => ${BEFORE_MIN})
+    and $2::timestamptz < greatest(coalesce(a.ends_at, a.starts_at), a.starts_at + make_interval(mins => ${SHORT_CALL_MIN}))`;
+const fitsAt = (c: PoolClient, companyId: string, at: Date) => many<Fit>(c, `${FIT_SQL} order by abs(extract(epoch from (a.starts_at - $2::timestamptz)))`, [companyId, at]);
+
+/** D226: this person's booking the recording fits (the nearest start, when a reschedule left two), or none. */
+export async function fittingBooking(c: PoolClient, companyId: string, contactId: string, at: Date): Promise<string | null> {
+  return (await one<{ id: string }>(c, `${FIT_SQL} and a.contact_id=$3 order by abs(extract(epoch from (a.starts_at - $2::timestamptz))) limit 1`, [companyId, at, contactId]))?.id ?? null;
 }
 
+const tokens = (n?: string | null) => normName(n)?.split(" ") ?? [];
+/** A name that is a team member's: the same first name, and each further word of it a start of theirs or theirs of it ("Nelly", "Nelly Sudri" for "Nelly S."); never longer than theirs. */
+const staffName = (staff: string[][], name: string) => { const s = tokens(name); return s.length > 0 && staff.some((t) => s.length <= t.length && t[0] === s[0] && s.slice(1).every((x, i) => x.startsWith(t[i + 1]) || t[i + 1].startsWith(x))); };
 /**
- * D215: several of our contacts on one invite (a partner, a second address the person also used): the call is the booking's, so the
- * one whose live booking carries the recording's meeting link, else the one whose live booking starts near the recording. Exactly
- * one, or the recording stays unlinked with the reason, as before.
+ * D226: a name someone gave on the call is this booked person's: the same surname, and a first name that is theirs, holds theirs or is
+ * held in it ("Elizabeth" for "Beth"), or is in one of their email addresses; a first name alone must be theirs exactly.
  */
-async function pickBooked(c: PoolClient, companyId: string, input: RecordingInput, contactIds: string[], byMeeting: () => Promise<{ hit: { id: string; contact_id: string } | null }>, why: string): Promise<{ match: Match | null; reason?: string }> {
-  const { hit } = await byMeeting();
-  if (hit && contactIds.includes(hit.contact_id)) return { match: { contactId: hit.contact_id, by: "meeting", appointmentId: hit.id } };
-  const near = await many<{ id: string; contact_id: string }>(c, `select distinct on (contact_id) id, contact_id from appointments where company_id=$1 and contact_id = any($2::uuid[]) and status<>'cancelled'
-    and abs(extract(epoch from (starts_at - $3::timestamptz))) <= $4 order by contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))`, [companyId, contactIds, input.startedAt, CALENDAR_WINDOW_MIN * 60]);
-  if (near.length === 1) return { match: { contactId: near[0].contact_id, by: "email", appointmentId: near[0].id } };
-  return { match: null, reason: `${why}, and ${near.length ? `${near.length} of them have` : "none of them has"} a booking within ${CALENDAR_WINDOW_MIN / 60} hours of the start` };
+export function nameAgrees(spoken: string, first: string | null, last: string | null, emails: string[] = []): boolean {
+  const s = tokens(spoken), f = tokens(first)[0], l = tokens(last).at(-1);
+  if (!s.length || !f) return false;
+  const sf = s[0], sl = s.length > 1 ? s.at(-1)! : undefined;
+  if (!sl) return sf === f;
+  const firstOk = sf === f || (sf.length >= 3 && f.length >= 3 && (sf.includes(f) || f.includes(sf))) || (sf.length >= 3 && emails.some((e) => e.split("@")[0].includes(sf)));
+  return !!l && sl === l && firstOk;
+}
+
+export async function resolveRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<Resolution> {
+  const { emails, names, staffDropped } = await prospectsOnCall(c, companyId, input);
+  const key = meetingKey(input.meetingUrl);
+  const tz = (await one<{ timezone: string }>(c, "select timezone from companies where id=$1", [companyId]))?.timezone ?? "UTC";
+  const when = (d: Date) => DateTime.fromJSDate(d).setZone(tz).toFormat("ccc MMM d, h:mm a");
+  const who = (f: Fit) => `${f.name || "someone"} (booked ${when(f.starts_at)})`;
+  const emailsOf = async (contactId: string) => (await many<{ value: string }>(c, "select value from contact_identifiers where contact_id=$1 and kind='email' and retired_at is null", [contactId])).map((r) => r.value);
+  const recorder = input.recordedBy?.email ? await one<{ id: string }>(c, "select id from users where company_id=$1 and lower(email)=$2 and active", [companyId, input.recordedBy.email.toLowerCase()]) : null;
+  const fits = await fitsAt(c, companyId, input.startedAt);
+  const theirs = (f: Fit) => !!recorder && f.assigned_user_id === recorder.id;
+
+  // the team: the roster, the recorder, and whoever the invite marks as ours
+  const users = await many<{ email: string; name: string | null }>(c, "select lower(email) as email, name from users where company_id=$1 or company_id is null", [companyId]);
+  const staffEmails = new Set([...users.map((u) => u.email), ...staffDropped, ...(input.recordedBy?.email ? [input.recordedBy.email.toLowerCase()] : [])]);
+  const staffNames = [...users.map((u) => u.name), input.recordedBy?.name, ...input.invitees.filter((i) => i.isExternal === false || (i.email && staffEmails.has(i.email.toLowerCase()))).map((i) => i.name)]
+    .map(tokens).filter((t) => t.length > 0);
+
+  // 1. who spoke: the transcript says who showed up
+  const lines = input.transcript ?? [];
+  const spoke = new Map<string, { name: string; email?: string; byAddress?: boolean }>();
+  for (const l of lines) {
+    const label = l.speaker.trim(), asEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(label) ? normEmail(label) : undefined;   // a guest with no display name is shown by their address
+    const n = normName(label); if (n && !spoke.has(n)) spoke.set(n, { name: label, email: normEmail(l.email) ?? asEmail, ...(asEmail ? { byAddress: true } : {}) });
+  }
+  const guests = [...spoke.values()].filter((p) => !(p.email && staffEmails.has(p.email)) && !staffName(staffNames, p.name));
+  if (lines.length && spoke.size && !guests.length) return { match: null, internal: true, reason: `only the team spoke (${[...spoke.values()].map((p) => p.name).join(", ")}): not a call with a client, so it is linked to no one` };
+  const named = guests.filter((p) => !GENERIC_SPEAKER.test(p.name.trim()));
+  if (named.length) {
+    const said = named.map((p) => p.name).join(", ");
+    const people = new Set<string>();   // contacts the speakers are: by their exact name (one contact), or the invite email Fathom put on them when the name agrees
+    for (const p of named) {
+      const rows = await many<{ id: string }>(c, "select id from contacts where company_id=$1 and merged_into is null and lower(regexp_replace(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')), '[^[:alnum:]]+', ' ', 'g'))=$2", [companyId, normName(p.name)]);
+      if (rows.length === 1) people.add(rows[0].id);
+      if (p.email) { const r = await one<{ id: string; first_name: string | null; last_name: string | null }>(c, "select ct.id, ct.first_name, ct.last_name from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and ct.merged_into is null", [companyId, p.email]);
+        if (r && (p.byAddress || nameAgrees(p.name, r.first_name, r.last_name, [p.email]))) people.add(r.id); }   // the address they joined with is them; an address the recorder matched from the invite must agree with the name
+    }
+    const agree: Fit[] = [];
+    for (const f of fits) if (people.has(f.contact_id) || (await (async () => { const e = await emailsOf(f.contact_id); return named.some((p) => nameAgrees(p.name, f.first, f.last, e)); })())) agree.push(f);
+    const agreeing = [...new Set(agree.map((f) => f.contact_id))];
+    if (agreeing.length === 1) return { match: { contactId: agreeing[0], by: "speaker", appointmentId: agree[0].id } };
+    if (agreeing.length > 1) return { match: null, reason: `${said} spoke, and ${agreeing.length} bookings then fit them (${agree.map(who).join(", ")}): which one is a person's call` };
+    const mine = fits.filter(theirs);
+    if (people.size === 1 && !mine.length) return { match: { contactId: [...people][0], by: "speaker" } };
+    if (people.size === 1) return { match: null, reason: `${said} spoke, but the booking the recorder had then is ${mine.map(who).join(", ")}: they don't match, so it is a person's call` };
+    if (people.size > 1) return { match: null, reason: `${said} spoke, and they are ${people.size} different contacts with no booking then: which one is a person's call` };
+    return { match: null, reason: `${said} spoke, and nobody in the CRM has that name${mine.length ? `; the booking the recorder had then is ${mine.map(who).join(", ")}, a different name` : ""}` };
+  }
+
+  // 2. no one named spoke (no transcript yet, or speakers the recorder did not name): who was invited, held to the time
+  const invited = new Map<string, Match["by"]>();
+  const notes: string[] = [];
+  for (const e of emails) { const r = await one<{ contact_id: string }>(c, "select i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and ct.merged_into is null", [companyId, e]); if (r) invited.set(r.contact_id, "email"); }
+  if (!invited.size) for (const n of names.map(normName).filter((x): x is string => !!x)) {
+    const rows = await many<{ id: string }>(c, "select id from contacts where company_id=$1 and merged_into is null and lower(regexp_replace(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')), '[^[:alnum:]]+', ' ', 'g'))=$2", [companyId, n]);
+    if (rows.length === 1) invited.set(rows[0].id, "name"); else if (rows.length > 1) notes.push(`"${n}" is the name of ${rows.length} contacts`);
+  }
+  let sharedLink = 0, room: { id: string; contact_id: string } | null = null;   // the one booking whose own meeting link the call used (D102)
+  if (key) {
+    const rows = await many<{ id: string; contact_id: string; off: number }>(c, "select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and meeting_key=$2 and status<>'cancelled'", [companyId, key, input.startedAt]);
+    if (rows.length === 1 && rows[0].off <= MEETING_WINDOW_H * 3600) { room = rows[0]; if (!invited.has(room.contact_id)) invited.set(room.contact_id, "meeting"); }
+    if (rows.length > 1) sharedLink = rows.length;
+  }
+  const shared = sharedLink ? `; its meeting link is on ${sharedLink} bookings` : "";
+  const keyed = (f: Fit) => !!key && f.meeting_key === key;
+  const agree = fits.filter((f) => invited.has(f.contact_id));
+  const agreeing = [...new Set(agree.map((f) => f.contact_id))];
+  const others = fits.filter((f) => !invited.has(f.contact_id) && (theirs(f) || keyed(f)));
+  const named_ = async (id: string) => (await one<{ n: string }>(c, "select trim(coalesce(first_name,'')||' '||coalesce(last_name,'')) as n from contacts where id=$1", [id]))?.n || "a contact";
+  // that person's booking whose room the call used wins over their nearest one (a call taken early or late in its own room)
+  if (agreeing.length === 1 && !others.length) { const id = room?.contact_id === agreeing[0] ? room.id : (agree.find((x) => keyed(x)) ?? agree[0]).id; return { match: { contactId: agreeing[0], by: invited.get(agreeing[0])!, appointmentId: id } }; }
+  if (!agreeing.length && room && !fits.some((f) => f.contact_id !== room!.contact_id && (theirs(f) || keyed(f)))) return { match: { contactId: room.contact_id, by: invited.get(room.contact_id)!, appointmentId: room.id } };
+  if (agreeing.length === 1) return { match: null, reason: `the invite names ${await named_(agreeing[0])}, but ${others.map(who).join(", ")} fits the time too, and no transcript says who joined${shared}` };
+  if (agreeing.length > 1) return { match: null, reason: `the invite names ${agreeing.length} contacts booked then (${agree.map(who).join(", ")}), and no transcript says who joined${shared}` };
+  if (invited.size === 1) {
+    const [id, by] = [...invited][0];
+    if (by !== "name" && !fits.some((f) => theirs(f) || keyed(f))) return { match: { contactId: id, by } };
+    const own = await one<{ starts_at: Date }>(c, "select starts_at from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' order by abs(extract(epoch from (starts_at - $3::timestamptz))) limit 1", [companyId, id, input.startedAt]);
+    const mine = fits.filter((f) => theirs(f) || keyed(f));
+    return { match: null, reason: `the invite names ${await named_(id)}${own ? `, booked ${when(own.starts_at)}, which this recording (${when(input.startedAt)}) does not fit` : ", who has no booking"}${mine.length ? `; the booking then is ${mine.map(who).join(", ")}` : by === "name" ? "; a name alone is not enough" : ""}${shared}` };
+  }
+  if (invited.size > 1) return { match: null, reason: `the invite names ${invited.size} different contacts and none has a booking then${shared}` };
+  const seen = [...emails, ...names].join(", ");
+  const mine = fits.filter(theirs);
+  return { match: null, reason: (seen ? `nobody in the CRM matches ${seen}` : staffDropped.length ? `only the team was invited (${staffDropped.join(", ")})` : "no attendees on the recording")
+    + (lines.length ? "" : ", and no transcript says who joined") + (mine.length ? `; the recorder's booking then is ${mine.map(who).join(", ")}, but no one on the call is shown to be them` : "") + (notes.length ? `; ${notes.join("; ")}` : "") + shared };
 }
 
 /**
@@ -132,29 +206,23 @@ export async function rematchRecordings(c: PoolClient, companyId: string, opts: 
   const rows = await many<RecordingRow>(c, "select * from recordings where company_id=$1 and link_status='unlinked' and provider<>'ghl' and started_at >= $2 and started_at < $3 order by started_at", [companyId, opts.from, opts.to]);
   const linked: Awaited<ReturnType<typeof rematchRecordings>>["linked"] = [], still: Awaited<ReturnType<typeof rematchRecordings>>["still"] = [];
   for (const r of rows) {
-    const input: RecordingInput = { provider: r.provider, externalId: r.external_id, startedAt: r.started_at, recordedBy: { name: r.recorded_by_name ?? undefined, email: r.recorded_by_email ?? undefined }, invitees: r.invitees ?? [] };
+    const input: RecordingInput = { provider: r.provider, externalId: r.external_id, startedAt: r.started_at, recordedBy: { name: r.recorded_by_name ?? undefined, email: r.recorded_by_email ?? undefined }, invitees: r.invitees ?? [], transcript: r.transcript ?? undefined };
     const { match, reason } = await resolveRecording(c, companyId, input);
     if (!match) {
       if (!opts.dryRun && reason && reason !== r.unlinked_reason) await c.query("update recordings set unlinked_reason=$2 where id=$1", [r.id, reason]);
       still.push({ id: r.id, title: r.title, started_at: r.started_at.toISOString(), reason: reason ?? "no match" }); continue;
     }
-    const appointmentId = opts.dryRun ? match.appointmentId ?? await appointmentNear(c, companyId, match.contactId, r.started_at) : (await settle(c, companyId, r, match.contactId, match.by, match.appointmentId ?? null, true)).appointmentId;
+    const appointmentId = opts.dryRun ? match.appointmentId ?? null : (await settle(c, companyId, r, match.contactId, match.by, match.appointmentId ?? null, true)).appointmentId;
     linked.push({ id: r.id, title: r.title, started_at: r.started_at.toISOString(), contact_id: match.contactId, appointment_id: appointmentId, by: match.by });
   }
   if (!opts.dryRun && linked.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'recordings.rematched','company',$2,$3)", [companyId, companyId, { from: opts.from, to: opts.to, linked }]);
   return { linked, still };
 }
 
-/** The contact's appointment nearest the recording, within a day; a reschedule means several, and the nearest one is the one held. */
-export async function appointmentNear(c: PoolClient, companyId: string, contactId: string, at: Date): Promise<string | null> {
-  const r = await one<{ id: string }>(c, `select id from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' and abs(extract(epoch from (starts_at - $3::timestamptz))) <= $4 order by abs(extract(epoch from (starts_at - $3::timestamptz))) limit 1`, [companyId, contactId, at, APPOINTMENT_WINDOW_H * 3600]);
-  return r?.id ?? null;
-}
-
 export const eventData = (r: RecordingRow, extra: Record<string, unknown> = {}) => ({ recording_id: r.id, provider: r.provider, external_id: r.external_id, title: r.title, started_at: r.started_at.toISOString(), duration_min: r.duration_min, share_url: r.share_url, recorded_by: r.recorded_by_email, ...extra });
 
 async function settle(c: PoolClient, companyId: string, r: RecordingRow, contactId: string, by: string, appointmentId: string | null, silent = false): Promise<{ event: EventRow | null; appointmentId: string | null }> {
-  const apptId = appointmentId ?? (await appointmentNear(c, companyId, contactId, r.started_at));
+  const apptId = appointmentId;   // D226: the booking the match found the recording fits, or none (never merely the nearest)
   await c.query("update recordings set contact_id=$2, appointment_id=$3, link_status='linked', linked_by=$4, unlinked_reason=null where id=$1", [r.id, contactId, apptId, by]);
   if (silent) return { event: null, appointmentId: apptId };
   const appt = apptId ? await one<{ opportunity_id: string | null }>(c, "select opportunity_id from appointments where id=$1", [apptId]) : null;
@@ -176,7 +244,7 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
     [companyId, provider, input.externalId, input.title ?? null, input.startedAt, input.endedAt ?? null, input.durationMin ?? null, input.url ?? null, input.shareUrl ?? null, normEmail(input.recordedBy?.email) ?? null, input.recordedBy?.name ?? null,
       JSON.stringify(input.invitees), has ? JSON.stringify(input.transcript) : null, { ...(input.raw ?? {}), transcript_status: has ? "ready" : input.raw?.transcript_status ?? "none" }]);
   if (!inserted) return { outcome: "duplicate", recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider=$2 and external_id=$3", [companyId, provider, input.externalId]))! };
-  const { match, reason } = await resolveRecording(c, companyId, input);
+  const { match, reason, internal } = await resolveRecording(c, companyId, input);
   if (match) {
     const { event, appointmentId } = await settle(c, companyId, inserted, match.contactId, match.by, match.appointmentId ?? null, opts.silent);
     const recording = (await one<RecordingRow>(c, "select * from recordings where id=$1", [inserted.id]))!;
@@ -184,23 +252,25 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
   }
   const row = (await one<RecordingRow>(c, "update recordings set unlinked_reason=$2 where id=$1 returning *", [inserted.id, reason ?? null]))!;
   if (opts.silent) return { outcome: "unlinked", recording: row, reason: reason ?? "no match" };
+  if (internal) return { outcome: "internal", recording: row, reason: reason ?? "only the team spoke" };
   const event = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "recording.unlinked", source: provider === "fathom" ? "fathom" : "zapier", occurred_at: input.startedAt, data: eventData(row, { reason, invitees: input.invitees, attendees: input.invitees.map((i) => i.email ?? i.name).filter(Boolean).join(", ") }) });
   return { outcome: "unlinked", recording: row, event, reason: reason ?? "no match" };
 }
 
 /** A person links an orphan (the Slack button): it then runs as a match on arrival would, Sales call recorded included. The attendee's email is remembered so the next call from them links on its own. */
-export async function linkRecording(c: PoolClient, companyId: string, recordingId: string, contactId: string): Promise<{ event: EventRow; appointmentId: string | null }> {
+export async function linkRecording(c: PoolClient, companyId: string, recordingId: string, contactId: string, opts: { remember?: boolean; appointmentId?: string | null; by?: string } = {}): Promise<{ event: EventRow; appointmentId: string | null; started: number }> {
   const r = await one<RecordingRow>(c, "select * from recordings where company_id=$1 and id=$2", [companyId, recordingId]);
   if (!r) throw new Error("recording not found");
   if (r.link_status === "linked") throw new Error("recording is already linked");
   if (!(await one(c, "select 1 from contacts where company_id=$1 and id=$2", [companyId, contactId]))) throw new Error("contact not found");
   const { emails } = await prospectsOnCall(c, companyId, { invitees: r.invitees, recordedBy: { email: r.recorded_by_email ?? undefined } });
-  if (emails.length === 1) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, emails[0]]);
-  const { event, appointmentId } = await settle(c, companyId, r, contactId, "manual", null);
-  await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: event!.opportunity_id, appointment_id: appointmentId, event_type: "recording.linked", source: "user", data: { recording_id: r.id, by: "manual" } });
+  if (opts.remember !== false && emails.length === 1) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, emails[0]]);
+  const by = opts.by ?? "manual";
+  const { event, appointmentId } = await settle(c, companyId, r, contactId, by, opts.appointmentId !== undefined ? opts.appointmentId : await fittingBooking(c, companyId, contactId, r.started_at));
+  await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: event!.opportunity_id, appointment_id: appointmentId, event_type: "recording.linked", source: "user", data: { recording_id: r.id, by } });
   const appt = appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [appointmentId]) : null;
-  await dispatchEvent(c, event!, { contact: { id: contactId }, appointment: appt ?? undefined, recording: { id: r.id, title: r.title, duration_min: r.duration_min } });
-  return { event: event!, appointmentId };
+  const started = await dispatchEvent(c, event!, { contact: { id: contactId }, appointment: appt ?? undefined, recording: { id: r.id, title: r.title, duration_min: r.duration_min } });
+  return { event: event!, appointmentId, started: started.length };
 }
 
 // ---- phone calls (D28) -----------------------------------------------------------------------------------------------

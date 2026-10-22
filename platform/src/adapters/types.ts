@@ -106,6 +106,8 @@ export interface CrmWrite {
   addTag(c: Company, contactId: string, tag: string): Promise<void>;
   removeTag(c: Company, contactId: string, tag: string): Promise<void>;
   addNote(c: Company, contactId: string, body: string): Promise<void>;
+  /** D226: one note off a contact (a call summary written on the wrong person). */
+  deleteNote?(c: Company, contactId: string, noteId: string): Promise<void>;
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;
   updateContact(c: Company, contactId: string, patch: ContactWrite): Promise<void>;
   createTask(c: Company, contactId: string, task: { title: string; body?: string; dueAt: Date; assignedUserId?: string }): Promise<{ id: string }>;
