@@ -87,6 +87,12 @@
       "booking": "self",
       "owner": "mitch@revsignals.io"
     },
+    "03ad5f45-89a1-4d07-8728-c180e5e2213e": {
+      "term": "first_call",
+      "name": "Triage call",
+      "booking": "self",
+      "owner": "mitch@revsignals.io"
+    },
     "6a643c89-68fc-4272-9188-a7a42648d2fd": {
       "term": "closing",
       "name": "Closing call",
@@ -100,7 +106,7 @@
     }
   },
   "closerCall": "6a643c89-68fc-4272-9188-a7a42648d2fd",
-  "bookingCalendar": "aac238a5-f530-4a6b-8908-a5c56c905081",
+  "bookingCalendar": "03ad5f45-89a1-4d07-8728-c180e5e2213e",
   "crm": {
     "pipeline_setter": "N59nJLRaspsNwiaPWtE8",
     "stage_setter_new_lead": "e4044e0d-0622-45ff-83f0-13b1244b2aae",
@@ -324,7 +330,8 @@
     ]
   },
   "slackUsers": {
-    "mitch@revsignals.io": "mitch@salesagency.ai"
+    "mitch@revsignals.io": "mitch@salesagency.ai",
+    "taylorjakeh@gmail.com": "jt@jtylerray.com"
   },
   "testSlackChannel": "C0C9UDURSGM",
   "eod": {
