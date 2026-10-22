@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import { dispatchEvent, emitEvent } from "./dispatch";
 
-export type DispositionInput = { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; via?: string; /** D186: why a DQ, in the end of day's words */ dqReason?: string; /** D225: whether they were pitched (a call that happened) */ pitched?: boolean | null };
+export type DispositionInput = { companyId: string; appointmentId: string; outcomeTermId: string; callOutcomeTermId?: string | null; notes?: string; userId?: string | null; via?: string; /** D186: why a DQ, in the end of day's words */ dqReason?: string; /** D226: whether they were pitched (a call that happened) */ pitched?: boolean | null };
 type OutcomeSource = "disposition" | "engine";
 
 /**
@@ -21,9 +21,9 @@ export async function applyOutcome(c: PoolClient, args: { companyId: string; app
   const before = await one<{ outcome: string | null; call_outcome: string | null }>(c, "select ot.category as outcome, ct.category as call_outcome from appointments a left join company_terms ot on ot.id=a.outcome_term left join company_terms ct on ct.id=a.call_outcome_term where a.id=$1", [a.id]);
   // a closer's answer is the whole answer: a no-show after a "lost" carries no call outcome; the engine's own showed (a recording) keeps the closer's
   const exact = args.source === "disposition";
-  // D225: a close or a deposit was pitched, whoever filed it; otherwise what the closer said
+  // D226: a close or a deposit was pitched, whoever filed it; otherwise what the closer said
   const pitched = typeof args.pitched === "boolean" ? args.pitched : exact && (callOutcome?.category === "closed" || callOutcome?.category === "deposit") ? true : undefined;
-  // D225: the closer's answer says whether they were pitched (nothing when the call did not happen); the engine's own showed leaves it
+  // D226: the closer's answer says whether they were pitched (nothing when the call did not happen); the engine's own showed leaves it
   await c.query(`update appointments set outcome_term=$2, call_outcome_term=${exact ? "$3" : "coalesce($3, call_outcome_term)"}, disposition_id=coalesce($4, disposition_id), dispositioned_at=now(), dispositioned_by=coalesce($5, dispositioned_by)${exact ? ", pitched=$6" : ""} where id=$1`,
     [a.id, args.outcomeTermId, args.callOutcomeTermId ?? null, args.dispositionId ?? null, args.userId ?? null, ...(exact ? [outcome.category === "showed" ? pitched ?? null : null] : [])]);
   const base = { company_id: args.companyId, contact_id: a.contact_id, opportunity_id: a.opportunity_id, appointment_id: a.id, source: args.source, run_id: args.runId ?? null };

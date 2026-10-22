@@ -6133,7 +6133,7 @@ and the contact when the step names one): exactly one, the create landed, so tha
 is); none, nothing was written, so it is created now; several, a record with no key to look for, or a CRM that cannot be read, a
 person decides, as before, the reason said. Engine code for every offer: no saved workflow changes; only this failure case acts
 instead of alerting. `POST /api/admin/runs/retry { company, runs: [one], node }` re-runs one step of a run (the alert's Retry).
-Tests: `retry.test.ts`.
+The alert's Retry (and `POST /api/admin/runs/retry { company, runs: [one], node }`) takes a step blocked this way, not only one that gave up after its tries: the claim still guards it, so a record step settles from what the CRM holds and anything else is blocked again with nothing written twice; a step that settles closes its alert on the next sweep. Tests: `retry.test.ts`.
 
 ## D224. A read-only look at one Calendly booking, or one member's calendar (2026-10-22)
 
@@ -6143,7 +6143,16 @@ host's busy times by type; `user=<member email>` in place of `event` reads that 
 calendar is connected). Calendly's API does not say which calendar it writes new bookings to. It showed both of Nelly's were written
 to Google (her app showed them the next morning), and that Alex Pappas's call was the departed Nonie's ("Cam") with no calendar.
 
-## D225. Whether the closer pitched them, on every end of day (2026-10-22)
+## D225. Who was on a call, read from the call itself (2026-10-22)
+
+Beth Huffman's consultation was filed on Corina Raducanu, and Tyler asked who actually showed up. Three read-only lookups, Bearer
+$CRON_SECRET: `GET /api/admin/recordings/people?company=&recording=` (the invite as the recorder sent it, and each person who spoke,
+from the transcript held on the row or read again from Fathom: name, email when given, lines, first and last time spoken, and the
+contacts and team members that name or email is; no words are returned or kept, D87); `GET /api/admin/contact/calls?company=&contact=`
+(every call the CRM's dialer logged with a person: when, which way, status, seconds, who); and `GET /api/admin/calendly/event` with
+`user=`, `from=` and `to=` (that member's own bookings in a window of up to two days, cancelled too, with who booked each).
+
+## D226. Whether the closer pitched them, on every end of day (2026-10-22)
 
 Tyler: "One thing we need to add to all of the EOD is 'pitch' so if they pitched the person. If it's a show and a follow up, lost,
 or close we need to track if they pitched the person." His answers: asked after a close pending, a follow up, a loss and a DQ; a

@@ -11,7 +11,7 @@ import { memoReads } from "./ghl-graph";
  * `booked_set` and `show_rate` by setter. Only people with something in the period are listed; nobody is "unassigned".
  */
 export type LeaderCloser = { key: string; name: string; cash: number | null; closes: number; shows: number; /** whole percent; null with no shows */ close_rate: number | null;
-  /** D225: shows they pitched, whole percent of shows pitched, and whole percent of pitched that closed (null when none) */ pitched?: number; pitch_rate?: number | null; pitched_close_rate?: number | null };
+  /** D226: shows they pitched, whole percent of shows pitched, and whole percent of pitched that closed (null when none) */ pitched?: number; pitch_rate?: number | null; pitched_close_rate?: number | null };
 export type LeaderSetter = { key: string; name: string; sets: number; due: number; shows: number; /** whole percent of their sets whose call time has passed; null when none has */ show_rate: number | null };
 export type Leaderboard = {
   metric: "leaderboard"; label: string; source: string; period_label: string; period_name: string; from: string; to: string; timezone: string;
@@ -99,8 +99,8 @@ export function formatLeaderboard(lb: Leaderboard): string {
     { cells: k.map((x) => plural(x.closes, "close", "closes")), left: true },
     { cells: k.map((x) => (x.close_rate === null ? "" : `${x.close_rate}%`)) },
   ]) : "_No closes yet._");
-  // D225: how often each closer pitched a show, and how often a pitch closed
-  // shown once a pitch is on record (weeks before D225 have none, and "0 pitched" would be untrue)
+  // D226: how often each closer pitched a show, and how often a pitch closed
+  // shown once a pitch is on record (weeks before D226 have none, and "0 pitched" would be untrue)
   const p = k.filter((x) => x.shows > 0);
   if (p.some((x) => (x.pitched ?? 0) > 0)) {
     L.push("*Pitching* (of shows · closed when pitched)");

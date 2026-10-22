@@ -365,6 +365,17 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
       const c3 = await crash("Cy", "lost");
       const last = (await steps(c3.runId, "n1")).at(-1)!;
       expect(last).toMatchObject({ status: "skipped", result: { kind: "blocked", why: expect.stringMatching(/2 records in the CRM carry its key \(dup-1, dup-2\)/) } });
+      // the alert's Retry on that blocked step: still two, still a person's call, nothing written
+      const n = lostRecs.length;
+      expect(await asOperator((c) => retryStep(c, c3.runId, "operator", { node: "n1", adapters: fake }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/2 records in the CRM carry its key/) });
+      expect(lostRecs).toHaveLength(n);
+      // a person removes the duplicate in the CRM; Retry adopts the one left
+      lostRecs.splice(lostRecs.findIndex((r) => r.id === "dup-2"), 1);
+      expect(await asOperator((c) => retryStep(c, c3.runId, "operator", { node: "n1", adapters: fake }))).toMatchObject({ ok: true, node: "n1" });
+      expect((await steps(c3.runId, "n1")).at(-1)).toMatchObject({ status: "ok", result: { crm_id: "dup-1", recovered: expect.stringMatching(/adopted/), retried_by: "operator" } });
+      expect(lostRecs.filter((r) => r.properties.external_id === "key-Cy")).toHaveLength(1);
+      // a second Retry of a step that passed does nothing
+      expect(await asOperator((c) => retryStep(c, c3.runId, "operator", { node: "n1", adapters: fake }))).toMatchObject({ ok: false, error: expect.stringMatching(/already passed/) });
     } finally { recCrash = "off"; }
   });
 

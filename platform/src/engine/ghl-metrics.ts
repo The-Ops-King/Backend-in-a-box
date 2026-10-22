@@ -108,7 +108,7 @@ export type SalesCall = { id: string; ext: string; ghl: string; name: string; te
   match: "one" | "none" | "many"; appt: { id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null } | null; closer: string; utm: string | null; booking_source: string;
   /** D94: the setter who booked it: the record's setter on the roster (else the name as written), blank when nobody set it or the record says self-booked (a self-booked link is never a set, D87) */ setter: string;
   /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string;
-  /** D225: whether the closer pitched them: the end of day's answer on the booking, else the record's Pitched field; null when nobody said */ pitched: boolean | null;
+  /** D226: whether the closer pitched them: the end of day's answer on the booking, else the record's Pitched field; null when nobody said */ pitched: boolean | null;
   /** D76: the record's links as GHL holds them: its contact_id field, whether the contact came only from the association, its opportunity_id field */ links: { contact_field: boolean; opportunity: string } };
 type Call = SalesCall;
 export type GhlCtx = {
@@ -377,7 +377,7 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     const dqs = salesCallConfig(x.bindings)?.dqDispositions ?? [];
     if (metric === "sales_dqs" && !dqs.length) throw new MetricError("sales DQs are the Sales Call records whose disposition is a DQ, and no DQ disposition is set (sales_call.dq_dispositions)");
     const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, list) : null;
-    // D225: a show that was pitched: the closer said so, or it closed or took a deposit (no close without a pitch)
+    // D226: a show that was pitched: the closer said so, or it closed or took a deposit (no close without a pitch)
     const dispositions = salesCallConfig(x.bindings)?.dispositions ?? {};
     const wasPitched = (k: Call) => k.cls === "showed" && (k.pitched === true || ["closed", "deposit"].includes(dispositions[k.disposition]?.meaning ?? ""));
     const counts = (k: Call) => metric === "pitched" ? wasPitched(k) : (metric === "calls_booked_due" && k.cls !== "rescheduled") || (metric === "calls_filed" && k.cls !== "rescheduled" && k.cls !== "missing") || (metric === "shows" ? k.cls === "showed" : metric === "no_shows" ? k.cls === "noshow" : metric === "sales_dqs" ? dqs.includes(k.disposition) : k.cls === "cancelled");

@@ -12,7 +12,7 @@ import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { totalsOf, DQ_REASONS, mergeEodFields } from "@/engine/eod-form";
 import { loadCompany } from "@/engine/context";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
-/** D225: a call short of a close says whether they were pitched; these tests are about other answers, so yes */
+/** D226: a call short of a close says whether they were pitched; these tests are about other answers, so yes */
 const pitch = <T extends { pitched?: string }>(calls: T[]): T[] => calls.map((x) => ({ ...x, pitched: x.pitched || "Yes" }));
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -78,7 +78,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
   it("the form is the defaults until the company edits it: labels, required flags and option lists are theirs, the keys stay", async () => {
     const def = await asOperator((c) => loadEodForm(c, companyId));
     expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "lost_reason", "pitched", "about", "notes", "general_notes"]);
-    expect(def.find((f) => f.key === "pitched")).toMatchObject({ required: true, options: ["Yes", "No"], when: ["pending", "follow_up", "lost", "dq"] });   // D225: asked short of a close
+    expect(def.find((f) => f.key === "pitched")).toMatchObject({ required: true, options: ["Yes", "No"], when: ["pending", "follow_up", "lost", "dq"] });   // D226: asked short of a close
     expect(def.find((f) => f.key === "dq_reason")!.options).toEqual(DQ_REASONS);
     expect(def.filter((f) => f.key === "cash" || f.key === "revenue").map((f) => f.label)).toEqual(["Cash collected ($)", "Revenue generated ($)"]);
     // a form saved with the old default label follows the rename; a label the company chose stays theirs
@@ -130,7 +130,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const calls = pre.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, outcome: "closed" as const, cash: 2000, notes: "paid in full on the call" } : { ...x, extra: { energy: "High" } }));
     const half = { ...pre, ...totalsOf(calls), calls_count: 3, calls, day_answers: { did_well: "Stayed on the objection" } };
     // the company made notes required: Sarah's is blank
-    // D225: a follow up asks whether they were pitched
+    // D226: a follow up asks whether they were pitched
     expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: half }))).toEqual({ ok: false, why: "Still needed: Sarah Kim: Did you pitch them?; Sarah Kim: Call notes" });
     const answers = { ...half, calls: calls.map((x) => (x.contact === "Sarah Kim" ? { ...x, notes: "warm, wants her partner on the next one", pitched: "Yes" } : x)) };
     // more cash than revenue on one call can't be true: nothing is filed until it is fixed
@@ -150,7 +150,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const rows = await asOperator((c) => many<{ id: string; status: string; oc: string | null; cc: string | null }>(c, "select a.id, a.status, ot.category as oc, ct.category as cc from appointments a left join company_terms ot on ot.id=a.outcome_term left join company_terms ct on ct.id=a.call_outcome_term where a.company_id=$1 and a.assigned_user_id=$2 order by a.starts_at", [companyId, allan]));
     expect(rows.map((x) => [x.oc, x.cc])).toEqual([["showed", "follow_up"], ["showed", "closed"]]);
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from events where company_id=$1 and event_type='call.held'", [companyId])))!.n).toBe("2");
-    // D225: pitched is kept on the call and carried on its events: Sarah said yes, Leo closed so yes without being asked
+    // D226: pitched is kept on the call and carried on its events: Sarah said yes, Leo closed so yes without being asked
     expect(await asOperator((c) => many<{ pitched: boolean | null }>(c, "select pitched from appointments where company_id=$1 and outcome_term is not null order by starts_at", [companyId]))).toEqual([{ pitched: true }, { pitched: true }]);
     expect(await asOperator((c) => many<{ p: string }>(c, "select data->>'pitched' as p from events where company_id=$1 and event_type='call.held' order by id", [companyId]))).toEqual([{ p: "true" }, { p: "true" }]);
     const note = (await asOperator((c) => one<{ notes: string }>(c, "select answers->>'notes' as notes from form_submissions where appointment_id=$1 order by submitted_at desc limit 1", [apptSarah])))!.notes;

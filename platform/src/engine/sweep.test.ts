@@ -267,7 +267,7 @@ describe.skipIf(!process.env.DATABASE_URL)("sweep 2026-10-10 on a Calendly compa
     const line = slack.find((m) => m.op === "post" && m.thread === booking.ts)!;
     const rec = (await asOperator((c) => one<{ ghl_record_id: string }>(c, "select ghl_record_id from crm_records where company_id=$1 and record_key='EV-RAY'", [companyId])))!.ghl_record_id;
     const closer = (await asOperator((c) => one<{ ghl_opportunity_id: string }>(c, "select p.ghl_opportunity_id from pipeline_cards p join contacts ct on ct.id=p.contact_id where ct.ghl_contact_id='GC-RAY' and p.ghl_pipeline_id='PIPE-C'", [])))!.ghl_opportunity_id;
-    const held = { disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null, pitched: null };   // D225: whether they were pitched goes with the call it was about
+    const held = { disposition: null, cash_collected: null, objection_primary: null, next_step: null, next_step_date: null, payment_terms: null, pitched: null };   // D226: whether they were pitched goes with the call it was about
     const sc = (from: number) => records.slice(from).filter((r) => r.object === "custom_objects.sales_call");
 
     let n = slack.length, nt = tagOps.length, nc = cardOps.length, nr = records.length;

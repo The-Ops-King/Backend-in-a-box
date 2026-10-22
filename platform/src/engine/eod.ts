@@ -217,7 +217,7 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
       kind: "closing", outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
       next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {},
-      // D225: what was filed, else the call review's read of the transcript (the closer confirms it)
+      // D226: what was filed, else the call review's read of the transcript (the closer confirms it)
       pitched: a.pitched === true ? "Yes" : a.pitched === false ? "No" : notes.pitched === true ? "Yes" : notes.pitched === false ? "No" : "" });
   }
   // D156: the setter's outbound calls with anyone who had no triage call with them that day, each a row; the answer filed before comes back
@@ -330,7 +330,7 @@ export async function fileCall(c: PoolClient, companyId: string, fields: EodFiel
   const callCat = choice.attendance === "showed" ? choice.call_outcome ?? null : null;
   const callOutcomeTermId = callCat ? (await callTerm(callCat)) ?? (callCat === "deposit" ? await callTerm("closed") : null) : null;
   const held = await one<{ outcome_term: string | null; call_outcome_term: string | null; status: string; pitched: boolean | null }>(c, "select outcome_term, call_outcome_term, status, pitched from appointments where id=$1 and company_id=$2", [call.appointment_id, companyId]);
-  // D225: whether they were pitched rides on the filing; a refiled day that changes only that corrects it in place (filing the call
+  // D226: whether they were pitched rides on the filing; a refiled day that changes only that corrects it in place (filing the call
   // again would run Call outcome filed twice: its posts, its tags)
   const pitched = pitchedOf(call, fields);
   if (held && pitched !== null && held.pitched !== pitched) await c.query("update appointments set pitched=$2 where id=$1 and company_id=$3", [call.appointment_id, pitched, companyId]);
@@ -413,10 +413,10 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
 }
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? "blank"));
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-/** D225: the closing calls that happened, and how many of them were pitched (a close or a deposit was). */
+/** D226: the closing calls that happened, and how many of them were pitched (a close or a deposit was). */
 export const heldCount = (calls: CallEntry[], fields: EodField[]) => calls.filter((x) => !isSetterCall(x.kind) && choiceOf(x.outcome, fields, x.kind)?.attendance === "showed").length;
 export const pitchCount = (calls: CallEntry[], fields: EodField[]) => calls.filter((x) => pitchedOf(x, fields) === true).length;
-/** "3 calls, 2 pitched, 1 close, 1 deposit, $1,500 collected, $4,000 revenue generated" (deposits only when there are any; pitched when known, D225). */
+/** "3 calls, 2 pitched, 1 close, 1 deposit, $1,500 collected, $4,000 revenue generated" (deposits only when there are any; pitched when known, D226). */
 export const totalsLine = (t: DayTotals, pitched?: number) => [plural(t.calls_count, "call"), pitched === undefined ? "" : `${pitched} pitched`, plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} collected`, `$${t.revenue.toLocaleString("en-US")} revenue generated`].filter(Boolean).join(", ");
 
 export const reportFor = (c: PoolClient, companyId: string, userId: string, day: string) => one<{ id: string; submitted_at: Date | null; answers: EodAnswers | null; changes: Change[]; reminded_at: Date | null }>(c, "select id, submitted_at, answers, changes, reminded_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, userId, day]);

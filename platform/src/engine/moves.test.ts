@@ -15,7 +15,7 @@ import { mergeEodFields, outcomesOf, choiceOf, totalsOf } from "@/engine/eod-for
 import { prefill, submitEod, tokenFor, saveEodForm, loadEodForm, eodFacts } from "@/engine/eod";
 import { reportFacts, renderLayout, shippedLayout } from "@/engine/reports";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
-/** D225: a call short of a close says whether they were pitched; these tests are about other answers, so yes */
+/** D226: a call short of a close says whether they were pitched; these tests are about other answers, so yes */
 const pitch = <T extends { pitched?: string }>(calls: T[]): T[] => calls.map((x) => ({ ...x, pitched: x.pitched || "Yes" }));
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");

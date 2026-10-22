@@ -82,7 +82,7 @@ export function reportFacts(args: { kind: ReportKind; period: Period; tz: string
     n: Object.fromEntries(Object.entries(numbers).map(([key, x]) => [key, nz(x)])), raw: Object.fromEntries(Object.entries(numbers).map(([key]) => [key, v(key)])),
     calls: k ? { booked: nz(k.booked), showed: nz(k.showed), noshow: nz(k.noshow), cancelled: nz(k.cancelled), missing: nz(k.missing), rescheduled: nz(k.rescheduled) } : null,
     rates: { show_rate: k && k.booked > 0 ? Math.round((k.showed / k.booked) * 100) : null, close_rate: k ? pct(v("closes"), k.showed) : null,
-      pitch_rate: k ? pct(v("pitched"), k.showed) : null, pitched_close_rate: pct(v("closes"), v("pitched")) },   // D225
+      pitch_rate: k ? pct(v("pitched"), k.showed) : null, pitched_close_rate: pct(v("closes"), v("pitched")) },   // D226
     money_moved: v("cash_gross") > 0 || v("refunds") > 0 ? true : null,
     said: args.said.slice(0, 10).map((q) => ({ label: q.label, answered: q.answered, top: q.top.map(([a, n]) => ({ answer: a.length > 62 ? `${a.slice(0, 59)}…` : a, count: n })), rest: q.rest, rest_kinds: q.restKinds })),
     by: args.by ?? { closer: [], setter: [] }, ghl_error: args.ghlError ?? null,
@@ -127,7 +127,7 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   const p = { from: period.start, to: period.end, label: "", name: "" };
   const numbers: Numbers = {}; const errors: string[] = [];
   const listed = opts.metrics?.length ? opts.metrics : WRAPUP_METRICS;
-  // D225: pitched is read whatever the layout lists, so a wrap-up's words can show the pitch rate without its list changing
+  // D226: pitched is read whatever the layout lists, so a wrap-up's words can show the pitch rate without its list changing
   for (const m of listed.includes("pitched") ? listed : [...listed, "pitched"]) {
     try { const r = await getMetric(c, company.id, { metric: m, period: p, now: opts.now }, opts.reads); numbers[m] = typeof r.value === "number" ? r.value : null; }
     catch (e) { numbers[m] = null; const msg = String((e as Error).message); if (/GHL/.test(msg) && !/no object is bound|not mapped|none is bound|not connected|no field is bound|no answers are set/.test(msg)) errors.push(msg); }

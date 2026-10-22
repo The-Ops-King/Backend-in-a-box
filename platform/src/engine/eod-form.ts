@@ -75,7 +75,7 @@ export type EodField = {
 };
 
 /**
- * D225 (Tyler): whether the closer pitched them, on every call that happened. Asked after a close pending, a follow up, a loss or a
+ * D226 (Tyler): whether the closer pitched them, on every call that happened. Asked after a close pending, a follow up, a loss or a
  * DQ (a DQ can come after the pitch); a close or a deposit was pitched, so it is yes without asking.
  */
 const PITCH_ASKED: CallMeaning[] = ["pending", "follow_up", "lost", "unqualified"];
@@ -161,7 +161,7 @@ export type CallEntry = {
   next_date: string | null; next_steps: string;        // follow up
   dq_reason: string; dq_note: string;                  // dq
   lost_reason?: string;                                // lost (A1, D88: a card dragged to Lost asks why on the form)
-  pitched?: string;                                    // D225: "Yes" / "No" after a call that happened short of a close
+  pitched?: string;                                    // D226: "Yes" / "No" after a call that happened short of a close
   about: string; notes: string;
   extra: Record<string, string>;                       // the company's own questions, by key
 };
