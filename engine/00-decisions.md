@@ -6013,3 +6013,18 @@ calendar exactly as install maps one (`watchCalendar`, now shared by both): its 
 owner's upcoming bookings. The poll's first read of it is a baseline (rows, no events), so the calls it already held come in through
 the history and Sales Call backfills. A calendar already watched is left as it is. Audited (`calendar.watched`). Tests:
 `contact-ops.reassign.test.ts`.
+
+## D216. /availability shows every calendar the engine watches, each on its own (2026-10-22)
+
+Tyler: "I do want the availability to also show both calendars that we're watching, or any calendars that we're watching. If we've
+got a demo calendar and a setting calendar and everything, I want that to all show there. That's important." Then: "Layout works.
+low availability is any calendar we're watching. Yes ship slack / availability to all offers."
+
+- **What it reads.** Every active calendar the engine watches, whatever its call type (D72 read only the closing ones).
+- **What it says.** First *By calendar*: each calendar with its call type, its open times over the window and a line of them per
+  day (a time once, however many hosts are free then; "no open times" when it has none). Then *By person*: the D72 table, now over
+  every watched calendar (a setter's setting calendar gives the setter a column).
+- **Low availability** already alerted on every watched calendar (D33, less D213's `alerts: false`); it is unchanged.
+
+Code, the same on every offer: `/availability`, the bot's `get_availability` and the low-availability thread. Tests:
+`availability.test.ts`, `bot.test.ts`, `alerts.test.ts`.

@@ -591,7 +591,8 @@ short. **Preview** any answer without posting: `POST /api/admin/bot-preview` wit
 `{ "company": "hair", "command": "/mtd", "text": "" }` or `{ "company": "hair", "question": "…" }` (bearer `CRON_SECRET`).
 
 **Availability per closer (D72).** The times come only from what the booking source offers (Calendly available times,
-GHL free slots) on the active closing calendars. A round robin's offered times are pooled, so each one is given to every
+GHL free slots) on every calendar the engine watches (D215: demo, setting and follow-up calendars too). Each calendar is
+listed first with the times it offers per day, then the per-person table. A round robin's offered times are pooled, so each one is given to every
 host free for the whole call then: on Calendly by the schedule the event type uses for that host
 (`/event_type_availability_schedules`) and the host's busy times (`/user_busy_times`, buffered), on GHL by each team
 member's own free slots. A closer's times are a union across calendars (a time two event types offer counts once for
