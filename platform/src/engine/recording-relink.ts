@@ -90,7 +90,9 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
       kept.push(...made.kept);
       if (made.writes.length) add(made.writes.map((w) => `delete the ${w.kind} ${w.external_id}${w.object ? ` (${w.object})` : ""} it made on ${old.name}`).join("; "), async () => { const u = await undoRunWrites(c, adapters, { company: a.company, runs: runIds, why: a.why, dryRun: false, by: a.by }); if (!u.ok) throw new Error(u.error); const bad = u.writes.filter((w) => w.error); if (bad.length) throw new Error(bad.map((w) => w.error).join("; ")); }, true);
     }
-    const updated = await many<{ ghl_record_id: string; object_key: string }>(c, "select ghl_record_id, object_key from crm_records where company_id=$1 and contact_id=$2 and created_at < $3 and updated_at >= $3", [co.id, old.contact, runs[0].started_at]);
+    // a record a run of theirs wrote (its step passed) that was there before the run: named, not touched
+    const updated = await many<{ ghl_record_id: string; object_key: string }>(c, `select distinct k.ghl_record_id, k.object_key from run_steps s join runs r on r.id=s.run_id join crm_records k on k.company_id=r.company_id and k.ghl_record_id=s.result->>'crm_id'
+      where s.run_id = any($1::uuid[]) and s.node_type='crm_record' and s.status='ok' and k.created_at < r.started_at`, [runIds]);
     for (const u of updated) kept.push(`${u.object_key} record ${u.ghl_record_id} on ${old.name} was made before and updated by the call: check its fields in GHL`);
     // the call note: the one note written while a run wrote one
     const noted = await many<{ done_at: Date }>(c, "select done_at from step_effects where run_id = any($1::uuid[]) and kind='note' and done_at is not null", [runIds]);
@@ -104,9 +106,12 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
       }
     }
     // reactions those runs put on the booking's post (the Showed ✅): the step names the emoji and the post's tag
-    const reacts = await many<{ definition: { nodes?: { type?: string; react?: string; thread_of?: string }[] } }>(c, "select distinct v.definition from runs r join workflow_versions v on v.workflow_id=r.workflow_id and v.version=r.workflow_version where r.id = any($1::uuid[])", [runIds]);
+    const reacts = await many<{ definition: { nodes?: { id?: string; type?: string; react?: string; thread_of?: string }[] }; ran: string[] }>(c, `select v.definition, array(select s.node_id from run_steps s where s.run_id=r.id and s.status='ok') as ran
+      from runs r join workflow_versions v on v.workflow_id=r.workflow_id and v.version=r.workflow_version where r.id = any($1::uuid[])`, [runIds]);
+    const reacted = new Set<string>();
     for (const v of reacts) for (const n of v.definition.nodes ?? []) {
-      if (n.type !== "slack_post" || !n.react || !n.thread_of?.startsWith("tag:") || !old.appointment) continue;
+      if (n.type !== "slack_post" || !n.react || !n.id || !v.ran.includes(n.id) || !n.thread_of?.startsWith("tag:") || !old.appointment) continue;   // only a reaction one of these runs put there
+      if (reacted.has(`${n.thread_of}|${n.react}`)) continue; reacted.add(`${n.thread_of}|${n.react}`);
       const tag = n.thread_of.slice(4).replace(/\{\{\s*appointment\.id\s*\}\}/g, old.appointment);
       if (/\{\{/.test(tag)) continue;
       const post = await one<{ channel: string; ts: string }>(c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [co.id, tag]);

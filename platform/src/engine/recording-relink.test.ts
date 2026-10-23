@@ -53,7 +53,7 @@ describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong per
       const ev = (await one<{ id: string }>(c, "insert into events (company_id, contact_id, appointment_id, event_type, source, data, occurred_at) values ($1,$2,$3,'recording.received','fathom',$4,now()) returning id", [companyId, corina, apptC, { recording_id: recId }]))!.id;
       runId = (await one<{ id: string }>(c, "insert into runs (company_id, workflow_id, workflow_version, contact_id, appointment_id, triggered_by_event, status, reentry_key, started_at) values ($1,$2,1,$3,$4,$5,'completed','k','2026-10-22T22:05:56Z') returning id", [companyId, wf, corina, apptC, ev]))!.id;
       await c.query("insert into events (company_id, contact_id, appointment_id, run_id, event_type, source, data, occurred_at) values ($1,$2,$3,$4,'appointment.outcome','engine',$5,now()),($1,$2,null,$4,'tag.added','engine',$6,now())", [companyId, corina, apptC, runId, { outcome: "showed", previous_outcome: null, previous_call_outcome: null }, { tag: "stat-showed" }]);
-      await c.query("insert into run_steps (run_id, node_id, node_type, status, result) values ($1,'o3','pipeline_card','ok',$2)", [runId, { card: "moved", from_stage: "STAGE-BOOKED", crm_card: "OPP-COR", stage: "STAGE-SHOWED" }]);
+      await c.query("insert into run_steps (run_id, node_id, node_type, status, result) values ($1,'o3','pipeline_card','ok',$2),($1,'o4','slack_post','ok','{}')", [runId, { card: "moved", from_stage: "STAGE-BOOKED", crm_card: "OPP-COR", stage: "STAGE-SHOWED" }]);
       await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties, adopted, created_at, updated_at) values ($1,'custom_objects.sales_call','A-COR','REC-COR',$2,'{}',false,'2026-10-22T23:00:12Z','2026-10-22T23:00:12Z')", [companyId, corina]);
       await c.query("insert into step_effects (company_id, run_id, node_id, kind, external_id, done_at) values ($1,$2,'r1','record','REC-COR',now()),($1,$2,'n1','note',null,'2026-10-22T22:12:01.043Z')", [companyId, runId]);
       await c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,'C-BOOK','1.1',null),($1,$3,'C-BOOK','1.2',$4),($1,$5,'C-CALLS','2.1',$4)", [companyId, `appointment:${apptC}`, `showed:${apptC}`, runId, `recording:${recId}`]);
@@ -95,11 +95,28 @@ describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong per
     expect(await asOperator((c) => relinkRecording(c, fake, { company: SLUG, recording: recId, to: "rules", why: "again" }))).toMatchObject({ ok: false, status: 409 });
   });
 
+  it("a run that stopped before the Showed step takes nothing off the booking post (the ✅ there is the real call's)", async () => {
+    const r2 = await asOperator(async (c) => {
+      const wf = (await one<{ id: string }>(c, "select workflow_id as id from runs where id=$1", [runId]))!.id;
+      const rec = (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, appointment_id, provider, external_id, title, started_at, recorded_by_email, invitees, transcript, link_status, linked_by) values ($1,$2,$3,'fathom','F-3','Impromptu','2026-10-22T22:20Z','closer@relink.test','[]',$4,'linked','calendar') returning id",
+        [companyId, beth, apptB, JSON.stringify([{ speaker: "Cal", email: "closer@relink.test", text: "hi" }, { speaker: "Beth Huffman", text: "hi" }])]))!.id;
+      const ev = (await one<{ id: string }>(c, "insert into events (company_id, contact_id, appointment_id, event_type, source, data, occurred_at) values ($1,$2,$3,'recording.received','fathom',$4,now()) returning id", [companyId, beth, apptB, { recording_id: rec }]))!.id;
+      const run = (await one<{ id: string }>(c, "insert into runs (company_id, workflow_id, workflow_version, contact_id, appointment_id, triggered_by_event, status, exit_reason, reentry_key, started_at) values ($1,$2,1,$3,$4,$5,'completed','not_a_sales_call','k2',now()) returning id", [companyId, wf, beth, apptB, ev]))!.id;
+      await c.query("insert into run_steps (run_id, node_id, node_type, status) values ($1,'c1','check','ok')", [run]);
+      await c.query("insert into slack_posts (company_id, tag, channel, ts) values ($1,$2,'C-BOOK','3.1') on conflict do nothing", [companyId, `appointment:${apptB}`]);
+      return rec;
+    });
+    const dry = await asOperator((c) => relinkRecording(c, fake, { company: SLUG, recording: r2, to: "none", why: "Audra's coaching call" }));
+    expect(dry).toMatchObject({ ok: true, undo: [], kept: [] });
+  });
+
   it("the check lists a link the rules would not make, and only that", async () => {
     const roleplay = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, appointment_id, provider, external_id, title, started_at, recorded_by_email, invitees, transcript, link_status, linked_by) values ($1,$2,$3,'fathom','F-2','Roleplay/training','2026-10-22T20:05Z','closer@relink.test','[]',$4,'linked','calendar') returning id",
       [companyId, beth, apptB, JSON.stringify([{ speaker: "Cal", email: "closer@relink.test", text: "you be the client" }, { speaker: "Cal Closer", text: "ok" }])]))!.id);
     const r = await asOperator((c) => checkRecordings(c, fake, companyId, new Date("2026-10-22T00:00Z"), new Date("2026-10-23T00:00Z")));
-    expect(r.checked).toBe(2);
-    expect(r.differ).toEqual([expect.objectContaining({ id: roleplay, now: "Beth Huffman", rules: "internal: no one", why: expect.stringMatching(/only the team spoke/) })]);
+    expect(r.checked).toBe(3);
+    expect(r.differ).toEqual(expect.arrayContaining([expect.objectContaining({ id: roleplay, now: "Beth Huffman", rules: "internal: no one", why: expect.stringMatching(/only the team spoke/) }),
+      expect.objectContaining({ title: "Impromptu", now: "Beth Huffman", rules: "Beth Huffman (no booking) by speaker" })]));   // after her booking ended: hers, but not that booking
+    expect(r.differ).toHaveLength(2);
   });
 });
