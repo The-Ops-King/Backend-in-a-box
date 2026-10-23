@@ -14,7 +14,8 @@ import { normEmail } from "./identity";
  *   known contact, an invitee name exactly one contact has, the booking whose meeting link the call used). The team is never a
  *   client: a call where only the team spoke (a roleplay, a training) is internal and is linked to no one, and no one is asked.
  * - When: a booking fits a recording that starts at most 20 minutes before it and before it ends (a short or empty booking spans 15).
- * - Linked: exactly one person on the call has a booking that fits, and (from the invite alone) no other booking of the recorder's
+ * - Linked: exactly one person on the call has a booking that fits (or the invite's email and the time agree on one person and a
+ *   guest who spoke has their first name), and (from the invite alone) no other booking of the recorder's
  *   fits the time too; or the one person on the call has no booking then and nobody else's fits either (an unbooked call: linked to
  *   them, no booking, nothing marked showed). Anything else stays unlinked with the reason, and the team is asked (the Unmatched
  *   recording post, with its Link button). The closer's calendar alone never links a recording: someone on the call must be the person.
@@ -152,6 +153,16 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
     const agreeing = [...new Set(agree.map((f) => f.contact_id))];
     if (agreeing.length === 1) return { match: { contactId: agreeing[0], by: "speaker", appointmentId: agree[0].id } };
     if (agreeing.length > 1) return { match: null, reason: `${said} spoke, and ${agreeing.length} bookings then fit them (${agree.map(who).join(", ")}): which one is a person's call` };
+    // the invite and the time agree on one person, and a guest who spoke has their first name (a different surname on the call: "Rafaela McKinney" for Rafaela Santana)
+    if (!people.size) {
+      const byInvite: Fit[] = [];
+      for (const e of emails) { const r = await one<{ contact_id: string }>(c, "select i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and ct.merged_into is null", [companyId, e]); if (r) byInvite.push(...fits.filter((f) => f.contact_id === r.contact_id)); }
+      const invitedThen = [...new Set(byInvite.map((f) => f.contact_id))];
+      if (invitedThen.length === 1) {
+        const f = byInvite[0], first = tokens(f.first)[0];
+        if (first && named.some((p) => tokens(p.name)[0] === first) && !fits.some((x) => x.contact_id !== f.contact_id && theirs(x))) return { match: { contactId: f.contact_id, by: "email", appointmentId: f.id } };
+      }
+    }
     const mine = fits.filter(theirs);
     if (people.size === 1 && !mine.length) return { match: { contactId: [...people][0], by: "speaker" } };
     if (people.size === 1) return { match: null, reason: `${said} spoke, but the booking the recorder had then is ${mine.map(who).join(", ")}: they don't match, so it is a person's call` };

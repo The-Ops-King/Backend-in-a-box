@@ -175,6 +175,15 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     const wrong = await asOperator((c) => resolveRecording(c, companyId, { ...call, transcript: [{ speaker: "Corina Mtg", text: "hi" }] }));
     expect(wrong.match).toBeNull(); expect(wrong.reason).toMatch(/Corina Mtg spoke, but the booking the recorder had then is Beth Huffman/);
   });
+  it("D227: the invite's email and the time agree, and the guest who spoke has her first name under another surname: hers", async () => {
+    const raf = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Rafaela','Santana') returning id", [companyId])))!.id;
+    await asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','rafaelawbo@x.com')", [companyId, raf]));
+    const booked = await book(raf, "RS-1", day(60), null);
+    const call = rec("rs-1", { startedAt: new Date(day(60).getTime() + 8 * 60e3), invitees: [{ name: "rafaelawbo@x.com", email: "rafaelawbo@x.com", isExternal: true }] });
+    expect(await asOperator((c) => resolveRecording(c, companyId, { ...call, transcript: [{ speaker: "Cal", text: "hi" }, { speaker: "Rafaela McKinney", text: "hi" }] }))).toEqual({ match: { contactId: raf, by: "email", appointmentId: booked } });
+    // another first name entirely is not her
+    expect((await asOperator((c) => resolveRecording(c, companyId, { ...call, transcript: [{ speaker: "Monica Lee", text: "hi" }] }))).match).toBeNull();
+  });
   it("D227: a call only the team spoke on is internal: linked to no one, and no one is asked", async () => {
     const before = (await asOperator((c) => many(c, "select 1 from events where company_id=$1", [companyId]))).length;
     const r = await asOperator((c) => recordRecording(c, companyId, rec("rp-1", { title: "Roleplay/training", startedAt: new Date(at.getTime() - 50 * 60e3), invitees: [{ name: "Mitch Sapoff", email: "mitch@co.com", isExternal: true }, { name: "Cal", email: "closer@co.com", isExternal: false }],
