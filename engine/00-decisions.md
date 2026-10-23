@@ -6188,7 +6188,9 @@ otherwise it's worthless"; "we have to understand the difference between a clien
 we don't just link it to a random client." Engine code, every offer (Tyler: "fix as described").
 
 - **Who**: the people who spoke first (the transcript's speakers: the truth of who showed up), else the invite (an email on a contact,
-  a name exactly one contact has, the booking whose meeting link the call used). A speaker shown by their address is that address. The
+  a name exactly one contact has, the booking whose meeting link the call used). A speaker shown by their address is that address; a
+  speaker who is nobody in the CRM ("iPhone", "Zoom user", a business name, as on PMU's calls) says nothing against the invite, which
+  then decides with the time; a one-word name that starts the booked person's first name agrees on a booking that fits ("Evy", Evelyn). The
   team (the roster, the recorder, the invite's own people) is never a client: a call only the team spoke on is internal, linked to no
   one, and no one is asked (no workflow runs).
 - **When**: a booking fits a recording that starts at most 20 minutes before it and before it ends (a short or empty booking spans 15).

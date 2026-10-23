@@ -10,7 +10,8 @@ import { normEmail } from "./identity";
  * worthless"; "if the client doesn't join, we don't just link it to a random client"): a recording is linked only when WHO was on
  * it and WHEN it was agree.
  *
- * - Who: the people who spoke (the transcript's speakers, the truth of who showed up), else who was invited (an invitee email on a
+ * - Who: the people who spoke (the transcript's speakers, the truth of who showed up; a speaker who is nobody in the CRM, "iPhone"
+ *   or a business name, says nothing against the invite), else who was invited (an invitee email on a
  *   known contact, an invitee name exactly one contact has, the booking whose meeting link the call used). The team is never a
  *   client: a call where only the team spoke (a roleplay, a training) is internal and is linked to no one, and no one is asked.
  * - When: a booking fits a recording that starts at most 20 minutes before it and before it ends (a short or empty booking spans 15).
@@ -107,7 +108,7 @@ export function nameAgrees(spoken: string, first: string | null, last: string | 
   const s = tokens(spoken), f = tokens(first)[0], l = tokens(last).at(-1);
   if (!s.length || !f) return false;
   const sf = s[0], sl = s.length > 1 ? s.at(-1)! : undefined;
-  if (!sl) return sf === f;
+  if (!sl) return sf === f || (sf.length >= 2 && sf.length < f.length && f.startsWith(sf.slice(0, 2)) && sf[0] === f[0] && (f.startsWith(sf) || sf.length <= 4));   // a short form: "Evy" for Evelyn, "Kat" for Katherine
   const firstOk = sf === f || (sf.length >= 3 && f.length >= 3 && (sf.includes(f) || f.includes(sf))) || (sf.length >= 3 && emails.some((e) => e.split("@")[0].includes(sf)));
   return !!l && sl === l && firstOk;
 }
@@ -139,6 +140,7 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
   const guests = [...spoke.values()].filter((p) => !(p.email && staffEmails.has(p.email)) && !staffName(staffNames, p.name));
   if (lines.length && spoke.size && !guests.length) return { match: null, internal: true, reason: `only the team spoke (${[...spoke.values()].map((p) => p.name).join(", ")}): not a call with a client, so it is linked to no one` };
   const named = guests.filter((p) => !GENERIC_SPEAKER.test(p.name.trim()));
+  let unnamed = "";   // who spoke, when no one who spoke is anyone in the CRM
   if (named.length) {
     const said = named.map((p) => p.name).join(", ");
     const people = new Set<string>();   // contacts the speakers are: by their exact name (one contact), or the invite email Fathom put on them when the name agrees
@@ -167,7 +169,8 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
     if (people.size === 1 && !mine.length) return { match: { contactId: [...people][0], by: "speaker" } };
     if (people.size === 1) return { match: null, reason: `${said} spoke, but the booking the recorder had then is ${mine.map(who).join(", ")}: they don't match, so it is a person's call` };
     if (people.size > 1) return { match: null, reason: `${said} spoke, and they are ${people.size} different contacts with no booking then: which one is a person's call` };
-    return { match: null, reason: `${said} spoke, and nobody in the CRM has that name${mine.length ? `; the booking the recorder had then is ${mine.map(who).join(", ")}, a different name` : ""}` };
+    // nobody who spoke is anyone in the CRM ("iPhone", "Zoom user", a business name): they say nothing against the invite, which decides with the time below
+    unnamed = `${said} spoke, and nobody in the CRM has that name`;
   }
 
   // 2. no one named spoke (no transcript yet, or speakers the recorder did not name): who was invited, held to the time
@@ -193,18 +196,20 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
   // that person's booking whose room the call used wins over their nearest one (a call taken early or late in its own room)
   if (agreeing.length === 1 && !others.length) { const id = room?.contact_id === agreeing[0] ? room.id : (agree.find((x) => keyed(x)) ?? agree[0]).id; return { match: { contactId: agreeing[0], by: invited.get(agreeing[0])!, appointmentId: id } }; }
   if (!agreeing.length && room && !fits.some((f) => f.contact_id !== room!.contact_id && (theirs(f) || keyed(f)))) return { match: { contactId: room.contact_id, by: invited.get(room.contact_id)!, appointmentId: room.id } };
-  if (agreeing.length === 1) return { match: null, reason: `the invite names ${await named_(agreeing[0])}, but ${others.map(who).join(", ")} fits the time too, and no transcript says who joined${shared}` };
-  if (agreeing.length > 1) return { match: null, reason: `the invite names ${agreeing.length} contacts booked then (${agree.map(who).join(", ")}), and no transcript says who joined${shared}` };
+  const noTranscript = unnamed ? `, and ${unnamed}` : ", and no transcript says who joined";
+  if (agreeing.length === 1) return { match: null, reason: `the invite names ${await named_(agreeing[0])}, but ${others.map(who).join(", ")} fits the time too${noTranscript}${shared}` };
+  if (agreeing.length > 1) return { match: null, reason: `the invite names ${agreeing.length} contacts booked then (${agree.map(who).join(", ")})${noTranscript}${shared}` };
   if (invited.size === 1) {
     const [id, by] = [...invited][0];
     if (by !== "name" && !fits.some((f) => theirs(f) || keyed(f))) return { match: { contactId: id, by } };
     const own = await one<{ starts_at: Date }>(c, "select starts_at from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' order by abs(extract(epoch from (starts_at - $3::timestamptz))) limit 1", [companyId, id, input.startedAt]);
     const mine = fits.filter((f) => theirs(f) || keyed(f));
-    return { match: null, reason: `the invite names ${await named_(id)}${own ? `, booked ${when(own.starts_at)}, which this recording (${when(input.startedAt)}) does not fit` : ", who has no booking"}${mine.length ? `; the booking then is ${mine.map(who).join(", ")}` : by === "name" ? "; a name alone is not enough" : ""}${shared}` };
+    return { match: null, reason: `the invite names ${await named_(id)}${own ? `, booked ${when(own.starts_at)}, which this recording (${when(input.startedAt)}) does not fit` : ", who has no booking"}${mine.length ? `; the booking then is ${mine.map(who).join(", ")}` : by === "name" ? "; a name alone is not enough" : ""}${unnamed ? `; ${unnamed}` : ""}${shared}` };
   }
-  if (invited.size > 1) return { match: null, reason: `the invite names ${invited.size} different contacts and none has a booking then${shared}` };
+  if (invited.size > 1) return { match: null, reason: `the invite names ${invited.size} different contacts and none has a booking then${unnamed ? `; ${unnamed}` : ""}${shared}` };
   const seen = [...emails, ...names].join(", ");
   const mine = fits.filter(theirs);
+  if (unnamed) return { match: null, reason: `${unnamed}${seen ? `, nor anyone invited (${seen})` : ""}${mine.length ? `; the recorder's booking then is ${mine.map(who).join(", ")}, a different name` : ""}${notes.length ? `; ${notes.join("; ")}` : ""}${shared}` };
   return { match: null, reason: (seen ? `nobody in the CRM matches ${seen}` : staffDropped.length ? `only the team was invited (${staffDropped.join(", ")})` : "no attendees on the recording")
     + (lines.length ? "" : ", and no transcript says who joined") + (mine.length ? `; the recorder's booking then is ${mine.map(who).join(", ")}, but no one on the call is shown to be them` : "") + (notes.length ? `; ${notes.join("; ")}` : "") + shared };
 }
