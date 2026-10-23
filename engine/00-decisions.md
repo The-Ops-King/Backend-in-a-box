@@ -6177,3 +6177,32 @@ on pitched calls in the reports; the AI call review suggests it and the closer c
 The engine, templates and the committed copies change here; each offer's own workflows (Call outcome filed, the three
 wrap-ups, the end-of-day post), its GHL field and its prompt change one offer at a time, named, dry run first. Tests:
 `eod.test.ts`, `leaderboard.test.ts`, `journey.test.ts`, `sweep.test.ts`, `words.test.ts`.
+
+## D227. A recording is linked only when who was on it and when it was agree (2026-10-22)
+
+Beth Huffman's consultation (21:04, her booking 21:00) was filed on Corina Raducanu: Fathom's invite named Corina, and an invitee email
+was taken as the answer whatever the time (Corina's 15-minute triage was at 20:00). "Sales call recorded" then ran on Corina: Beth's
+summary as a note, a closed-won Sales Call, her booking Showed/Closed, her card won. Two Mitch-and-Nelly roleplays were filed on clients
+by the closer's calendar alone (a two-hour window), and Audra Lozano's coaching call on Beth. Tyler: "this needs to be foolproof
+otherwise it's worthless"; "we have to understand the difference between a client call and a roleplay"; "if the client doesn't join,
+we don't just link it to a random client." Engine code, every offer (Tyler: "fix as described").
+
+- **Who**: the people who spoke first (the transcript's speakers: the truth of who showed up), else the invite (an email on a contact,
+  a name exactly one contact has, the booking whose meeting link the call used). A speaker shown by their address is that address. The
+  team (the roster, the recorder, the invite's own people) is never a client: a call only the team spoke on is internal, linked to no
+  one, and no one is asked (no workflow runs).
+- **When**: a booking fits a recording that starts at most 20 minutes before it and before it ends (a short or empty booking spans 15).
+- **Linked**: one person on the call with a booking that fits (a spoken name agrees with a booked person on the same surname and a
+  first name that is theirs, holds theirs, or is in their email: "Elizabeth Huffman" is Beth Huffman); from the invite alone, only when
+  no other booking of the recorder's fits too; a booking whose own room the call used wins when nobody else's fits; the one person on
+  the call with no booking then, and nobody else's booking then, is linked with no booking (nothing marked showed). Anything else is
+  unlinked with the reason, and the Unmatched recording post asks. The closer's calendar alone never links. A booking is the one the
+  recording fits, never merely the nearest within a day (the manual link too).
+- **Already wrong**: `POST /api/admin/recordings/check { company, from?, to? | days? }` (read only) lists every recording the rules would
+  link differently. `POST /api/admin/recordings/relink { company, recording, to: "rules" | "none" | <contact id>, why, dryRun = true }`
+  moves one, and puts the wrong person back from what the runs it started on them wrote: the booking's outcome to what the outcome
+  event says it was, the tags those runs added, the card they moved back to its stage, what they made deleted (D142), the call note
+  (when exactly one was written then), the ✅ they put on the booking post, and their Slack posts edited to say so. The right person's
+  workflow runs as a person's link would; the wrong invite is not remembered on them. Audited.
+
+Tests: `recordings.test.ts`, `recording-relink.test.ts`.
