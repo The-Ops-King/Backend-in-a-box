@@ -231,4 +231,13 @@ export async function linkFoundBuyer(c: PoolClient, companyId: string, paymentId
   return { ...match, ...out };
 }
 
+/** D229: a person's pick for a payment the ladder could not place: linked to them with Whop's email remembered, starting no workflow. */
+export async function linkPicked(c: PoolClient, companyId: string, paymentId: string, contactId: string): Promise<void> {
+  const p = await one<PaymentRow>(c, "select * from payments where company_id=$1 and id=$2 and link_status='unlinked'", [companyId, paymentId]);
+  if (!p) return;
+  if (p.customer_email) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, p.customer_email]);
+  const out = await settle(c, companyId, contactId, p, "manual", false);
+  await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: out.event.opportunity_id, appointment_id: null, event_type: "payment.linked", source: "user", data: { payment_id: p.id, by: "manual", via: "whop_api" } });
+}
+
 export const unlinkedPayments = (c: PoolClient, companyId: string) => many<PaymentRow>(c, "select * from payments where company_id=$1 and link_status='unlinked' order by paid_at desc", [companyId]);

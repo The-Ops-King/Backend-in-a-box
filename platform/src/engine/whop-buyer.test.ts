@@ -67,4 +67,17 @@ describe.skipIf(!process.env.DATABASE_URL)("D229: relinking payments stuck witho
     // read again: nothing left without a buyer
     expect(await asOperator((c) => relinkWhopBuyers(c, companyId, "apik_x", { dryRun: true, get }))).toEqual([]);
   });
+
+  it("a person's pick links a payment the ladder cannot place, only the payments named are touched, and the picked person keeps Whop's email", async () => {
+    const kim = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GK','Kim') returning id", [companyId])))!.id;
+    for (const id of ["pay_kim", "pay_left"]) await asOperator((c) => recordPayment(c, companyId, parseWhopEvent(live(id, "500.00"))!));
+    const get = async (_k: string, id: string) => ({ id, customer_email: id === "pay_kim" ? "kim.other@x.com" : "left@x.com" });
+    const dry = await asOperator((c) => relinkWhopBuyers(c, companyId, "apik_x", { dryRun: true, pick: { pay_kim: kim }, get }));
+    expect(dry.map((r) => [r.whop_payment_id, r.links_to?.by])).toEqual([["pay_kim", "manual"]]);
+    await asOperator((c) => relinkWhopBuyers(c, companyId, "apik_x", { dryRun: false, pick: { pay_kim: kim }, get }));
+    expect(await asOperator((c) => many(c, "select whop_payment_id, contact_id, linked_by, customer_email from payments where company_id=$1 and whop_payment_id in ('pay_kim','pay_left') order by whop_payment_id", [companyId])))
+      .toEqual([{ whop_payment_id: "pay_kim", contact_id: kim, linked_by: "manual", customer_email: "kim.other@x.com" }, { whop_payment_id: "pay_left", contact_id: null, linked_by: null, customer_email: null }]);
+    expect(await asOperator((c) => one(c, "select contact_id from contact_identifiers where company_id=$1 and kind='email' and value='kim.other@x.com'", [companyId]))).toEqual({ contact_id: kim });
+    expect(await asOperator((c) => one(c, "select count(*)::int as n from runs where company_id=$1", [companyId]))).toEqual({ n: 0 });
+  });
 });
