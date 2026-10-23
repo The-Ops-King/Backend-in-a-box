@@ -6229,3 +6229,19 @@ had four calls in one week and counted four times. His answers to how:
 Counts that are about calls stay about calls: "Calls booked", shows and no-shows as numbers, the EOD reminder, `analyze` asked
 about calls. Code, the same on every offer (the bot, `/show-rate`, `/close-rate`, `/mtd`, `/weekly`, `/monthly`, the wrap-ups,
 the leaderboard's close rate and setters' show rate). Tests: `bot.test.ts`.
+
+## D229. A Whop payment with no buyer is read back from Whop (2026-10-23)
+
+PMU's live Whop webhooks (2026-10-16, 2026-10-22) carried no `customer_email`, `customer_phone` or `member_id`, so four
+payments went in unlinked, Jennyfer's $250 + $9,750 among them. The API's copy of the same payment (what the backfill reads)
+names the buyer, which is why backfilled payments linked and live ones did not.
+
+- The buyer is read in either shape: the flat keys, or the nested `user.email`, `member.id`, `member.phone`, `product.id`,
+  `plan.id`, `membership.id` (`whopBuyer`, used by the webhook and the backfill alike).
+- A webhook that still names no buyer (not a refund: that links through the payment it reverses) is read back with
+  `GET /payments/{id}` (3 s, inside Whop's 5 s) before the ledger links it. The product and plan ids and names the webhook
+  left out are kept too. Whop down or no key: it goes in as before, unlinked, with `raw.buyer_lookup` saying why.
+- `POST /api/admin/payments/relink { company, payments?, dryRun = true }`: the unlinked Whop payments with no buyer, read
+  back and linked by the same ladder, oldest first, no workflow started. Audited (`payments.relinked`).
+
+Engine code, every offer: a payment that already named its buyer is untouched. Tests: `whop-buyer.test.ts`.

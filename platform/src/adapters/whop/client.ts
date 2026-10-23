@@ -53,8 +53,9 @@ export function whopNames(d: Record<string, unknown>): { product_name?: string |
 
 /** A Whop payment as the ledger wants it; a refund becomes its own negative row keyed by the payment id + ":refund". Open/void payments are not money and return nothing. */
 export function paymentInputs(p: WhopPayment): PaymentInput[] {
-  const base = { provider: "whop" as const, currency: (p.currency ?? p.total?.currency ?? "usd").toUpperCase(), email: p.customer_email ?? undefined, phone: p.customer_phone ?? undefined, memberId: p.member_id ?? undefined,
-    raw: { billing_reason: p.billing_reason, plan_id: p.plan_id, product_id: p.product_id, ...whopNames(p as unknown as Record<string, unknown>), substatus: p.substatus, backfill: true } };
+  const b = whopBuyer(p as unknown as Record<string, unknown>);
+  const base = { provider: "whop" as const, currency: (p.currency ?? p.total?.currency ?? "usd").toUpperCase(), email: b.email, phone: b.phone, memberId: b.memberId,
+    raw: { billing_reason: p.billing_reason, plan_id: b.plan_id, product_id: b.product_id, ...whopNames(p as unknown as Record<string, unknown>), substatus: p.substatus, backfill: true } };
   const total = amt(p.total) || amt(p.usd_total);
   const out: PaymentInput[] = [];
   if (p.status === "paid" && Number.isFinite(total)) out.push({ ...base, providerPaymentId: p.id, amount: total, status: "succeeded", paidAt: new Date(p.paid_at ?? p.created_at) });
@@ -94,6 +95,26 @@ export async function whopGetTitle(apiKey: string, kind: "product" | "plan", id:
   if (!res.ok) throw new Error(`whop: read ${kind} ${id} ${res.status} ${(await res.text()).slice(0, 160)}`);
   const j = (await res.json()) as { title?: unknown };
   return typeof j.title === "string" && j.title.trim() ? j.title.trim() : null;
+}
+/**
+ * D229: the buyer a Whop Payment names, in either shape Whop sends. The list API (verified 2026-10-07) carries it flat
+ * (`customer_email`, `customer_phone`, `member_id`, `product_id`, `plan_id`); the v1 webhooks that reached PMU on 2026-10-16
+ * and 2026-10-22 carried none of those flat keys, while their product's name came through (the nested `product.title`
+ * whopNames reads), so the buyer is read from the nested objects too: `user.email`, `member.id`, `member.phone`,
+ * `product.id`, `plan.id`, `membership.id`. A key neither shape carries stays undefined.
+ */
+const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+const sub = (d: Record<string, unknown>, k: string, f: string) => { const o = d[k]; return o && typeof o === "object" ? s((o as Record<string, unknown>)[f]) : undefined; };
+export function whopBuyer(d: Record<string, unknown>): { email?: string; phone?: string; memberId?: string; product_id?: string; plan_id?: string; membership_id?: string } {
+  return { email: s(d.customer_email) ?? sub(d, "user", "email"), phone: s(d.customer_phone) ?? sub(d, "member", "phone") ?? sub(d, "user", "phone"),
+    memberId: s(d.member_id) ?? sub(d, "member", "id"), product_id: s(d.product_id) ?? sub(d, "product", "id"), plan_id: s(d.plan_id) ?? sub(d, "plan", "id"),
+    membership_id: s(d.membership_id) ?? sub(d, "membership", "id") };
+}
+/** D229: one payment as Whop's API has it (GET /payments/{id}). Short timeout: it can run while a Whop webhook waits for its answer (5 s). */
+export async function whopGetPayment(apiKey: string, id: string, timeoutMs = 3000): Promise<Record<string, unknown>> {
+  const res = await fetch(`${BASE}/payments/${encodeURIComponent(id)}`, { headers: headers(apiKey), signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw new Error(`whop: read payment ${id} ${res.status} ${(await res.text()).slice(0, 160)}`);
+  return (await res.json()) as Record<string, unknown>;
 }
 /** Cheap key check: one payment. */
 export async function whopPing(apiKey: string): Promise<boolean> {

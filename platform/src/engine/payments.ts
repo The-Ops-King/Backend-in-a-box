@@ -215,4 +215,20 @@ export async function linkPayment(c: PoolClient, companyId: string, paymentId: s
   return out;
 }
 
+/**
+ * D229: an unlinked payment whose buyer was learned after it came in (read back from Whop) is linked by the same ladder as on
+ * arrival, one unambiguous person or nothing. `dispatch: false` records it and starts no workflow (what Payment recorded would
+ * have done for it is a separate, named step).
+ */
+export async function linkFoundBuyer(c: PoolClient, companyId: string, paymentId: string, opts: { dispatch?: boolean } = {}): Promise<{ contactId: string; by: string; event: EventRow; healed: number } | null> {
+  const p = await one<PaymentRow>(c, "select * from payments where company_id=$1 and id=$2 and link_status='unlinked'", [companyId, paymentId]);
+  if (!p) return null;
+  const match = await resolvePayer(c, companyId, { email: p.customer_email ?? undefined, phone: p.customer_phone ?? undefined, memberId: p.whop_member_id ?? undefined });
+  if (!match) return null;
+  const out = await settle(c, companyId, match.contactId, p, match.by, opts.dispatch ?? true);
+  await emitEvent(c, { company_id: companyId, contact_id: match.contactId, opportunity_id: out.event.opportunity_id, appointment_id: null, event_type: "payment.linked", source: "engine", data: { payment_id: p.id, by: match.by, via: "whop_api" } });
+  if (opts.dispatch ?? true) await dispatchEvent(c, out.event, { contact: { id: match.contactId } });
+  return { ...match, ...out };
+}
+
 export const unlinkedPayments = (c: PoolClient, companyId: string) => many<PaymentRow>(c, "select * from payments where company_id=$1 and link_status='unlinked' order by paid_at desc", [companyId]);
