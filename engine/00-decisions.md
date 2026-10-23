@@ -6245,3 +6245,9 @@ names the buyer, which is why backfilled payments linked and live ones did not.
   back and linked by the same ladder, oldest first, no workflow started. Audited (`payments.relinked`).
 
 Engine code, every offer: a payment that already named its buyer is untouched. Tests: `whop-buyer.test.ts`.
+
+Addendum (2026-10-23): a person's pick. Whop's email for Jennyfer Cantrell (jennyfercantrell@hotmail.com) is not the one GHL has,
+so no automatic match could place her two payments. Relink takes `pick: { pay_…: contact id }`. The payment is linked to that
+person with `linked_by = manual`, the person keeps Whop's email so their next payment links on its own, and no workflow starts.
+There is no hand-marked deposit. Tyler: "it should just be when the link comes through for a deposit product. it's a deposit."
+PMU's $250 of 2026-10-22 was bought on the main product before the Deposit product existed. It is corrected once, as data.
