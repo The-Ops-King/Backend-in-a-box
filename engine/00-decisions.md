@@ -6193,7 +6193,8 @@ we don't just link it to a random client." Engine code, every offer (Tyler: "fix
   one, and no one is asked (no workflow runs).
 - **When**: a booking fits a recording that starts at most 20 minutes before it and before it ends (a short or empty booking spans 15).
 - **Linked**: one person on the call with a booking that fits (a spoken name agrees with a booked person on the same surname and a
-  first name that is theirs, holds theirs, or is in their email: "Elizabeth Huffman" is Beth Huffman); from the invite alone, only when
+  first name that is theirs, holds theirs, or is in their email: "Elizabeth Huffman" is Beth Huffman; or the invite's email and the time
+  agree on one person and a guest who spoke has their first name: "Rafaela McKinney" on Rafaela Santana's call); from the invite alone, only when
   no other booking of the recorder's fits too; a booking whose own room the call used wins when nobody else's fits; the one person on
   the call with no booking then, and nobody else's booking then, is linked with no booking (nothing marked showed). Anything else is
   unlinked with the reason, and the Unmatched recording post asks. The closer's calendar alone never links. A booking is the one the
