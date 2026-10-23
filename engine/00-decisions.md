@@ -6245,3 +6245,8 @@ names the buyer, which is why backfilled payments linked and live ones did not.
   back and linked by the same ladder, oldest first, no workflow started. Audited (`payments.relinked`).
 
 Engine code, every offer: a payment that already named its buyer is untouched. Tests: `whop-buyer.test.ts`.
+
+Addendum (2026-10-23), marking a deposit by hand. Tyler: "we can retroactively mark that 250 as a deposit." `markDeposit` keeps
+`raw.deposit_marked` on the payment, which beats both the name rule and the declared list. The kinds of that payment and of the
+ones after it on the same pursuit are derived again. Events already written are left as they were, and nothing is started.
+`POST /api/admin/payments/deposit { company, payment, dryRun = true }`. Audited (`payment.marked_deposit`).

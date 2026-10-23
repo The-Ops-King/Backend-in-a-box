@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
-import { recordPayment } from "./payments";
+import { recordPayment, markDeposit } from "./payments";
 import { fillWhopBuyer, parseWhopEvent } from "./webhooks/whop";
 import { relinkWhopBuyers } from "./whop-relink";
 import { whopBuyer } from "@/adapters/whop/client";
@@ -66,5 +66,26 @@ describe.skipIf(!process.env.DATABASE_URL)("D229: relinking payments stuck witho
     expect(await asOperator((c) => one(c, "select count(*)::int as n from runs where company_id=$1", [companyId]))).toEqual({ n: 0 });
     // read again: nothing left without a buyer
     expect(await asOperator((c) => relinkWhopBuyers(c, companyId, "apik_x", { dryRun: true, get }))).toEqual([]);
+  });
+
+  it("a payment marked a deposit by hand: the dry run lists the kind it would change, applied it is a deposit, failed payments cannot be", async () => {
+    const dry = await asOperator((c) => markDeposit(c, companyId, "pay_250", { dryRun: true }));
+    expect(dry.kinds).toEqual([{ whop_payment_id: "pay_250", amount: 250, from: "installment", to: "deposit" }]);
+    expect(await asOperator((c) => one(c, "select kind from payments where company_id=$1 and whop_payment_id='pay_250'", [companyId]))).toEqual({ kind: "installment" });
+    await asOperator((c) => markDeposit(c, companyId, "pay_250", { dryRun: false }));
+    expect(await asOperator((c) => many(c, "select whop_payment_id, kind, raw->>'deposit_marked' as m from payments where company_id=$1 and contact_id is not null order by paid_at", [companyId])))
+      .toEqual([{ whop_payment_id: "pay_250", kind: "deposit", m: "true" }, { whop_payment_id: "pay_9750", kind: "balance", m: null }]);
+    await asOperator((c) => c.query("insert into payments (company_id, whop_payment_id, amount, status, paid_at, link_status) values ($1,'pay_fail',10000,'failed',now(),'unlinked')", [companyId]));
+    await expect(asOperator((c) => markDeposit(c, companyId, "pay_fail", { dryRun: true }))).rejects.toThrow(/only a succeeded payment/);
+  });
+
+  it("marked while still unlinked, it links as a deposit", async () => {
+    const p = parseWhopEvent(live("pay_d2", "250.00", "Beauty Moguls Method"))!;
+    await asOperator((c) => c.query("insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GK','Kim')", [companyId]));
+    await asOperator(async (c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) select $1, id, 'email', 'kim@x.com' from contacts where company_id=$1 and ghl_contact_id='GK'", [companyId]));
+    await asOperator((c) => recordPayment(c, companyId, p));
+    await asOperator((c) => markDeposit(c, companyId, "pay_d2", { dryRun: false }));
+    await asOperator((c) => relinkWhopBuyers(c, companyId, "apik_x", { dryRun: false, get: whop("kim@x.com") }));
+    expect(await asOperator((c) => one(c, "select kind, link_status from payments where company_id=$1 and whop_payment_id='pay_d2'", [companyId]))).toEqual({ kind: "deposit", link_status: "linked" });
   });
 });

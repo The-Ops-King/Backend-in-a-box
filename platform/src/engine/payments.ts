@@ -62,6 +62,7 @@ export function isDepositProduct(raw: Record<string, unknown> | null | undefined
  * A declaration is the whole truth for its company: the names are not read beside it.
  */
 export function isDeposit(raw: Record<string, unknown> | null | undefined, products: string[]): boolean {
+  if (raw?.deposit_marked === true) return true;   // D229: a person said so (markDeposit)
   if (products.length) return isDepositProduct(raw, products);
   return !!raw && (saysDeposit(raw.product_name) || saysDeposit(raw.plan_name));
 }
@@ -229,6 +230,39 @@ export async function linkFoundBuyer(c: PoolClient, companyId: string, paymentId
   await emitEvent(c, { company_id: companyId, contact_id: match.contactId, opportunity_id: out.event.opportunity_id, appointment_id: null, event_type: "payment.linked", source: "engine", data: { payment_id: p.id, by: match.by, via: "whop_api" } });
   if (opts.dispatch ?? true) await dispatchEvent(c, out.event, { contact: { id: match.contactId } });
   return { ...match, ...out };
+}
+
+/**
+ * D229: a person marks a payment a deposit that neither its product nor its plan says is one (PMU's $250 of 2026-10-22, sold on
+ * the main product before a Deposit product existed). The mark is kept on the payment (`raw.deposit_marked`) and wins over the
+ * name rule and the declared list. A linked payment's kind, and the kinds of the payments after it on the same pursuit, are
+ * derived again from the ledger; events already written stay as they were (history), and nothing is started.
+ */
+export async function markDeposit(c: PoolClient, companyId: string, paymentId: string, opts: { dryRun: boolean; who?: string }): Promise<{ payment: string; kinds: Array<{ whop_payment_id: string; amount: number; from: string | null; to: string | null }> }> {
+  const p = await one<PaymentRow>(c, "select * from payments where company_id=$1 and (id::text=$2 or whop_payment_id=$2)", [companyId, paymentId]);
+  if (!p) throw new Error("payment not found");
+  if (p.status !== "succeeded") throw new Error(`only a succeeded payment can be a deposit (this one is ${p.status})`);
+  const raw = { ...(p.raw ?? {}), deposit_marked: true, deposit_marked_by: opts.who ?? "operator", deposit_marked_at: new Date().toISOString() };
+  const kinds: Array<{ whop_payment_id: string; amount: number; from: string | null; to: string | null }> = [];
+  if (!p.opportunity_id) kinds.push({ whop_payment_id: p.whop_payment_id, amount: Number(p.amount), from: p.kind, to: p.kind });   // unlinked: its kind is derived when it links
+  else {
+    const opp = await one<{ contract_value: string | null }>(c, "select contract_value from opportunities where id=$1", [p.opportunity_id]);
+    const contract = opp?.contract_value == null ? null : Number(opp.contract_value);
+    const products = await companyDepositProducts(c, companyId);
+    const rows = await many<PaymentRow>(c, "select * from payments where opportunity_id=$1 and status in ('succeeded','refunded','failed') order by paid_at, id", [p.opportunity_id]);
+    let running = 0;
+    for (const r of rows) {
+      const rRaw = r.id === p.id ? raw : r.raw;
+      const to = deriveKind(Number(r.amount), running, contract, r.status as PaymentInput["status"], isDeposit(rRaw, products));
+      if (r.status !== "failed") running = money(running + Number(r.amount));
+      if (r.id === p.id || (r.paid_at >= p.paid_at && to !== r.kind)) kinds.push({ whop_payment_id: r.whop_payment_id, amount: Number(r.amount), from: r.kind, to });
+    }
+  }
+  if (opts.dryRun) return { payment: p.id, kinds };
+  await c.query("update payments set raw=$2 where id=$1", [p.id, raw]);
+  for (const k of kinds) if (k.to !== k.from) await c.query("update payments set kind=$3 where company_id=$1 and whop_payment_id=$2", [companyId, k.whop_payment_id, k.to]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'payment.marked_deposit','payment',$2,$3,$4)", [companyId, p.id, { kind: p.kind }, { kinds, by: opts.who ?? "operator" }]);
+  return { payment: p.id, kinds };
 }
 
 export const unlinkedPayments = (c: PoolClient, companyId: string) => many<PaymentRow>(c, "select * from payments where company_id=$1 and link_status='unlinked' order by paid_at desc", [companyId]);
