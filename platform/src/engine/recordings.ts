@@ -6,7 +6,7 @@ import { normEmail } from "./identity";
 
 /**
  * Call recordings (D22). Same shape as the payments ledger: every recording the provider reports becomes a row, linked
- * to a person or not. D226 (Tyler, on Beth Huffman's call filed on Corina Raducanu: "this needs to be foolproof otherwise it's
+ * to a person or not. D227 (Tyler, on Beth Huffman's call filed on Corina Raducanu: "this needs to be foolproof otherwise it's
  * worthless"; "if the client doesn't join, we don't just link it to a random client"): a recording is linked only when WHO was on
  * it and WHEN it was agree.
  *
@@ -33,13 +33,13 @@ export type RecordingInput = {
 export type RecordingRow = { id: string; company_id: string; contact_id: string | null; appointment_id: string | null; provider: string; external_id: string; title: string | null; started_at: Date; ended_at: Date | null; duration_min: number | null; url: string | null; share_url: string | null; recorded_by_email: string | null; recorded_by_name: string | null; invitees: { name?: string; email?: string; isExternal?: boolean }[]; transcript: { speaker: string; email?: string; text: string; timestamp?: string }[] | null; summary: string | null; analysis: Record<string, unknown>; link_status: string; linked_by: string | null; unlinked_reason: string | null; raw: Record<string, unknown>; received_at: Date };
 export type RecordResult =
   | { outcome: "duplicate"; recording: RecordingRow }
-  | { outcome: "internal"; recording: RecordingRow; reason: string }   // D226: only the team spoke; linked to no one, no one asked
+  | { outcome: "internal"; recording: RecordingRow; reason: string }   // D227: only the team spoke; linked to no one, no one asked
   | { outcome: "linked"; recording: RecordingRow; event: EventRow; contactId: string; appointmentId: string | null }
   | { outcome: "unlinked"; recording: RecordingRow; event: EventRow; reason: string };
 /** `silent` (history, D115): the row is written and linked by the same ladder, and nothing is emitted, so no workflow starts and no waiting run wakes. */
 export type SilentRecordResult = { outcome: "duplicate" | "linked" | "unlinked"; recording: RecordingRow; reason?: string };
 
-const BEFORE_MIN = 20;                 // D226: a call may start this long before its booking (the room opened early)…
+const BEFORE_MIN = 20;                 // D227: a call may start this long before its booking (the room opened early)…
 const SHORT_CALL_MIN = 15;             // …and until the booking ends; a booking with no length spans this much
 const MEETING_WINDOW_H = 24;           // a booking's meeting link counts for a recording this close to it (D102)
 const GENERIC_SPEAKER = /^(speaker|unknown|participant|guest|user)\b|^\d+$/i;   // a transcript label that names no one
@@ -82,7 +82,7 @@ export type Match = { contactId: string; by: "email" | "meeting" | "name" | "spe
 export type Resolution = { match: Match | null; reason?: string; internal?: boolean };
 type Fit = { id: string; contact_id: string; name: string; first: string | null; last: string | null; assigned_user_id: string | null; meeting_key: string | null; starts_at: Date };
 
-/** D226: the live bookings a recording starting at `at` fits: it starts no more than BEFORE_MIN before one, and before it ends. */
+/** D227: the live bookings a recording starting at `at` fits: it starts no more than BEFORE_MIN before one, and before it ends. */
 const FIT_SQL = `select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as name, ct.first_name as first, ct.last_name as last, a.assigned_user_id, a.meeting_key, a.starts_at
   from appointments a join contacts ct on ct.id=a.contact_id
   where a.company_id=$1 and a.status<>'cancelled' and ct.merged_into is null
@@ -90,7 +90,7 @@ const FIT_SQL = `select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '
     and $2::timestamptz < greatest(coalesce(a.ends_at, a.starts_at), a.starts_at + make_interval(mins => ${SHORT_CALL_MIN}))`;
 const fitsAt = (c: PoolClient, companyId: string, at: Date) => many<Fit>(c, `${FIT_SQL} order by abs(extract(epoch from (a.starts_at - $2::timestamptz)))`, [companyId, at]);
 
-/** D226: this person's booking the recording fits (the nearest start, when a reschedule left two), or none. */
+/** D227: this person's booking the recording fits (the nearest start, when a reschedule left two), or none. */
 export async function fittingBooking(c: PoolClient, companyId: string, contactId: string, at: Date): Promise<string | null> {
   return (await one<{ id: string }>(c, `${FIT_SQL} and a.contact_id=$3 order by abs(extract(epoch from (a.starts_at - $2::timestamptz))) limit 1`, [companyId, at, contactId]))?.id ?? null;
 }
@@ -99,7 +99,7 @@ const tokens = (n?: string | null) => normName(n)?.split(" ") ?? [];
 /** A name that is a team member's: the same first name, and each further word of it a start of theirs or theirs of it ("Nelly", "Nelly Sudri" for "Nelly S."); never longer than theirs. */
 const staffName = (staff: string[][], name: string) => { const s = tokens(name); return s.length > 0 && staff.some((t) => s.length <= t.length && t[0] === s[0] && s.slice(1).every((x, i) => x.startsWith(t[i + 1]) || t[i + 1].startsWith(x))); };
 /**
- * D226: a name someone gave on the call is this booked person's: the same surname, and a first name that is theirs, holds theirs or is
+ * D227: a name someone gave on the call is this booked person's: the same surname, and a first name that is theirs, holds theirs or is
  * held in it ("Elizabeth" for "Beth"), or is in one of their email addresses; a first name alone must be theirs exactly.
  */
 export function nameAgrees(spoken: string, first: string | null, last: string | null, emails: string[] = []): boolean {
@@ -222,7 +222,7 @@ export async function rematchRecordings(c: PoolClient, companyId: string, opts: 
 export const eventData = (r: RecordingRow, extra: Record<string, unknown> = {}) => ({ recording_id: r.id, provider: r.provider, external_id: r.external_id, title: r.title, started_at: r.started_at.toISOString(), duration_min: r.duration_min, share_url: r.share_url, recorded_by: r.recorded_by_email, ...extra });
 
 async function settle(c: PoolClient, companyId: string, r: RecordingRow, contactId: string, by: string, appointmentId: string | null, silent = false): Promise<{ event: EventRow | null; appointmentId: string | null }> {
-  const apptId = appointmentId;   // D226: the booking the match found the recording fits, or none (never merely the nearest)
+  const apptId = appointmentId;   // D227: the booking the match found the recording fits, or none (never merely the nearest)
   await c.query("update recordings set contact_id=$2, appointment_id=$3, link_status='linked', linked_by=$4, unlinked_reason=null where id=$1", [r.id, contactId, apptId, by]);
   if (silent) return { event: null, appointmentId: apptId };
   const appt = apptId ? await one<{ opportunity_id: string | null }>(c, "select opportunity_id from appointments where id=$1", [apptId]) : null;

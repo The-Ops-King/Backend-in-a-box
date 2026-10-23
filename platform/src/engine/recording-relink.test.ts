@@ -1,4 +1,4 @@
-/** D226: a recording on the wrong person is moved, and what it set off on them is put back; the read-only check of links against the rules. */
+/** D227: a recording on the wrong person is moved, and what it set off on them is put back; the read-only check of links against the rules. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -25,7 +25,7 @@ const fake: Adapters = {
   recorder: { transcript: async () => [{ speaker: "Cal", email: "closer@relink.test", text: "hi" }, { speaker: "Elizabeth Huffman", text: "hi" }] },
 };
 
-describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong person (D226)", () => {
+describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong person (D227)", () => {
   beforeAll(async () => {
     await migrate();
     await asOperator(async (c) => {

@@ -8,7 +8,7 @@ import { undoRunWrites } from "./undo";
 import { fittingBooking, linkRecording, resolveRecording, type RecordingInput, type RecordingRow } from "./recordings";
 
 /**
- * D226: a recording linked to the wrong person is moved, and everything it set off on them is put back (Tyler: "the resolve should
+ * D227: a recording linked to the wrong person is moved, and everything it set off on them is put back (Tyler: "the resolve should
  * do all those steps"). POST /api/admin/recordings/relink { company, recording, to: "rules" | "none" | <contact id>, why, dryRun = true }.
  *
  * - `to`: "rules" links it where the matching rules say now (reading the transcript again from Fathom when it is no longer held);
@@ -143,7 +143,7 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
 }
 
 /**
- * D226: every recording in a window held to the rules as they are now, read only: the ones whose link the rules would not make
+ * D227: every recording in a window held to the rules as they are now, read only: the ones whose link the rules would not make
  * (linked to someone the rules would not pick, or to no one the rules would link), each with what the rules say and why. The
  * transcript is read again from Fathom when it is no longer held. Fixing one is `relinkRecording` with `to: "rules"`, by name.
  */

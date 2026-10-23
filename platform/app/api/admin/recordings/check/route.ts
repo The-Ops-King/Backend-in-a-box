@@ -6,7 +6,7 @@ import { checkRecordings } from "@/engine/recording-relink";
 export const dynamic = "force-dynamic"; export const maxDuration = 300;
 
 /**
- * D226: POST { company, from?, to? | days? }: read only. Every recording in the window held to the matching rules as they are now;
+ * D227: POST { company, from?, to? | days? }: read only. Every recording in the window held to the matching rules as they are now;
  * the answer lists each one whose link the rules would not make, with what the rules say and why. Nothing changes: each is fixed by
  * name with /api/admin/recordings/relink. Authorization: Bearer $CRON_SECRET.
  */

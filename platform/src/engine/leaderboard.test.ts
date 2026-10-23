@@ -171,6 +171,27 @@ describe.skipIf(!process.env.DATABASE_URL)("the leaderboard (D94)", () => {
     expect(body).toMatch(/1 set\s*$/m);         // no set call due yet: no rate, never a made-up 0%
   });
 
+  it("D226: pitched counts the shows the closer pitched (the record's Pitched, a close or deposit by its disposition); pitch rate and close rate when pitched follow; the board says it per closer", async () => {
+    const marked = salesCalls.map((r) => (r.id === "S1" ? { ...r, properties: { ...r.properties, disposition: "closed_won" } } : r.id === "S2" ? { ...r, properties: { ...r.properties, pitched: "yes", disposition: "follow_up" } } : r.id === "S4" ? { ...r, properties: { ...r.properties, pitched: "no", disposition: "lost" } } : r));
+    const reads: GhlReads = { ...ghl, objectRecords: async (_c, key) => (key === "custom_objects.sales_call" ? marked : key === "custom_objects.payment" ? payments : []) };
+    const get = (metric: string, groupBy?: "closer") => asOperator((c) => getMetric(c, companyId, { metric, period: lastWeek(), groupBy, now: MONDAY.toJSDate() }, reads));
+    expect((await get("pitched")).value).toBe(2);                // S1 closed, S2 said yes; S4 said no, S5 nobody said; the test contact never counts
+    expect((await get("pitch_rate")).value).toBe(0.5);           // 2 of 4 shows
+    expect((await get("pitched_close_rate")).value).toBe(0.5);   // 1 close of 2 pitched
+    const lb = await board(reads);
+    expect(lb.closers.map((k) => [k.name, k.pitched, k.shows])).toEqual([["James Closer", 2, 3], ["Allan Closer", 0, 1]]);
+    expect(formatLeaderboard(lb)).toContain("*Pitching*");
+  });
+
+  it("D226: once a pitch is on record, each closer's pitches of their shows and how many pitches closed, within a phone's width", () => {
+    const lb: Leaderboard = { metric: "leaderboard", label: "Leaderboard", source: "x", period_label: "", period_name: "", from: "", to: "", timezone: TZ,
+      closers: [{ key: "a", name: "James Closer", cash: 9000, closes: 2, shows: 5, close_rate: 40, pitched: 4, pitch_rate: 80, pitched_close_rate: 50 }, { key: "b", name: "Allan", cash: 0, closes: 0, shows: 2, close_rate: 0, pitched: 0, pitch_rate: 0, pitched_close_rate: null }], setters: [] };
+    const body = formatLeaderboard(lb);
+    expect(body).toContain("*Pitching* (of shows · closed when pitched)\n```\n1. James  4/5 pitched  50%\n2. Allan  0/2 pitched\n```");
+    for (const line of body.split("```").filter((_, i) => i % 2 === 1).flatMap((b) => b.split("\n"))) expect(line.length).toBeLessThanOrEqual(BOARD_WIDTH);
+    expect(formatLeaderboard({ ...lb, closers: lb.closers.map((x) => ({ ...x, pitched: 0 })) })).not.toContain("Pitching");   // none on record: not shown
+  });
+
   it("first names, with the last initial when two on one board share one", () => {
     const lb: Leaderboard = { metric: "leaderboard", label: "Leaderboard", source: "x", period_label: "", period_name: "", from: "", to: "", timezone: TZ,
       closers: [{ key: "a", name: "James Closer", cash: 120000, closes: 2, shows: 4, close_rate: 50 }, { key: "b", name: "James Other", cash: 900, closes: 1, shows: 2, close_rate: 50 }, { key: "c", name: "Allan", cash: 0, closes: 0, shows: 1, close_rate: 0 }], setters: [] };

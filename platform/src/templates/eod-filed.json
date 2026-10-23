@@ -26,7 +26,7 @@
           "name": "End of day",
           "icon": ":clipboard:"
         },
-        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.calls | each:\"\\n• {{item.contact}}: {{item.outcome_label | default:no answer}}{{item.cash | nonzero | then:\\\" · $\\\"}}{{item.cash | nonzero | money:0 | suffix:\\\" collected\\\"}}{{item.revenue | nonzero | then:\\\" · $\\\"}}{{item.revenue | nonzero | money:0 | suffix:\\\" revenue\\\"}}{{item.next_date | then:\\\" · next \\\"}}{{item.next_date | date:\\\"ccc LLL d\\\"}}{{item.dq_reason | then:\\\" · \\\"}}{{item.dq_reason}}{{item.lost_reason | then:\\\" · \\\"}}{{item.lost_reason}}\" | join:\"\"}}{{event.day_answers_lines | line}}",
+        "template": "📝 *{{user.name}}* filed {{event.day_label}}: {{event.totals_line}}.{{event.calls | each:\"\\n• {{item.contact}}: {{item.outcome_label | default:no answer}}{{item.cash | nonzero | then:\\\" · $\\\"}}{{item.cash | nonzero | money:0 | suffix:\\\" collected\\\"}}{{item.revenue | nonzero | then:\\\" · $\\\"}}{{item.revenue | nonzero | money:0 | suffix:\\\" revenue\\\"}}{{item.next_date | then:\\\" · next \\\"}}{{item.next_date | date:\\\"ccc LLL d\\\"}}{{item.dq_reason | then:\\\" · \\\"}}{{item.dq_reason}}{{item.lost_reason | then:\\\" · \\\"}}{{item.lost_reason}}{{item.not_pitched | then:\\\" · not pitched\\\"}}\" | join:\"\"}}{{event.day_answers_lines | line}}",
         "title": "Post what happened on each call",
         "tag": "eod-summary:{{event.user_id}}:{{event.day}}",
         "edit": true

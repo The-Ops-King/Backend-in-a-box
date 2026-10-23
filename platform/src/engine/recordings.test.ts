@@ -1,4 +1,4 @@
-/** The recordings ledger: who was on the call held to when it was (D226: speakers, then the invite: email, name, meeting link; never the calendar alone), ambiguity, idempotency, parsers, signature, JSON repair, the lines filter. */
+/** The recordings ledger: who was on the call held to when it was (D227: speakers, then the invite: email, name, meeting link; never the calendar alone), ambiguity, idempotency, parsers, signature, JSON repair, the lines filter. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { createHmac } from "node:crypto";
 import { asOperator, one, many } from "@/db/client";
@@ -50,13 +50,13 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     const two = await asOperator((c) => resolveRecording(c, companyId, rec("r3", { invitees: [{ name: "Bob Ray", email: "bobs-other@gmail.com" }] })));
     expect(two.match).toBeNull(); expect(two.reason).toMatch(/"bob ray" is the name of 2 contacts/);
   });
-  it("D226: the closer's calendar alone never links: someone on the call must be the booked person", async () => {
+  it("D227: the closer's calendar alone never links: someone on the call must be the booked person", async () => {
     const r = await asOperator((c) => resolveRecording(c, companyId, rec("r4", { startedAt: new Date(at.getTime() + 5 * 60e3), invitees: [{ name: "Guest", email: "guest@phone.com" }] })));
     expect(r.match).toBeNull(); expect(r.reason).toMatch(/nobody in the CRM matches guest@phone.com, Guest, and no transcript says who joined; the recorder's booking then is Ann Lee \(booked .*\), but no one on the call is shown to be them/);
     const far = await asOperator((c) => resolveRecording(c, companyId, rec("r5", { startedAt: new Date(at.getTime() + 5 * 3600e3), invitees: [{ name: "Guest", email: "guest@phone.com" }] })));
     expect(far.match).toBeNull(); expect(far.reason).toMatch(/nobody in the CRM matches guest@phone.com/);
   });
-  it("D226: back-to-back calls: whoever spoke picks their own booking, however close the next one is; the calendar alone picks none", async () => {
+  it("D227: back-to-back calls: whoever spoke picks their own booking, however close the next one is; the calendar alone picks none", async () => {
     const add = (contact: string, ext: string, startsAt: Date) => asOperator(async (c) => { const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 limit 1", [companyId]))!.id;
       return (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status) values ($1,$2,'ghl',$3,$4,$5,$6,$7,$7,now(),'confirmed') returning id", [companyId, contact, ext, cal, term, closer, startsAt]))!.id; });
     const base = new Date(at.getTime() + 24 * 3600e3);
@@ -127,7 +127,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     expect(r.recording).toMatchObject({ contact_id: second, appointment_id: want, linked_by: "meeting" });
     expect(r.event.data).toMatchObject({ matched_by: "meeting", appointment_matched: true });
   });
-  it("one meeting link on two bookings (a personal meeting room) is no answer; nor is the calendar alone (D102, D226)", async () => {
+  it("one meeting link on two bookings (a personal meeting room) is no answer; nor is the calendar alone (D102, D227)", async () => {
     const a = await person("Rae"), b = await person("Sol");
     await book(a, "MT-3", day(5), "5551234567");
     await book(b, "MT-4", new Date(day(5).getTime() + 3 * 3600e3), "5551234567");
@@ -143,7 +143,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     expect((await asOperator((c) => resolveRecording(c, companyId, input))).match).toEqual({ contactId: ann, by: "email", appointmentId: keyed });
     expect((await asOperator((c) => resolveRecording(c, companyId, { ...input, meetingUrl: undefined }))).match).toEqual({ contactId: ann, by: "email", appointmentId: near });
   });
-  it("an impromptu meeting after the booked link failed: Dan speaking on it makes it his booking; no one named on it, it is a person's call (D102, D226)", async () => {
+  it("an impromptu meeting after the booked link failed: Dan speaking on it makes it his booking; no one named on it, it is a person's call (D102, D227)", async () => {
     const dan = await person("Dan");
     const booked = await book(dan, "MT-7", day(9), "82990000001");
     const input = rec("m-5", { title: "Impromptu Zoom Meeting", startedAt: new Date(day(9).getTime() + 4 * 60e3), meetingUrl: "https://us06web.zoom.us/j/7712345678?pwd=abc" });
@@ -158,8 +158,8 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     for (const id of ["82990000002", "82990000003"]) expect((await asOperator((c) => resolveRecording(c, companyId, rec(`m-${id}`, { startedAt: day(11), recordedBy: { email: "someone@else.com" }, meetingUrl: `https://zoom.us/j/${id}` })))).match).toBeNull();
   });
 
-  // D226, the calls of 2026-10-22: Beth Huffman's consultation carried Corina Raducanu's invite; a roleplay; Audra's coaching call
-  it("D226: the invite names one person, the one who spoke is the person booked then: the call is theirs; with no transcript, a person's call", async () => {
+  // D227, the calls of 2026-10-22: Beth Huffman's consultation carried Corina Raducanu's invite; a roleplay; Audra's coaching call
+  it("D227: the invite names one person, the one who spoke is the person booked then: the call is theirs; with no transcript, a person's call", async () => {
     const corina = await person("Corina"), beth = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Beth','Huffman') returning id", [companyId])))!.id;
     await asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email','corina@x.com'),($1,$3,'email','elizabethahuffman@gmail.com')", [companyId, corina, beth]));
     const t = day(30);
@@ -175,7 +175,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     const wrong = await asOperator((c) => resolveRecording(c, companyId, { ...call, transcript: [{ speaker: "Corina Mtg", text: "hi" }] }));
     expect(wrong.match).toBeNull(); expect(wrong.reason).toMatch(/Corina Mtg spoke, but the booking the recorder had then is Beth Huffman/);
   });
-  it("D226: a call only the team spoke on is internal: linked to no one, and no one is asked", async () => {
+  it("D227: a call only the team spoke on is internal: linked to no one, and no one is asked", async () => {
     const before = (await asOperator((c) => many(c, "select 1 from events where company_id=$1", [companyId]))).length;
     const r = await asOperator((c) => recordRecording(c, companyId, rec("rp-1", { title: "Roleplay/training", startedAt: new Date(at.getTime() - 50 * 60e3), invitees: [{ name: "Mitch Sapoff", email: "mitch@co.com", isExternal: true }, { name: "Cal", email: "closer@co.com", isExternal: false }],
       transcript: [{ speaker: "Cal", email: "closer@co.com", text: "you be the client" }, { speaker: "Cal Closer", text: "ok" }] })));
@@ -185,7 +185,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     const odd = await asOperator((c) => resolveRecording(c, companyId, rec("rp-2", { startedAt: day(40), transcript: [{ speaker: "Cal Closer", text: "hi" }, { speaker: "Mitch Sapoff", text: "hi" }] })));
     expect(odd).toMatchObject({ match: null, reason: expect.stringMatching(/Mitch Sapoff spoke, and nobody in the CRM has that name/) });
   });
-  it("D226: a client who speaks on an unbooked call is linked to them with no booking; the booking then being someone else's stops it", async () => {
+  it("D227: a client who speaks on an unbooked call is linked to them with no booking; the booking then being someone else's stops it", async () => {
     const audra = await person("Audra");
     const t = day(50);
     expect(await asOperator((c) => resolveRecording(c, companyId, rec("au-1", { title: "Impromptu Google Meet Meeting", startedAt: t, invitees: [{ name: "Cal", email: "closer@co.com", isExternal: false }], transcript: [{ speaker: "Audra Mtg", text: "hi" }, { speaker: "Cal", text: "hi" }] })))).toEqual({ match: { contactId: audra, by: "speaker" } });
@@ -221,7 +221,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
   });
 });
 
-describe("a spoken name and a booked person (D226)", () => {
+describe("a spoken name and a booked person (D227)", () => {
   it("the same surname with a first name that is theirs, holds theirs, or is in their email; a first name alone must be theirs", () => {
     expect(nameAgrees("Elizabeth Huffman", "Beth", "Huffman")).toBe(true);
     expect(nameAgrees("Liz Huffman", "Beth", "Huffman", ["elizabethahuffman@gmail.com"])).toBe(true);

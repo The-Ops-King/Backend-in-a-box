@@ -108,6 +108,7 @@ export type SalesCall = { id: string; ext: string; ghl: string; name: string; te
   match: "one" | "none" | "many"; appt: { id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null } | null; closer: string; utm: string | null; booking_source: string;
   /** D94: the setter who booked it: the record's setter on the roster (else the name as written), blank when nobody set it or the record says self-booked (a self-booked link is never a set, D87) */ setter: string;
   /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string;
+  /** D226: whether the closer pitched them: the end of day's answer on the booking, else the record's Pitched field; null when nobody said */ pitched: boolean | null;
   /** D76: the record's links as GHL holds them: its contact_id field, whether the contact came only from the association, its opportunity_id field */ links: { contact_field: boolean; opportunity: string } };
 type Call = SalesCall;
 export type GhlCtx = {
@@ -257,12 +258,12 @@ async function calls(x: GhlCtx): Promise<Call[]> {
       const passed = sched ? sched.toMillis() < x.now.getTime() : day!.plus({ days: 1 }).toMillis() <= x.now.getTime();
       return at.toMillis() >= x.start.getTime() && at.toMillis() < x.end.getTime() && passed ? [{ r, at, exact: !!sched }] : [];
     });
-    type Hit = { rid: string; by_ext: boolean; id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null; name: string | null; test: boolean };
+    type Hit = { rid: string; by_ext: boolean; id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null; name: string | null; test: boolean; pitched: boolean | null };
     // a record names its booking by the slot key it was written under (D120: a Calendly re-make keeps it while the event id moves on)
     // the cancel time: the earliest of the source's own update stamp and the poll's status change to cancelled, both at or after it
     const hits = due.length ? await many<Hit>(x.c, `select x.rid, (a.external_id = x.ext or a.slot_key = x.ext) as by_ext, a.id::text as id, a.contact_id::text as contact_id, a.status, a.source, ot.category as outcome, a.starts_at,
         case when a.status='cancelled' then least(a.source_updated_at, (select min(e.occurred_at) from events e where e.company_id=a.company_id and e.appointment_id=a.id and e.event_type='appointment.status_changed' and e.data->'status'->>'to'='cancelled')) end as cancelled_at,
-        nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ${testContactSql("ct", "$6")} as test
+        nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ${testContactSql("ct", "$6")} as test, a.pitched
       from unnest($2::text[], $3::text[], $4::text[], $5::timestamptz[], $8::text[]) as x(rid, ext, ghl, at, day)
       join appointments a on a.company_id=$1 and (a.external_id = x.ext or a.slot_key = x.ext or ((case when x.at is not null then date_trunc('minute', a.starts_at) = date_trunc('minute', x.at) else (a.starts_at at time zone $7)::date = x.day::date end)
         and a.contact_id in (select ct2.id from contacts ct2 where ct2.company_id=$1 and (ct2.ghl_contact_id=x.ghl or ct2.id in (select i.contact_id from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.ghl)))))
@@ -287,7 +288,8 @@ async function calls(x: GhlCtx): Promise<Call[]> {
       out.push({ id: r.id, ext: String(p.external_id ?? ""), ghl: ghlId, test: cand.some((h) => h.test) || !!facts.get(ghlId)?.test, name: a?.name ?? (String(p.display_label ?? "").trim() || ghlId || r.id), at, filed, disposition: norm(answerText(p.disposition)), cls, flipped, cancelUnknown,
         match: cand.length === 1 ? "one" : cand.length ? "many" : "none", appt: a ? { id: a.id, contact_id: a.contact_id, status: a.status, source: a.source, outcome: a.outcome, starts_at: a.starts_at, cancelled_at: a.cancelled_at } : null,
         closer: salesCloserOf(String(p.closer ?? "")), setter: setterOf(p), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? ""),
-        links: { contact_field: ownField.has(r.id), opportunity: String(p.opportunity_id ?? "").trim() } });
+        links: { contact_field: ownField.has(r.id), opportunity: String(p.opportunity_id ?? "").trim() },
+        pitched: a?.pitched ?? (norm(answerText(p.pitched)) === "yes" ? true : norm(answerText(p.pitched)) === "no" ? false : null) });
     }
     return out.sort((a, b) => a.at.toMillis() - b.at.toMillis());
   })());
@@ -375,7 +377,10 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     const dqs = salesCallConfig(x.bindings)?.dqDispositions ?? [];
     if (metric === "sales_dqs" && !dqs.length) throw new MetricError("sales DQs are the Sales Call records whose disposition is a DQ, and no DQ disposition is set (sales_call.dq_dispositions)");
     const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, list) : null;
-    const counts = (k: Call) => (metric === "calls_booked_due" && k.cls !== "rescheduled") || (metric === "calls_filed" && k.cls !== "rescheduled" && k.cls !== "missing") || (metric === "shows" ? k.cls === "showed" : metric === "no_shows" ? k.cls === "noshow" : metric === "sales_dqs" ? dqs.includes(k.disposition) : k.cls === "cancelled");
+    // D226: a show that was pitched: the closer said so, or it closed or took a deposit (no close without a pitch)
+    const dispositions = salesCallConfig(x.bindings)?.dispositions ?? {};
+    const wasPitched = (k: Call) => k.cls === "showed" && (k.pitched === true || ["closed", "deposit"].includes(dispositions[k.disposition]?.meaning ?? ""));
+    const counts = (k: Call) => metric === "pitched" ? wasPitched(k) : (metric === "calls_booked_due" && k.cls !== "rescheduled") || (metric === "calls_filed" && k.cls !== "rescheduled" && k.cls !== "missing") || (metric === "shows" ? k.cls === "showed" : metric === "no_shows" ? k.cls === "noshow" : metric === "sales_dqs" ? dqs.includes(k.disposition) : k.cls === "cancelled");
     for (const k of list) {
       if (!counts(k) || (x.filters.closer && k.closer !== x.filters.closer) || (x.filters.setter && k.setter !== x.filters.setter)) continue;
       if (x.filters.source && src(sources!.get(k.ghl)) !== src(x.filters.source)) continue;

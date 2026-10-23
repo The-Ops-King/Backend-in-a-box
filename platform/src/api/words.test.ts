@@ -127,8 +127,8 @@ describe("D112: a step's words are made from its settings", () => {
   it("a CRM record says which object, update or write, and the values that matter", () => {
     expect(line(nodeOf(pmu("call-booked"), "k5"))).toBe("Update the Sales Call record for the slot the call moved from · outcome = rescheduled");
     expect(line(nodeOf(pmu("call-booked"), "k4"))).toMatch(/^Write the Sales Call record · outcome = scheduled · \+\d+ more fields$/);
-    expect(line(nodeOf(pmu("call-outcome"), "r2"))).toBe("Update the Sales Call record · outcome = no-show · empties 6 fields");
-    expect(line(nodeOf(pmu("call-outcome"), "r1"))).toBe("Update the Sales Call record · outcome = showed, sets disposition · empties 1 field");
+    expect(line(nodeOf(pmu("call-outcome"), "r2"))).toBe("Update the Sales Call record · outcome = no-show · empties 7 fields");
+    expect(line(nodeOf(pmu("call-outcome"), "r1"))).toBe("Update the Sales Call record · outcome = showed, sets disposition · +1 more field · empties 1 field");
   });
 
   it("the other kinds read as what they do", () => {

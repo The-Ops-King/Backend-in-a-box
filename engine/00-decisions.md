@@ -6152,7 +6152,33 @@ contacts and team members that name or email is; no words are returned or kept, 
 (every call the CRM's dialer logged with a person: when, which way, status, seconds, who); and `GET /api/admin/calendly/event` with
 `user=`, `from=` and `to=` (that member's own bookings in a window of up to two days, cancelled too, with who booked each).
 
-## D226. A recording is linked only when who was on it and when it was agree (2026-10-22)
+## D226. Whether the closer pitched them, on every end of day (2026-10-22)
+
+Tyler: "One thing we need to add to all of the EOD is 'pitch' so if they pitched the person. If it's a show and a follow up, lost,
+or close we need to track if they pitched the person." His answers: asked after a close pending, a follow up, a loss and a DQ; a
+close or a deposit is yes without asking; required Yes/No; a new Pitched field on the GHL Sales Call; pitch rate and close rate
+on pitched calls in the reports; the AI call review suggests it and the closer confirms.
+
+- **The question** (`eod-form.ts`): a builtin `pitched` (Yes/No, required) shown after any answer meaning pending, follow up,
+  lost or unqualified, whatever the company calls it; a triage or setter call never gets it. `pitchedOf` reads a call's pitch:
+  true for a close or deposit, the closer's answer otherwise, null when the call did not happen.
+- **Kept** on the booking (`appointments.pitched`, migration 0008) and carried on `appointment.outcome` and `call.held` (a close
+  or deposit filed any way is pitched). A refiled day that changes only the pitch corrects the booking in place; it does not run
+  Call outcome filed again (its posts and tags would repeat). The disposition note says "Pitched: Yes/No".
+- **The prefill**: what was filed, else the call review's `notes.pitched` (the default `call_review`/`call_notes` prompts ask for
+  it; each offer's own prompt is its own setting, changed by name).
+- **GHL**: Call outcome filed's showed record (`r1`) writes `pitched` (yes/no) when known; a no-show or a call moved empties it.
+  The Sales Call object gets a Pitched field (yes/no) in each offer's GHL (`ghl-setup.ts`, Dating's setup file).
+- **The numbers**: `pitched` (shows the closer pitched: the booking's answer, else the record's field; a close or deposit by its
+  disposition), `pitch_rate` (pitched ÷ shows), `pitched_close_rate` (closes ÷ pitched). The wrap-ups read pitched whatever their
+  list says and their layouts show Pitched, Pitch rate and Close rate when pitched; the leaderboard adds a Pitching block per
+  closer once a pitch is on record; the closer's end-of-day post says "N pitched" in its totals and "not pitched" on a call.
+
+The engine, templates and the committed copies change here; each offer's own workflows (Call outcome filed, the three
+wrap-ups, the end-of-day post), its GHL field and its prompt change one offer at a time, named, dry run first. Tests:
+`eod.test.ts`, `leaderboard.test.ts`, `journey.test.ts`, `sweep.test.ts`, `words.test.ts`.
+
+## D227. A recording is linked only when who was on it and when it was agree (2026-10-22)
 
 Beth Huffman's consultation (21:04, her booking 21:00) was filed on Corina Raducanu: Fathom's invite named Corina, and an invitee email
 was taken as the answer whatever the time (Corina's 15-minute triage was at 20:00). "Sales call recorded" then ran on Corina: Beth's
