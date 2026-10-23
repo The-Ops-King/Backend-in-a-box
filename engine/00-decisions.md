@@ -6209,3 +6209,23 @@ we don't just link it to a random client." Engine code, every offer (Tyler: "fix
   workflow runs as a person's link would; the wrong invite is not remembered on them. Audited.
 
 Tests: `recordings.test.ts`, `recording-relink.test.ts`.
+
+## D228. Show rate and close rate count people, not calls (2026-10-23)
+
+Tyler: "for the show rate and close rate right now it's based on per appointment, they need to be per prospect." PMU's Renee G
+had four calls in one week and counted four times. His answers to how:
+
+- **Show rate** = people who showed to at least one closing-type call in the period (demo, consultation, follow-up: every call a
+  Sales Call is made for) ÷ people with a call in the period whose outcome is known (showed, no-show or cancelled). A person whose
+  only calls were cancelled is in, as not showed (cancellations stay in, 2026-10-22). A person whose calls nobody has filed yet is
+  out until they are, and listed under "No EOD outcome yet" (D217). A slot a call moved away from is not counted (D76).
+- **Close rate** = people closed in the period ÷ people who showed in it (closes were already people: a person with two won cards
+  is one close).
+- **By closer, for both**: the closer of the person's **first call ever** (any period, any outcome), read from every Sales Call
+  record. Closes in close rate are credited the same way, so the rate is one closer's closed people over the same closer's showed
+  people. `/closes`, the leaderboard's cash and closes and "Closes" in `/mtd` keep crediting the closer of the latest call (D70).
+- By setter and by time: the person's first call in the period.
+
+Counts that are about calls stay about calls: "Calls booked", shows and no-shows as numbers, the EOD reminder, `analyze` asked
+about calls. Code, the same on every offer (the bot, `/show-rate`, `/close-rate`, `/mtd`, `/weekly`, `/monthly`, the wrap-ups,
+the leaderboard's close rate and setters' show rate). Tests: `bot.test.ts`.

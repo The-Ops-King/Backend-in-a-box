@@ -114,7 +114,7 @@ type Call = SalesCall;
 export type GhlCtx = {
   c: PoolClient; companyId: string; ac: Company; bindings: Record<string, string>; reads: GhlReads; tz: string; start: Date; end: Date; now: Date;
   domains: string[]; filters: { closer?: string; setter?: string; source?: string };
-  memo: { leads?: Promise<{ people: Person[] }>; closes?: Promise<Close[]>; calls?: Promise<Call[]>; payments?: Promise<Payment[]>; sources: Map<string, string> };
+  memo: { leads?: Promise<{ people: Person[] }>; closes?: Promise<Close[]>; calls?: Promise<Call[]>; payments?: Promise<Payment[]>; sources: Map<string, string>; /** D228: each prospect's closer of their first call ever (GHL contact id → closer) */ owners?: Map<string, string> };
 };
 
 async function read<T>(what: string, f: () => Promise<T>): Promise<T> {
@@ -275,6 +275,16 @@ async function calls(x: GhlCtx): Promise<Call[]> {
     // D118: a company whose Closer field holds option keys ("mitch") has them read back as the closer they belong to
     const options = closerOptions(x.bindings, roster);
     const salesCloserOf = (n: string) => closerOf(closerNameOf(n, options));
+    // D228: who owns a prospect is the closer of their first call ever, from every Sales Call record (any period, any outcome)
+    const owners = new Map<string, { at: number; closer: string }>();
+    for (const r of recs) {
+      const p = r.properties, ghl = String(p.contact_id ?? "").trim(), closer = String(p.closer ?? "").trim();
+      if (!ghl || !closer) continue;
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(p.call_date ?? "")) ? DateTime.fromISO(String(p.call_date), { zone: x.tz }) : null;
+      const at = (callTime(p.scheduled_at, day, x.tz) ?? day)?.toMillis(); if (at === undefined) continue;
+      const had = owners.get(ghl); if (!had || at < had.at) owners.set(ghl, { at, closer });
+    }
+    x.memo.owners = new Map([...owners].map(([g, o]) => [g, salesCloserOf(o.closer)]));
     const selfValue = norm(bookingSourceValues(x.bindings).self);
     const setterOf = (p: Record<string, unknown>) => (selfValue && norm(answerText(p.booking_source)) === selfValue ? "" : closerOf(answerText(p.setter)));
     const out: Call[] = [];
@@ -372,6 +382,29 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     }
     return { rows };
   }
+  if (entity === "call" && (metric === "prospects_filed" || metric === "prospects_showed")) {
+    // D228: a prospect counts once: in when any of their calls in the period has an outcome (showed, no-show, cancelled), showed
+    // when any of them showed; by closer, the closer of their first call ever; by setter or time, their first call in the period
+    const list = await counted(x), owner = (k: Call) => x.memo.owners?.get(k.ghl) ?? k.closer;
+    const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, list) : null;
+    const by = new Map<string, { first: Call; filed: boolean; showed: boolean }>();
+    for (const k of list) {
+      if (k.cls === "rescheduled") continue;
+      const key = k.ghl || k.id, had = by.get(key);
+      const e = had ?? { first: k, filed: false, showed: false };
+      if (k.cls !== "missing") e.filed = true;
+      if (k.cls === "showed") e.showed = true;
+      by.set(key, e);
+    }
+    for (const e of by.values()) {
+      const k = e.first;
+      if (metric === "prospects_filed" ? !e.filed : !e.showed) continue;
+      if ((x.filters.closer && owner(k) !== x.filters.closer) || (x.filters.setter && k.setter !== x.filters.setter)) continue;
+      if (x.filters.source && src(sources!.get(k.ghl)) !== src(x.filters.source)) continue;
+      add(!groupBy ? "" : groupBy === "source" ? sources!.get(k.ghl)! : groupBy === "closer" ? owner(k) : groupBy === "setter" ? k.setter : timeKey(groupBy, k.at), 1);
+    }
+    return { rows };
+  }
   if (entity === "call") {
     const list = await counted(x);
     const dqs = salesCallConfig(x.bindings)?.dqDispositions ?? [];
@@ -389,11 +422,14 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     return { rows };
   }
   const list = await closes(x);
+  // D228: for close rate a close is the prospect's owner's (the closer of their first call ever), as the showed prospects are
+  if (metric === "closes_owned") { try { await calls(x); } catch { /* no Sales Calls to tell an owner from: the close's own closer */ } }
+  const closerOfClose = (k: Close) => (metric === "closes_owned" ? x.memo.owners?.get(k.ghl) ?? k.closer : k.closer);
   const sources = groupBy === "source" || x.filters.source ? await sourcesOf(x, list) : null;
   for (const k of list) {
-    if (x.filters.closer && k.closer !== x.filters.closer) continue;
+    if (x.filters.closer && closerOfClose(k) !== x.filters.closer) continue;
     if (x.filters.source && src(sources!.get(k.ghl)) !== src(x.filters.source)) continue;
-    add(!groupBy ? "" : groupBy === "source" ? sources!.get(k.ghl)! : groupBy === "closer" ? k.closer : groupBy === "setter" ? "" : timeKey(groupBy, k.at), metric === "revenue" ? k.value : 1);
+    add(!groupBy ? "" : groupBy === "source" ? sources!.get(k.ghl)! : groupBy === "closer" ? closerOfClose(k) : groupBy === "setter" ? "" : timeKey(groupBy, k.at), metric === "revenue" ? k.value : 1);
   }
   return { rows };
 }
