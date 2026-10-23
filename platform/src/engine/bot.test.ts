@@ -257,8 +257,9 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect((await metric("calls_due")).value).toBe(5);
       expect((await metric("calls_booked_due")).value).toBe(8);
       const sr = await metric("show_rate", { groupBy: "closer" });
-      expect(sr).toMatchObject({ numerator: 3, denominator: 7, source: "GHL, read just now" });
-      expect(sr.rows!.map((x) => [x.label, x.numerator, x.denominator])).toEqual([["Cara Closer", 1, 4], ["Dan Dealer", 2, 2], ["Zed Outsider", 0, 1]]);
+      // D223: each person once (C1 and C3 showed; C2 no-showed then cancelled; C9 cancelled; C4 nothing filed, out), by the closer of their first call ever (C3 met Cara in August)
+      expect(sr).toMatchObject({ numerator: 2, denominator: 4, source: "GHL, read just now" });
+      expect(sr.rows!.map((x) => [x.label, x.numerator, x.denominator])).toEqual([["Cara Closer", 2, 3], ["Zed Outsider", 0, 1]]);
       expect(sr.shows_breakdown).toEqual({ booked: 8, showed: 3, noshow: 2, cancelled: 2, rescheduled: 1, missing: 1, missing_names: ["C4 (Oct 9)"],
         mismatches: [{ name: "C2", ghl_contact_id: "C2", record_id: "S6", ghl: "noshow", booking_source: "the GHL calendar" }] });
       expect((await metric("shows")).value).toBe(3);
@@ -279,12 +280,14 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(await metric("closes")).toMatchObject({ value: 2, source: "GHL, read just now" });
       expect((await metric("revenue")).value).toBe(4499);
       const cr = await metric("close_rate", { groupBy: "closer" });
-      expect(cr).toMatchObject({ numerator: 2, denominator: 3 });
-      expect(cr.rows!.find((x) => x.label === "Cara Closer")).toMatchObject({ value: 1, numerator: 1, denominator: 1 });   // the closer of C1's latest call
-      expect(cr.rows!.find((x) => x.label === "Dan Dealer")).toMatchObject({ value: 0.5, numerator: 1, denominator: 2 });  // C9: no call, the card's owner
+      // D223: people closed (C1, C9) ÷ people who showed (C1, C3), each credited to the closer of their first call ever
+      expect(cr).toMatchObject({ numerator: 2, denominator: 2 });
+      expect(cr.rows!.find((x) => x.label === "Cara Closer")).toMatchObject({ value: 0.5, numerator: 1, denominator: 2 });   // C1 closed; C3 (hers since August) did not
+      expect(cr.rows!.find((x) => x.label === "Zed Outsider")).toMatchObject({ numerator: 1, denominator: 0 });             // C9 closed without showing to a call this month
+      expect(cr.rows!.find((x) => x.label === "Dan Dealer")).toBeUndefined();
       const list = await asOperator((c) => getCloses(c, companyId, { period: month(), now: NOW.toJSDate() }, ghlReads));
       expect(list).toMatchObject({ count: 2, closes: [{ name: "C9", closer: "Dan Dealer", won: "Thu Oct 8", value: 500 }, { name: "C1", closer: "Cara Closer", won: "Wed Oct 7", value: 3999 }] });
-      expect(await metric("close_rate", { filters: { userId: ids.cara } })).toMatchObject({ value: 1, filters: { closer: "Cara Closer" } });
+      expect(await metric("close_rate", { filters: { userId: ids.cara } })).toMatchObject({ value: 0.5, filters: { closer: "Cara Closer" } });
       await expect(metric("close_rate", { filters: { closer: "Zed" } })).rejects.toThrow(/no one on the roster/);
       expect(Object.fromEntries((await metric("closes", { groupBy: "source" })).rows!.map((x) => [x.label, x.value]))).toEqual({ instagram: 1, referral: 1 });
     });
@@ -346,19 +349,19 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
     });
     it("D95: an answer is the answer line, the split as a narrow table, then one footer (period, where and when it was read); no source inline, no definitions", async () => {
       const text = formatAnswer([await metric("close_rate", { groupBy: "closer" })], { now: NOW });
-      expect(text).toBe(["*Close rate: 67%* (2 of 3 shows)", "", "*By closer*", "```", "Dan Dealer    50%  1/2", "Cara Closer  100%  1/1", "```", "", "_Oct 1–10 · From GHL, read 12:00 PM MST_"].join("\n"));
+      expect(text).toBe(["*Close rate: 100%* (2 of 2 prospects who showed)", "", "*By closer*", "```", "Cara Closer   50%  1/2", "Zed Outsider    —  1/0", "```", "", "_Oct 1–10 · From GHL, read 12:00 PM MST_"].join("\n"));
       expect(text).not.toMatch(/read just now|closes ÷ shows in the same period/);
       const combined = formatCombined([await metric("leads", { groupBy: "source" }), await metric("mqls", { groupBy: "source" })], { now: NOW, askedBy: "U-CARA" }).split("\n");
       expect(combined[0]).toMatch(/^📊 \*Leads: \d+\*$/); expect(combined[1]).toMatch(/^MQLs \d+$/);
       expect(combined[combined.length - 1]).toBe("_Oct 1–10 · From GHL, read 12:00 PM MST · Asked by <@U-CARA>_");
       const summary = formatSummary("Month to date", [await metric("leads")], null, [], { now: NOW }).split("\n");
       expect(summary[0]).toBe("📊 *Month to date*"); expect(summary.join("\n")).not.toContain("people who entered");
-      expect(helpText()).toContain("*Show rate*: shows ÷ calls with an outcome (showed, no-show or cancelled");
+      expect(helpText()).toContain("*Show rate*: people who showed to at least one call in the period ÷ people with a call in it whose outcome is known");
     });
     it("D95: show rate warns only about what someone has to fix: calls with no EOD outcome and GHL vs the calendar; MQLs only about answers nobody recognised", async () => {
       const text = formatAnswer([await metric("show_rate", { groupBy: "closer" }), await metric("show_rate", { groupBy: "source" })], { now: NOW });
       const lines = text.split("\n");
-      expect(lines[0]).toBe("*Show rate: 43%* (3 of 7 calls with an outcome)");
+      expect(lines[0]).toBe("*Show rate: 50%* (2 of 4 prospects with an outcome)");
       expect(lines).toContain("⚠️ No EOD outcome yet: C4 (Oct 9)");
       expect(lines).toContain("⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)");
       expect(text).toContain("Zed Outsider"); expect(text).not.toMatch(/Rescheduled|Missing from EOD disposition/);
@@ -398,7 +401,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const lines = posts[0].text.split("\n");
       expect(lines[0]).toBe("📊 *Month to date*");
       const tbl = lines.slice(lines.indexOf("```") + 1, lines.indexOf("```", lines.indexOf("```") + 1));
-      expect(tbl.map((l) => l.replace(/\s+/g, " "))).toEqual(["Leads 4 ▲ 4", "MQLs 1 ▲ 1", "Booked 8 ▲ 8", "Show rate 43%", "Close rate 67%", "Deposits 1 same", "Deposit cash $3,000 ▲ $1,000", "Cash $3,900 ▲ $1,900"]);   // D119: deposits on their own lines
+      expect(tbl.map((l) => l.replace(/\s+/g, " "))).toEqual(["Leads 4 ▲ 4", "MQLs 1 ▲ 1", "Booked 8 ▲ 8", "Show rate 50%", "Close rate 100%", "Deposits 1 same", "Deposit cash $3,000 ▲ $1,000", "Cash $3,900 ▲ $1,900"]);   // D119: deposits on their own lines
       expect(Math.max(...tbl.map((l) => l.length))).toBeLessThanOrEqual(PHONE_WIDTH);
       expect(lines).toContain("Top source: instagram ($2,500)");
       expect(lines.filter((l) => l.startsWith("⚠️"))).toEqual(["⚠️ 1 qualifying answer not recognised: \"retired\"", "⚠️ No EOD outcome yet: C4 (Oct 9)", "⚠️ C2: GHL says no-show, the GHL calendar says cancelled (fix the Sales Call in GHL)"]);
@@ -455,12 +458,12 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
   describe("questions", () => {
     it("D95: a mention: 👀 at once, the model's one-line answer on top, the detail rendered from the tool results, its words kept only when their numbers are real", async () => {
       script = [() => call("get_metric", { metric: "close_rate", period: "this month", group_by: "closer", filters: { closer: "", setter: "", source: "", me: false } }),
-        () => call("reply", { result_ids: ["r1"], headline: "Close rate is 67% this month", detail: "breakdown", note: "" })];
+        () => call("reply", { result_ids: ["r1"], headline: "Close rate is 100% this month", detail: "breakdown", note: "" })];
       const ev = msg({ text: "<@UBOT> close rate this month by closer?" });
       expect(await handleMessage(deps(), companyId, ev)).toMatchObject({ answered: "answer", thread: ev.ts });
       expect(reacts).toEqual([`C-SALES:${ev.ts}:eyes`]); expect(unreacts).toEqual([`C-SALES:${ev.ts}:eyes`]);
       expect(posts).toHaveLength(1); expect(posts[0].thread).toBe(ev.ts);
-      expect(posts[0].text).toBe(["*Close rate is 67% this month*", "", "*By closer*", "```", "Dan Dealer    50%  1/2", "Cara Closer  100%  1/1", "```", "", "_Oct 1–10 · From GHL, read 12:00 PM MST_"].join("\n"));
+      expect(posts[0].text).toBe(["*Close rate is 100% this month*", "", "*By closer*", "```", "Cara Closer   50%  1/2", "Zed Outsider    —  1/0", "```", "", "_Oct 1–10 · From GHL, read 12:00 PM MST_"].join("\n"));
       script = [() => call("get_metric", { metric: "leads", period: "this month", group_by: "none", filters: { closer: "", setter: "", source: "", me: false } }),
         () => call("reply", { result_ids: ["r1"], headline: "Leads are up 37%", detail: "none", note: "" }),   // a number no tool produced: sent back once to be rewritten
         () => call("reply", { result_ids: ["r1"], headline: "Still 17%, sure", detail: "none", note: "" })];  // made up again: dropped, our answer line stands
@@ -615,7 +618,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       const ev = msg({ type: "message", channel: "D-CARA", channelType: "im", text: "what's my close rate this month?" });
       expect(await handleMessage(deps(), companyId, ev)).toMatchObject({ answered: "answer", channel: "D-CARA" });
       expect(posts).toEqual([expect.objectContaining({ channel: "D-CARA", thread: undefined })]);
-      expect(posts[0].text.split("\n")[0]).toBe("*Close rate (Cara Closer): 100%* (1 of 1 shows)");
+      expect(posts[0].text.split("\n")[0]).toBe("*Close rate (Cara Closer): 50%* (1 of 2 prospects who showed)");
     });
     it("\"my\" from someone not on the roster is an error the model must turn into a question", async () => {
       script = [() => call("get_metric", { metric: "close_rate", period: "this month", group_by: "none", filters: { closer: "", setter: "", source: "", me: true } }), () => call("ask_clarification", { question: "Who are you in the CRM?" })];
