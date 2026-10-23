@@ -78,4 +78,8 @@ export const MIGRATIONS: Migration[] = [
     await c.query("drop trigger if exists workflows_enabled_at on workflows");
     await c.query("create trigger workflows_enabled_at before insert or update of enabled on workflows for each row execute function bb_workflow_enabled_at()");
   } },
+  { id: "0008-appointment-pitched", run: async (c) => {
+    // D226: whether the closer pitched them, from the end of day (null: the call did not happen, or nobody said)
+    await c.query("alter table appointments add column if not exists pitched boolean");
+  } },
 ];

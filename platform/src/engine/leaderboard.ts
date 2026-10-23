@@ -10,7 +10,8 @@ import { memoReads } from "./ghl-graph";
  * never disagree with what the bot or the wrap-up says: `cash_collected` and `close_rate` (closes ÷ shows) by closer,
  * `booked_set` and `show_rate` by setter. Only people with something in the period are listed; nobody is "unassigned".
  */
-export type LeaderCloser = { key: string; name: string; cash: number | null; closes: number; shows: number; /** whole percent; null with no shows */ close_rate: number | null };
+export type LeaderCloser = { key: string; name: string; cash: number | null; closes: number; shows: number; /** whole percent; null with no shows */ close_rate: number | null;
+  /** D226: shows they pitched, whole percent of shows pitched, and whole percent of pitched that closed (null when none) */ pitched?: number; pitch_rate?: number | null; pitched_close_rate?: number | null };
 export type LeaderSetter = { key: string; name: string; sets: number; due: number; shows: number; /** whole percent of their sets whose call time has passed; null when none has */ show_rate: number | null };
 export type Leaderboard = {
   metric: "leaderboard"; label: string; source: string; period_label: string; period_name: string; from: string; to: string; timezone: string;
@@ -26,13 +27,14 @@ const rowsOf = (r: MetricResult) => new Map((r.rows ?? []).filter((x) => x.key).
 export async function getLeaderboard(c: PoolClient, companyId: string, q: { period: Period; now?: Date }, reads: GhlReads = liveGhlReads): Promise<Leaderboard> {
   const once = memoReads(reads);
   const m = (metric: string, groupBy: "closer" | "setter") => getMetric(c, companyId, { metric, period: q.period, groupBy, now: q.now }, once);
-  const cash = await m("cash_collected", "closer"), closeRate = await m("close_rate", "closer");
+  const cash = await m("cash_collected", "closer"), closeRate = await m("close_rate", "closer"), pitchRate = await m("pitch_rate", "closer");
   const sets = await m("booked_set", "setter"), showRate = await m("show_rate", "setter");
 
-  const cashBy = rowsOf(cash), rateBy = rowsOf(closeRate);
+  const cashBy = rowsOf(cash), rateBy = rowsOf(closeRate), pitchBy = rowsOf(pitchRate);
   const closers: LeaderCloser[] = [...new Set([...cashBy.keys(), ...rateBy.keys()])].map((key) => {
     const r = rateBy.get(key), closes = r?.numerator ?? 0, shows = r?.denominator ?? 0;
-    return { key, name: cashBy.get(key)?.label ?? r?.label ?? key, cash: cash.unavailable ? null : cashBy.get(key)?.value ?? 0, closes, shows, close_rate: pct(closes, shows) };
+    const pitched = pitchBy.get(key)?.numerator ?? 0;
+    return { key, name: cashBy.get(key)?.label ?? r?.label ?? key, cash: cash.unavailable ? null : cashBy.get(key)?.value ?? 0, closes, shows, close_rate: pct(closes, shows), pitched, pitch_rate: pct(pitched, shows), pitched_close_rate: pct(closes, pitched) };
   }).filter((x) => (x.cash ?? 0) !== 0 || x.closes > 0 || x.shows > 0)
     .sort((a, b) => (b.cash ?? 0) - (a.cash ?? 0) || b.closes - a.closes || (b.close_rate ?? -1) - (a.close_rate ?? -1) || a.name.localeCompare(b.name));
 
@@ -97,6 +99,16 @@ export function formatLeaderboard(lb: Leaderboard): string {
     { cells: k.map((x) => plural(x.closes, "close", "closes")), left: true },
     { cells: k.map((x) => (x.close_rate === null ? "" : `${x.close_rate}%`)) },
   ]) : "_No closes yet._");
+  // D226: how often each closer pitched a show, and how often a pitch closed
+  // shown once a pitch is on record (weeks before D226 have none, and "0 pitched" would be untrue)
+  const p = k.filter((x) => x.shows > 0);
+  if (p.some((x) => (x.pitched ?? 0) > 0)) {
+    L.push("*Pitching* (of shows · closed when pitched)");
+    L.push(board(p.map((x) => x.name), [
+      { cells: p.map((x) => `${x.pitched ?? 0}/${x.shows} pitched`), left: true },
+      { cells: p.map((x) => (x.pitched_close_rate == null ? "" : `${x.pitched_close_rate}%`)) },
+    ]));
+  }
   L.push("*Setters* (by sets)");
   const s = lb.setters.slice(0, MAX_PEOPLE);
   L.push(lb.setters.length ? board(lb.setters.map((x) => x.name), [

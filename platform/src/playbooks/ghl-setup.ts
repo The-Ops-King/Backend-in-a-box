@@ -47,6 +47,7 @@ function objects(p: SetupParams, payment?: { key: string; label: string; plural:
       field("recording_url", "Recording URL", "TEXT"), field("transcript_ref", "Transcript", "TEXT"), field("duration_min", "Duration (min)", "NUMERICAL"),
       field("next_step", "Next Step", "LARGE_TEXT"), field("next_step_date", "Next Step Date", "DATE"), field("payment_terms", "Payment Terms", "TEXT"),
       field("cash_collected", "Cash Collected", "MONETORY"), field("contract_value", "Contract Value", "MONETORY"),
+      field("pitched", "Pitched", "SINGLE_OPTIONS", [opt("yes"), opt("no")]),   // D226: from the closer's end of day
     ] },
     { binding: "payment", key: payment?.key ?? `custom_objects.${p.objectKey}payment`, label: payment?.label ?? `${p.objectLabel}Payment`, plural: payment?.plural ?? `${p.objectLabel}Payments`, primary, fields: [
       field("transaction_id", "Transaction ID", "TEXT"), field("amount", "Amount", "NUMERICAL"), field("occurred_at", "Occurred At", "TEXT"),

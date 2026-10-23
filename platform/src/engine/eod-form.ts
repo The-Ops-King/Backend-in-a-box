@@ -74,6 +74,22 @@ export type EodField = {
   builtin?: boolean;              // the engine reads this key; label/required/options are editable, the key and type are not
 };
 
+/**
+ * D226 (Tyler): whether the closer pitched them, on every call that happened. Asked after a close pending, a follow up, a loss or a
+ * DQ (a DQ can come after the pitch); a close or a deposit was pitched, so it is yes without asking.
+ */
+const PITCH_ASKED: CallMeaning[] = ["pending", "follow_up", "lost", "unqualified"];
+const pitchAsked = (o: OutcomeChoice) => o.attendance === "showed" && !!o.call_outcome && PITCH_ASKED.includes(o.call_outcome);
+export const PITCH_OPTIONS = ["Yes", "No"];
+/** A call's pitch: true or false when it happened (a close or deposit is true), null when it did not or nobody said. */
+export function pitchedOf(call: Pick<CallEntry, "outcome" | "kind" | "pitched">, fields?: EodField[] | null): boolean | null {
+  if (isSetterCall(call.kind)) return null;
+  const o = choiceOf(call.outcome, fields, call.kind);
+  if (!o || o.attendance !== "showed") return null;
+  if (o.call_outcome === "closed" || o.call_outcome === "deposit") return true;
+  return call.pitched === "Yes" ? true : call.pitched === "No" ? false : null;
+}
+
 export const DQ_REASONS = ["Can't afford it", "Not the decision maker", "Not a fit for the program", "Not serious, just looking", "Other"];
 export const LOST_REASONS = ["Price", "Timing", "Fit", "Ghosted", "Other"];
 /** Which answers a builtin follows, by what the answer means (B6: the company's own values change, the meaning does not). */
@@ -81,7 +97,7 @@ const FOLLOWS: Record<string, (o: OutcomeChoice) => boolean> = {
   cash: (o) => o.money ?? (o.call_outcome === "closed" || o.call_outcome === "deposit"), revenue: (o) => isRevenue(o),
   next_date: (o) => o.call_outcome === "follow_up", next_steps: (o) => o.call_outcome === "follow_up",
   dq_reason: (o) => o.call_outcome === "unqualified", dq_note: (o) => o.call_outcome === "unqualified", lost_reason: (o) => o.call_outcome === "lost",
-  about: (o) => o.attendance === "showed",
+  about: (o) => o.attendance === "showed", pitched: (o) => pitchAsked(o),
 };
 
 export const BUILTIN_FIELDS: EodField[] = [
@@ -93,6 +109,7 @@ export const BUILTIN_FIELDS: EodField[] = [
   { key: "dq_reason", label: "Why were they a DQ?", type: "select", scope: "call", when: ["dq"], required: true, options: DQ_REASONS, builtin: true },
   { key: "dq_note", label: "DQ note", type: "textarea", scope: "call", when: ["dq"], required: false, builtin: true },
   { key: "lost_reason", label: "Why were they lost?", type: "select", scope: "call", when: ["lost"], required: true, options: LOST_REASONS, builtin: true },
+  { key: "pitched", label: "Did you pitch them?", type: "select", scope: "call", when: ["pending", "follow_up", "lost", "dq"], required: true, options: PITCH_OPTIONS, builtin: true },
   { key: "about", label: "About this prospect", type: "textarea", scope: "call", when: HELD, required: false, builtin: true },
   { key: "notes", label: "Notes", type: "textarea", scope: "call", required: false, builtin: true },
   { key: "general_notes", label: "Anything else about today?", type: "textarea", scope: "day", required: false, builtin: true },
@@ -107,7 +124,7 @@ export function mergeEodFields(stored: EodField[] | null | undefined): EodField[
   const choices = cleanChoices(own.get("outcome")?.choices);
   const out: EodField[] = BUILTIN_FIELDS.map((b) => {
     const s = own.get(b.key);
-    const f: EodField = s ? { ...b, label: s.label && !RETIRED_LABELS[b.key]?.includes(s.label) ? s.label : b.label, required: !!s.required, help: s.help || undefined, options: b.type === "select" && b.key !== "outcome" ? (s.options?.length ? s.options : b.options) : undefined } : { ...b };
+    const f: EodField = s ? { ...b, label: s.label && !RETIRED_LABELS[b.key]?.includes(s.label) ? s.label : b.label, required: !!s.required, help: s.help || undefined, options: b.type === "select" && b.key !== "outcome" ? (s.options?.length && b.key !== "pitched" ? s.options : b.options) : undefined } : { ...b };
     if (b.key === "outcome") f.choices = choices;
     else if (FOLLOWS[b.key]) f.when = choices.filter(FOLLOWS[b.key]).map((o) => o.value);   // the builtins follow what an answer means, whatever the company calls it
     return f;
@@ -144,6 +161,7 @@ export type CallEntry = {
   next_date: string | null; next_steps: string;        // follow up
   dq_reason: string; dq_note: string;                  // dq
   lost_reason?: string;                                // lost (A1, D88: a card dragged to Lost asks why on the form)
+  pitched?: string;                                    // D226: "Yes" / "No" after a call that happened short of a close
   about: string; notes: string;
   extra: Record<string, string>;                       // the company's own questions, by key
 };
@@ -163,7 +181,7 @@ export function valueOf(call: CallEntry, key: string): string {
     case "outcome": return call.outcome;
     case "revenue": case "cash": return call[key] == null ? "" : String(call[key]);
     case "next_date": return call.next_date ?? "";
-    case "next_steps": case "dq_reason": case "dq_note": case "about": case "notes": case "lost_reason": return call[key] ?? "";
+    case "next_steps": case "dq_reason": case "dq_note": case "about": case "notes": case "lost_reason": case "pitched": return call[key] ?? "";
     default: return call.extra?.[key] ?? "";
   }
 }

@@ -12,6 +12,7 @@ import { recordRecording, type RecordingInput } from "./recordings";
 export async function ingestRecording(c: PoolClient, company: CompanyRow, bindings: Record<string, string>, input: RecordingInput): Promise<Record<string, unknown>> {
   const r = await recordRecording(c, company.id, input);
   if (r.outcome === "duplicate") return { ok: true, duplicate: true, recording: r.recording.id };
+  if (r.outcome === "internal") return { ok: true, internal: true, recording: r.recording.id, reason: r.reason };   // D227: the team only, no one to tell
   if (r.outcome === "unlinked") {
     await dispatchEvent(c, r.event, {});   // D88: the Unmatched recording workflow tells the team
     return { ok: true, unlinked: true, recording: r.recording.id, reason: r.reason };

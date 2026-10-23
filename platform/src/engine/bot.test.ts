@@ -257,7 +257,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect((await metric("calls_due")).value).toBe(5);
       expect((await metric("calls_booked_due")).value).toBe(8);
       const sr = await metric("show_rate", { groupBy: "closer" });
-      // D223: each person once (C1 and C3 showed; C2 no-showed then cancelled; C9 cancelled; C4 nothing filed, out), by the closer of their first call ever (C3 met Cara in August)
+      // D228: each person once (C1 and C3 showed; C2 no-showed then cancelled; C9 cancelled; C4 nothing filed, out), by the closer of their first call ever (C3 met Cara in August)
       expect(sr).toMatchObject({ numerator: 2, denominator: 4, source: "GHL, read just now" });
       expect(sr.rows!.map((x) => [x.label, x.numerator, x.denominator])).toEqual([["Cara Closer", 2, 3], ["Zed Outsider", 0, 1]]);
       expect(sr.shows_breakdown).toEqual({ booked: 8, showed: 3, noshow: 2, cancelled: 2, rescheduled: 1, missing: 1, missing_names: ["C4 (Oct 9)"],
@@ -280,7 +280,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect(await metric("closes")).toMatchObject({ value: 2, source: "GHL, read just now" });
       expect((await metric("revenue")).value).toBe(4499);
       const cr = await metric("close_rate", { groupBy: "closer" });
-      // D223: people closed (C1, C9) ÷ people who showed (C1, C3), each credited to the closer of their first call ever
+      // D228: people closed (C1, C9) ÷ people who showed (C1, C3), each credited to the closer of their first call ever
       expect(cr).toMatchObject({ numerator: 2, denominator: 2 });
       expect(cr.rows!.find((x) => x.label === "Cara Closer")).toMatchObject({ value: 0.5, numerator: 1, denominator: 2 });   // C1 closed; C3 (hers since August) did not
       expect(cr.rows!.find((x) => x.label === "Zed Outsider")).toMatchObject({ numerator: 1, denominator: 0 });             // C9 closed without showing to a call this month

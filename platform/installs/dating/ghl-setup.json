@@ -91,7 +91,8 @@
         { "key": "next_step_date", "name": "Next Step Date", "type": "DATE" },
         { "key": "payment_terms", "name": "Payment Terms", "type": "TEXT" },
         { "key": "cash_collected", "name": "Cash Collected", "type": "MONETORY" },
-        { "key": "contract_value", "name": "Contract Value", "type": "MONETORY" } ] },
+        { "key": "contract_value", "name": "Contract Value", "type": "MONETORY" },
+        { "key": "pitched", "name": "Pitched", "type": "SINGLE_OPTIONS", "options": [ { "key": "yes", "label": "Yes" }, { "key": "no", "label": "No" } ] } ] },
     { "binding": "payment", "key": "custom_objects.dating_payment", "label": "Dating Payment", "plural": "Dating Payments",
       "primary": { "key": "display_label", "name": "Display Label" },
       "fields": [

@@ -90,12 +90,24 @@
                   "{{report.rates.show_rate | suffix:%}}"
                 ],
                 [
+                  "Pitched",
+                  "{{report.n.pitched | default:\"\"}}"
+                ],
+                [
+                  "Pitch rate",
+                  "{{report.rates.pitch_rate | suffix:%}}"
+                ],
+                [
                   "Closes",
                   "{{report.n.closes | default:\"\"}}"
                 ],
                 [
                   "Close rate",
                   "{{report.rates.close_rate | suffix:%}}"
+                ],
+                [
+                  "Close rate when pitched",
+                  "{{report.rates.pitched_close_rate | suffix:%}}"
                 ],
                 [
                   "Deposits",

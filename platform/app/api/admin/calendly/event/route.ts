@@ -7,12 +7,13 @@ export const dynamic = "force-dynamic"; export const maxDuration = 60;
 
 type Membership = { user: string; user_email?: string; user_name?: string };
 /**
- * D214: GET ?company=<slug>&event=<Calendly scheduled event uuid>: what Calendly holds about one booking, read live and only read:
+ * D224: GET ?company=<slug>&event=<Calendly scheduled event uuid>: what Calendly holds about one booking, read live and only read:
  * its status, hosts, location, and `calendar_event` (the event Calendly wrote to the host's connected calendar: its kind and id, or
  * null when Calendly wrote none), plus each host's busy times over the event's day, by type (`calendly` = Calendly's own bookings,
  * `external` = events from a connected calendar; none of the second is a calendar that may not be connected).
  * Or `user=<a Calendly member's email>` in place of `event`: that person's busy times over the next 7 days, by type (whether any
- * calendar is connected for them; Calendly's API does not say which calendar it writes new bookings to).
+ * calendar is connected for them; Calendly's API does not say which calendar it writes new bookings to). With `from` and `to` as well
+ * (D225, at most 2 days apart): that member's own bookings in the window, cancelled ones too, each with its type and invitees (who booked).
  * Authorization: Bearer $CRON_SECRET.
  */
 export async function GET(req: Request) {
@@ -26,6 +27,18 @@ export async function GET(req: Request) {
     try {
       const m = await calendly<{ collection: { user: { uri: string; email: string; name?: string; timezone?: string } }[] }>(token, `/organization_memberships?organization=${encodeURIComponent(org)}&email=${encodeURIComponent(userEmail)}`);
       const u = m.collection?.[0]?.user; if (!u) return NextResponse.json({ error: `no member of the Calendly organization has ${userEmail}` }, { status: 404 });
+      if (q.get("from") && q.get("to")) {   // D225: who was booked with this member around a time
+        const f = new Date(q.get("from")!), t = new Date(q.get("to")!);
+        if (Number.isNaN(f.getTime()) || Number.isNaN(t.getTime()) || f >= t || t.getTime() - f.getTime() > 2 * 864e5) return NextResponse.json({ error: "from and to must be times, from before to, at most 2 days apart" }, { status: 400 });
+        const ev = await calendly<{ collection?: { uri: string; name: string; status: string; start_time: string; end_time: string; event_type?: string }[] }>(token, `/scheduled_events?user=${encodeURIComponent(u.uri)}&min_start_time=${encodeURIComponent(f.toISOString())}&max_start_time=${encodeURIComponent(t.toISOString())}&count=100&sort=start_time:asc`);
+        const events = [];
+        for (const e of ev.collection ?? []) {
+          const uuid = e.uri.split("/").pop()!;
+          const inv = await calendly<{ collection?: { name?: string; email?: string; status?: string }[] }>(token, `/scheduled_events/${uuid}/invitees?count=20`).catch(() => ({ collection: undefined }));
+          events.push({ event: uuid, name: e.name, status: e.status, start: e.start_time, end: e.end_time, invitees: (inv.collection ?? []).map((i) => ({ name: i.name ?? null, email: i.email ?? null, status: i.status ?? null })) });
+        }
+        return NextResponse.json({ ok: true, user: { email: u.email, name: u.name ?? null }, from: f.toISOString(), to: t.toISOString(), events });
+      }
       const from = new Date(), to = new Date(Date.now() + 7 * 864e5);
       const r = await calendly<{ collection?: { type: string; start_time: string; end_time: string }[] }>(token, `/user_busy_times?user=${encodeURIComponent(u.uri)}&start_time=${encodeURIComponent(from.toISOString())}&end_time=${encodeURIComponent(to.toISOString())}`);
       const busy = (r.collection ?? []).map((b) => ({ type: b.type, start: b.start_time, end: b.end_time }));

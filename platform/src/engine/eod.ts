@@ -7,7 +7,7 @@ import { loadCompany, type CompanyRow } from "./context";
 import { callTime, dispositionMeaning, dispositionValues, filedMeaning, closerNameOf, closerOptions, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, pitchedOf, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
 import { SETTING_DEFAULTS, switchOn } from "./setting-defaults";
 
 /**
@@ -162,8 +162,8 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   const tz = company.timezone;
   const from = DateTime.fromFormat(day, DAY_FMT, { zone: tz }).startOf("day"), to = from.endOf("day");
   const fields = await loadEodForm(c, company.id), v = (m: Parameters<typeof valueFor>[1]) => valueFor(fields, m);
-  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; ends_at: Date | null; status: string; term_cat: string | null; set_since: boolean; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null; via: string | null }>(c, `
-    select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.ends_at, a.status, tt.category as term_cat,
+  const appts = await many<{ id: string; contact_id: string; contact: string; ghl_contact_id: string | null; starts_at: Date; ends_at: Date | null; status: string; term_cat: string | null; set_since: boolean; outcome_cat: string | null; call_outcome_cat: string | null; notes: string | null; via: string | null; pitched: boolean | null }>(c, `
+    select a.id, a.contact_id, a.pitched, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as contact, ct.ghl_contact_id, a.starts_at, a.ends_at, a.status, tt.category as term_cat,
            exists (select 1 from appointments b join company_terms bt on bt.id=b.appointment_term where b.contact_id=a.contact_id and bt.category='closing' and b.booked_at > a.starts_at and b.status<>'cancelled') as set_since,
            ot.category as outcome_cat, cot.category as call_outcome_cat,
            (select fs.answers->>'notes' from form_submissions fs where fs.appointment_id=a.id order by fs.submitted_at desc limit 1) as notes,
@@ -216,7 +216,9 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
       kind: "closing", outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
-      next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {} });
+      next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {},
+      // D226: what was filed, else the call review's read of the transcript (the closer confirms it)
+      pitched: a.pitched === true ? "Yes" : a.pitched === false ? "No" : notes.pitched === true ? "Yes" : notes.pitched === false ? "No" : "" });
   }
   // D156: the setter's outbound calls with anyone who had no triage call with them that day, each a row; the answer filed before comes back
   for (const r of reads.filter((x) => !triaged.has(x.contact_id))) {
@@ -300,6 +302,7 @@ function dispositionNotes(call: CallEntry, fields: EodField[]): string {
     call.notes,
     meaning === "unqualified" && (call.dq_reason || call.dq_note) ? `DQ: ${[call.dq_reason, call.dq_note].filter(Boolean).join(" - ")}` : "",
     meaning === "lost" && call.lost_reason ? `Lost: ${call.lost_reason}` : "",
+    call.pitched && pitchedOf(call, fields) !== null && !isMoney(call.outcome, fields, call.kind) ? `Pitched: ${call.pitched}` : "",
     meaning === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
     isMoney(call.outcome, fields, call.kind) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected${isRevenueOutcome(call.outcome, fields) ? `, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : ""}` : "",
     ...fields.filter((f) => f.scope === "call" && !f.builtin && !isSetterCall(call.kind) && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
@@ -326,7 +329,11 @@ export async function fileCall(c: PoolClient, companyId: string, fields: EodFiel
   const callTerm = async (cat: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='call_outcome' and category=$2 and active order by is_default desc, sort limit 1", [companyId, cat]))?.id ?? null;
   const callCat = choice.attendance === "showed" ? choice.call_outcome ?? null : null;
   const callOutcomeTermId = callCat ? (await callTerm(callCat)) ?? (callCat === "deposit" ? await callTerm("closed") : null) : null;
-  const held = await one<{ outcome_term: string | null; call_outcome_term: string | null; status: string }>(c, "select outcome_term, call_outcome_term, status from appointments where id=$1 and company_id=$2", [call.appointment_id, companyId]);
+  const held = await one<{ outcome_term: string | null; call_outcome_term: string | null; status: string; pitched: boolean | null }>(c, "select outcome_term, call_outcome_term, status, pitched from appointments where id=$1 and company_id=$2", [call.appointment_id, companyId]);
+  // D226: whether they were pitched rides on the filing; a refiled day that changes only that corrects it in place (filing the call
+  // again would run Call outcome filed twice: its posts, its tags)
+  const pitched = pitchedOf(call, fields);
+  if (held && pitched !== null && held.pitched !== pitched) await c.query("update appointments set pitched=$2 where id=$1 and company_id=$3", [call.appointment_id, pitched, companyId]);
   // what GHL shows for this answer: a company with no deposit disposition writes a deposit as a close (as its call outcome term does)
   // a triage call's record (D143) holds the meaning itself (triageRecords); a Sales Call holds the company's disposition
   const dispositions = ghl && callCat && !isSetterCall(call.kind) ? dispositionValues(Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key='sales_call.dispositions'", [companyId])).map((b) => [b.key, b.value.toString("utf8")]))) : {};
@@ -334,7 +341,7 @@ export async function fileCall(c: PoolClient, companyId: string, fields: EodFiel
   const ghlShows = ghl ? ghl.attendance === outcomeCat && (outcomeCat !== "showed" || !shownAs || ghl.call === shownAs) : null;
   if (ghlShows === true) return { status: "held", runs: 0 };
   if (ghlShows === null && held && (held.outcome_term === outcomeTermId ? outcomeCat !== "showed" || held.call_outcome_term === callOutcomeTermId : outcomeCat === "noshow" && !held.outcome_term && held.status === "noshow")) return { status: "held", runs: 0 };
-  try { return { status: "filed", runs: (await recordDisposition(c, { companyId, appointmentId: call.appointment_id, outcomeTermId, callOutcomeTermId, notes: dispositionNotes(call, fields), dqReason: choice.call_outcome === "unqualified" ? call.dq_reason || undefined : undefined, userId })).runs }; } catch { return skipped; }
+  try { return { status: "filed", runs: (await recordDisposition(c, { companyId, appointmentId: call.appointment_id, outcomeTermId, callOutcomeTermId, notes: dispositionNotes(call, fields), dqReason: choice.call_outcome === "unqualified" ? call.dq_reason || undefined : undefined, pitched, userId })).runs }; } catch { return skipped; }
 }
 
 /**
@@ -395,8 +402,8 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   const corrections = changes.map(changeLine);
   const dayAnswers = fields.filter((f) => f.scope === "day" && args.answers.day_answers?.[f.key]).map((f) => ({ key: f.key, label: f.label, answer: args.answers.day_answers[f.key] }));
   const ev = await emitEvent(c, { company_id: company.id, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "eod.filed", source: "user",
-    data: { user_id: closer.id, report_id: row?.id, day: args.day, day_label: DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d"), totals_line: totalsLine(args.answers), calls_count: args.answers.calls_count, closes: args.answers.closes, deposits: args.answers.deposits, cash: args.answers.cash, revenue: args.answers.revenue,
-      calls: args.answers.calls.map((x) => ({ contact: x.contact, contact_id: x.contact_id, appointment_id: x.appointment_id, kind: x.kind ?? "closing", outcome: x.outcome, outcome_label: outcomeLabel(x.outcome, fields, x.kind), meaning: choiceOf(x.outcome, fields, x.kind)?.call_outcome ?? choiceOf(x.outcome, fields, x.kind)?.attendance ?? null, revenue: x.revenue, cash: x.cash, next_date: x.next_date, next_steps: x.next_steps, dq_reason: x.dq_reason, dq_note: x.dq_note, lost_reason: x.lost_reason ?? "", about: x.about, notes: x.notes, ...x.extra })),
+    data: { user_id: closer.id, report_id: row?.id, day: args.day, day_label: DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d"), totals_line: totalsLine(args.answers, pitchCount(args.answers.calls, fields)), pitched: pitchCount(args.answers.calls, fields), held_calls: heldCount(args.answers.calls, fields), calls_count: args.answers.calls_count, closes: args.answers.closes, deposits: args.answers.deposits, cash: args.answers.cash, revenue: args.answers.revenue,
+      calls: args.answers.calls.map((x) => ({ contact: x.contact, contact_id: x.contact_id, appointment_id: x.appointment_id, kind: x.kind ?? "closing", outcome: x.outcome, outcome_label: outcomeLabel(x.outcome, fields, x.kind), meaning: choiceOf(x.outcome, fields, x.kind)?.call_outcome ?? choiceOf(x.outcome, fields, x.kind)?.attendance ?? null, revenue: x.revenue, cash: x.cash, next_date: x.next_date, next_steps: x.next_steps, dq_reason: x.dq_reason, dq_note: x.dq_note, lost_reason: x.lost_reason ?? "", pitched: pitchedOf(x, fields) === null ? "" : pitchedOf(x, fields) ? "Yes" : "No", not_pitched: pitchedOf(x, fields) === false, about: x.about, notes: x.notes, ...x.extra })),
       // A1 (D88): why each lost or DQ call went that way, for the summary
       reasons: args.answers.calls.map((x) => ({ x, m: choiceOf(x.outcome, fields, x.kind)?.call_outcome })).filter(({ x, m }) => (m === "lost" && x.lost_reason) || (m === "unqualified" && (x.dq_reason || x.dq_note)))
         .map(({ x, m }) => ({ contact: x.contact, outcome_label: outcomeLabel(x.outcome, fields, x.kind), reason: m === "lost" ? x.lost_reason : [x.dq_reason, x.dq_note].filter(Boolean).join(" - ") })),
@@ -406,8 +413,11 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
 }
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? "blank"));
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-/** "3 calls, 1 close, 1 deposit, $1,500 collected, $4,000 revenue generated" (deposits only when there are any). */
-export const totalsLine = (t: DayTotals) => [plural(t.calls_count, "call"), plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} collected`, `$${t.revenue.toLocaleString("en-US")} revenue generated`].filter(Boolean).join(", ");
+/** D226: the closing calls that happened, and how many of them were pitched (a close or a deposit was). */
+export const heldCount = (calls: CallEntry[], fields: EodField[]) => calls.filter((x) => !isSetterCall(x.kind) && choiceOf(x.outcome, fields, x.kind)?.attendance === "showed").length;
+export const pitchCount = (calls: CallEntry[], fields: EodField[]) => calls.filter((x) => pitchedOf(x, fields) === true).length;
+/** "3 calls, 2 pitched, 1 close, 1 deposit, $1,500 collected, $4,000 revenue generated" (deposits only when there are any; pitched when known, D226). */
+export const totalsLine = (t: DayTotals, pitched?: number) => [plural(t.calls_count, "call"), pitched === undefined ? "" : `${pitched} pitched`, plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} collected`, `$${t.revenue.toLocaleString("en-US")} revenue generated`].filter(Boolean).join(", ");
 
 export const reportFor = (c: PoolClient, companyId: string, userId: string, day: string) => one<{ id: string; submitted_at: Date | null; answers: EodAnswers | null; changes: Change[]; reminded_at: Date | null }>(c, "select id, submitted_at, answers, changes, reminded_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, userId, day]);
 export const companyReports = (c: PoolClient, companyId: string, limit = 60) => many<{ id: string; day: string; closer: string; submitted_at: Date | null; reminded_at: Date | null; answers: EodAnswers | null; changes: Change[] }>(c, "select r.id, r.day::text as day, u.name as closer, r.submitted_at, r.reminded_at, r.answers, r.changes from eod_reports r join users u on u.id=r.user_id where r.company_id=$1 order by r.day desc, u.name limit $2", [companyId, limit]);

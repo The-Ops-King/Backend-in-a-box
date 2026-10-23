@@ -6122,7 +6122,95 @@ the merge), "ok fix that" (the backfill), and for anything like this, "unless it
 
 Engine code, every offer. Tests: `merge.test.ts`, `sales-call-backfill.test.ts`.
 
-## D223. Show rate and close rate count people, not calls (2026-10-23)
+## D223. A record create whose answer was lost is put right from what the CRM holds (2026-10-22)
+
+Tyler, on "Sales call recorded couldn't create the Sales Call record for Corina Raducanu ... asked the CRM once already and never
+heard back": "we shouldn't try to create a sales call record if one already exists ... I want this to be pretty hands free", and for
+every offer, "it should see what exists, and if it makes sense exactly what happened, it should work to fix it. it should alert me
+mainly when it can't figure out what to do." D66's claim still never asks the CRM twice blind. Now, when a record step finds its
+own create unanswered, it looks in the CRM for the record that create would have made, by the key it stamps on it (`external_id`,
+and the contact when the step names one): exactly one, the create landed, so that record is adopted (and updated as a second write
+is); none, nothing was written, so it is created now; several, a record with no key to look for, or a CRM that cannot be read, a
+person decides, as before, the reason said. Engine code for every offer: no saved workflow changes; only this failure case acts
+instead of alerting. `POST /api/admin/runs/retry { company, runs: [one], node }` re-runs one step of a run (the alert's Retry).
+The alert's Retry (and `POST /api/admin/runs/retry { company, runs: [one], node }`) takes a step blocked this way, not only one that gave up after its tries: the claim still guards it, so a record step settles from what the CRM holds and anything else is blocked again with nothing written twice; a step that settles closes its alert on the next sweep. Tests: `retry.test.ts`.
+
+## D224. A read-only look at one Calendly booking, or one member's calendar (2026-10-22)
+
+Nelly could not see two consultations on her calendar. `GET /api/admin/calendly/event?company=&event=<scheduled event uuid>` reads
+the booking live: status, hosts, location, and `calendar_event` (the event Calendly wrote to the host's calendar, or null), with each
+host's busy times by type; `user=<member email>` in place of `event` reads that member's busy times over 7 days (`external` ones mean a
+calendar is connected). Calendly's API does not say which calendar it writes new bookings to. It showed both of Nelly's were written
+to Google (her app showed them the next morning), and that Alex Pappas's call was the departed Nonie's ("Cam") with no calendar.
+
+## D225. Who was on a call, read from the call itself (2026-10-22)
+
+Beth Huffman's consultation was filed on Corina Raducanu, and Tyler asked who actually showed up. Three read-only lookups, Bearer
+$CRON_SECRET: `GET /api/admin/recordings/people?company=&recording=` (the invite as the recorder sent it, and each person who spoke,
+from the transcript held on the row or read again from Fathom: name, email when given, lines, first and last time spoken, and the
+contacts and team members that name or email is; no words are returned or kept, D87); `GET /api/admin/contact/calls?company=&contact=`
+(every call the CRM's dialer logged with a person: when, which way, status, seconds, who); and `GET /api/admin/calendly/event` with
+`user=`, `from=` and `to=` (that member's own bookings in a window of up to two days, cancelled too, with who booked each).
+
+## D226. Whether the closer pitched them, on every end of day (2026-10-22)
+
+Tyler: "One thing we need to add to all of the EOD is 'pitch' so if they pitched the person. If it's a show and a follow up, lost,
+or close we need to track if they pitched the person." His answers: asked after a close pending, a follow up, a loss and a DQ; a
+close or a deposit is yes without asking; required Yes/No; a new Pitched field on the GHL Sales Call; pitch rate and close rate
+on pitched calls in the reports; the AI call review suggests it and the closer confirms.
+
+- **The question** (`eod-form.ts`): a builtin `pitched` (Yes/No, required) shown after any answer meaning pending, follow up,
+  lost or unqualified, whatever the company calls it; a triage or setter call never gets it. `pitchedOf` reads a call's pitch:
+  true for a close or deposit, the closer's answer otherwise, null when the call did not happen.
+- **Kept** on the booking (`appointments.pitched`, migration 0008) and carried on `appointment.outcome` and `call.held` (a close
+  or deposit filed any way is pitched). A refiled day that changes only the pitch corrects the booking in place; it does not run
+  Call outcome filed again (its posts and tags would repeat). The disposition note says "Pitched: Yes/No".
+- **The prefill**: what was filed, else the call review's `notes.pitched` (the default `call_review`/`call_notes` prompts ask for
+  it; each offer's own prompt is its own setting, changed by name).
+- **GHL**: Call outcome filed's showed record (`r1`) writes `pitched` (yes/no) when known; a no-show or a call moved empties it.
+  The Sales Call object gets a Pitched field (yes/no) in each offer's GHL (`ghl-setup.ts`, Dating's setup file).
+- **The numbers**: `pitched` (shows the closer pitched: the booking's answer, else the record's field; a close or deposit by its
+  disposition), `pitch_rate` (pitched ÷ shows), `pitched_close_rate` (closes ÷ pitched). The wrap-ups read pitched whatever their
+  list says and their layouts show Pitched, Pitch rate and Close rate when pitched; the leaderboard adds a Pitching block per
+  closer once a pitch is on record; the closer's end-of-day post says "N pitched" in its totals and "not pitched" on a call.
+
+The engine, templates and the committed copies change here; each offer's own workflows (Call outcome filed, the three
+wrap-ups, the end-of-day post), its GHL field and its prompt change one offer at a time, named, dry run first. Tests:
+`eod.test.ts`, `leaderboard.test.ts`, `journey.test.ts`, `sweep.test.ts`, `words.test.ts`.
+
+## D227. A recording is linked only when who was on it and when it was agree (2026-10-22)
+
+Beth Huffman's consultation (21:04, her booking 21:00) was filed on Corina Raducanu: Fathom's invite named Corina, and an invitee email
+was taken as the answer whatever the time (Corina's 15-minute triage was at 20:00). "Sales call recorded" then ran on Corina: Beth's
+summary as a note, a closed-won Sales Call, her booking Showed/Closed, her card won. Two Mitch-and-Nelly roleplays were filed on clients
+by the closer's calendar alone (a two-hour window), and Audra Lozano's coaching call on Beth. Tyler: "this needs to be foolproof
+otherwise it's worthless"; "we have to understand the difference between a client call and a roleplay"; "if the client doesn't join,
+we don't just link it to a random client." Engine code, every offer (Tyler: "fix as described").
+
+- **Who**: the people who spoke first (the transcript's speakers: the truth of who showed up), else the invite (an email on a contact,
+  a name exactly one contact has, the booking whose meeting link the call used). A speaker shown by their address is that address; a
+  speaker who is nobody in the CRM ("iPhone", "Zoom user", a business name, as on PMU's calls) says nothing against the invite, which
+  then decides with the time; a one-word name that starts the booked person's first name agrees on a booking that fits ("Evy", Evelyn). The
+  team (the roster, the recorder, the invite's own people) is never a client: a call only the team spoke on is internal, linked to no
+  one, and no one is asked (no workflow runs).
+- **When**: a booking fits a recording that starts at most 20 minutes before it and before it ends (a short or empty booking spans 15).
+- **Linked**: one person on the call with a booking that fits (a spoken name agrees with a booked person on the same surname and a
+  first name that is theirs, holds theirs, or is in their email: "Elizabeth Huffman" is Beth Huffman; or the invite's email and the time
+  agree on one person and a guest who spoke has their first name: "Rafaela McKinney" on Rafaela Santana's call); from the invite alone, only when
+  no other booking of the recorder's fits too; a booking whose own room the call used wins when nobody else's fits; the one person on
+  the call with no booking then, and nobody else's booking then, is linked with no booking (nothing marked showed). Anything else is
+  unlinked with the reason, and the Unmatched recording post asks. The closer's calendar alone never links. A booking is the one the
+  recording fits, never merely the nearest within a day (the manual link too).
+- **Already wrong**: `POST /api/admin/recordings/check { company, from?, to? | days? }` (read only) lists every recording the rules would
+  link differently. `POST /api/admin/recordings/relink { company, recording, to: "rules" | "none" | <contact id>, why, dryRun = true }`
+  moves one, and puts the wrong person back from what the runs it started on them wrote: the booking's outcome to what the outcome
+  event says it was, the tags those runs added, the card they moved back to its stage, what they made deleted (D142), the call note
+  (when exactly one was written then), the ✅ they put on the booking post, and their Slack posts edited to say so. The right person's
+  workflow runs as a person's link would; the wrong invite is not remembered on them. Audited.
+
+Tests: `recordings.test.ts`, `recording-relink.test.ts`.
+
+## D228. Show rate and close rate count people, not calls (2026-10-23)
 
 Tyler: "for the show rate and close rate right now it's based on per appointment, they need to be per prospect." PMU's Renee G
 had four calls in one week and counted four times. His answers to how:

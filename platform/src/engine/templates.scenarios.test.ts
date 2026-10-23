@@ -511,7 +511,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     fake.read.objectFields = async (_c, key) => (key === "custom_objects.sales_call" ? ["display_label", "external_id", "contact_id", "opportunity_id", "scheduled_at", "call_date", "outcome", "recording_url", "transcript_ref", "closer", "setter", "duration_min", "disposition", "objection_primary", "objections_raised", "score_total", "rubric_version", "cash_collected", "booking_source"].map((key) => ({ key })) : []);
     const r = await asOperator((c) => recordRecording(c, companyId, rec));
     expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
-    expect(r.contactId).toBe(id); expect(r.recording.linked_by).toBe("email"); expect(r.appointmentId).toBe(appt.id);
+    expect(r.contactId).toBe(id); expect(r.recording.linked_by).toBe("speaker"); expect(r.appointmentId).toBe(appt.id);   // D227: Leo spoke, and the booking then is his
     await asOperator((c) => dispatchEvent(c, r.event, { contact: { id }, appointment: { id: appt.id } }));
     await tick(fake, undefined, companyId);
     const run = (await runsFor("call-recorded")).find((x) => x.contact_id === id)!;
@@ -539,16 +539,13 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(slack?.suppressed_reason).toMatch(/slack/);   // channel unbound in this test company; the text is still what matters
     // a replay of the same recording records nothing new
     expect((await asOperator((c) => recordRecording(c, companyId, rec))).outcome).toBe("duplicate");
-    // an internal meeting: the AI says not a sales call → nothing written
-    salesCall = false;
+    // an internal meeting (D227: only the team spoke): linked to no one, so no workflow runs and nothing is written
     const internal: RecordingInput = { ...rec, externalId: "fathom-1002", title: "Team sync", invitees: rec.invitees, transcript: [{ speaker: "Sam Closer", text: "Pipeline review." }] };
+    const nTags2 = tags.length, nRec2 = recordWrites.length, nRuns = (await runsFor("call-recorded")).length;
     const r2 = await asOperator((c) => recordRecording(c, companyId, internal));
-    expect(r2.outcome).toBe("linked"); if (r2.outcome !== "linked") return;
-    const nTags2 = tags.length, nRec2 = recordWrites.length;
-    await asOperator((c) => dispatchEvent(c, r2.event, { contact: { id } }));
-    await tick(fake, undefined, companyId); salesCall = true;
-    const run2 = (await runsFor("call-recorded")).filter((x) => x.contact_id === id).at(-1)!;
-    expect(run2).toMatchObject({ status: "completed", exit_reason: "not_a_sales_call" });
+    expect(r2).toMatchObject({ outcome: "internal", reason: expect.stringMatching(/only the team spoke \(Sam Closer\)/), recording: { contact_id: null } });
+    await tick(fake, undefined, companyId);
+    expect((await runsFor("call-recorded")).length).toBe(nRuns);
     expect(tags.length).toBe(nTags2); expect(recordWrites.length).toBe(nRec2);
   });
 
@@ -556,7 +553,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const rec: RecordingInput = { externalId: "fathom-2001", title: "Intro call", startedAt: new Date(Date.now() - 30 * 86400e3), durationMin: 20, recordedBy: { email: "sam@x.com" }, invitees: [{ name: "Sam Closer", email: "sam@x.com" }, { name: "Nobody Known", email: "stranger@z.com" }], transcript: [{ speaker: "Nobody Known", text: "Hi." }] };
     const r = await asOperator((c) => recordRecording(c, companyId, rec));
     expect(r.outcome).toBe("unlinked"); if (r.outcome !== "unlinked") return;
-    expect(r.reason).toMatch(/nobody in the CRM matches stranger@z.com/);
+    expect(r.reason).toMatch(/Nobody Known spoke, and nobody in the CRM has that name/);
     const id = await newContact("CSTR", "other@z.com");
     const { event } = await asOperator((c) => linkRecording(c, companyId, r.recording.id, id));
     expect(event.event_type).toBe("recording.received"); expect(event.data.matched_by).toBe("manual"); expect(event.data.appointment_matched).toBe(false);
