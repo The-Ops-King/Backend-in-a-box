@@ -44,6 +44,8 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
     if (!transcript?.length && r.provider === "fathom" && bindings["secret.fathom_api_key"] && adapters.recorder) {
       try { transcript = await adapters.recorder.transcript(bindings["secret.fathom_api_key"], r.external_id); } catch (e) { return { ok: false, status: 502, error: `Fathom: ${String((e as Error).message).slice(0, 200)}` }; }
     }
+    // who spoke is what the rules weigh most: a move is never made on the invite alone because Fathom did not answer this time
+    if (!transcript?.length && r.provider === "fathom") return { ok: false, status: 409, error: "Fathom gave no transcript for this recording just now, so who spoke cannot be read: try again, or name the contact (or \"none\")" };
     const input: RecordingInput = { provider: r.provider, externalId: r.external_id, startedAt: r.started_at, recordedBy: { name: r.recorded_by_name ?? undefined, email: r.recorded_by_email ?? undefined }, invitees: r.invitees ?? [], transcript: transcript ?? undefined };
     const res = await resolveRecording(c, co.id, input);
     target = res.match ? { contact: res.match.contactId, appointment: res.match.appointmentId ?? null, by: res.match.by } : { reason: res.reason ?? "no match" };
@@ -162,7 +164,8 @@ export async function checkRecordings(c: PoolClient, adapters: Adapters, company
   for (const r of rows) {
     let transcript = r.transcript;
     if (!transcript?.length && r.provider === "fathom" && key && adapters.recorder) {
-      try { transcript = await adapters.recorder.transcript(key, r.external_id); } catch { unread.push(`${r.id} (${r.title ?? "untitled"}): Fathom would not give the transcript`); }
+      try { transcript = await adapters.recorder.transcript(key, r.external_id); } catch { /* said just below */ }
+      if (!transcript?.length) { unread.push(`${r.id} (${r.title ?? "untitled"}): no transcript from Fathom, so it was not checked`); continue; }
     }
     const res = await resolveRecording(c, companyId, { provider: r.provider, externalId: r.external_id, startedAt: r.started_at, recordedBy: { name: r.recorded_by_name ?? undefined, email: r.recorded_by_email ?? undefined }, invitees: r.invitees ?? [], transcript: transcript ?? undefined });
     const nowSays = r.contact_id ? `${r.who || r.contact_id}${r.appointment_id ? "" : " (no booking)"}` : "no one";

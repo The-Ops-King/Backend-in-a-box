@@ -110,6 +110,14 @@ describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong per
     expect(dry).toMatchObject({ ok: true, undo: [], kept: [] });
   });
 
+  it("no transcript from Fathom: the move by the rules is refused, not made on the invite alone; the check says it could not look", async () => {
+    const silent: Adapters = { ...fake, recorder: { transcript: async () => null } };
+    const rec = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, provider, external_id, title, started_at, recorded_by_email, invitees, link_status, linked_by) values ($1,$2,'fathom','F-4','Quiet','2026-10-21T15:00Z','closer@relink.test','[]','linked','email') returning id", [companyId, beth]))!.id);
+    expect(await asOperator((c) => relinkRecording(c, silent, { company: SLUG, recording: rec, to: "rules", why: "x" }))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/no transcript/) });
+    const r = await asOperator((c) => checkRecordings(c, silent, companyId, new Date("2026-10-21T00:00Z"), new Date("2026-10-21T23:00Z")));
+    expect(r).toMatchObject({ checked: 1, differ: [], unread: [expect.stringMatching(/Quiet\): no transcript from Fathom, so it was not checked/)] });
+  });
+
   it("the check lists a link the rules would not make, and only that", async () => {
     const roleplay = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, appointment_id, provider, external_id, title, started_at, recorded_by_email, invitees, transcript, link_status, linked_by) values ($1,$2,$3,'fathom','F-2','Roleplay/training','2026-10-22T20:05Z','closer@relink.test','[]',$4,'linked','calendar') returning id",
       [companyId, beth, apptB, JSON.stringify([{ speaker: "Cal", email: "closer@relink.test", text: "you be the client" }, { speaker: "Cal Closer", text: "ok" }])]))!.id);
