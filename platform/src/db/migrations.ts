@@ -93,4 +93,14 @@ export const MIGRATIONS: Migration[] = [
     await t.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'payments.ledger_fix','company',$2,$3)",
       [co.id, co.id, { deposit: dep.rowCount, failed_unmatched_removed: gone.rows.map((r) => r.whop_payment_id) }]);
   }) },
+  // D229, PMU once more: 0009 made Jennyfer Cantrell's $250 a deposit in the ledger, but her two payment events were written before it
+  // and still read it as an installment (and her $9,750 as coming after $250 of non-deposit money). Payment recorded is about to run
+  // for them for the first time (D232 replay), so they say what the ledger now says.
+  { id: "0010-pmu-jennyfer-events", run: async (c) => asOperatorTx(c, async (t) => {
+    const co = (await t.query<{ id: string }>("select id from companies where slug='pmu'")).rows[0];
+    if (!co) return;
+    const a = await t.query("update events set data = data || '{\"kind\":\"deposit\"}'::jsonb where company_id=$1 and event_type='payment.received' and data->>'provider_payment_id'='pay_nVLz7yWb9RcuFa' returning id", [co.id]);
+    const b = await t.query("update events set data = data || '{\"prior_non_deposit_total\":0}'::jsonb where company_id=$1 and event_type='payment.received' and data->>'provider_payment_id'='pay_x8FSlakIYHNzDc' returning id", [co.id]);
+    await t.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'events.ledger_fix','company',$2,$3)", [co.id, co.id, { deposit_event: a.rows.map((r) => r.id), balance_event: b.rows.map((r) => r.id) }]);
+  }) },
 ];
