@@ -48,4 +48,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D137: record repair", () => {
     expect(deleted).toEqual(["OURS", "LOST"]);
     expect((await asOperator((c) => many(c, "select 1 from audit_log where company_id=$1 and action='crm_record.repair'", [co]))).length).toBe(4);
   });
+
+  it("each value goes as its field's type wants it (money as { currency, value }); a field the object lacks is refused before anything is written; a GHL refusal is an answer, not a crash", async () => {
+    const typed: Adapters = { ...fake, read: { ...fake.read, objectFields: async () => [{ key: "outcome", type: "SINGLE_OPTIONS" }, { key: "cash_collected", type: "MONETORY" }] as never } };
+    const go = (b: Record<string, unknown>, a = typed) => asOperator((c) => repairRecord(c, a, { company: SLUG, object: OBJ, why: "test", dryRun: false, record_id: "GHL-MADE", ...b }));
+    updated.length = 0;
+    expect(await go({ properties: { cash_collected: 10000, outcome: "showed" } })).toMatchObject({ ok: true });
+    expect(updated).toEqual([{ id: "GHL-MADE", props: { cash_collected: { currency: "default", value: 10000 }, outcome: "showed" } }]);
+    expect(await go({ properties: { cash_collected: 1, payment_terms: "PIF" }, dryRun: true })).toEqual({ ok: false, status: 400, error: `${OBJ} has no field payment_terms: nothing was written` });
+    const refusing: Adapters = { ...typed, write: { ...typed.write, updateRecord: async () => { throw new Error("ghl 422 bad value"); } } };
+    expect(await go({ properties: { outcome: "showed" } }, refusing)).toEqual({ ok: false, status: 502, error: "GHL refused the write: ghl 422 bad value" });
+  });
 });

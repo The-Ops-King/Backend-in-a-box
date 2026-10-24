@@ -6264,3 +6264,11 @@ call review's test (the offer and its price presented), and gives the line that 
 id: true | false }` from a person and sets only bookings with no answer yet. The GHL Sales Call's Pitched field is written
 separately, record by record. Calls with no recording are left alone. Audited (`appointments.pitched_backfill`). Tests:
 `pitched-backfill.test.ts`.
+
+## D230. The operator's record write sends each field as GHL wants it, and says why when it cannot (2026-10-24)
+
+Writing Jennyfer Cantrell's close by hand (`/api/admin/crm-record`) failed three ways at once. Money went as a bare number, but
+GHL wants a money field as `{ currency: "default", value }`, which is how a workflow step already writes it (`propertyValue`).
+PMU's Sales Call has no `payment_terms` field, and GHL refuses a whole write over one unknown field. And the route answered a bare
+500 with no reason. Now each value is formatted by its field's type. A field the object lacks is refused before anything is
+written, with its name, dry run included. A GHL refusal comes back as a 502 with GHL's message. Tests: `crm-repair.test.ts`.
