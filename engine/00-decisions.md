@@ -6251,3 +6251,9 @@ so no automatic match could place her two payments. Relink takes `pick: { pay_â€
 person with `linked_by = manual`, the person keeps Whop's email so their next payment links on its own, and no workflow starts.
 There is no hand-marked deposit. Tyler: "it should just be when the link comes through for a deposit product. it's a deposit."
 PMU's $250 of 2026-10-22 was bought on the main product before the Deposit product existed. It is corrected once, as data.
+
+Addendum (2026-10-23): failed charges. Tyler: "storing failures would be smart for that reason [a missed installment]. But yeah
+non close failures is not important." The new setting `payments.unmatched_failures = drop` keeps no failed charge that matches
+nobody. A known buyer's failed charge is still kept, since that is how a missed installment shows. It is set per offer: unset,
+every failure is kept as before. PMU is set to drop. Migration 0009 corrects PMU's ledger once: Jennyfer Cantrell's $250 of
+2026-10-22 becomes a deposit, and PMU's failed charges that matched nobody are removed.

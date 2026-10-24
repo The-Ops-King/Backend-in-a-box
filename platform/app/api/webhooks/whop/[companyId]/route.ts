@@ -1,6 +1,6 @@
 import { asOperator, one } from "@/db/client";
 import { loadCompany } from "@/engine/context";
-import { recordPayment } from "@/engine/payments";
+import { dropUnmatchedFailure, recordPayment } from "@/engine/payments";
 import { dispatchEvent } from "@/engine/dispatch";
 import { fillWhopBuyer, parseWhopEvent, verifyWhopSignature, type WhopEnvelope } from "@/engine/webhooks/whop";
 import { respondAndRun } from "@/api/run-soon";
@@ -26,6 +26,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     const parsed = parseWhopEvent(env);
     if (!parsed) return respondAndRun(companyId, { ok: true, ignored: env.type });
     const p = await fillWhopBuyer(parsed, bindings["secret.whop_api_key"]);   // D229: a webhook with no buyer is read back from Whop's API
+    const dropped = await dropUnmatchedFailure(c, companyId, p);   // D229
+    if (dropped) return respondAndRun(companyId, { ok: true, ignored: dropped });
     const r = await recordPayment(c, companyId, p);
     if (r.outcome === "duplicate") return respondAndRun(companyId, { ok: true, duplicate: true, payment: r.payment.id });
     if (r.outcome === "unlinked") {

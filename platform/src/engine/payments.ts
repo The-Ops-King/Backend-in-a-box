@@ -174,6 +174,19 @@ async function refundedPayer(c: PoolClient, companyId: string, provider: string,
 }
 
 /**
+ * D229: an offer that says so (`payments.unmatched_failures` = drop) keeps no failed charge that matches nobody: a declined checkout
+ * from a stranger is not a missed installment. A failed charge from someone it knows is kept (that is how a missed installment
+ * shows). Returns why it is dropped, or null to record it. The webhooks and the backfill ask before recording.
+ */
+export async function dropUnmatchedFailure(c: PoolClient, companyId: string, input: PaymentInput): Promise<string | null> {
+  if (input.status !== "failed") return null;
+  const b = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='payments.unmatched_failures'", [companyId]);
+  if (b?.value.toString("utf8").trim() !== "drop") return null;
+  if (await one(c, "select 1 from payments where company_id=$1 and provider=$2 and whop_payment_id=$3", [companyId, input.provider ?? "whop", input.providerPaymentId])) return null;
+  return (await resolvePayer(c, companyId, input)) ? null : "a failed charge that matches nobody (payments.unmatched_failures = drop)";
+}
+
+/**
  * Records a provider payment. Idempotent on (provider, payment id). `forceContactId` is for callers that already know the person (tests, manual entry).
  * `dispatch: false` (history backfill) records and emits but starts no workflow, the healed rows' and paid-in-full's included.
  */
