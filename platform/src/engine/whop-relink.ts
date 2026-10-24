@@ -21,7 +21,7 @@ export async function relinkWhopBuyers(c: PoolClient, companyId: string, apiKey:
   const only = [...(opts.ids ?? []), ...Object.keys(pick)];
   const rows = await many<{ id: string; whop_payment_id: string; amount: string; status: string; paid_at: Date; raw: Record<string, unknown> | null }>(c,
     `select id, whop_payment_id, amount, status, paid_at, raw from payments where company_id=$1 and provider='whop' and link_status='unlinked' and status<>'refunded'
-       and customer_email is null and customer_phone is null and whop_member_id is null and ($2::text[] is null or id::text = any($2) or whop_payment_id = any($2)) order by paid_at`, [companyId, only.length ? only : null]);
+       and customer_email is null and customer_phone is null and whop_member_id is null and ($2::text[] is null or id::text = any($2) or whop_payment_id = any($2)) order by paid_at, whop_payment_id`, [companyId, only.length ? only : null]);
   const out: RelinkRow[] = [];
   for (const r of rows) {
     const row: RelinkRow = { payment: r.id, whop_payment_id: r.whop_payment_id, amount: Number(r.amount), status: r.status, paid_at: r.paid_at.toISOString(), email: null, phone: null, member_id: null, product_name: (r.raw?.product_name as string | undefined) ?? null, links_to: null };
