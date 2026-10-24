@@ -6297,3 +6297,13 @@ each with a dry run first and audited:
   binding or by field id, in GHL and the replica.
 - `POST /api/admin/opportunity { company, contact, status: won | open, at?, why }` sets the person's deal in the engine.
 Tests: `crm-repair.test.ts`, `contact-ops.test.ts`.
+
+## D234. The minute poll reads only the bookings that changed (2026-10-24)
+
+Vercel paused BiaB for Fluid Active CPU (11 h used against Hobby's 4 h). Each company's minute tick re-read every Calendly booking
+in the window (two days back to 60 ahead) with one invitee request per booking. Nelly's busiest calendar is 87 bookings, so that
+was 36.7 s of a 58.5 s tick, every minute. Now each pass keeps every event's own change stamp (`engine_state` key
+`booking_seen:<company>:<calendar>`). The next pass reads in full and applies only the events whose stamp moved. Every booking
+is read again once an hour (`FULL_BOOKING_READ_MS`), so a change the source did not stamp is still seen. This is no less current
+than before: the invitee cache was already keyed on the event's stamp. GHL calendars give no stamps and are read as before.
+Tests: `poll.booking-delta.test.ts`.
