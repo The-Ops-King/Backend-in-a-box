@@ -6257,3 +6257,10 @@ non close failures is not important." The new setting `payments.unmatched_failur
 nobody. A known buyer's failed charge is still kept, since that is how a missed installment shows. It is set per offer: unset,
 every failure is kept as before. PMU is set to drop. Migration 0009 corrects PMU's ledger once: Jennyfer Cantrell's $250 of
 2026-10-22 becomes a deposit, and PMU's failed charges that matched nobody are removed.
+
+Addendum (2026-10-23): the backfill. Tyler: "Yeah backfill with recorded calls. Leave jps calls alone." `POST /api/admin/appointments/pitched
+{ company, from, to, exclude: [closer emails], dryRun = true }` reads each recorded closing call nobody has answered for, using the
+call review's test (the offer and its price presented), and gives the line that shows it. The write takes `decide: { appointment
+id: true | false }` from a person and sets only bookings with no answer yet. The GHL Sales Call's Pitched field is written
+separately, record by record. Calls with no recording are left alone. Audited (`appointments.pitched_backfill`). Tests:
+`pitched-backfill.test.ts`.
