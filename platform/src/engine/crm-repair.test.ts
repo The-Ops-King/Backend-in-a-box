@@ -59,4 +59,19 @@ describe.skipIf(!process.env.DATABASE_URL)("D137: record repair", () => {
     const refusing: Adapters = { ...typed, write: { ...typed.write, updateRecord: async () => { throw new Error("ghl 422 bad value"); } } };
     expect(await go({ properties: { outcome: "showed" } }, refusing)).toEqual({ ok: false, status: 502, error: "GHL refused the write: ghl 422 bad value" });
   });
+
+  it("D233: a record the engine should have made is made under its key, kept as the engine's and related; a second under the same key is refused", async () => {
+    const made: Array<{ props: Record<string, unknown> }> = [], rel: string[][] = [];
+    const typed: Adapters = { ...fake, read: { ...fake.read, objectFields: async () => [{ key: "amount", type: "NUMERICAL" }, { key: "type", type: "SINGLE_OPTIONS" }] as never },
+      write: { ...fake.write, createRecord: async (_c, _o, props) => { made.push({ props }); return { id: "NEW-1" }; }, relateRecords: async (_c, a, f, s) => { rel.push([a, f, s]); } } };
+    const go = (b: Record<string, unknown>) => asOperator((c) => repairRecord(c, typed, { company: SLUG, object: "custom_objects.cash", why: "test", dryRun: false, record_id: "", ...b }));
+    const create = { key: "pay_250", relate: [{ association: "ASSOC-C", first: "GC" }] };
+    expect(await go({ create, properties: { amount: 250, type: "deposit" }, dryRun: true })).toMatchObject({ ok: true, dryRun: true });
+    expect(made).toEqual([]);
+    expect(await go({ create, properties: { amount: 250, type: "deposit" } })).toMatchObject({ ok: true, record: { id: "NEW-1" } });
+    expect(made).toEqual([{ props: { amount: 250, type: "deposit" } }]);
+    expect(rel).toEqual([["ASSOC-C", "GC", "NEW-1"]]);
+    expect(await asOperator((c) => many(c, "select record_key, ghl_record_id from crm_records where company_id=$1 and object_key='custom_objects.cash'", [co]))).toEqual([{ record_key: "pay_250", ghl_record_id: "NEW-1" }]);
+    expect(await go({ create, properties: { amount: 250 } })).toMatchObject({ ok: false, status: 409 });
+  });
 });
