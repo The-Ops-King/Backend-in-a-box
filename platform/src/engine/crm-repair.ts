@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
 import { loadCompany } from "./context";
+import { propertyValue } from "./executor";
 
 /** D137: what the operator asked of one record (see app/api/admin/crm-record). */
 export type RecordRepair = { company: string; object: string; record_id: string; why: string; dryRun?: boolean; properties?: Record<string, unknown>; delete?: boolean; force?: boolean; key?: string };
@@ -23,10 +24,22 @@ export async function repairRecord(c: PoolClient, adapters: Adapters, b: RecordR
   const ours = await one<{ id: string; record_key: string; adopted: boolean }>(c, "select id, record_key, adopted from crm_records where company_id=$1 and ghl_record_id=$2", [co.id, b.record_id]);
   if (b.delete && ours?.adopted) return { ok: false, status: 409, error: "GHL or a person made this record and the engine only took it over: it is never deleted from here" };
   if (b.delete && !ours && b.force !== true) return { ok: false, status: 409, error: "the engine has no record of making this: it is not deleted unless you say force (and why)" };
-  const change = b.properties ? { properties: b.properties } : b.delete ? { delete: true, record_key: ours?.record_key ?? null, ...(ours ? {} : { forced: true }) } : { key: b.key };
+  // each field as its type wants it (a money field is { currency, value }, as a workflow step writes it); a field the object does not
+  // have is refused here, dry run included, since GHL would refuse the whole write over it
+  let properties = b.properties;
+  if (properties && object.startsWith("custom_objects.") && adapters.read.objectFields) {
+    const types = new Map((await adapters.read.objectFields(adapterCompany, object)).map((f) => [f.key, f.type] as const));
+    const unknown = Object.keys(properties).filter((k) => !types.has(k));
+    if (types.size && unknown.length) return { ok: false, status: 400, error: `${object} has no field ${unknown.join(", ")}: nothing was written` };
+    properties = Object.fromEntries(Object.entries(properties).map(([k, v]) => [k, typeof v === "string" || typeof v === "number" ? propertyValue(k, String(v), types.get(k)) : v]));
+  }
+  const change = properties ? { properties } : b.delete ? { delete: true, record_key: ours?.record_key ?? null, ...(ours ? {} : { forced: true }) } : { key: b.key };
   const plan = { object, record: { id: rec.id, properties: rec.properties }, change };
   if (b.dryRun !== false) return { ok: true, dryRun: true, ...plan };
-  if (b.properties) await adapters.write.updateRecord(adapterCompany, object, b.record_id, b.properties);
+  if (properties) {
+    try { await adapters.write.updateRecord(adapterCompany, object, b.record_id, properties); }
+    catch (e) { return { ok: false, status: 502, error: `GHL refused the write: ${String((e as Error).message).slice(0, 300)}` }; }
+  }
   if (b.delete) {
     if (!adapters.write.deleteRecord) return { ok: false, status: 501, error: "this CRM adapter cannot delete records" };
     await adapters.write.deleteRecord(adapterCompany, object, b.record_id);
