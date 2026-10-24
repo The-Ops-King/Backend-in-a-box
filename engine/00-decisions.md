@@ -6272,3 +6272,10 @@ GHL wants a money field as `{ currency: "default", value }`, which is how a work
 PMU's Sales Call has no `payment_terms` field, and GHL refuses a whole write over one unknown field. And the route answered a bare
 500 with no reason. Now each value is formatted by its field's type. A field the object lacks is refused before anything is
 written, with its name, dry run included. A GHL refusal comes back as a 502 with GHL's message. Tests: `crm-repair.test.ts`.
+
+## D231. `contact.call_closer`: who a payment is credited to (2026-10-24)
+
+Tyler, on PMU's Cash record closer: the closer of their latest Sales Call, else "the owner of the contact". The run context gains
+`contact.call_closer`: whoever took the person's latest closing call that has happened (not cancelled), else the contact's
+owner, with `from` saying which. It only adds a field. No saved workflow reads it until an offer's own copy is changed to,
+and PMU's Payment recorded is the first (its Cash record `closer`). Tests: `call-closer.test.ts`.
