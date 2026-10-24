@@ -6279,3 +6279,10 @@ Tyler, on PMU's Cash record closer: the closer of their latest Sales Call, else 
 `contact.call_closer`: whoever took the person's latest closing call that has happened (not cancelled), else the contact's
 owner, with `from` saying which. It only adds a field. No saved workflow reads it until an offer's own copy is changed to,
 and PMU's Payment recorded is the first (its Cash record `closer`). Tests: `call-closer.test.ts`.
+
+## D232. Two operator doors: a GHL object's records, and an event run again through one workflow (2026-10-24)
+
+`GET /api/admin/crm-records?company&object&q` lists an object's records as GHL has them, and whether the engine knows each one.
+It is read only. Tyler: "you can list cash records from here." `POST /api/admin/events/replay { company, workflow, events,
+dryRun = true }` runs events the engine recorded but started nothing for (D229's relinked payments) through one named workflow,
+in that workflow's own mode. An event that workflow already ran for is never run again. Audited (`events.replayed`).
