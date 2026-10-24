@@ -82,4 +82,15 @@ export const MIGRATIONS: Migration[] = [
     // D226: whether the closer pitched them, from the end of day (null: the call did not happen, or nobody said)
     await c.query("alter table appointments add column if not exists pitched boolean");
   } },
+  // D229, PMU's ledger, once (Tyler, 2026-10-23): the $250 Jennyfer Cantrell paid on 2026-10-22 was her deposit, bought on the main
+  // product before a Deposit product existed, so the name rule could not tell; and the failed charges that matched nobody are not kept
+  // ("non close failures is not important"). A database without PMU's rows (tests, an empty start) changes nothing.
+  { id: "0009-pmu-ledger-fix", run: async (c) => asOperatorTx(c, async (t) => {
+    const co = (await t.query<{ id: string }>("select id from companies where slug='pmu'")).rows[0];
+    if (!co) return;
+    const dep = await t.query("update payments set kind='deposit' where company_id=$1 and whop_payment_id='pay_nVLz7yWb9RcuFa' and link_status='linked' and status='succeeded' returning id", [co.id]);
+    const gone = await t.query<{ whop_payment_id: string }>("delete from payments where company_id=$1 and status='failed' and link_status='unlinked' returning whop_payment_id", [co.id]);
+    await t.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'payments.ledger_fix','company',$2,$3)",
+      [co.id, co.id, { deposit: dep.rowCount, failed_unmatched_removed: gone.rows.map((r) => r.whop_payment_id) }]);
+  }) },
 ];

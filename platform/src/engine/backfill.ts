@@ -9,7 +9,7 @@ import { recordPhoneCall, recordRecording, settlePhoneCall } from "./recordings"
 import { parseFathomMeeting } from "./webhooks/fathom";
 import { outcomeTermFor } from "./disposition";
 import { rollupRange } from "./metrics";
-import { recordPayment, type PaymentInput } from "./payments";
+import { dropUnmatchedFailure, recordPayment, type PaymentInput } from "./payments";
 import { paymentInputs, whopListPayments } from "@/adapters/whop/client";
 import { carriesTag, inScope, scopeTag } from "./scope";
 import { objectKey } from "./sales-call";
@@ -120,6 +120,7 @@ export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company
     const source = payments ?? (bindings["secret.whop_api_key"] ? async (f: Date, t: Date) => (await whopListPayments(bindings["secret.whop_api_key"], f, t)).flatMap(paymentInputs) : null);
     if (!source) return;
     for (const p of await source(window.from, window.to)) {
+      if (await dropUnmatchedFailure(c, co.id, p)) continue;   // D229
       const r = await recordPayment(c, co.id, p, undefined, { dispatch: false });
       if (r.outcome === "duplicate") continue;
       rep.payments++; if (r.outcome === "unlinked") rep.paymentsUnlinked++;

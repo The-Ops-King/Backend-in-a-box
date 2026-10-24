@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
-import { recordPayment } from "./payments";
+import { recordPayment, dropUnmatchedFailure } from "./payments";
 import { fillWhopBuyer, parseWhopEvent } from "./webhooks/whop";
 import { relinkWhopBuyers } from "./whop-relink";
 import { whopBuyer } from "@/adapters/whop/client";
@@ -79,5 +79,14 @@ describe.skipIf(!process.env.DATABASE_URL)("D229: relinking payments stuck witho
       .toEqual([{ whop_payment_id: "pay_kim", contact_id: kim, linked_by: "manual", customer_email: "kim.other@x.com" }, { whop_payment_id: "pay_left", contact_id: null, linked_by: null, customer_email: null }]);
     expect(await asOperator((c) => one(c, "select contact_id from contact_identifiers where company_id=$1 and kind='email' and value='kim.other@x.com'", [companyId]))).toEqual({ contact_id: kim });
     expect(await asOperator((c) => one(c, "select count(*)::int as n from runs where company_id=$1", [companyId]))).toEqual({ n: 0 });
+  });
+
+  it("an offer set to drop them keeps no failed charge that matches nobody; a known buyer's failure and a success are kept; unset, all are kept", async () => {
+    const fail = (id: string, email: string) => ({ providerPaymentId: id, amount: 10000, status: "failed" as const, paidAt: new Date(), email });
+    expect(await asOperator((c) => dropUnmatchedFailure(c, companyId, fail("pay_f1", "nobody@x.com")))).toBeNull();   // not set: kept, as on every offer
+    await asOperator((c) => c.query("insert into bindings (company_id, key, kind, value) values ($1,'payments.unmatched_failures','text',convert_to('drop','UTF8'))", [companyId]));
+    expect(await asOperator((c) => dropUnmatchedFailure(c, companyId, fail("pay_f1", "nobody@x.com")))).toMatch(/matches nobody/);
+    expect(await asOperator((c) => dropUnmatchedFailure(c, companyId, fail("pay_f2", "jen@x.com")))).toBeNull();
+    expect(await asOperator((c) => dropUnmatchedFailure(c, companyId, { ...fail("pay_f3", "nobody@x.com"), status: "succeeded" }))).toBeNull();
   });
 });
