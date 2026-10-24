@@ -6286,3 +6286,14 @@ and PMU's Payment recorded is the first (its Cash record `closer`). Tests: `call
 It is read only. Tyler: "you can list cash records from here." `POST /api/admin/events/replay { company, workflow, events,
 dryRun = true }` runs events the engine recorded but started nothing for (D229's relinked payments) through one named workflow,
 in that workflow's own mode. An event that workflow already ran for is never run again. Audited (`events.replayed`).
+
+## D233. The operator can make a missing record, set a contact's fields, and mark a deal won (2026-10-24)
+
+Tyler wanted Jennyfer Cantrell "100% complete and accurate" before Payment recorded goes live for PMU. Three operator actions,
+each with a dry run first and audited:
+- `crm-record` takes `create: { key, contact_id?, relate? }`. It makes a record the engine should have made, under its key, so
+  a later workflow run updates it instead of making a second, and relates it the way the step would.
+- `POST /api/admin/contact/fields { company, contact, fields, why }` sets one contact's GHL custom fields, keyed by the offer's
+  binding or by field id, in GHL and the replica.
+- `POST /api/admin/opportunity { company, contact, status: won | open, at?, why }` sets the person's deal in the engine.
+Tests: `crm-repair.test.ts`, `contact-ops.test.ts`.
