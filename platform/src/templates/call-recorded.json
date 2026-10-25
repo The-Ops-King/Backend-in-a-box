@@ -440,7 +440,7 @@
       {
         "id": "v_disp",
         "type": "set_var",
-        "title": "A close the AI hears is pending until cash is collected (D228)",
+        "title": "A close the AI hears is pending until cash is collected (D236)",
         "key": "disp",
         "value": "{{vars.outcome.disposition | default:}}",
         "pick": {
@@ -457,7 +457,7 @@
         "id": "n_cl",
         "type": "note",
         "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
-        "title": "A client's call: the note only (D228)"
+        "title": "A client's call: the note only (D236)"
       },
       {
         "id": "x_cl",

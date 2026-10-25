@@ -112,12 +112,15 @@ export const calendlyBooking: BookingRead = {
     }
     return [...byId.values()].sort((a, z) => a.name.localeCompare(z.name));
   },
-  async appointmentsInWindow(c, calendarId, from, to) {
+  async appointmentsInWindow(c, calendarId, from, to, delta) {
     const b = cfg(c);
     const mine = (await eventsInWindow(c, from, to)).filter((e) => uuidOf(e.event_type) === calendarId);
     const out: AppointmentSnapshot[] = [];
     const seen = new Set<string>();
     for (const e of mine) {
+      if (delta) delta.seen[uuidOf(e.uri)] = e.updated_at;
+      // D234: unchanged since the last pass that took it in: no invitee read, nothing to apply
+      if (delta?.known && delta.known[uuidOf(e.uri)] === e.updated_at) continue;
       const inv = await inviteeOf(b.token, e);
       const snap = mapEvent(e, inv, b.phoneQuestion, b.setterQuestion, b.calendars?.[calendarId], await phoneFieldsOf(b.token, e.event_type));
       out.push(snap); seen.add(snap.id);

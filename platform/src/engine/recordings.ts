@@ -80,7 +80,7 @@ export async function prospectsOnCall(c: PoolClient, companyId: string, input: P
   return { emails, names, staffDropped };
 }
 
-/** D228: where a call with no booking that fits is put: a client's call; their closing call held late; a follow-up on a sale already held; none of those. */
+/** D236: where a call with no booking that fits is put: a client's call; their closing call held late; a follow-up on a sale already held; none of those. */
 export type Placed = "client" | "held_late" | "follow_up" | "unbooked" | "no_booking";
 export type Match = { contactId: string; by: "email" | "meeting" | "name" | "speaker"; appointmentId?: string; placed?: Placed };
 export type Resolution = { match: Match | null; reason?: string; internal?: boolean };
@@ -119,7 +119,7 @@ const SALES_BOOKING = "('closing','follow_up')";   // a booking that is a sales 
 const LATE_DAYS = 3;                               // a closing call held off the calendar this soon after its booking is that booking (Tyler: "sure", 3 days)
 
 /**
- * D228 (Tyler, on Erica's consultation held a day late and Rafaela's second Sales Call: "it should have updated the first one"):
+ * D236 (Tyler, on Erica's consultation held a day late and Rafaela's second Sales Call: "it should have updated the first one"):
  * a person on the call, with no booking the call fits, is placed by what the ledger already holds about them, in this order.
  * - client: cash collected from them, or a close filed (the end of day, a payment) on a call before this one. Their call is not a
  *   sales call: the workflow writes the note and nothing else.
@@ -144,7 +144,7 @@ export async function placeCall(c: PoolClient, companyId: string, contactId: str
   return { appointmentId: null, placed: near ? "unbooked" : "no_booking" };
 }
 
-/** D227's rules, then D228: a person found with no booking that fits is placed by what the ledger holds about them. */
+/** D227's rules, then D236: a person found with no booking that fits is placed by what the ledger holds about them. */
 export async function resolveRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<Resolution> {
   const r = await matchRecording(c, companyId, input);
   if (!r.match || r.match.appointmentId) return r;
@@ -321,7 +321,7 @@ export async function linkRecording(c: PoolClient, companyId: string, recordingI
   const { emails } = await prospectsOnCall(c, companyId, { invitees: r.invitees, recordedBy: { email: r.recorded_by_email ?? undefined } });
   if (opts.remember !== false && emails.length === 1) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, emails[0]]);
   const by = opts.by ?? "manual";
-  // the booking the recording fits; with none, where the ledger places the call (D228)
+  // the booking the recording fits; with none, where the ledger places the call (D236)
   let booking = opts.appointmentId, placed = opts.placed;
   if (booking === undefined) { booking = await fittingBooking(c, companyId, contactId, r.started_at); if (!booking) { const p = await placeCall(c, companyId, contactId, r.started_at); booking = p.appointmentId; placed = p.placed; } }
   const { event, appointmentId } = await settle(c, companyId, r, contactId, by, booking, false, placed);

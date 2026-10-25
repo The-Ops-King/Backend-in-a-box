@@ -174,6 +174,19 @@ async function refundedPayer(c: PoolClient, companyId: string, provider: string,
 }
 
 /**
+ * D229: an offer that says so (`payments.unmatched_failures` = drop) keeps no failed charge that matches nobody: a declined checkout
+ * from a stranger is not a missed installment. A failed charge from someone it knows is kept (that is how a missed installment
+ * shows). Returns why it is dropped, or null to record it. The webhooks and the backfill ask before recording.
+ */
+export async function dropUnmatchedFailure(c: PoolClient, companyId: string, input: PaymentInput): Promise<string | null> {
+  if (input.status !== "failed") return null;
+  const b = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='payments.unmatched_failures'", [companyId]);
+  if (b?.value.toString("utf8").trim() !== "drop") return null;
+  if (await one(c, "select 1 from payments where company_id=$1 and provider=$2 and whop_payment_id=$3", [companyId, input.provider ?? "whop", input.providerPaymentId])) return null;
+  return (await resolvePayer(c, companyId, input)) ? null : "a failed charge that matches nobody (payments.unmatched_failures = drop)";
+}
+
+/**
  * Records a provider payment. Idempotent on (provider, payment id). `forceContactId` is for callers that already know the person (tests, manual entry).
  * `dispatch: false` (history backfill) records and emits but starts no workflow, the healed rows' and paid-in-full's included.
  */
@@ -213,6 +226,31 @@ export async function linkPayment(c: PoolClient, companyId: string, paymentId: s
   await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: out.event.opportunity_id, appointment_id: null, event_type: "payment.linked", source: "user", data: { payment_id: p.id, by: "manual" } });
   await dispatchEvent(c, out.event, { contact: { id: contactId } });
   return out;
+}
+
+/**
+ * D229: an unlinked payment whose buyer was learned after it came in (read back from Whop) is linked by the same ladder as on
+ * arrival, one unambiguous person or nothing. `dispatch: false` records it and starts no workflow (what Payment recorded would
+ * have done for it is a separate, named step).
+ */
+export async function linkFoundBuyer(c: PoolClient, companyId: string, paymentId: string, opts: { dispatch?: boolean } = {}): Promise<{ contactId: string; by: string; event: EventRow; healed: number } | null> {
+  const p = await one<PaymentRow>(c, "select * from payments where company_id=$1 and id=$2 and link_status='unlinked'", [companyId, paymentId]);
+  if (!p) return null;
+  const match = await resolvePayer(c, companyId, { email: p.customer_email ?? undefined, phone: p.customer_phone ?? undefined, memberId: p.whop_member_id ?? undefined });
+  if (!match) return null;
+  const out = await settle(c, companyId, match.contactId, p, match.by, opts.dispatch ?? true);
+  await emitEvent(c, { company_id: companyId, contact_id: match.contactId, opportunity_id: out.event.opportunity_id, appointment_id: null, event_type: "payment.linked", source: "engine", data: { payment_id: p.id, by: match.by, via: "whop_api" } });
+  if (opts.dispatch ?? true) await dispatchEvent(c, out.event, { contact: { id: match.contactId } });
+  return { ...match, ...out };
+}
+
+/** D229: a person's pick for a payment the ladder could not place: linked to them with Whop's email remembered, starting no workflow. */
+export async function linkPicked(c: PoolClient, companyId: string, paymentId: string, contactId: string): Promise<void> {
+  const p = await one<PaymentRow>(c, "select * from payments where company_id=$1 and id=$2 and link_status='unlinked'", [companyId, paymentId]);
+  if (!p) return;
+  if (p.customer_email) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, p.customer_email]);
+  const out = await settle(c, companyId, contactId, p, "manual", false);
+  await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: out.event.opportunity_id, appointment_id: null, event_type: "payment.linked", source: "user", data: { payment_id: p.id, by: "manual", via: "whop_api" } });
 }
 
 export const unlinkedPayments = (c: PoolClient, companyId: string) => many<PaymentRow>(c, "select * from payments where company_id=$1 and link_status='unlinked' order by paid_at desc", [companyId]);

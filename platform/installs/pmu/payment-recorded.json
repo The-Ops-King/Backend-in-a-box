@@ -266,7 +266,7 @@
    {
     "id": "v_close",
     "type": "set_var",
-    "title": "Cash beyond a deposit is a close (D228)",
+    "title": "Cash beyond a deposit is a close (D236)",
     "key": "close_disp",
     "value": "{{event.kind}}",
     "pick": {

@@ -282,11 +282,22 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (rep) { rep.appointmentsChanged++; rep.eventsDispatched += started.length; }
 }
 
+/** D234: how often every booking in the window is read again in full, whatever the source stamps say. */
+export const FULL_BOOKING_READ_MS = 60 * 60e3;
+
 async function pollCalendar(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, calendarId: string) {
   const entity = `appointments:${calendarId}`;
   const from = DateTime.now().minus({ days: 2 }).toJSDate(), to = DateTime.now().plus({ days: 60 }).toJSDate();
   const { isBaseline } = await cursor(c, co.id, entity, DateTime.now());
-  for (const s of await bookingFor(adapters, ac).appointmentsInWindow(ac, calendarId, from, to)) await applyAppointment(c, co, ac, adapters, s, rep, isBaseline);
+  // D234: only the bookings the source changed since the last pass are read in full and applied (Nelly's busiest calendar was 87
+  // invitee reads a minute); once an hour every booking is read again, so a change the source did not stamp is still seen
+  const stateKey = `booking_seen:${co.id}:${calendarId}`;
+  const prior = (await one<{ value: { full_at?: string; events?: Record<string, string> } }>(c, "select value from engine_state where key=$1", [stateKey]))?.value;
+  const full = isBaseline || !prior?.full_at || Date.now() - Date.parse(prior.full_at) >= FULL_BOOKING_READ_MS;
+  const delta = { known: full ? undefined : prior?.events, seen: {} as Record<string, string> };
+  for (const s of await bookingFor(adapters, ac).appointmentsInWindow(ac, calendarId, from, to, delta)) await applyAppointment(c, co, ac, adapters, s, rep, isBaseline);
+  await c.query("insert into engine_state (key, value, updated_at) values ($1,$2,now()) on conflict (key) do update set value=$2, updated_at=now()",
+    [stateKey, { full_at: full ? new Date().toISOString() : prior?.full_at, events: delta.seen }]);
   await saveCursor(c, co.id, entity, DateTime.now().toISO()!, true);
 }
 

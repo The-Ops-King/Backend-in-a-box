@@ -119,10 +119,10 @@ describe("D118: Dating Nelly's copies", () => {
     const triage = def("triage-call-booked"), closing = def("closing-call-booked");
     const at = (d: typeof triage, id: string) => d.nodes.find((n) => n.id === id)!;
     const ways = (d: typeof triage, from: string) => d.edges.filter((e) => e.from === from).map((e) => `${e.to}${e.label ? ` (${e.label})` : ""}`).sort();
-    // closing: every step of the template but the closer card in each path (s4, b5), which the fork's two card steps replace
+    // closing: every step of the template, whose card fork (D105, D107) is every offer's since 2026-10-25; only the call type differs
     { const ids = closing.nodes.map((n) => n.id);
-      expect([...t.keys()].filter((id) => !ids.includes(id))).toEqual(["s4", "b5"]);
-      expect(ids.filter((id) => !t.has(id)).sort()).toEqual(["b_suffix", "c_new", "c_rs", "f_card", "s_suffix"]);
+      expect([...t.keys()].filter((id) => !ids.includes(id))).toEqual([]);
+      expect(ids.filter((id) => !t.has(id))).toEqual([]);
       expect(ways(closing, "s5")).toEqual(["f_card"]); expect(ways(closing, "b6")).toEqual(["f_card"]);
       expect(ways(closing, "f_card")).toEqual(["c_new (a new booking)", "c_rs (a reschedule)"]);
       expect(ways(closing, "c_new")).toEqual(["k3"]); expect(ways(closing, "k3")).toEqual(["k4"]); expect(ways(closing, "c_rs")).toEqual(["k5"]); expect(ways(closing, "k5")).toEqual(["k4"]);
@@ -131,7 +131,7 @@ describe("D118: Dating Nelly's copies", () => {
       for (const id of ids.filter((id) => t.has(id) && !["t1", "t2", "k3", "k5", "k4", "v4"].includes(id))) expect(at(closing, id), `closing ${id}`).toEqual(t.get(id)); }
     // triage: the booking paths and the setter card; its record a Discovery Call, owned by whoever takes the call; nothing of the closing call
     { const ids = triage.nodes.map((n) => n.id);
-      expect([...t.keys()].filter((id) => !ids.includes(id))).toEqual(["s4", "b5", "k3", "k5", "k4"]);
+      expect([...t.keys()].filter((id) => !ids.includes(id))).toEqual(["s_suffix", "b_suffix", "f_card", "c_new", "c_rs", "k3", "k5", "k4", "n_nolink_note", "n_nolink_alert"]);
       expect(ids.filter((id) => !t.has(id)).sort()).toEqual(["d1", "d_rs"]);
       expect(ways(triage, "s5")).toEqual(["d_rs"]); expect(ways(triage, "b6")).toEqual(["d_rs"]); expect(ways(triage, "d_rs")).toEqual(["d1"]); expect(ways(triage, "d1")).toEqual(["v4"]);
       expect(at(triage, "d1")).toMatchObject({ type: "crm_record", object: "{{crm.object_discovery_call | default:custom_objects.discovery_call}}", key: "{{appointment.slot_key}}", owner: "{{appointment.closer.ghl_user_id | default:}}",

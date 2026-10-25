@@ -17,13 +17,13 @@ describe("blocking steps (D77)", () => {
       "agreement-send-manually": blockingActs("agreement-send-manually"), "agreement-signed": blockingActs("agreement-signed"), "agreement-chase": blockingActs("agreement-chase"), "payment-recorded": blockingActs("payment-recorded"),
       "calendar-availability": blockingActs("calendar-availability"), "health-check": blockingActs("health-check"), "daily-wrap-up": blockingActs("daily-wrap-up"), "weekly-wrap-up": blockingActs("weekly-wrap-up"), "monthly-wrap-up": blockingActs("monthly-wrap-up"),
     }).toEqual({
-      "new-lead": [], "speed-to-lead": [], "setter-call-logged": ["a1", "a2", "a3"], "call-booked": ["b5", "s4"],   // the closer card: the Sales Call record names it; D79: setter-call-logged's result read feeds the record, the post and the actions, Jev's DQ reason does not hold the run (a plain dq tag stands in)
+      "new-lead": [], "speed-to-lead": [], "setter-call-logged": ["a1", "a2", "a3"], "call-booked": ["c_new", "c_rs"],   // the closer card (new booking or reschedule): the Sales Call record names it; D79: setter-call-logged's result read feeds the record, the post and the actions, Jev's DQ reason does not hold the run (a plain dq tag stands in)
       "pre-call-sequence": ["c1"], "call-cancelled": [], "cancellation-rebook": [], "call-recorded": ["a1", "a2", "a3", "q_which"],   // D87: the "which booking was it?" question is what the tap is waited on
       "call-outcome": [], "eod-reminder": ["v_evening", "v_morning"], "eod-filed": [], "deal-closed": [],   // deal-closed's congratulations is optional
       "agreement-send-manually": [], "agreement-signed": [], "agreement-chase": [], "payment-recorded": [], "calendar-availability": [], "health-check": [], "daily-wrap-up": ["n_build"], "weekly-wrap-up": ["n_build"], "monthly-wrap-up": ["n_build"],
     });
     const booked = failureRoles(tmpl("call-booked"));
-    expect(booked.get("s4")).toEqual({ blocking: true, why: "step k4 reads the closer card" });
+    expect(booked.get("c_new")).toEqual({ blocking: true, why: "step k4 reads the closer card" });
     expect(booked.get("k4")).toMatchObject({ blocking: false });   // its own `relate` reads its own record id; nothing after it does
     expect(failureRoles(tmpl("call-outcome")).get("u1")).toEqual({ blocking: true, why: "later steps read what it remembers" });
   });

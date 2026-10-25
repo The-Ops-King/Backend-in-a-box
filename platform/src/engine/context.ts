@@ -152,6 +152,11 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     // who the closer is, one answer for every post: the open closer card's owner, else whoever owns the contact in the CRM
     const closerCard = bindings["crm.pipeline_closer"] ? await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select u.id, u.name, u.email, u.ghl_user_id, u.slack_user_id from pipeline_cards p join users u on u.id=p.assigned_user_id where p.company_id=$1 and p.contact_id=$2 and p.ghl_pipeline_id=$3 and p.status in ('open','won') order by (p.status='open') desc, p.created_at desc limit 1", [company.id, run.contact_id, bindings["crm.pipeline_closer"]]) : null;
     const closer = closerCard ?? owner;
+    // D231: who took their latest closing call that has happened (the Sales Call's closer), else whoever owns the contact: the closer a
+    // payment is credited to (PMU's Cash record, as the Zap did it)
+    const callCloser = await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, `select u.id, u.name, u.email, u.ghl_user_id, u.slack_user_id from appointments a
+      join users u on u.id=a.assigned_user_id join company_terms t on t.id=a.appointment_term
+      where a.company_id=$1 and a.contact_id=$2 and t.category='closing' and a.status<>'cancelled' and a.starts_at <= now() order by a.starts_at desc limit 1`, [company.id, run.contact_id]);
     // the setter is a name the team typed on the contact (crm.field_contact_setter); a team member of exactly that name can be @mentioned
     const setterName = typeof fields.setter === "string" ? fields.setter.trim() : "";
     const setterUser = setterName ? await one<{ name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select name, email, ghl_user_id, slack_user_id from users where company_id=$1 and lower(name)=lower($2) limit 1", [company.id, setterName]) : null;
@@ -171,6 +176,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     ctx.contact = { ...(ctx.contact as Record<string, unknown> ?? {}), paid: (pay?.n ?? 0) > 0, paid_non_deposit: (pay?.beyond ?? 0) > 0, deposit_paid: (pay?.deposits ?? 0) > 0, payments_count: pay?.n ?? 0, cash_collected: Number(pay?.total ?? 0), first_paid_at: firstPaidAt?.toISOString() ?? null,
       agreement_signed: !!agr?.signed_at, agreement_sent: !!agr, owner: owner ? { ...person(owner), inherited: !contact?.assigned_ghl_user_id } : undefined,
       closer: closer ? { ...person(closer), from: closerCard ? "closer card" : "contact owner" } : undefined,
+      call_closer: callCloser ? { ...person(callCloser), from: "latest call" } : owner ? { ...person(owner), from: "contact owner" } : undefined,
       setter: setterName ? (setterUser ? person(setterUser) : { name: setterName, first_name: setterName.split(" ")[0], mention: setterName }) : undefined,
       first_booked_at: firstBookedAt?.toISOString() ?? undefined, days_to_close: daysToClose, revenue, latest_appointment_id: latestAppt?.id, latest_recording_id: latestRec?.id, has_upcoming_call: !!upcoming,
       // D78: the one order every source is read in; "unknown" is left to the template's default

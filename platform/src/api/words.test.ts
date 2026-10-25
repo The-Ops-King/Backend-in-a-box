@@ -39,10 +39,10 @@ const NEW_BOOKING: Predicate = { neq: ["{{event._type}}", "appointment.reschedul
 // sometimes-step and a second sometimes-step after it, the shape Tyler read as two steps that always run
 const pmuBooked = () => {
   const raw = structuredClone(templates.find((t) => t.slug === "call-booked")!.definition) as { nodes: Record<string, unknown>[]; edges: { from: string; to: string }[] };
-  raw.nodes.find((n) => n.id === "s4")!.only_if = { neq: ["{{event._type}}", "appointment.rescheduled"] };
-  const out = raw.edges.find((e) => e.from === "s4")!;
-  raw.nodes.push({ id: "s4r", type: "pipeline_card", title: "A reschedule: card → Rescheduled (its name stays)", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_rescheduled}}", only_if: { eq: ["{{event._type}}", "appointment.rescheduled"] } });
-  raw.edges.push({ from: "s4r", to: out.to }); out.to = "s4r";
+  raw.nodes.find((n) => n.id === "s3")!.only_if = { neq: ["{{event._type}}", "appointment.rescheduled"] };
+  const out = raw.edges.find((e) => e.from === "s3")!;
+  raw.nodes.push({ id: "s3r", type: "pipeline_card", title: "A reschedule: card → Rescheduled (its name stays)", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_rescheduled}}", only_if: { eq: ["{{event._type}}", "appointment.rescheduled"] } });
+  raw.edges.push({ from: "s3r", to: out.to }); out.to = "s3r";
   return parseDefinition(raw);
 };
 const shipped = () => [...templates.map((t) => ({ name: t.slug, def: parseDefinition(t.definition) })), ...companyCopies()];   // PMU's and Dating Nelly's own copies (D118)
@@ -51,8 +51,8 @@ describe("D103: sometimes-steps", () => {
   it("a node with only_if carries its short condition; the full sentence stays in cond; a step without only_if carries none", () => {
     const chart = chartOf(pmuBooked(), company);
     const byId = new Map(chart.nodes.map((n) => [n.id, n]));
-    expect(byId.get("s4r")).toMatchObject({ onlyIf: "a reschedule", cond: "Only if this is a reschedule" });
-    expect(byId.get("s4")).toMatchObject({ onlyIf: "not a reschedule", cond: "Only if this is not a reschedule" });
+    expect(byId.get("s3r")).toMatchObject({ onlyIf: "a reschedule", cond: "Only if this is a reschedule" });
+    expect(byId.get("s3")).toMatchObject({ onlyIf: "not a reschedule", cond: "Only if this is not a reschedule" });
     for (const n of chart.nodes) expect(!!n.onlyIf, n.id).toBe(!!pmuBooked().nodes.find((x) => x.id === n.id)?.only_if);
     // a card move that only skips when there is no card is not a sometimes-step: the blue mark, no dashed node
     const outcome = chartOf(parseDefinition(templates.find((t) => t.slug === "call-outcome")!.definition), company).nodes.find((n) => n.id === "k2")!;
@@ -90,9 +90,9 @@ describe("D103: sometimes-steps", () => {
     const def = pmuBooked();
     const run = { id: "r1", status: "waiting", current_node: null, next_run_at: null, exit_reason: null, started_at: new Date("2026-10-13T15:00:00Z") };
     const step = (node_id: string, why: string) => ({ node_id, node_type: "pipeline_card", status: "skipped", started_at: new Date("2026-10-13T15:00:01Z"), finished_at: null, result: { kind: "noop", why }, error: null });
-    const path = pathOf(def, run, [step("s4", "only if this is not a reschedule; it is not")], [], [{ node_id: "s4r", title: "x", kind: "step", at: null }], "UTC");
-    expect(path.find((x) => x.node_id === "s4")).toMatchObject({ state: "skip", onlyIf: "not a reschedule", note: "Didn't go out: only if this is not a reschedule; this is a reschedule" });
-    expect(path.find((x) => x.node_id === "s4r")).toMatchObject({ state: "next", onlyIf: "a reschedule" });
+    const path = pathOf(def, run, [step("s3", "only if this is not a reschedule; it is not")], [], [{ node_id: "s3r", title: "x", kind: "step", at: null }], "UTC");
+    expect(path.find((x) => x.node_id === "s3")).toMatchObject({ state: "skip", onlyIf: "not a reschedule", note: "Didn't go out: only if this is not a reschedule; this is a reschedule" });
+    expect(path.find((x) => x.node_id === "s3r")).toMatchObject({ state: "next", onlyIf: "a reschedule" });
   });
 });
 

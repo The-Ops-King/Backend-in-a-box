@@ -96,7 +96,12 @@ export interface CrmRead {
 /** Appointments. Implemented by the CRM (GHL calendars) and by Calendly; a company uses exactly one. */
 export interface BookingRead {
   listCalendars(c: Company): Promise<CalendarSnapshot[]>;
-  appointmentsInWindow(c: Company, calendarId: string, from: Date, to: Date): Promise<AppointmentSnapshot[]>;
+  /**
+   * The calendar's bookings in the window. D234: `delta.known` (event id → the source's own last-changed stamp, as `delta.seen`
+   * gave it last time) lets a source that stamps its events skip the ones unchanged since, and the work of reading each one's
+   * details; the source fills `delta.seen` with every event in the window. A source that does not stamp leaves `seen` empty.
+   */
+  appointmentsInWindow(c: Company, calendarId: string, from: Date, to: Date, delta?: { known?: Record<string, string>; seen: Record<string, string> }): Promise<AppointmentSnapshot[]>;
   getAppointment(c: Company, id: string): Promise<AppointmentSnapshot | null>;
   /** D196: cancel the booking at the source (Calendly: the invitee is told by Calendly). Absent: the source's bookings are not ours to cancel. */
   cancel?(c: Company, id: string, reason: string): Promise<void>;

@@ -190,7 +190,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     const booked = await book(sash, "SP-1", day(70), null);
     const call = rec("sp-1", { startedAt: new Date(day(70).getTime() + 2 * 60e3), invitees: [{ name: "sash@x.com", email: "sash@x.com", isExternal: true }] });
     for (const label of ["Aphros Beauty", "iPhone"]) expect(await asOperator((c) => resolveRecording(c, companyId, { ...call, transcript: [{ speaker: "Cal", text: "hi" }, { speaker: label, text: "hi" }] }))).toEqual({ match: { contactId: sash, by: "email", appointmentId: booked } });
-    // later, with nobody booked then: her own booking from earlier that day, nothing filed on it, held late (D228)
+    // later, with nobody booked then: her own booking from earlier that day, nothing filed on it, held late (D236)
     const lateAt = new Date(day(70).getTime() + 3 * 3600e3);
     expect((await asOperator((c) => resolveRecording(c, companyId, { ...call, startedAt: lateAt, transcript: [{ speaker: "iPhone", text: "hi" }] }))).match).toEqual({ contactId: sash, by: "email", appointmentId: booked, placed: "held_late" });
     // later, and someone else is booked with the recorder then: a person's call, and the reason says who spoke
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     expect(r.match).toBeNull(); expect(r.reason).toMatch(/Audra Mtg spoke, but the booking the recorder had then is Otto Mtg/);
   });
 
-  it("D228: a call no booking fits is placed by the ledger: a client's call; a closing call held late; a follow-up on a sale held; else unbooked", async () => {
+  it("D236: a call no booking fits is placed by the ledger: a client's call; a closing call held late; a follow-up on a sale held; else unbooked", async () => {
     const t = day(80), at = new Date(t.getTime() + 25 * 3600e3);   // the call is the next day
     const terms = await asOperator(async (c) => Object.fromEntries((await many<{ k: string; id: string }>(c, "select domain||':'||category as k, id from company_terms where company_id=$1 and is_default", [companyId])).map((r) => [r.k, r.id])));
     const fresh = async (first: string) => { const id = await person(first); await asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3)", [companyId, id, `${first.toLowerCase()}@place.test`])); return id; };

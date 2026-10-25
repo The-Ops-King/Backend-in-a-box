@@ -523,7 +523,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(setterCard).toEqual({ status: "won", ghl_stage_id: "STAGE-SHOWED" });
     const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
     // the record was created at booking (call-booked); the recording updates that same one
-    expect(rw[0]).toMatchObject({ op: "update", external_id: appt.external_id, outcome: "showed", contact_id: "CCB2", closer: "Sam Closer", duration_min: 43, disposition: "close_pending", objection_primary: "price", recording_url: "https://fathom.video/share/abc" });   // D228: the AI hears a close; it is pending until cash is collected
+    expect(rw[0]).toMatchObject({ op: "update", external_id: appt.external_id, outcome: "showed", contact_id: "CCB2", closer: "Sam Closer", duration_min: 43, disposition: "close_pending", objection_primary: "price", recording_url: "https://fathom.video/share/abc" });   // D236: the AI hears a close; it is pending until cash is collected
     expect(relations.slice(nRel)).toEqual([`ASSOC-SC:CCB2>${rw[0].id}`, `ASSOC-SO:${rw[0].id}>${rw[0].opportunity_id}`]);
     expect(rw[0]).not.toHaveProperty("next_step");
     const r1 = await asOperator((c) => one<{ result: { not_on_object?: string[] } }>(c, "select result from run_steps where run_id=$1 and node_id='r1'", [run.id]));

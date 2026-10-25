@@ -264,7 +264,7 @@
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
     "fields": [
      {
-      "id": "{{crm.field_opportunity_setter_owner}}",
+      "id": "{{crm.field_opportunity_setter_owner | default:}}",
       "value": "{{appointment.set_by | default:}}"
      }
     ],
@@ -279,7 +279,7 @@
     "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
     "fields": [
      {
-      "id": "{{crm.field_opportunity_setter_owner}}",
+      "id": "{{crm.field_opportunity_setter_owner | default:}}",
       "value": "{{appointment.set_by | default:}}"
      }
     ],
@@ -288,7 +288,7 @@
     "keep_name": true,
     "from_stages": [
      "{{crm.stage_closer_scheduled}}",
-     "{{crm.stage_closer_cancelled}}"
+     "{{crm.stage_closer_cancelled | default:}}"
     ]
    },
    {
@@ -452,6 +452,42 @@
     "title": "Texts can't reach them (Do Not Disturb or no phone): ⚠️ on the card and a note under it, once per booking"
    },
    {
+    "id": "n_nolink_note",
+    "type": "slack_post",
+    "channel": "{{slack.channel.bookings}}",
+    "thread_of": "tag:appointment:{{appointment.id}}",
+    "thread_only": true,
+    "only_if": {
+     "not": {
+      "exists": "appointment.meeting_url"
+     }
+    },
+    "react": "link",
+    "as": {
+     "name": "No meeting link",
+     "icon": ":link:"
+    },
+    "template": "🔗 No meeting link on this call. {{appointment.closer.mention | default:Closer}}, please send them the link.",
+    "title": "No meeting link: a note under the booking card, 🔗 on it"
+   },
+   {
+    "id": "n_nolink_alert",
+    "type": "slack_post",
+    "channel": "{{slack.channel.no_link_alerts}}",
+    "fallback_channel": "{{slack.channel.alerts}}",
+    "only_if": {
+     "not": {
+      "exists": "appointment.meeting_url"
+     }
+    },
+    "as": {
+     "name": "No meeting link",
+     "icon": ":link:"
+    },
+    "template": "{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s call {{appointment.starts_at | date_company}} has no meeting link. Please send them the link.",
+    "title": "No meeting link: an issue in the no-link channel (else the alerts channel)"
+   },
+   {
     "id": "x1",
     "type": "exit",
     "reason": "booked"
@@ -557,7 +593,7 @@
    },
    {
     "from": "n_dnd",
-    "to": "x1"
+    "to": "n_nolink_note"
    },
    {
     "from": "v_textoff",
@@ -615,6 +651,14 @@
    {
     "from": "k5",
     "to": "k4"
+   },
+   {
+    "from": "n_nolink_note",
+    "to": "n_nolink_alert"
+   },
+   {
+    "from": "n_nolink_alert",
+    "to": "x1"
    }
   ]
  },

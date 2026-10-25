@@ -6210,7 +6210,142 @@ we don't just link it to a random client." Engine code, every offer (Tyler: "fix
 
 Tests: `recordings.test.ts`, `recording-relink.test.ts`.
 
-## D228. A close is cash collected; a call no booking fits is placed by what the ledger holds (2026-10-25)
+## D228. Show rate and close rate count people, not calls (2026-10-23)
+
+Tyler: "for the show rate and close rate right now it's based on per appointment, they need to be per prospect." PMU's Renee G
+had four calls in one week and counted four times. His answers to how:
+
+- **Show rate** = people who showed to at least one closing-type call in the period (demo, consultation, follow-up: every call a
+  Sales Call is made for) ÷ people with a call in the period whose outcome is known (showed, no-show or cancelled). A person whose
+  only calls were cancelled is in, as not showed (cancellations stay in, 2026-10-22). A person whose calls nobody has filed yet is
+  out until they are, and listed under "No EOD outcome yet" (D217). A slot a call moved away from is not counted (D76).
+- **Close rate** = people closed in the period ÷ people who showed in it (closes were already people: a person with two won cards
+  is one close).
+- **By closer, for both**: the closer of the person's **first call ever** (any period, any outcome), read from every Sales Call
+  record. Closes in close rate are credited the same way, so the rate is one closer's closed people over the same closer's showed
+  people. `/closes`, the leaderboard's cash and closes and "Closes" in `/mtd` keep crediting the closer of the latest call (D70).
+- By setter and by time: the person's first call in the period.
+
+Counts that are about calls stay about calls: "Calls booked", shows and no-shows as numbers, the EOD reminder, `analyze` asked
+about calls. Code, the same on every offer (the bot, `/show-rate`, `/close-rate`, `/mtd`, `/weekly`, `/monthly`, the wrap-ups,
+the leaderboard's close rate and setters' show rate). Tests: `bot.test.ts`.
+
+## D229. A Whop payment with no buyer is read back from Whop (2026-10-23)
+
+PMU's live Whop webhooks (2026-10-16, 2026-10-22) carried no `customer_email`, `customer_phone` or `member_id`, so four
+payments went in unlinked, Jennyfer's $250 + $9,750 among them. The API's copy of the same payment (what the backfill reads)
+names the buyer, which is why backfilled payments linked and live ones did not.
+
+- The buyer is read in either shape: the flat keys, or the nested `user.email`, `member.id`, `member.phone`, `product.id`,
+  `plan.id`, `membership.id` (`whopBuyer`, used by the webhook and the backfill alike).
+- A webhook that still names no buyer (not a refund: that links through the payment it reverses) is read back with
+  `GET /payments/{id}` (3 s, inside Whop's 5 s) before the ledger links it. The product and plan ids and names the webhook
+  left out are kept too. Whop down or no key: it goes in as before, unlinked, with `raw.buyer_lookup` saying why.
+- `POST /api/admin/payments/relink { company, payments?, dryRun = true }`: the unlinked Whop payments with no buyer, read
+  back and linked by the same ladder, oldest first, no workflow started. Audited (`payments.relinked`).
+
+Engine code, every offer: a payment that already named its buyer is untouched. Tests: `whop-buyer.test.ts`.
+
+Addendum (2026-10-23): a person's pick. Whop's email for Jennyfer Cantrell (jennyfercantrell@hotmail.com) is not the one GHL has,
+so no automatic match could place her two payments. Relink takes `pick: { pay_…: contact id }`. The payment is linked to that
+person with `linked_by = manual`, the person keeps Whop's email so their next payment links on its own, and no workflow starts.
+There is no hand-marked deposit. Tyler: "it should just be when the link comes through for a deposit product. it's a deposit."
+PMU's $250 of 2026-10-22 was bought on the main product before the Deposit product existed. It is corrected once, as data.
+
+Addendum (2026-10-23): failed charges. Tyler: "storing failures would be smart for that reason [a missed installment]. But yeah
+non close failures is not important." The new setting `payments.unmatched_failures = drop` keeps no failed charge that matches
+nobody. A known buyer's failed charge is still kept, since that is how a missed installment shows. It is set per offer: unset,
+every failure is kept as before. PMU is set to drop. Migration 0009 corrects PMU's ledger once: Jennyfer Cantrell's $250 of
+2026-10-22 becomes a deposit, and PMU's failed charges that matched nobody are removed.
+
+Addendum (2026-10-23): the backfill. Tyler: "Yeah backfill with recorded calls. Leave jps calls alone." `POST /api/admin/appointments/pitched
+{ company, from, to, exclude: [closer emails], dryRun = true }` reads each recorded closing call nobody has answered for, using the
+call review's test (the offer and its price presented), and gives the line that shows it. The write takes `decide: { appointment
+id: true | false }` from a person and sets only bookings with no answer yet. The GHL Sales Call's Pitched field is written
+separately, record by record. Calls with no recording are left alone. Audited (`appointments.pitched_backfill`). Tests:
+`pitched-backfill.test.ts`.
+
+## D230. The operator's record write sends each field as GHL wants it, and says why when it cannot (2026-10-24)
+
+Writing Jennyfer Cantrell's close by hand (`/api/admin/crm-record`) failed three ways at once. Money went as a bare number, but
+GHL wants a money field as `{ currency: "default", value }`, which is how a workflow step already writes it (`propertyValue`).
+PMU's Sales Call has no `payment_terms` field, and GHL refuses a whole write over one unknown field. And the route answered a bare
+500 with no reason. Now each value is formatted by its field's type. A field the object lacks is refused before anything is
+written, with its name, dry run included. A GHL refusal comes back as a 502 with GHL's message. Tests: `crm-repair.test.ts`.
+
+## D231. `contact.call_closer`: who a payment is credited to (2026-10-24)
+
+Tyler, on PMU's Cash record closer: the closer of their latest Sales Call, else "the owner of the contact". The run context gains
+`contact.call_closer`: whoever took the person's latest closing call that has happened (not cancelled), else the contact's
+owner, with `from` saying which. It only adds a field. No saved workflow reads it until an offer's own copy is changed to,
+and PMU's Payment recorded is the first (its Cash record `closer`). Tests: `call-closer.test.ts`.
+
+## D232. Two operator doors: a GHL object's records, and an event run again through one workflow (2026-10-24)
+
+`GET /api/admin/crm-records?company&object&q` lists an object's records as GHL has them, and whether the engine knows each one.
+It is read only. Tyler: "you can list cash records from here." `POST /api/admin/events/replay { company, workflow, events,
+dryRun = true }` runs events the engine recorded but started nothing for (D229's relinked payments) through one named workflow,
+in that workflow's own mode. An event that workflow already ran for is never run again. Audited (`events.replayed`).
+
+## D233. The operator can make a missing record, set a contact's fields, and mark a deal won (2026-10-24)
+
+Tyler wanted Jennyfer Cantrell "100% complete and accurate" before Payment recorded goes live for PMU. Three operator actions,
+each with a dry run first and audited:
+- `crm-record` takes `create: { key, contact_id?, relate? }`. It makes a record the engine should have made, under its key, so
+  a later workflow run updates it instead of making a second, and relates it the way the step would.
+- `POST /api/admin/contact/fields { company, contact, fields, why }` sets one contact's GHL custom fields, keyed by the offer's
+  binding or by field id, in GHL and the replica.
+- `POST /api/admin/opportunity { company, contact, status: won | open, at?, why }` sets the person's deal in the engine.
+Tests: `crm-repair.test.ts`, `contact-ops.test.ts`.
+
+## D234. The minute poll reads only the bookings that changed (2026-10-24)
+
+Vercel paused BiaB for Fluid Active CPU (11 h used against Hobby's 4 h). Each company's minute tick re-read every Calendly booking
+in the window (two days back to 60 ahead) with one invitee request per booking. Nelly's busiest calendar is 87 bookings, so that
+was 36.7 s of a 58.5 s tick, every minute. Now each pass keeps every event's own change stamp (`engine_state` key
+`booking_seen:<company>:<calendar>`). The next pass reads in full and applies only the events whose stamp moved. Every booking
+is read again once an hour (`FULL_BOOKING_READ_MS`), so a change the source did not stamp is still seen. This is no less current
+than before: the invitee cache was already keyed on the event's stamp. GHL calendars give no stamps and are read as before.
+Tests: `poll.booking-delta.test.ts`.
+
+**D226 applied (2026-10-25, Tyler: "Go ahead on all three").** Tyler: pitched is "just a check mark" on a call that showed, apart
+from the outcome (a follow up or a DQ can be either). Dating, PMU and Hair, in that order, each a patch of the offer's own copy
+(never the template), dry run first: Call outcome filed writes Pitched (v_pitch → the showed record; a no-show or a call moved
+empties it), the daily/weekly/monthly wrap-ups show Pitched, Pitch rate and Close rate when pitched, the end-of-day post says
+"not pitched" on a call. GHL: the Sales Call's Pitched field (yes/no) created on Dating and Hair (PMU had it). Each offer's
+`prompt.call_review` asks for `pitched`: Dating's and PMU's were the repo's text, Hair's is its own and got the one line.
+
+**D226 fix (2026-10-25).** The per-offer patch put the end-of-day post's "not pitched" piece inside the per-call list without the
+escaped quotes the list's argument needs, so on Dating, PMU and Hair the post would have printed raw template text (the template
+itself was right). Found by the offer comparison (engine/17); saved fixed on all three, each rendered with the engine's own
+renderer first; no post went out in between. A patch that writes inside a quoted argument is now render-tested before it is saved.
+
+## D235. One Call booked for every offer: find or create the contact, the card fork, no-link at booking (2026-10-25)
+
+Tyler: "standardize as much as possible while linking to their own process"; "The no-meeting-link alert is at booking on all
+offers ... No 'link coming' text to the contact." The template's Call booked now carries what Dating's closing call (D105, D107)
+and Hair's copy had apart: after the booking paths, one fork moves the closer card. A new booking goes to Scheduled, named
+"-- Direct" / "-- Setter Booked", with the video task. A reschedule moves the card only from Scheduled or Cancelled
+(a card past the call stays), keeps its name, makes no second task, and logs the old slot's Sales Call as rescheduled. A call with
+no meeting link gets 🔗 on the booking card, a thread note asking the closer to send the link, and an issue in the no-link channel
+(the alerts channel when that is unbound). This supersedes D208's removal for the closing call; the prospect is told nothing.
+The template already found or created the contact in GHL (D141) and carried the ⚠️ texts-off note (D188).
+
+Two references became optional so no offer's Call booked is switched off for want of them: the Cancelled stage in the
+reschedule guard (unbound, only a Scheduled card moves) and the setter-owner field on the closer card (unbound, not written).
+The playbooks build from it: Dating's closing copy is the template with its call type; its triage copy drops the closer side and
+the no-link steps (a phone call); PMU's one-board copy as before. Applied to each offer's own copy, dry run first, Dating, PMU,
+Hair. Dating: the no-link steps. PMU: find-or-create in place of the hour-long wait, ⚠️ and no-link. Hair (patched live, no
+playbook): find-or-create and the fork; its card words, Sales Call properties and Calendly-worded no-link steps stay. Tests:
+`journey.test.ts` (a booking with no meeting link), `dating-copies.test.ts`, `sweep.test.ts`.
+
+**D235 applied (2026-10-25, Tyler: "go ahead and apply them when tests pass").** After the full suite (1255 tests) and the deploy,
+each offer's dry run repeated against an unchanged live version, then saved: Dating Closing call booked v2→v3, PMU Call booked
+v7→v8, Hair Call booked v18→v19. Read back: each finds or creates the contact, has the card fork and the no-link steps; enabled
+and mode as they were. Branding set the same day (Tyler approved): Dating "Nelly Sudri" #281A39, Hair "Save Your Hair Today"
+#3D7ACF; no logo for either (the sites have none but the name in type).
+
+## D236. A close is cash collected; a call no booking fits is placed by what the ledger holds (2026-10-25)
 
 Erica Asturrizaga's consultation (booked Oct 23) was held on an impromptu Meet on Oct 24: the engine made a second Sales Call for it,
 keyed by the recording, which the AI marked closed won; Rafaela Santana's onboarding call as a client made her a second Sales Call too.
@@ -6230,6 +6365,6 @@ with a dry run each (Sales call recorded and Payment recorded on Dating Nelly, P
   updates that booking's Sales Call (nothing marked showed again); **unbooked**: a sales booking of theirs within two weeks either
   side: no Sales Call yet, the team is asked which booking it was (the question the phone calls had); **no booking** near it: the call
   keeps its own Sales Call, as before. The recording event carries `placed`.
-- The templates carry the same (`fixtures/before-d228` holds them as they were for D118's guard); PMU's copies are rebuilt.
+- The templates carry the same (`fixtures/before-d236` holds them as they were for D118's guard); PMU's copies are rebuilt.
 
 Tests: `recordings.test.ts`, `health.drift.test.ts`, the scenarios.

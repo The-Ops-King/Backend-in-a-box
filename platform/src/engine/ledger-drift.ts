@@ -142,7 +142,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     const mapped = cfg!.dispositions[k.disposition.trim().toLowerCase()];
     let meaning = mapped?.meaning;
     if (!mapped || !meaning) { ask("disposition_unmapped", { label, disposition: k.disposition, record_id: k.id }); return; }
-    // D228 (Tyler: "only from cash collected"): pending is a close once cash beyond a deposit is collected from them (D119: a deposit
+    // D236 (Tyler: "only from cash collected"): pending is a close once cash beyond a deposit is collected from them (D119: a deposit
     // is a deposit, where the company has that answer), and pending until then: a signature alone does not close it, and no evidence
     // yet is not a follow up ("show them as pending until we can check")
     if (meaning === "pending") {

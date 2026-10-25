@@ -287,3 +287,39 @@ export async function callCloser(c: PoolClient, adapters: Adapters, a: { company
   }
   return { ok: true, dryRun: false, closer: to.name, calls };
 }
+
+/**
+ * D233: one contact's custom fields in GHL, set by the operator (Jennyfer Cantrell's Cash Collected and Revenue Generated, which the
+ * Zap wrote without her deposit). `fields` keys are the offer's field bindings (crm.field_contact_cash_collected) or GHL field ids.
+ * The dry run says what each is now in the replica and what it becomes. Audited.
+ */
+export async function contactFields(c: PoolClient, adapters: Adapters, a: { company: string; contact: string; fields: Record<string, string | number>; why: string; dryRun?: boolean }): Promise<{ ok: true; dryRun: boolean; who: string; fields: Array<{ key: string; id: string; was: unknown; to: string }> } | { ok: false; status: number; error: string }> {
+  if (!a.contact || !a.why?.trim() || !Object.keys(a.fields ?? {}).length) return { ok: false, status: 400, error: "contact, why and fields are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const ct = await contactOf(c, co.id, a.contact); if (!ct?.ghl_contact_id) return { ok: false, status: 404, error: "no such contact in GHL" };
+  const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
+  const now = (await one<{ f: Record<string, unknown> | null }>(c, "select ghl_fields as f from contacts where id=$1", [ct.id]))?.f ?? {};
+  const fields = Object.entries(a.fields).map(([key, v]) => { const id = key.startsWith("crm.") ? bindings[key] : key; return { key, id, was: id ? now[id] ?? null : null, to: String(v) }; });
+  const unbound = fields.filter((f) => !f.id).map((f) => f.key);
+  if (unbound.length) return { ok: false, status: 400, error: `not bound for this offer: ${unbound.join(", ")}` };
+  if (a.dryRun !== false) return { ok: true, dryRun: true, who: ct.who, fields };
+  await adapters.write.updateContact(ac, ct.ghl_contact_id, { customFields: fields.map((f) => ({ id: f.id, field_value: f.to })) });
+  await c.query("update contacts set ghl_fields = coalesce(ghl_fields,'{}'::jsonb) || $2::jsonb, updated_at=now() where id=$1", [ct.id, JSON.stringify(Object.fromEntries(fields.map((f) => [f.id, Number.isFinite(Number(f.to)) && f.to.trim() !== "" ? Number(f.to) : f.to])))]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.fields','contact',$2,$3)", [co.id, ct.id, { fields, why: a.why }]);
+  return { ok: true, dryRun: false, who: ct.who, fields };
+}
+
+/** D233: a person's deal in the engine marked won (or open again) by the operator, as Payment recorded's step would on a payment beyond a deposit. `at`: when it was won. Audited. */
+export async function opportunityStatus(c: PoolClient, a: { company: string; contact: string; status: "won" | "open"; at?: string; why: string; dryRun?: boolean }): Promise<{ ok: true; dryRun: boolean; who: string; opportunity: string; was: string; to: string } | { ok: false; status: number; error: string }> {
+  if (!a.contact || !a.why?.trim() || !["won", "open"].includes(a.status)) return { ok: false, status: 400, error: "contact, why and status (won | open) are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const ct = await contactOf(c, co.id, a.contact); if (!ct) return { ok: false, status: 404, error: "no such contact" };
+  const opp = await one<{ id: string; status: string }>(c, "select id, status from opportunities where company_id=$1 and contact_id=$2 and status in ('open','won') order by (status='open') desc, opened_at desc limit 1", [co.id, ct.id]);
+  if (!opp) return { ok: false, status: 404, error: "they have no open or won deal" };
+  const at = a.at ? new Date(a.at) : new Date();
+  if (Number.isNaN(at.getTime())) return { ok: false, status: 400, error: "at must be a time" };
+  if (a.dryRun !== false) return { ok: true, dryRun: true, who: ct.who, opportunity: opp.id, was: opp.status, to: a.status };
+  await c.query("update opportunities set status=$2, won_at=case when $2='won' then $3::timestamptz else null end where id=$1", [opp.id, a.status, at]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'opportunity.status','opportunity',$2,$3,$4)", [co.id, opp.id, { status: opp.status }, { status: a.status, at: at.toISOString(), why: a.why }]);
+  return { ok: true, dryRun: false, who: ct.who, opportunity: opp.id, was: opp.status, to: a.status };
+}

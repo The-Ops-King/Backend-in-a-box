@@ -1,6 +1,6 @@
 import { asOperator } from "@/db/client";
 import { loadCompany } from "@/engine/context";
-import { recordPayment } from "@/engine/payments";
+import { dropUnmatchedFailure, recordPayment } from "@/engine/payments";
 import { dispatchEvent } from "@/engine/dispatch";
 import { parseZapierPayment } from "@/engine/webhooks/zapier";
 import { zapierAuthorized } from "@/engine/inbound";
@@ -20,6 +20,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     if (!zapierAuthorized(req, bindings)) return respondAndRun(companyId, { error: "unauthorized" }, { status: 401 });
     const parsed = parseZapierPayment(body);
     if (!parsed.ok) return respondAndRun(companyId, { error: parsed.why }, { status: 400 });
+    const dropped = await dropUnmatchedFailure(c, companyId, parsed.input);   // D229
+    if (dropped) return respondAndRun(companyId, { ok: true, ignored: dropped });
     const r = await recordPayment(c, companyId, parsed.input);
     if (r.outcome === "duplicate") return respondAndRun(companyId, { ok: true, duplicate: true, payment: r.payment.id });
     if (r.outcome === "unlinked") {

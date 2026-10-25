@@ -37,10 +37,10 @@ const before = (slug: string) => JSON.parse(fs.readFileSync(path.join(BEFORE, `$
 const AFTER_D118 = path.resolve(__dirname, "fixtures/before-d119");
 // D141 replaced Call booked's wait for GHL with ensure_contact: held against Call booked as it was before
 const BEFORE_D141 = path.resolve(__dirname, "fixtures/before-d141");
-// D228 changed Sales call recorded and Payment recorded (a close is cash collected; a call no booking fits is placed): held against them as they were
-const BEFORE_D228 = path.resolve(__dirname, "fixtures/before-d228");
+// D236 changed Sales call recorded and Payment recorded (a close is cash collected; a call no booking fits is placed): held against them as they were
+const BEFORE_D236 = path.resolve(__dirname, "fixtures/before-d236");
 const frozen = (dir: string, slug: string) => (fs.existsSync(path.join(dir, `${slug}.json`)) ? JSON.parse(fs.readFileSync(path.join(dir, `${slug}.json`), "utf8")).definition : undefined);
-const after = (slug: string) => (frozen(AFTER_D118, slug) ?? frozen(BEFORE_D141, slug) ?? frozen(BEFORE_D228, slug) ?? templates.find((t) => t.slug === slug)!.definition) as unknown;
+const after = (slug: string) => (frozen(AFTER_D118, slug) ?? frozen(BEFORE_D141, slug) ?? frozen(BEFORE_D236, slug) ?? templates.find((t) => t.slug === slug)!.definition) as unknown;
 
 type Out = { ok: string } | { err: string };
 /** Every string of a definition by where it sits, rendered as a step would render it (a path the context lacks is its error). */
