@@ -6338,3 +6338,9 @@ the no-link steps (a phone call); PMU's one-board copy as before. Applied to eac
 Hair. Dating: the no-link steps. PMU: find-or-create in place of the hour-long wait, ⚠️ and no-link. Hair (patched live, no
 playbook): find-or-create and the fork; its card words, Sales Call properties and Calendly-worded no-link steps stay. Tests:
 `journey.test.ts` (a booking with no meeting link), `dating-copies.test.ts`, `sweep.test.ts`.
+
+**D235 applied (2026-10-25, Tyler: "go ahead and apply them when tests pass").** After the full suite (1255 tests) and the deploy,
+each offer's dry run repeated against an unchanged live version, then saved: Dating Closing call booked v2→v3, PMU Call booked
+v7→v8, Hair Call booked v18→v19. Read back: each finds or creates the contact, has the card fork and the no-link steps; enabled
+and mode as they were. Branding set the same day (Tyler approved): Dating "Nelly Sudri" #281A39, Hair "Save Your Hair Today"
+#3D7ACF; no logo for either (the sites have none but the name in type).
