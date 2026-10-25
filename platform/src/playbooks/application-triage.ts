@@ -67,10 +67,8 @@ export function datingCopies(company: string, words: DatingWords, own?: { setup:
   Object.assign(e1, { subject: words.welcome.subject, template: words.welcome.email, title: held ? "Welcome email [placeholder: the words are not written yet, so it is skipped]" : "Welcome email" });
   Object.assign(e2, { template: words.welcome.sms, title: held ? "Welcome text [placeholder: the words are not written yet, so it is skipped]" : "Welcome text" });
   if (held) { e1.only_if = HELD; e2.only_if = HELD; }
-  // D130: the won closer card carries what the deal is worth (the opportunity's contract value, else the program price); the cash is the Sales Call's
-  node(dc, "p1").value = "{{contact.revenue}}";
   out.push({ workflow: "deal-closed", definition: dc as unknown as Record<string, unknown>,
-    note: `${company}: the welcome email and text are the company's own (installs/${company}/words.json)${held ? "; still placeholders, so both are skipped" : ""}, not Hair's (D118); the won closer card carries the deal's value (D130)` });
+    note: `${company}: the welcome email and text are the company's own (installs/${company}/words.json)${held ? "; still placeholders, so both are skipped" : ""}, not Hair's (D118)` });
 
   // Setter call logged: why a setter DQs a lead, in the company's words; D154: it reads and posts, the end of day writes
   const scl = load("setter-call-logged");
@@ -175,16 +173,12 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
       if (!String(ask.template).includes(sent)) throw new Error(`${t.name}: the ask no longer quotes what we sent`);
       Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out).").replace(sent, "> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}"), title: "Ask in the booking channel: keep, cancel or reschedule?" });
     }
-    // D186: a booking with no meeting link is said at once in the channel the company names (slack.channel.no_link), the closer
-    // tagged; the hour-before text then leaves the link line out
+    // D186, D235: with no meeting link the hour-before text is hourNoLink (the link sentence left out); Call booked already said so in Slack
     if (w.hourNoLink !== undefined) {
       if (!w.hourNoLink.trim()) throw new Error(`words.preCall.${t.key}.hourNoLink is empty`);
       if (!w.hour.includes("{{appointment.meeting_url}}")) throw new Error(`words.preCall.${t.key}: hourNoLink without a link in the hour text`);
+      if (w.hourNoLink.includes("{{appointment.meeting_url")) throw new Error(`words.preCall.${t.key}.hourNoLink names the link it is for the lack of`);
       const noLink = { not: { exists: "appointment.meeting_url" } };
-      const said = `{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s ${t.card} {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link.`;
-      // Tyler: "let's have no-link alert to go to sales booked and alert": one post in each, each channel its own setting
-      after(d, "c0", { id: "n_nolink", type: "slack_post", channel: "{{slack.channel.no_link}}", only_if: noLink, as: { name: "No meeting link", icon: ":link:" }, template: said, title: "No meeting link: tell the closer in the booking channel" });
-      after(d, "n_nolink", { id: "n_nolink_alert", type: "slack_post", channel: "{{slack.channel.no_link_alerts}}", only_if: noLink, as: { name: "No meeting link", icon: ":link:" }, template: said, title: "No meeting link: and in the alerts channel" });
       node(d, "m1").only_if = { exists: "appointment.meeting_url" };
       after(d, "m1", { id: "m1_nolink", type: "send_sms", template: w.hourNoLink, validity: node(d, "m1").validity, on_stale: "skip", only_if: noLink, title: "An hour before, no link yet" });
     }

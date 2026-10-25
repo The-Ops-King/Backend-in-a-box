@@ -6344,3 +6344,30 @@ each offer's dry run repeated against an unchanged live version, then saved: Dat
 v7→v8, Hair Call booked v18→v19. Read back: each finds or creates the contact, has the card fork and the no-link steps; enabled
 and mode as they were. Branding set the same day (Tyler approved): Dating "Nelly Sudri" #281A39, Hair "Save Your Hair Today"
 #3D7ACF; no logo for either (the sites have none but the name in type).
+
+## D237. The health check names each upcoming closing call with no meeting link (2026-10-25)
+
+Tyler: "Ideally the health check also finds upcoming calls with no link." A new check, `meeting_links`, in every offer's hourly
+health check: each closing call starting in the next 48 hours (the step's `meeting_link_hours`, 1 to 168) that is not cancelled
+and has no join link from its booking is a warning naming the person, the time in the offer's zone and the closer, with the CRM
+contact as its link. It clears itself when the link arrives (the poll fills it in, D144), the call is cancelled, or its time
+passes. Only closing calls, the ones Call booked's no-link steps cover (D235); a triage call is a phone call. Staged test
+bookings are left out. On by default, as every check; Dating, PMU and Hair all run Health check. Tests: `health.meeting-links.test.ts`.
+
+## D238. Small things every offer does the same way (2026-10-25)
+
+Tyler's list: "The EOD operator ping linking each overdue day is standard. Deal value goes on the won card for all." Dating's
+1-hour closing text: "when there's no link, send it without the 'Join here' sentence." And the cancel post's "Rebook task" line
+only when a task was made (Dating's GHL tasks are off, by Tyler's choice).
+- **The operator's end-of-day ping** (two days blank) links each day to that person's form, as Dating's did (D207): "{name} still
+  has calls with no outcome after two days: • <link|day>: names. Open a day to file it yourself." In the template; PMU and Hair
+  patched.
+- **The won closer card carries the deal's value** (`{{contact.revenue | default:}}`: the opportunity's contract value, else the
+  program price; nothing written when neither is set), as Dating's did (D130). In the template, so Dating's playbook no longer adds
+  it; Hair and PMU patched.
+- **The cancel post's rebook task line** is a step before the post (`v_task`) that says it only when `setting.tasks` (the offer's
+  `crm.tasks`, the switch create_task obeys) is on. In the template; every offer's Call cancelled patched (Dating's two too).
+- **Dating's closing hour text with no link** is `words.preCall.closing.hourNoLink`, her hour text without "Join here: {link}";
+  the same safety rules as the hour text (not on the heels of another text, skipped when stale). `hourNoLink` no longer adds
+  Slack posts to the pre-call: Call booked says it at booking (D235). No "link coming" text to anyone.
+Tests: `cancel-task-line.test.ts`, `dating-copies.test.ts`, `eod.test.ts`.

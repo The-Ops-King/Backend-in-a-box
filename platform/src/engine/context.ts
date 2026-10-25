@@ -11,6 +11,7 @@ import type { ContactTruth } from "./contact-truth";
 import { salesCallValues, dispositionValues, bookingSourceValues, objectionOptions, closerOptions, CLOSER_OPTIONS_KEY, OBJECT_ROLES } from "./sales-call";
 import { discoveryResultValues, setterResultActs } from "./setter-result";
 import { callSetting } from "./call-settings";
+import { switchOn } from "./setting-defaults";
 import { leadSourceSql, sourceFields, sourceFieldsParam, UNKNOWN_SOURCE } from "./lead-source";
 import { intakeLines, intakeText } from "./booking-card";
 
@@ -105,7 +106,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       ...(bindings[CLOSER_OPTIONS_KEY] ? { sales_call_closer: closerOptions(bindings, await many<{ name: string; email: string | null; ghl_user_id: string | null }>(c, "select name, email, ghl_user_id from users where company_id=$1", [company.id])) } : {}) },
     // company switches a template reads (D79: whether a setter call's result acts, or only says what it would do; D87: the call flow's windows)
     setting: { setter_result: { act: setterResultActs(bindings), set_within_min: callSetting(bindings, "setter_result.set_within_min") },
-      calls: { transcript_wait_min: callSetting(bindings, "calls.transcript_wait_min"), conversation_gap_min: callSetting(bindings, "calls.conversation_gap_min") } },
+      calls: { transcript_wait_min: callSetting(bindings, "calls.transcript_wait_min"), conversation_gap_min: callSetting(bindings, "calls.conversation_gap_min") },
+      tasks: switchOn(bindings, "crm.tasks") },   // D238: a post names a GHL task only when the offer makes them
   };
   // the recording a run was started by (recording.received) — read from the ledger every tick, never copied into the run's context
   const recId = (run.context.event as { recording_id?: string } | undefined)?.recording_id;

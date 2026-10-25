@@ -45,7 +45,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: an unreadable Slack channel 
     const r = await sweep();
     const bad = r.findings.filter((f) => !f.ok && (f.check === "slack" || f.check === "steps"));
     expect(bad.map((f) => `${f.check}:${f.item}`).sort()).toEqual(["slack:CGONE", "slack:CPRIV"]);
-    expect(bad.find((f) => f.item === "CPRIV")!.text).toBe("Channel CPRIV, used by 3 settings (alerts.slack_channel, slack.channel.deals, slack.channel.bookings), cannot be checked: the Slack app is missing the groups:read permission (the channel is private). Add it under OAuth & Permissions and reinstall the app. Posts there may still land.");
+    expect(bad.find((f) => f.item === "CPRIV")!.text).toBe("Channel CPRIV, used by 3 settings (alerts.slack_channel, slack.channel.bookings, slack.channel.deals), cannot be checked: the Slack app is missing the groups:read permission (the channel is private). Add it under OAuth & Permissions and reinstall the app. Posts there may still land.");
     expect(bad.find((f) => f.item === "CGONE")!.text).toBe("Channel for slack.channel.calls (CGONE) cannot be read: channel_not_found.");
     expect(r.findings.filter((f) => f.check === "steps" && f.ok && /dependencies verified/.test(f.text)).map((f) => f.text.split(":")[0]).sort()).toEqual(['"Bookings post"', '"Calls post"', '"Deals post"']);
   });

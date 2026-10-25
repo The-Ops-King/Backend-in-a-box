@@ -40,12 +40,12 @@ describe("D118: Dating Nelly's copies", () => {
     expect(install.prompts).toEqual(datingPrompts(install.salesCall.objections));
   });
 
-  it("differ from the template only in her words (the welcome email and text, why a setter DQs a lead) and the won card's value (D130)", () => {
+  it("differ from the template only in her words (the welcome email and text, why a setter DQs a lead)", () => {
     const changed = (slug: string) => { const t = new Map(template(slug).nodes.map((n) => [n.id, JSON.stringify(n)])); const d = file(slug).definition;
       expect(d.edges).toEqual(template(slug).edges); expect(d.nodes.map((n) => n.id)).toEqual([...t.keys()]);
       return d.nodes.filter((n) => t.get(n.id) !== JSON.stringify(n)).map((n) => n.id); };
-    expect(changed("deal-closed")).toEqual(["p1", "e1", "e2"]);
-    expect(file("deal-closed").definition.nodes.find((n) => n.id === "p1")).toEqual({ ...template("deal-closed").nodes.find((n) => n.id === "p1"), value: "{{contact.revenue}}" });
+    expect(changed("deal-closed")).toEqual(["e1", "e2"]);
+    expect(template("deal-closed").nodes.find((n) => n.id === "p1")).toMatchObject({ value: "{{contact.revenue | default:}}" });   // D130 is every offer's since D238
     // the template still carries Hair's words; her copies carry none
     expect(JSON.stringify(template("deal-closed"))).toMatch(HAIR_WORDS);
     for (const slug of ["deal-closed", "setter-call-logged"]) expect(JSON.stringify(file(slug).definition)).not.toMatch(HAIR_WORDS);
@@ -80,12 +80,15 @@ describe("D118: Dating Nelly's copies", () => {
       expect(c.create.takesOver).toBe("pre-call-sequence");
       const at = (id: string) => c.definition.nodes.find((n) => n.id === id)!;
       for (const t of ["t1", "t2"]) expect(at(t).match).toEqual({ eq: ["{{appointment.term.name}}", callType] });
-      expect(c.definition.nodes.map((n) => n.id)).toEqual(["t1", "t2", "c0", "s1", "v_lead", "r24", "m24s", "r1", "m1", "x_done"]);
-      expect(c.definition.edges.map((e) => `${e.from}>${e.to}`).sort()).toEqual(["c0>s1", "m1>x_done", "m24s>r1", "r1>m1", "r24>m24s", "s1>v_lead", "t1>c0", "t2>c0", "v_lead>r24"]);
-      expect(c.definition.nodes.filter((n) => n.type === "send_sms").map((n) => [n.id, n.template])).toEqual([["s1", w.booked], ["m24s", w.day], ["m1", w.hour]]);
+      // D235: the closing call's hour text without its link sentence when the booking has no link (the triage call is a phone call)
+      const noLink = slug === "closing-pre-call";
+      expect(c.definition.nodes.map((n) => n.id)).toEqual(["t1", "t2", "c0", "s1", "v_lead", "r24", "m24s", "r1", "m1", ...(noLink ? ["m1_nolink"] : []), "x_done"]);
+      expect(c.definition.edges.map((e) => `${e.from}>${e.to}`).sort()).toEqual(["c0>s1", ...(noLink ? ["m1>m1_nolink", "m1_nolink>x_done"] : ["m1>x_done"]), "m24s>r1", "r1>m1", "r24>m24s", "s1>v_lead", "t1>c0", "t2>c0", "v_lead>r24"]);
+      expect(c.definition.nodes.filter((n) => n.type === "send_sms").map((n) => [n.id, n.template])).toEqual([["s1", w.booked], ["m24s", w.day], ["m1", w.hour], ...(noLink ? [["m1_nolink", w.hourNoLink]] : [])]);
       expect(JSON.stringify(c.definition)).not.toMatch(/slack_post|wait_for_reply|classify|placeholder|appointment\.closer/);
     }
     expect(words.preCall!.closing.hour).toContain("{{appointment.meeting_url}}");
+    expect(words.preCall!.closing.hourNoLink).toBe(words.preCall!.closing.hour.replace(" Join here: {{appointment.meeting_url}}", ""));
   });
 
   it("D193, D194, D199 kept: reminders before an evening call go earlier the same day; no hour-before text on the heels of another text; no day-before text for a call booked within 24 hours; the hour text says how long", async () => {
@@ -95,7 +98,10 @@ describe("D118: Dating Nelly's copies", () => {
     for (const slug of ["triage-pre-call", "closing-pre-call"]) {
       const at = (id: string) => (file(slug).definition as unknown as { nodes: N[] }).nodes.find((n) => n.id === id)!;
       for (const id of ["r24", "r1"]) expect((at(id).rule as Record<string, unknown>).window, `${slug} ${id}`).toBe("before");
-      expect(at("m1").only_if).toEqual(notJustSent);
+      if (slug === "closing-pre-call") {
+        expect(at("m1").only_if).toEqual({ and: [{ exists: "appointment.meeting_url" }, notJustSent] });
+        expect(at("m1_nolink")).toMatchObject({ only_if: { and: [{ not: { exists: "appointment.meeting_url" } }, notJustSent] }, validity: at("m1").validity, on_stale: "skip" });
+      } else expect(at("m1").only_if).toEqual(notJustSent);
       expect(String(at("m1").template)).toContain("{{appointment.starts_at | relative:hours}}");
       expect(at("v_lead")).toMatchObject({ type: "set_var", key: "lead_at_day_before", value: "{{appointment.starts_at | hours_until}}" });
       const sends = (lead?: string) => evaluate(at("m24s").only_if as never, { vars: lead === undefined ? {} : { lead_at_day_before: lead } });

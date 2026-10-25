@@ -103,9 +103,9 @@ export const Node = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("webhook"), url: z.string(), method: z.enum(["POST", "PUT", "PATCH", "GET", "DELETE"]).default("POST"), headers: z.record(z.string()).default({}), body: z.unknown().optional(), into: z.string().optional(), on_error: z.enum(["fail", "skip"]).default("fail") }),
   // The hourly sweep as a step: which checks run, where its alerts go. Findings become alerts through the same announcer as everything else.
   // D88: slots_days (the calendars' window, 7), fathom_silent_days (no Fathom delivery this long is a warning, 14), drift_days (the ledger drift window, 7)
-  // and poll_lag_min (the half hour the poll has not reached, 30)
+  // and poll_lag_min (the half hour the poll has not reached, 30); D237: meeting_link_hours (how far ahead a closing call with no join link is an alert, 48)
   z.object({ ...base, type: z.literal("health_check"), checks: z.record(z.boolean()).default({}), channel: z.string().optional(), as: Persona.optional(),
-    slots_days: z.number().int().min(1).max(7).default(7), fathom_silent_days: z.number().int().min(1).default(14), drift_days: z.number().int().min(1).max(60).default(7), poll_lag_min: z.number().int().min(0).default(30) }),
+    slots_days: z.number().int().min(1).max(7).default(7), fathom_silent_days: z.number().int().min(1).default(14), drift_days: z.number().int().min(1).max(60).default(7), poll_lag_min: z.number().int().min(0).default(30), meeting_link_hours: z.number().int().min(1).max(168).default(48) }),
   // Bookable slots on the calendars: fewer than min_slots in the next days is a low-availability alert. In a run about a booking, only that booking's calendar is read.
   z.object({ ...base, type: z.literal("availability_check"), min_slots: z.number().int().min(0).default(3), days: z.number().int().min(1).max(7).default(7) }),
   // A wrap-up (daily / weekly / monthly numbers) rendered into vars.<into> = { body, period, numbers } and kept in the wrapups ledger; a slack_post after it sends it.

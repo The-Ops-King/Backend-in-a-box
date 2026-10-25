@@ -15,7 +15,7 @@ Every step also takes `title`, `only_if` (skipped when false) and `blocking`.
 | `ensure_contact` | `tags`, `scope_tag`, `source` | Finds the person in GHL by id, email or phone, else creates them; fills blanks, never overwrites. | scope.tag (scope_tag) |
 | `eod_due` | `period`, `into`, `lookback_days`, `include_today`, `overdue_after_days` | Lists the days a person still owes an end of day (the ledger and GHL's Sales Calls). | crm.object_sales_call, sales_call.outcomes, sales_call.dispositions, sales_call.closer_options |
 | `exit` | `reason` | Ends the run with a reason. | none |
-| `health_check` | `checks`, `channel`, `as`, `slots_days`, `fathom_silent_days`, `drift_days`, `poll_lag_min` | Runs the hourly checks and turns what fails into alerts (the checks and their words are the engine's). | many: the GHL, Calendly, Whop, Fathom, Typeform, Slack and AI settings |
+| `health_check` | `checks`, `channel`, `as`, `slots_days`, `fathom_silent_days`, `drift_days`, `poll_lag_min`, `meeting_link_hours` | Runs the hourly checks and turns what fails into alerts (the checks and their words are the engine's). | many: the GHL, Calendly, Whop, Fathom, Typeform, Slack and AI settings |
 | `leaderboard` | `period`, `into` | Builds the closer and setter leaderboard for a period. | none |
 | `lookup` | `query`, `params`, `into` | Reads one of a fixed set of ledger queries into vars (bookings, events, calls, a call's conversation). | none |
 | `note` | `template` | Leaves a GHL note on the contact. | none |
