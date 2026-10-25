@@ -246,7 +246,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(threadOf(bookingTs).at(-1)).toMatch(/^✅ Showed · 41 min with Sam Closer/);
       reviewTs = (await postTs(`recording:${r.recording.id}`))!; expect(reviewTs).toBeTruthy();
       expect(threadOf(reviewTs)).toEqual([expect.stringMatching(/^\*Scorecard:\* 8\/10/)]);
-      expect(recordWrites.at(-1)).toMatchObject({ op: "update", external_id: "A-JV", outcome: "showed", disposition: "closed_won" });
+      expect(recordWrites.at(-1)).toMatchObject({ op: "update", external_id: "A-JV", outcome: "showed", disposition: "close_pending" });   // D228: pending until cash or the end of day
       expect(await runsFor("post-call-follow-up", jordan)).toHaveLength(0);   // the engine's call.held carries no call outcome
     });
     it("F6 (fixed, D61): the closer card leaves Scheduled on the filed outcome — Follow Up, Lost, Disqualified, No Show / Cancelled (Pat and Quinn below) — and on the money for a close; a recording alone leaves it, because the closer board has no Showed stage", async () => {

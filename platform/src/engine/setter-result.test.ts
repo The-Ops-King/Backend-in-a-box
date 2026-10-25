@@ -477,7 +477,7 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     const review = posts.slice(nPosts).find((p) => p.channel === "CCALLS")!;
     expect(review.text).toContain("*Closer:* James Closer · 64 min"); expect(review.text).toContain("marked showed"); expect(review.text).toContain("Open the call in GHL");
     expect(posts.slice(nPosts).filter((p) => p.channel === "CSET")).toEqual([]);
-    expect(recordWrites.slice(nRec)).toEqual(expect.arrayContaining([expect.objectContaining({ object: "custom_objects.sales_call", outcome: "showed", disposition: "closed_won", closer: "James Closer" })]));
+    expect(recordWrites.slice(nRec)).toEqual(expect.arrayContaining([expect.objectContaining({ object: "custom_objects.sales_call", outcome: "showed", disposition: "close_pending", closer: "James Closer" })]));
     expect(recordWrites.slice(nRec).filter((w) => w.object === "custom_objects.discovery_call")).toEqual([]);
   });
 
@@ -490,12 +490,12 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     let closer = (await runsOf(who.contactId, "Sales call recorded"))[0];
     expect(closer).toMatchObject({ status: "waiting", appointment_id: null });
     const review = (await tsOf(`recording:${k.recordingId}`))!;
-    expect(posts.find((p) => p.ts === review.ts)!.text).toContain("A closing call by phone that lines up with none of their bookings");
+    expect(posts.find((p) => p.ts === review.ts)!.text).toContain("A call that lines up with none of their bookings");
     expect(recordWrites.slice(nRec).filter((w) => w.object === "custom_objects.sales_call")).toEqual([]);   // no record until it is linked
     const q = (await tsOf(`closing-which:${k.recordingId}`))!;
     expect(q.channel).toBe("CCALLS");
     const question = posts.find((p) => p.ts === q.ts)!.text;
-    expect(question).toContain("James Closer had a 30-minute closing call by phone with"); expect(question).toMatch(/\n1\. .* with Tyler Ray \(confirmed\)\n/);
+    expect(question).toContain("James Closer had a 30-minute call with"); expect(question).toMatch(/\n1\. .* with Tyler Ray \(confirmed\)\n/);
     expect(reacted.filter((x) => x.startsWith(`${q.ts}:`))).toEqual(["one", "two", "three", "x"].map((e) => `${q.ts}:${e}`));
     await tap(q.ts, "one", companyId, "CCALLS");
     await run();

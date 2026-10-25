@@ -80,7 +80,9 @@ export async function prospectsOnCall(c: PoolClient, companyId: string, input: P
   return { emails, names, staffDropped };
 }
 
-export type Match = { contactId: string; by: "email" | "meeting" | "name" | "speaker"; appointmentId?: string };
+/** D228: where a call with no booking that fits is put: a client's call; their closing call held late; a follow-up on a sale already held; none of those. */
+export type Placed = "client" | "held_late" | "follow_up" | "unbooked" | "no_booking";
+export type Match = { contactId: string; by: "email" | "meeting" | "name" | "speaker"; appointmentId?: string; placed?: Placed };
 export type Resolution = { match: Match | null; reason?: string; internal?: boolean };
 type Fit = { id: string; contact_id: string; name: string; first: string | null; last: string | null; assigned_user_id: string | null; meeting_key: string | null; starts_at: Date };
 
@@ -113,7 +115,44 @@ export function nameAgrees(spoken: string, first: string | null, last: string | 
   return !!l && sl === l && firstOk;
 }
 
+const SALES_BOOKING = "('closing','follow_up')";   // a booking that is a sales call: a closing call or a follow-up
+const LATE_DAYS = 3;                               // a closing call held off the calendar this soon after its booking is that booking (Tyler: "sure", 3 days)
+
+/**
+ * D228 (Tyler, on Erica's consultation held a day late and Rafaela's second Sales Call: "it should have updated the first one"):
+ * a person on the call, with no booking the call fits, is placed by what the ledger already holds about them, in this order.
+ * - client: cash collected from them, or a close filed (the end of day, a payment) on a call before this one. Their call is not a
+ *   sales call: the workflow writes the note and nothing else.
+ * - held_late: exactly one closing booking of theirs in the LATE_DAYS before the call with nothing filed on it: the call is it.
+ * - follow_up: their latest closing booking before the call that was held: the call is a follow-up on that sale (its Sales Call updated).
+ * - unbooked: none of these, and they have a sales booking in the two weeks either side: the team is asked which booking it was.
+ * - no_booking: no sales booking near it to ask about: the call keeps its own Sales Call, as before.
+ */
+export async function placeCall(c: PoolClient, companyId: string, contactId: string, at: Date): Promise<{ appointmentId: string | null; placed: Placed }> {
+  const client = await one(c, `select 1 where exists (select 1 from payments p where p.company_id=$1 and p.contact_id=$2 and p.status='succeeded' and p.paid_at < $3)
+    or exists (select 1 from appointments a join company_terms t on t.id=a.call_outcome_term where a.company_id=$1 and a.contact_id=$2 and a.starts_at < $3 and t.category in ('closed','deposit'))`, [companyId, contactId, at]);
+  if (client) return { appointmentId: null, placed: "client" };
+  const late = await many<{ id: string }>(c, `select a.id from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and t.category in ${SALES_BOOKING}
+    and a.status<>'cancelled' and a.starts_at < $3 and a.starts_at >= $3::timestamptz - make_interval(days => ${LATE_DAYS}) and a.outcome_term is null and a.call_outcome_term is null`, [companyId, contactId, at]);
+  if (late.length === 1) return { appointmentId: late[0].id, placed: "held_late" };
+  const held = await one<{ id: string }>(c, `select a.id from appointments a join company_terms t on t.id=a.appointment_term left join company_terms o on o.id=a.outcome_term
+    where a.company_id=$1 and a.contact_id=$2 and t.category in ${SALES_BOOKING} and a.status<>'cancelled' and a.starts_at < $3 and (o.category='showed' or a.call_outcome_term is not null)
+    order by a.starts_at desc limit 1`, [companyId, contactId, at]);
+  if (held && !late.length) return { appointmentId: held.id, placed: "follow_up" };
+  const near = await one(c, `select 1 from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and t.category in ${SALES_BOOKING}
+    and a.status<>'cancelled' and a.starts_at between $3::timestamptz - interval '14 days' and $3::timestamptz + interval '14 days' limit 1`, [companyId, contactId, at]);   // what the question lists
+  return { appointmentId: null, placed: near ? "unbooked" : "no_booking" };
+}
+
+/** D227's rules, then D228: a person found with no booking that fits is placed by what the ledger holds about them. */
 export async function resolveRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<Resolution> {
+  const r = await matchRecording(c, companyId, input);
+  if (!r.match || r.match.appointmentId) return r;
+  const p = await placeCall(c, companyId, r.match.contactId, input.startedAt);
+  return { match: { ...r.match, ...(p.appointmentId ? { appointmentId: p.appointmentId } : {}), placed: p.placed } };
+}
+
+async function matchRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<Resolution> {
   const { emails, names, staffDropped } = await prospectsOnCall(c, companyId, input);
   const key = meetingKey(input.meetingUrl);
   const tz = (await one<{ timezone: string }>(c, "select timezone from companies where id=$1", [companyId]))?.timezone ?? "UTC";
@@ -237,13 +276,13 @@ export async function rematchRecordings(c: PoolClient, companyId: string, opts: 
 
 export const eventData = (r: RecordingRow, extra: Record<string, unknown> = {}) => ({ recording_id: r.id, provider: r.provider, external_id: r.external_id, title: r.title, started_at: r.started_at.toISOString(), duration_min: r.duration_min, share_url: r.share_url, recorded_by: r.recorded_by_email, ...extra });
 
-async function settle(c: PoolClient, companyId: string, r: RecordingRow, contactId: string, by: string, appointmentId: string | null, silent = false): Promise<{ event: EventRow | null; appointmentId: string | null }> {
+async function settle(c: PoolClient, companyId: string, r: RecordingRow, contactId: string, by: string, appointmentId: string | null, silent = false, placed?: Placed): Promise<{ event: EventRow | null; appointmentId: string | null }> {
   const apptId = appointmentId;   // D227: the booking the match found the recording fits, or none (never merely the nearest)
   await c.query("update recordings set contact_id=$2, appointment_id=$3, link_status='linked', linked_by=$4, unlinked_reason=null where id=$1", [r.id, contactId, apptId, by]);
   if (silent) return { event: null, appointmentId: apptId };
   const appt = apptId ? await one<{ opportunity_id: string | null }>(c, "select opportunity_id from appointments where id=$1", [apptId]) : null;
   const event = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: appt?.opportunity_id ?? null, appointment_id: apptId, event_type: "recording.received", source: r.provider === "fathom" ? "fathom" : "zapier", occurred_at: r.started_at,
-    data: eventData(r, { matched_by: by, appointment_matched: !!apptId }) });
+    data: eventData(r, { matched_by: by, appointment_matched: !!apptId, ...(placed ? { placed } : {}) }) });
   return { event, appointmentId: apptId };
 }
 
@@ -262,7 +301,7 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
   if (!inserted) return { outcome: "duplicate", recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider=$2 and external_id=$3", [companyId, provider, input.externalId]))! };
   const { match, reason, internal } = await resolveRecording(c, companyId, input);
   if (match) {
-    const { event, appointmentId } = await settle(c, companyId, inserted, match.contactId, match.by, match.appointmentId ?? null, opts.silent);
+    const { event, appointmentId } = await settle(c, companyId, inserted, match.contactId, match.by, match.appointmentId ?? null, opts.silent, match.placed);
     const recording = (await one<RecordingRow>(c, "select * from recordings where id=$1", [inserted.id]))!;
     return event ? { outcome: "linked", recording, event, contactId: match.contactId, appointmentId } : { outcome: "linked", recording };
   }
@@ -274,7 +313,7 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
 }
 
 /** A person links an orphan (the Slack button): it then runs as a match on arrival would, Sales call recorded included. The attendee's email is remembered so the next call from them links on its own. */
-export async function linkRecording(c: PoolClient, companyId: string, recordingId: string, contactId: string, opts: { remember?: boolean; appointmentId?: string | null; by?: string } = {}): Promise<{ event: EventRow; appointmentId: string | null; started: number }> {
+export async function linkRecording(c: PoolClient, companyId: string, recordingId: string, contactId: string, opts: { remember?: boolean; appointmentId?: string | null; by?: string; placed?: Placed } = {}): Promise<{ event: EventRow; appointmentId: string | null; started: number }> {
   const r = await one<RecordingRow>(c, "select * from recordings where company_id=$1 and id=$2", [companyId, recordingId]);
   if (!r) throw new Error("recording not found");
   if (r.link_status === "linked") throw new Error("recording is already linked");
@@ -282,7 +321,10 @@ export async function linkRecording(c: PoolClient, companyId: string, recordingI
   const { emails } = await prospectsOnCall(c, companyId, { invitees: r.invitees, recordedBy: { email: r.recorded_by_email ?? undefined } });
   if (opts.remember !== false && emails.length === 1) await c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3) on conflict (company_id, kind, value) do nothing", [companyId, contactId, emails[0]]);
   const by = opts.by ?? "manual";
-  const { event, appointmentId } = await settle(c, companyId, r, contactId, by, opts.appointmentId !== undefined ? opts.appointmentId : await fittingBooking(c, companyId, contactId, r.started_at));
+  // the booking the recording fits; with none, where the ledger places the call (D228)
+  let booking = opts.appointmentId, placed = opts.placed;
+  if (booking === undefined) { booking = await fittingBooking(c, companyId, contactId, r.started_at); if (!booking) { const p = await placeCall(c, companyId, contactId, r.started_at); booking = p.appointmentId; placed = p.placed; } }
+  const { event, appointmentId } = await settle(c, companyId, r, contactId, by, booking, false, placed);
   await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: event!.opportunity_id, appointment_id: appointmentId, event_type: "recording.linked", source: "user", data: { recording_id: r.id, by } });
   const appt = appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [appointmentId]) : null;
   const started = await dispatchEvent(c, event!, { contact: { id: contactId }, appointment: appt ?? undefined, recording: { id: r.id, title: r.title, duration_min: r.duration_min } });

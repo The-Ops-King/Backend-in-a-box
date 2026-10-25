@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createHmac } from "node:crypto";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
-import { meetingKey, nameAgrees, recordRecording, rematchRecordings, resolveRecording, type RecordingInput } from "./recordings";
+import { meetingKey, nameAgrees, placeCall, recordRecording, rematchRecordings, resolveRecording, type RecordingInput } from "./recordings";
 import { applyAppointment } from "./poll";
 import type { CompanyRow } from "./context";
 import type { Adapters, Company } from "@/adapters/types";
@@ -25,7 +25,7 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='recs'");
-      if (co) { for (const t of ["audit_log", "events", "sends", "recordings", "appointments", "calendars", "opportunities", "contact_identifiers", "contacts", "users", "company_terms"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["audit_log", "events", "sends", "recordings", "payments", "appointments", "calendars", "opportunities", "contact_identifiers", "contacts", "users", "company_terms"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('Recs','recs','America/New_York') returning id"))!.id;
       await c.query(`insert into company_terms (company_id, domain, name, category, is_default, sort) select $1, domain, label, value, true, sort from core_categories`, [companyId]);
       term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
@@ -190,9 +190,9 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     const booked = await book(sash, "SP-1", day(70), null);
     const call = rec("sp-1", { startedAt: new Date(day(70).getTime() + 2 * 60e3), invitees: [{ name: "sash@x.com", email: "sash@x.com", isExternal: true }] });
     for (const label of ["Aphros Beauty", "iPhone"]) expect(await asOperator((c) => resolveRecording(c, companyId, { ...call, transcript: [{ speaker: "Cal", text: "hi" }, { speaker: label, text: "hi" }] }))).toEqual({ match: { contactId: sash, by: "email", appointmentId: booked } });
-    // later, with nobody booked then: hers, with no booking (an unbooked call)
+    // later, with nobody booked then: her own booking from earlier that day, nothing filed on it, held late (D228)
     const lateAt = new Date(day(70).getTime() + 3 * 3600e3);
-    expect((await asOperator((c) => resolveRecording(c, companyId, { ...call, startedAt: lateAt, transcript: [{ speaker: "iPhone", text: "hi" }] }))).match).toEqual({ contactId: sash, by: "email" });
+    expect((await asOperator((c) => resolveRecording(c, companyId, { ...call, startedAt: lateAt, transcript: [{ speaker: "iPhone", text: "hi" }] }))).match).toEqual({ contactId: sash, by: "email", appointmentId: booked, placed: "held_late" });
     // later, and someone else is booked with the recorder then: a person's call, and the reason says who spoke
     const tom = await person("Tom"); await book(tom, "SP-2", lateAt, null);
     const late = await asOperator((c) => resolveRecording(c, companyId, { ...call, startedAt: lateAt, transcript: [{ speaker: "iPhone", text: "hi" }] }));
@@ -211,10 +211,42 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
   it("D227: a client who speaks on an unbooked call is linked to them with no booking; the booking then being someone else's stops it", async () => {
     const audra = await person("Audra");
     const t = day(50);
-    expect(await asOperator((c) => resolveRecording(c, companyId, rec("au-1", { title: "Impromptu Google Meet Meeting", startedAt: t, invitees: [{ name: "Cal", email: "closer@co.com", isExternal: false }], transcript: [{ speaker: "Audra Mtg", text: "hi" }, { speaker: "Cal", text: "hi" }] })))).toEqual({ match: { contactId: audra, by: "speaker" } });
+    expect(await asOperator((c) => resolveRecording(c, companyId, rec("au-1", { title: "Impromptu Google Meet Meeting", startedAt: t, invitees: [{ name: "Cal", email: "closer@co.com", isExternal: false }], transcript: [{ speaker: "Audra Mtg", text: "hi" }, { speaker: "Cal", text: "hi" }] })))).toEqual({ match: { contactId: audra, by: "speaker", placed: "no_booking" } });
     const other = await person("Otto"); await book(other, "AU-X", t, null);
     const r = await asOperator((c) => resolveRecording(c, companyId, rec("au-2", { startedAt: t, transcript: [{ speaker: "Audra Mtg", text: "hi" }] })));
     expect(r.match).toBeNull(); expect(r.reason).toMatch(/Audra Mtg spoke, but the booking the recorder had then is Otto Mtg/);
+  });
+
+  it("D228: a call no booking fits is placed by the ledger: a client's call; a closing call held late; a follow-up on a sale held; else unbooked", async () => {
+    const t = day(80), at = new Date(t.getTime() + 25 * 3600e3);   // the call is the next day
+    const terms = await asOperator(async (c) => Object.fromEntries((await many<{ k: string; id: string }>(c, "select domain||':'||category as k, id from company_terms where company_id=$1 and is_default", [companyId])).map((r) => [r.k, r.id])));
+    const fresh = async (first: string) => { const id = await person(first); await asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'email',$3)", [companyId, id, `${first.toLowerCase()}@place.test`])); return id; };
+    const call = (first: string) => rec(`pl-${first}`, { startedAt: at, invitees: [{ email: `${first.toLowerCase()}@place.test`, isExternal: true }], transcript: [{ speaker: "Cal", text: "hi" }, { speaker: `${first} Mtg`, text: "hi" }] });
+    // Erica: her consultation yesterday, nothing filed: this call is it
+    const erica = await fresh("Erica"); const consult = await book(erica, "PL-E", t, null);
+    expect((await asOperator((c) => resolveRecording(c, companyId, call("Erica")))).match).toEqual({ contactId: erica, by: "speaker", appointmentId: consult, placed: "held_late" });
+    // Rafaela: her consultation held (showed, close pending): a follow-up on that sale, its Sales Call updated
+    const raf = await fresh("Rafa"); const held = await book(raf, "PL-R", new Date(t.getTime() - 2 * 864e5), null);
+    await asOperator((c) => c.query("update appointments set outcome_term=$2, call_outcome_term=$3 where id=$1", [held, terms["appointment_outcome:showed"], terms["call_outcome:pending"]]));
+    expect((await asOperator((c) => resolveRecording(c, companyId, call("Rafa")))).match).toEqual({ contactId: raf, by: "speaker", appointmentId: held, placed: "follow_up" });
+    // once cash is collected she is a client: her calls are not sales calls
+    await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pl-pay',1500,'succeeded',$3)", [companyId, raf, new Date(t.getTime() - 864e5)]));
+    expect((await asOperator((c) => resolveRecording(c, companyId, call("Rafa")))).match).toEqual({ contactId: raf, by: "speaker", placed: "client" });
+    // a close the closer filed is a client too
+    const filed = await fresh("Fifi"); const won = await book(filed, "PL-F", new Date(t.getTime() - 5 * 864e5), null);
+    await asOperator((c) => c.query("update appointments set outcome_term=$2, call_outcome_term=$3 where id=$1", [won, terms["appointment_outcome:showed"], terms["call_outcome:closed"]]));
+    expect((await asOperator((c) => placeCall(c, companyId, filed, at)))).toEqual({ appointmentId: null, placed: "client" });
+    // nothing near it to ask about: the call keeps its own Sales Call
+    const none = await fresh("Nora");
+    expect((await asOperator((c) => resolveRecording(c, companyId, call("Nora")))).match).toEqual({ contactId: none, by: "speaker", placed: "no_booking" });
+    // a booking next week: the team is asked which one it was
+    await book(none, "PL-N", new Date(at.getTime() + 7 * 864e5), null);
+    expect((await asOperator((c) => placeCall(c, companyId, none, at)))).toEqual({ appointmentId: null, placed: "unbooked" });
+    // a booking from a week ago with nothing filed is not "held late"; two unfiled within the window are not guessed between
+    const old = await fresh("Olga"); await book(old, "PL-O", new Date(t.getTime() - 6 * 864e5), null);
+    expect((await asOperator((c) => placeCall(c, companyId, old, at)))).toEqual({ appointmentId: null, placed: "unbooked" });   // asked: it is in the two weeks
+    const two = await fresh("Tara"); await book(two, "PL-T1", t, null); await book(two, "PL-T2", new Date(t.getTime() + 3600e3), null);
+    expect((await asOperator((c) => placeCall(c, companyId, two, at)))).toEqual({ appointmentId: null, placed: "unbooked" });
   });
 
   const co = () => asOperator((c) => one<CompanyRow>(c, "select * from companies where id=$1", [companyId])).then((r) => r!);

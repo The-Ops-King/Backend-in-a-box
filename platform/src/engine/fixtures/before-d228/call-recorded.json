@@ -1,0 +1,637 @@
+{
+  "slug": "call-recorded",
+  "name": "Sales call recorded",
+  "category": "calls",
+  "stage": "call",
+  "sort": 10,
+  "origin": "spec",
+  "description": "A call recording arrived and was matched to a contact (Fathom), or Setter call logged handed over a dialer call Jev read as a closing call: the same closer workflow reads both. Jev decides whether a meeting recording is a sales call (anything else stops here) and how the call ended, and the AI pulls the notes and scores the call against the rubric, reading the whole call (a dialer call in parts is one call; transcripts are fetched from their source and never stored). When the call lines up with a booking, the appointment is recorded as showed, stat-showed is added and the setter card moves to Showed and is marked won; the team gets the review in Slack first (so a CRM hiccup never hides that the call happened; the same call again edits it), then the Sales Call record is updated (created at booking by call-booked) and the notes go on the contact. A closing call by phone that lines up with no booking is posted as unlinked and the team is asked which booking it was; a tap links it and this workflow runs again on that booking. Picklist values that the CRM would silently drop are filtered before they are written.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "recording.received",
+        "title": "A meeting recording came in (Fathom)"
+      },
+      {
+        "id": "t2",
+        "type": "trigger",
+        "event": "call.closing",
+        "title": "A dialer call Jev read as a closing call (Setter call logged hands it over)"
+      },
+      {
+        "id": "l_conv",
+        "type": "lookup",
+        "query": "call_conversation",
+        "params": {
+          "recording_id": "{{recording.id}}",
+          "gap_min": "{{setting.calls.conversation_gap_min}}"
+        },
+        "into": "convo",
+        "title": "The whole call: a dialer call in parts (a dropped line) is read as one; a meeting recording is its own whole"
+      },
+      {
+        "id": "a1",
+        "type": "classify",
+        "input": "{{vars.convo.transcript_text}}",
+        "domain": "recording_kind",
+        "question": "What kind of recording is this?",
+        "criteria": {
+          "sales_call": "A conversation between someone on the team and a prospect or customer about buying, starting, continuing or paying for the program.",
+          "internal": "Team members talking to each other: a standup, training, role-play, a vendor call.",
+          "other": "Anything else: a voicemail, a wrong number, a personal call, an unrelated meeting."
+        },
+        "threshold": 0.8,
+        "ambiguity_max": 0.8,
+        "into": "vars.classify.kind",
+        "title": "Jev: is it a sales call? (a dialer call Jev already read as closing skips this)",
+        "only_if": {
+          "eq": [
+            "{{event._type}}",
+            "recording.received"
+          ]
+        }
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "when": {
+          "or": [
+            {
+              "eq": [
+                "{{vars.classify.kind}}",
+                "sales_call"
+              ]
+            },
+            {
+              "eq": [
+                "{{event._type}}",
+                "call.closing"
+              ]
+            }
+          ]
+        },
+        "else_exit": "not_a_sales_call"
+      },
+      {
+        "id": "a3",
+        "type": "classify",
+        "input": "{{vars.convo.transcript_text}}",
+        "domain": "sales_call_disposition",
+        "question": "How did this sales call end?",
+        "criteria": {
+          "closed_won": "They agreed to buy and payment was arranged or taken on the call.",
+          "close_pending": "They agreed in principle; payment or paperwork is still to come.",
+          "follow_up": "No decision yet; a next conversation or a think-it-over was agreed.",
+          "lost": "They said no.",
+          "dq": "Not a fit: the team disqualified them.",
+          "financing_denied": "They wanted to buy but could not pay or finance.",
+          "unclear": "The transcript does not show how it ended."
+        },
+        "threshold": 0.7,
+        "ambiguity_max": 0.85,
+        "into": "vars.outcome.disposition",
+        "title": "Jev: how did the call end?"
+      },
+      {
+        "id": "a2",
+        "type": "analyze",
+        "prompt": "{{prompt.call_review}}",
+        "into": [
+          "notes",
+          "rubric"
+        ],
+        "title": "AI: call notes and scorecard",
+        "input": "{{vars.convo.transcript_text}}"
+      },
+      {
+        "id": "v_parts",
+        "type": "set_var",
+        "key": "parts_line",
+        "value": " ({{vars.convo.count}} parts)",
+        "when": {
+          "gt": [
+            "{{vars.convo.count}}",
+            1
+          ]
+        },
+        "else_value": "",
+        "title": "A call in parts says so"
+      },
+      {
+        "id": "v_rec",
+        "type": "set_var",
+        "key": "recording_line",
+        "value": "{{recording.provider}}",
+        "pick": {
+          "ghl": "\n*Recording:* <{{recording.share_url | default:}}|Open the call in GHL>"
+        },
+        "else_value": "{{recording.share_url | link:Fathom | line:*Recording:*}}"
+      },
+      {
+        "id": "b1",
+        "type": "branch"
+      },
+      {
+        "id": "o1",
+        "type": "record_outcome",
+        "outcome": "showed"
+      },
+      {
+        "id": "o2",
+        "type": "set_tag",
+        "tag": [
+          "stat-showed"
+        ]
+      },
+      {
+        "id": "o3",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter}}",
+        "stage": "{{crm.stage_setter_showed}}",
+        "status": "won"
+      },
+      {
+        "id": "o4",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "react": "white_check_mark",
+        "as": {
+          "name": "Showed",
+          "icon": ":white_check_mark:"
+        },
+        "template": "✅ Showed · {{vars.convo.total_min | default:?}} min{{vars.parts_line}} with {{recording.closer.name | default:the closer}}. The review is in the calls channel.",
+        "title": "React ✅ on the booking post",
+        "tag": "showed:{{appointment.id}}",
+        "edit": true
+      },
+      {
+        "id": "k1",
+        "type": "set_var",
+        "key": "call_key",
+        "value": "{{appointment.slot_key}}"
+      },
+      {
+        "id": "k3",
+        "type": "set_var",
+        "key": "appt_line",
+        "value": "*Appointment:* {{appointment.starts_at | date_company}} · marked showed"
+      },
+      {
+        "id": "k2",
+        "type": "set_var",
+        "key": "call_key",
+        "value": "{{recording.provider}}-{{vars.convo.key}}"
+      },
+      {
+        "id": "k4",
+        "type": "set_var",
+        "key": "appt_line",
+        "value": "⚠️ No appointment matched this recording — nothing marked showed. Check the contact's bookings."
+      },
+      {
+        "id": "k5",
+        "type": "set_var",
+        "key": "appt_line",
+        "value": "⚠️ A closing call by phone that lines up with none of their bookings — nothing marked showed. The team is asked which booking it was."
+      },
+      {
+        "id": "r1",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+        "key": "{{vars.call_key}}",
+        "properties": {
+          "display_label": "{{contact.name | default:Unknown}} — {{recording.started_at | date_company:yyyy-MM-dd}}",
+          "external_id": "{{vars.call_key}}",
+          "contact_id": "{{contact.ghl_contact_id | default:}}",
+          "opportunity_id": "{{cards.closer.id | default:}}",
+          "scheduled_at": "{{appointment.starts_at | default:}}",
+          "call_date": "{{recording.started_at | date_company:yyyy-MM-dd}}",
+          "outcome": "{{picklist.sales_call_outcome.showed}}",
+          "recording_url": "{{recording.share_url | default:}}",
+          "transcript_ref": "{{recording.url | default:}}",
+          "closer": "{{recording.closer.name | default: | option:sales_call_closer}}",
+          "duration_min": "{{vars.convo.total_min | default:}}",
+          "disposition": "{{vars.outcome.disposition | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}",
+          "objection_primary": "{{vars.notes.primary_objection | option:sales_call_objection | default:}}",
+          "next_step": "{{vars.notes.next_step | default:}}",
+          "next_step_date": "{{vars.notes.next_step_date | default:}}",
+          "payment_terms": "{{vars.notes.payment_terms | default:}}",
+          "setter": "{{contact.fields.setter | default:}}"
+        },
+        "relate": [
+          {
+            "association": "{{crm.assoc_sales_call_contact}}",
+            "first": "{{contact.ghl_contact_id | default:}}",
+            "second": "{{record.id}}"
+          },
+          {
+            "association": "{{crm.assoc_sales_call_opportunity}}",
+            "first": "{{record.id}}",
+            "second": "{{cards.closer.id | default:}}"
+          }
+        ],
+        "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}} · {{recording.closer.name | default:closer unknown}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
+        "only_if": {
+          "exists": "vars.call_key"
+        }
+      },
+      {
+        "id": "n1",
+        "type": "note",
+        "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}"
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.calls}}",
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
+        "as": {
+          "name": "Sales call recorded",
+          "icon": [
+            ":studio_microphone:",
+            ":headphones:",
+            ":movie_camera:",
+            ":speech_balloon:"
+          ]
+        },
+        "title": "Post the call review in Slack (the same call again edits it)",
+        "tag": "recording:{{vars.convo.first.id}}",
+        "edit": true
+      },
+      {
+        "id": "s2",
+        "type": "slack_post",
+        "channel": "{{slack.channel.calls}}",
+        "thread_of": "s1",
+        "as": {
+          "name": "Call review",
+          "icon": [
+            ":clipboard:",
+            ":bar_chart:",
+            ":mag:"
+          ]
+        },
+        "template": "*Scorecard:* {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}",
+        "title": "Post scorecard in the thread",
+        "tag": "scorecard:{{vars.convo.first.id}}",
+        "edit": true
+      },
+      {
+        "id": "b_q",
+        "type": "branch",
+        "title": "A closing call by phone with no booking?"
+      },
+      {
+        "id": "l_opts",
+        "type": "lookup",
+        "query": "appointments_for_contact",
+        "params": {
+          "kind": "closing",
+          "status_not": "cancelled",
+          "starts_since": "{{recording.started_at}} -14d",
+          "starts_until": "{{recording.started_at}} +14d",
+          "order": "starts_at"
+        },
+        "into": "options",
+        "title": "Their closing calls booked in the two weeks either side"
+      },
+      {
+        "id": "q_which",
+        "type": "slack_post",
+        "channel": "{{slack.channel.attention}}",
+        "fallback_channel": [
+          "{{slack.channel.ops}}",
+          "{{slack.channel.calls}}"
+        ],
+        "as": {
+          "name": "Which booking was this call?",
+          "icon": ":grey_question:"
+        },
+        "tag": "closing-which:{{vars.convo.first.id}}",
+        "offer": [
+          "one",
+          "two",
+          "three",
+          "x"
+        ],
+        "template": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute closing call{{vars.parts_line}} by phone with <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> ({{recording.started_at | date_company}}) that lines up with none of their bookings. Which booking was it?\n{{vars.options.items | each:\"{{number}}. {{item.starts_at | date_company}} with {{item.closer | default:no closer}} ({{item.status}})\" | join:\"\\n\" | default:They have no closing call booked in the two weeks around it.}}\nTap 1️⃣ 2️⃣ or 3️⃣ for that booking (the first three), or ❌ if it was none of them. Nothing is marked until someone does; the question closes in two days.",
+        "title": "Ask which booking the call was"
+      },
+      {
+        "id": "w_which",
+        "type": "wait_for_reaction",
+        "of": "tag:closing-which:{{vars.convo.first.id}}",
+        "emojis": [
+          "one",
+          "two",
+          "three",
+          "x"
+        ],
+        "timeout": "2d",
+        "title": "Wait two days for the tap"
+      },
+      {
+        "id": "v_pick",
+        "type": "set_var",
+        "key": "chosen",
+        "value": "{{reaction.reaction | default:}}",
+        "pick": {
+          "one": "{{vars.options.items.0.id | default:}}",
+          "two": "{{vars.options.items.1.id | default:}}",
+          "three": "{{vars.options.items.2.id | default:}}"
+        },
+        "else_value": ""
+      },
+      {
+        "id": "b_pick",
+        "type": "branch",
+        "title": "Did someone pick a booking?"
+      },
+      {
+        "id": "rec_link",
+        "type": "record",
+        "event": "call.closing",
+        "appointment": "{{vars.chosen}}",
+        "start": true,
+        "data": {
+          "recording_id": "{{recording.id}}",
+          "external_id": "{{recording.external_id}}",
+          "conversation": "{{vars.convo.key}}",
+          "linked_by": "{{reaction.user_name | default:}}"
+        },
+        "title": "Link it: this workflow runs again on that booking (marks it showed, edits the review)"
+      },
+      {
+        "id": "q_done",
+        "type": "slack_post",
+        "channel": "{{slack.channel.attention}}",
+        "fallback_channel": [
+          "{{slack.channel.ops}}",
+          "{{slack.channel.calls}}"
+        ],
+        "as": {
+          "name": "Which booking was this call?",
+          "icon": ":grey_question:"
+        },
+        "thread_of": "tag:closing-which:{{vars.convo.first.id}}",
+        "thread_only": true,
+        "unreact": {
+          "of": "tag:closing-which:{{vars.convo.first.id}}",
+          "emojis": [
+            "one",
+            "two",
+            "three",
+            "x"
+          ]
+        },
+        "template": "Linked to the booking, per {{reaction.user_name | default:the team}}; it is marked showed and the review is updated.",
+        "title": "Say who linked it, in the question's thread"
+      },
+      {
+        "id": "q_none",
+        "type": "slack_post",
+        "channel": "{{slack.channel.attention}}",
+        "fallback_channel": [
+          "{{slack.channel.ops}}",
+          "{{slack.channel.calls}}"
+        ],
+        "as": {
+          "name": "Which booking was this call?",
+          "icon": ":grey_question:"
+        },
+        "thread_of": "tag:closing-which:{{vars.convo.first.id}}",
+        "thread_only": true,
+        "unreact": {
+          "of": "tag:closing-which:{{vars.convo.first.id}}",
+          "emojis": [
+            "one",
+            "two",
+            "three",
+            "x"
+          ]
+        },
+        "template": "{{reaction.user_name | prefix:Not linked: none of these, per | default:Nobody answered in two days, so nothing was linked}}.",
+        "title": "Say it stays unlinked, in the question's thread"
+      },
+      {
+        "id": "x_linked",
+        "type": "exit",
+        "reason": "linked_by_the_team"
+      },
+      {
+        "id": "x_unlinked",
+        "type": "exit",
+        "reason": "recorded_unlinked"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "recorded"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "l_conv"
+      },
+      {
+        "from": "t2",
+        "to": "l_conv"
+      },
+      {
+        "from": "l_conv",
+        "to": "a1"
+      },
+      {
+        "from": "a1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "a3"
+      },
+      {
+        "from": "a2",
+        "to": "v_parts"
+      },
+      {
+        "from": "v_parts",
+        "to": "v_rec"
+      },
+      {
+        "from": "v_rec",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "o1",
+        "when": {
+          "exists": "appointment.id"
+        },
+        "label": "appointment matched"
+      },
+      {
+        "from": "b1",
+        "to": "k5",
+        "when": {
+          "and": [
+            {
+              "eq": [
+                "{{event._type}}",
+                "call.closing"
+              ]
+            },
+            {
+              "not": {
+                "exists": "appointment.id"
+              }
+            }
+          ]
+        },
+        "label": "a phone call, no booking lines up"
+      },
+      {
+        "from": "b1",
+        "to": "k2",
+        "else": true,
+        "label": "no appointment matched"
+      },
+      {
+        "from": "o1",
+        "to": "o2"
+      },
+      {
+        "from": "o2",
+        "to": "o3"
+      },
+      {
+        "from": "o3",
+        "to": "o4"
+      },
+      {
+        "from": "k1",
+        "to": "k3"
+      },
+      {
+        "from": "k2",
+        "to": "k4"
+      },
+      {
+        "from": "k3",
+        "to": "s1"
+      },
+      {
+        "from": "k4",
+        "to": "s1"
+      },
+      {
+        "from": "s1",
+        "to": "s2"
+      },
+      {
+        "from": "s2",
+        "to": "r1"
+      },
+      {
+        "from": "r1",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "b_q"
+      },
+      {
+        "from": "o4",
+        "to": "k1"
+      },
+      {
+        "from": "a3",
+        "to": "a2"
+      },
+      {
+        "from": "k5",
+        "to": "s1"
+      },
+      {
+        "from": "b_q",
+        "to": "l_opts",
+        "when": {
+          "and": [
+            {
+              "eq": [
+                "{{event._type}}",
+                "call.closing"
+              ]
+            },
+            {
+              "not": {
+                "exists": "appointment.id"
+              }
+            }
+          ]
+        },
+        "label": "ask which booking"
+      },
+      {
+        "from": "b_q",
+        "to": "x1",
+        "else": true,
+        "label": "linked, or a meeting recording"
+      },
+      {
+        "from": "l_opts",
+        "to": "q_which"
+      },
+      {
+        "from": "q_which",
+        "to": "w_which"
+      },
+      {
+        "from": "w_which",
+        "to": "v_pick"
+      },
+      {
+        "from": "v_pick",
+        "to": "b_pick"
+      },
+      {
+        "from": "b_pick",
+        "to": "rec_link",
+        "when": {
+          "neq": [
+            "{{vars.chosen}}",
+            ""
+          ]
+        },
+        "label": "a booking was picked"
+      },
+      {
+        "from": "b_pick",
+        "to": "q_none",
+        "else": true,
+        "label": "none of them, or nobody answered"
+      },
+      {
+        "from": "rec_link",
+        "to": "q_done"
+      },
+      {
+        "from": "q_done",
+        "to": "x_linked"
+      },
+      {
+        "from": "q_none",
+        "to": "x_unlinked"
+      }
+    ]
+  }
+}
