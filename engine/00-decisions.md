@@ -6314,3 +6314,8 @@ from the outcome (a follow up or a DQ can be either). Dating, PMU and Hair, in t
 empties it), the daily/weekly/monthly wrap-ups show Pitched, Pitch rate and Close rate when pitched, the end-of-day post says
 "not pitched" on a call. GHL: the Sales Call's Pitched field (yes/no) created on Dating and Hair (PMU had it). Each offer's
 `prompt.call_review` asks for `pitched`: Dating's and PMU's were the repo's text, Hair's is its own and got the one line.
+
+**D226 fix (2026-10-25).** The per-offer patch put the end-of-day post's "not pitched" piece inside the per-call list without the
+escaped quotes the list's argument needs, so on Dating, PMU and Hair the post would have printed raw template text (the template
+itself was right). Found by the offer comparison (engine/17); saved fixed on all three, each rendered with the engine's own
+renderer first; no post went out in between. A patch that writes inside a quoted argument is now render-tested before it is saved.
