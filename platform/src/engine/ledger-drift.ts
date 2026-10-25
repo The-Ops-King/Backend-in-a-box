@@ -142,11 +142,14 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     const mapped = cfg!.dispositions[k.disposition.trim().toLowerCase()];
     let meaning = mapped?.meaning;
     if (!mapped || !meaning) { ask("disposition_unmapped", { label, disposition: k.disposition, record_id: k.id }); return; }
-    // pending is half a close and nothing else: paid or signed, not both (both is a close; neither is still a follow up)
+    // D236 (Tyler: "only from cash collected"): pending is a close once cash beyond a deposit is collected from them (D119: a deposit
+    // is a deposit, where the company has that answer), and pending until then: a signature alone does not close it, and no evidence
+    // yet is not a follow up ("show them as pending until we can check")
     if (meaning === "pending") {
-      const ev = await one<{ paid: boolean; signed: boolean }>(c, `select exists (select 1 from payments p where p.company_id=$1 and p.contact_id=$2 and p.status='succeeded') as paid,
-          exists (select 1 from agreements g where g.company_id=$1 and g.contact_id=$2 and g.signed_at is not null) as signed`, [company.id, a.contact_id]);
-      meaning = ev?.paid && ev.signed ? "closed" : ev?.paid || ev?.signed ? "pending" : "follow_up";
+      const paid = await one<{ beyond: boolean; deposit: boolean }>(c, `select bool_or(coalesce(p.kind,'')<>'deposit') as beyond, bool_or(p.kind='deposit') as deposit
+        from payments p where p.company_id=$1 and p.contact_id=$2 and p.status='succeeded'`, [company.id, a.contact_id]);
+      const depositAnswer = Object.values(cfg!.dispositions).some((d) => d.meaning === "deposit");
+      meaning = paid?.beyond ? "closed" : paid?.deposit && depositAnswer ? "deposit" : "pending";
     }
     // before D119 the engine filed a deposit as closed won; a company whose dispositions have no deposit option (unset is the
     // engine's own keys, deposit included: D200) may hold that record so, and it says what GHL says

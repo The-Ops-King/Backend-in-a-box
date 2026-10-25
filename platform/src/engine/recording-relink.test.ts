@@ -118,13 +118,34 @@ describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong per
     expect(r).toMatchObject({ checked: 1, differ: [], unread: [expect.stringMatching(/Quiet\): no transcript from Fathom, so it was not checked/)] });
   });
 
+  it("D236: the same person's call moved onto their booking held late: the extra Sales Call and the note go; tags, card and Slack review stay theirs", async () => {
+    calls.length = 0;
+    const rec = await asOperator(async (c) => {
+      const wf = (await one<{ id: string }>(c, "select workflow_id as id from runs where id=$1", [runId]))!.id;
+      const appt = (await one<{ id: string }>(c, "select id from appointments where external_id='A-BETH' and company_id=$1", [companyId]))!.id;
+      await c.query("update appointments set outcome_term=null, call_outcome_term=null where id=$1", [appt]);   // nothing filed on it yet
+      const r = (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, provider, external_id, title, started_at, recorded_by_email, invitees, transcript, link_status, linked_by) values ($1,$2,'fathom','F-5','Impromptu','2026-10-23T18:00Z','closer@relink.test','[]',$3,'linked','speaker') returning id",
+        [companyId, beth, JSON.stringify([{ speaker: "Cal", email: "closer@relink.test", text: "hi" }, { speaker: "Beth Huffman", text: "hi" }])]))!.id;
+      const ev = (await one<{ id: string }>(c, "insert into events (company_id, contact_id, event_type, source, data, occurred_at) values ($1,$2,'recording.received','fathom',$3,now()) returning id", [companyId, beth, { recording_id: r }]))!.id;
+      const run = (await one<{ id: string }>(c, "insert into runs (company_id, workflow_id, workflow_version, contact_id, triggered_by_event, status, exit_reason, reentry_key, started_at) values ($1,$2,1,$3,$4,'completed','recorded','k5','2026-10-23T18:45:00Z') returning id", [companyId, wf, beth, ev]))!.id;
+      await c.query("insert into events (company_id, contact_id, run_id, event_type, source, data, occurred_at) values ($1,$2,$3,'tag.added','engine',$4,now())", [companyId, beth, run, { tag: "stat-x" }]);
+      await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties, adopted, created_at, updated_at) values ($1,'custom_objects.sales_call','fathom-F-5','REC-EXTRA',$2,'{}',false,now(),now())", [companyId, beth]);
+      await c.query("insert into step_effects (company_id, run_id, node_id, kind, external_id, done_at) values ($1,$2,'r1','record','REC-EXTRA',now())", [companyId, run]);
+      await c.query("insert into slack_posts (company_id, tag, channel, ts, run_id) values ($1,$2,'C-CALLS','9.1',$3)", [companyId, `recording:${r}`, run]);
+      return { r, appt };
+    });
+    const dry = await asOperator((c) => relinkRecording(c, fake, { company: SLUG, recording: rec.r, to: "rules", why: "her call held late" }));
+    expect(dry).toMatchObject({ ok: true, to: { contact: beth, appointment: rec.appt, placed: "held_late" } });
+    if (!dry.ok) return;
+    expect(dry.undo.map((u) => u.what)).toEqual([expect.stringMatching(/delete the record REC-EXTRA/)]);   // no tags, no card, no Slack edit: all hers
+  });
+
   it("the check lists a link the rules would not make, and only that", async () => {
     const roleplay = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, appointment_id, provider, external_id, title, started_at, recorded_by_email, invitees, transcript, link_status, linked_by) values ($1,$2,$3,'fathom','F-2','Roleplay/training','2026-10-22T20:05Z','closer@relink.test','[]',$4,'linked','calendar') returning id",
       [companyId, beth, apptB, JSON.stringify([{ speaker: "Cal", email: "closer@relink.test", text: "you be the client" }, { speaker: "Cal Closer", text: "ok" }])]))!.id);
     const r = await asOperator((c) => checkRecordings(c, fake, companyId, new Date("2026-10-22T00:00Z"), new Date("2026-10-23T00:00Z")));
     expect(r.checked).toBe(3);
-    expect(r.differ).toEqual(expect.arrayContaining([expect.objectContaining({ id: roleplay, now: "Beth Huffman", rules: "internal: no one", why: expect.stringMatching(/only the team spoke/) }),
-      expect.objectContaining({ title: "Impromptu", now: "Beth Huffman", rules: "Beth Huffman (no booking) by speaker" })]));   // after her booking ended: hers, but not that booking
-    expect(r.differ).toHaveLength(2);
+    // the 22:20 call after Beth's booking ended is that booking held late (D236), as it is linked: not listed
+    expect(r.differ).toEqual([expect.objectContaining({ id: roleplay, now: "Beth Huffman", rules: "internal: no one", why: expect.stringMatching(/only the team spoke/) })]);
   });
 });

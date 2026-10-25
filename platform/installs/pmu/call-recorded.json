@@ -189,7 +189,7 @@
     "id": "k5",
     "type": "set_var",
     "key": "appt_line",
-    "value": "⚠️ A closing call by phone that lines up with none of their bookings — nothing marked showed. The team is asked which booking it was."
+    "value": "⚠️ A call that lines up with none of their bookings — nothing marked showed. The team is asked which booking it was."
    },
    {
     "id": "r1",
@@ -327,7 +327,7 @@
      "three",
      "x"
     ],
-    "template": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute closing call{{vars.parts_line}} by phone with <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> ({{recording.started_at | date_company}}) that lines up with none of their bookings. Which booking was it?\n{{vars.options.items | each:\"{{number}}. {{item.starts_at | date_company}} with {{item.closer | default:no closer}} ({{item.status}})\" | join:\"\\n\" | default:They have no closing call booked in the two weeks around it.}}\nTap 1️⃣ 2️⃣ or 3️⃣ for that booking (the first three), or ❌ if it was none of them. Nothing is marked until someone does; the question closes in two days.",
+    "template": "{{recording.closer.name | default:A closer}} had a {{vars.convo.total_min | default:?}}-minute call{{vars.parts_line}} with <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> ({{recording.started_at | date_company}}) that lines up with none of their bookings. Which booking was it?\n{{vars.options.items | each:\"{{number}}. {{item.starts_at | date_company}} with {{item.closer | default:no closer}} ({{item.status}})\" | join:\"\\n\" | default:They have no closing call booked in the two weeks around it.}}\nTap 1️⃣ 2️⃣ or 3️⃣ for that booking (the first three), or ❌ if it was none of them. Nothing is marked until someone does; the question closes in two days.",
     "title": "Ask which booking the call was"
    },
    {
@@ -440,6 +440,50 @@
     "id": "x1",
     "type": "exit",
     "reason": "recorded"
+   },
+   {
+    "id": "v_disp",
+    "type": "set_var",
+    "title": "A close the AI hears is pending until cash is collected (D236)",
+    "key": "disp",
+    "value": "{{vars.outcome.disposition | default:}}",
+    "pick": {
+     "closed_won": "close_pending"
+    },
+    "else_value": "{{vars.outcome.disposition | default:}}"
+   },
+   {
+    "id": "b_cl",
+    "type": "branch",
+    "title": "A client's call? (cash collected or a close filed before it)"
+   },
+   {
+    "id": "n_cl",
+    "type": "note",
+    "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
+    "title": "A client's call: the note only (D236)"
+   },
+   {
+    "id": "x_cl",
+    "type": "exit",
+    "reason": "client_call"
+   },
+   {
+    "id": "k7",
+    "type": "set_var",
+    "key": "call_key",
+    "value": "{{appointment.slot_key}}"
+   },
+   {
+    "id": "k6",
+    "type": "set_var",
+    "key": "appt_line",
+    "value": "*Follow-up* on the call of {{appointment.starts_at | date_company}}: its Sales Call is updated"
+   },
+   {
+    "id": "b_r",
+    "type": "branch",
+    "title": "A booking to write the Sales Call on?"
    }
   ],
   "edges": [
@@ -464,16 +508,30 @@
     "to": "a3"
    },
    {
-    "from": "a2",
-    "to": "v_parts"
-   },
-   {
     "from": "v_parts",
     "to": "v_rec"
    },
    {
     "from": "v_rec",
     "to": "b1"
+   },
+   {
+    "from": "b1",
+    "to": "k7",
+    "when": {
+     "and": [
+      {
+       "exists": "appointment.id"
+      },
+      {
+       "eq": [
+        "{{event.placed}}",
+        "follow_up"
+       ]
+      }
+     ]
+    },
+    "label": "a follow-up on a sale already held"
    },
    {
     "from": "b1",
@@ -489,9 +547,19 @@
     "when": {
      "and": [
       {
-       "eq": [
-        "{{event._type}}",
-        "call.closing"
+       "or": [
+        {
+         "eq": [
+          "{{event._type}}",
+          "call.closing"
+         ]
+        },
+        {
+         "eq": [
+          "{{event.placed}}",
+          "unbooked"
+         ]
+        }
        ]
       },
       {
@@ -501,7 +569,7 @@
       }
      ]
     },
-    "label": "a phone call, no booking lines up"
+    "label": "no booking lines up: the team is asked"
    },
    {
     "from": "b1",
@@ -538,10 +606,6 @@
     "to": "s2"
    },
    {
-    "from": "s2",
-    "to": "r1"
-   },
-   {
     "from": "r1",
     "to": "n1"
    },
@@ -554,10 +618,6 @@
     "to": "k1"
    },
    {
-    "from": "a3",
-    "to": "a2"
-   },
-   {
     "from": "k5",
     "to": "s1"
    },
@@ -567,9 +627,19 @@
     "when": {
      "and": [
       {
-       "eq": [
-        "{{event._type}}",
-        "call.closing"
+       "or": [
+        {
+         "eq": [
+          "{{event._type}}",
+          "call.closing"
+         ]
+        },
+        {
+         "eq": [
+          "{{event.placed}}",
+          "unbooked"
+         ]
+        }
        ]
       },
       {
@@ -631,6 +701,87 @@
    {
     "from": "q_none",
     "to": "x_unlinked"
+   },
+   {
+    "from": "a3",
+    "to": "v_disp"
+   },
+   {
+    "from": "v_disp",
+    "to": "a2"
+   },
+   {
+    "from": "a2",
+    "to": "b_cl"
+   },
+   {
+    "from": "b_cl",
+    "to": "n_cl",
+    "when": {
+     "eq": [
+      "{{event.placed}}",
+      "client"
+     ]
+    },
+    "label": "a client's call"
+   },
+   {
+    "from": "b_cl",
+    "to": "v_parts",
+    "else": true,
+    "label": "a sales call"
+   },
+   {
+    "from": "n_cl",
+    "to": "x_cl"
+   },
+   {
+    "from": "k7",
+    "to": "k6"
+   },
+   {
+    "from": "k6",
+    "to": "s1"
+   },
+   {
+    "from": "s2",
+    "to": "b_r"
+   },
+   {
+    "from": "b_r",
+    "to": "n1",
+    "when": {
+     "and": [
+      {
+       "or": [
+        {
+         "eq": [
+          "{{event._type}}",
+          "call.closing"
+         ]
+        },
+        {
+         "eq": [
+          "{{event.placed}}",
+          "unbooked"
+         ]
+        }
+       ]
+      },
+      {
+       "not": {
+        "exists": "appointment.id"
+       }
+      }
+     ]
+    },
+    "label": "none yet: asked first"
+   },
+   {
+    "from": "b_r",
+    "to": "r1",
+    "else": true,
+    "label": "a booking, or a meeting recording"
    }
   ]
  }

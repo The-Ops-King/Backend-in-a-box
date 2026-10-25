@@ -5,7 +5,7 @@ import { loadCompany } from "./context";
 import { slackBot } from "./slack-conn";
 import { contactTags } from "./contact-ops";
 import { undoRunWrites } from "./undo";
-import { fittingBooking, linkRecording, resolveRecording, type RecordingInput, type RecordingRow } from "./recordings";
+import { fittingBooking, linkRecording, placeCall, resolveRecording, type Placed, type RecordingInput, type RecordingRow } from "./recordings";
 
 /**
  * D227: a recording linked to the wrong person is moved, and everything it set off on them is put back (Tyler: "the resolve should
@@ -23,7 +23,7 @@ import { fittingBooking, linkRecording, resolveRecording, type RecordingInput, t
  */
 export type RelinkAsk = { company: string; recording: string; to: string; why: string; dryRun?: boolean; by?: string };
 type Done = { what: string; done?: boolean; error?: string };
-export type RelinkResult = { ok: true; dryRun: boolean; recording: string; from: { contact: string; name: string; appointment: string | null } | null; to: { contact: string; name: string; appointment: string | null; by: string } | { linked: false; reason: string }; undo: Done[]; kept: string[]; runs_started?: number }
+export type RelinkResult = { ok: true; dryRun: boolean; recording: string; from: { contact: string; name: string; appointment: string | null } | null; to: { contact: string; name: string; appointment: string | null; by: string; placed?: Placed } | { linked: false; reason: string }; undo: Done[]; kept: string[]; runs_started?: number }
   | { ok: false; status: number; error: string };
 
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -37,7 +37,7 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
   const nameOf = async (id: string) => (await one<{ n: string }>(c, "select trim(coalesce(first_name,'')||' '||coalesce(last_name,'')) as n from contacts where id=$1", [id]))?.n || "someone";
 
   // where it goes
-  let target: { contact: string; appointment: string | null; by: string } | { reason: string };
+  let target: { contact: string; appointment: string | null; by: string; placed?: Placed } | { reason: string };
   if (a.to === "none") target = { reason: `unlinked by the operator: ${a.why.trim()}` };
   else if (a.to === "rules") {
     let transcript = r.transcript;
@@ -48,10 +48,11 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
     if (!transcript?.length && r.provider === "fathom") return { ok: false, status: 409, error: "Fathom gave no transcript for this recording just now, so who spoke cannot be read: try again, or name the contact (or \"none\")" };
     const input: RecordingInput = { provider: r.provider, externalId: r.external_id, startedAt: r.started_at, recordedBy: { name: r.recorded_by_name ?? undefined, email: r.recorded_by_email ?? undefined }, invitees: r.invitees ?? [], transcript: transcript ?? undefined };
     const res = await resolveRecording(c, co.id, input);
-    target = res.match ? { contact: res.match.contactId, appointment: res.match.appointmentId ?? null, by: res.match.by } : { reason: res.reason ?? "no match" };
+    target = res.match ? { contact: res.match.contactId, appointment: res.match.appointmentId ?? null, by: res.match.by, placed: res.match.placed } : { reason: res.reason ?? "no match" };
   } else {
     if (!UUID.test(a.to) || !(await one(c, "select 1 from contacts where company_id=$1 and id=$2", [co.id, a.to]))) return { ok: false, status: 404, error: "to: no such contact (a contact id, \"rules\" or \"none\")" };
-    target = { contact: a.to, appointment: await fittingBooking(c, co.id, a.to, r.started_at), by: "manual" };
+    const fit = await fittingBooking(c, co.id, a.to, r.started_at), p = fit ? null : await placeCall(c, co.id, a.to, r.started_at);
+    target = { contact: a.to, appointment: fit ?? p!.appointmentId, by: "manual", ...(p ? { placed: p.placed } : {}) };
   }
   const same = "contact" in target && r.contact_id === target.contact && (r.appointment_id ?? null) === target.appointment;
   if (same) return { ok: false, status: 409, error: "the recording is already linked there" };
@@ -63,6 +64,9 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
   const runs = old ? await many<{ id: string; started_at: Date; finished_at: Date | null }>(c, `select r.id, r.started_at, r.finished_at from runs r join events e on e.id=r.triggered_by_event
     where r.company_id=$1 and r.contact_id=$2 and e.data->>'recording_id'=$3 order by r.started_at`, [co.id, old.contact, r.id]) : [];
   const runIds = runs.map((x) => x.id);
+  // D236: the same person, another booking (a call held late, a follow-up on their sale): what is theirs stays (tags, card, the Slack
+  // review, which the run on the right booking edits in place); only what was about the booking or made twice is put back
+  const samePerson = !!old && "contact" in target && target.contact === old.contact;
   if (old && runIds.length) {
     // the booking's outcome, back to what it was before the first of them set it
     const set = old.appointment ? await one<{ data: { previous_outcome: string | null; previous_call_outcome: string | null } }>(c, `select data from events where company_id=$1 and appointment_id=$2 and event_type='appointment.outcome' and run_id = any($3::uuid[]) order by id limit 1`, [co.id, old.appointment, runIds]) : null;
@@ -76,12 +80,12 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
     }
     // tags those runs added
     const tags = (await many<{ tag: string }>(c, "select distinct data->>'tag' as tag from events where company_id=$1 and contact_id=$2 and event_type='tag.added' and run_id = any($3::uuid[]) and data->>'tag' is not null", [co.id, old.contact, runIds])).map((t) => t.tag);
-    if (tags.length) { add(`${old.name}: tag${tags.length > 1 ? "s" : ""} ${tags.join(", ")} off`, async () => { const t = await contactTags(c, adapters, { company: a.company, contact: old.contact, remove: tags, why: a.why, dryRun: false }); if (!t.ok) throw new Error(t.error); }); }
+    if (tags.length && !samePerson) { add(`${old.name}: tag${tags.length > 1 ? "s" : ""} ${tags.join(", ")} off`, async () => { const t = await contactTags(c, adapters, { company: a.company, contact: old.contact, remove: tags, why: a.why, dryRun: false }); if (!t.ok) throw new Error(t.error); }); }
     // the card those runs moved: back to the stage it came from
     const moves = await many<{ result: { from_stage?: string; crm_card?: string; card?: string } }>(c, "select s.result from run_steps s where s.run_id = any($1::uuid[]) and s.node_type='pipeline_card' and s.status='ok' and s.result->>'card'='moved' order by s.started_at", [runIds]);
     const first = new Map<string, string>();
     for (const m of moves) if (m.result.crm_card && m.result.from_stage && !first.has(m.result.crm_card)) first.set(m.result.crm_card, m.result.from_stage);
-    for (const [card, stage] of first) {
+    for (const [card, stage] of samePerson ? [] : first) {
       const row = await one<{ ghl_pipeline_id: string; name: string; ghl_stage_id: string }>(c, "select ghl_pipeline_id, name, ghl_stage_id from pipeline_cards where company_id=$1 and ghl_opportunity_id=$2", [co.id, card]);
       if (!row) { kept.push(`card ${card}: no longer the engine's, not moved back`); continue; }
       add(`${old.name}'s card "${row.name}": back to the stage it came from (${stage}), open`, async () => { await adapters.write.updateOpportunity(ac, card, { pipelineId: row.ghl_pipeline_id, stageId: stage, status: "open" }); await c.query("update pipeline_cards set ghl_stage_id=$2, status='open', updated_at=now() where company_id=$1 and ghl_opportunity_id=$3", [co.id, stage, card]); });
@@ -121,13 +125,13 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
     }
     // the Slack posts: edited to say so
     const posts = await many<{ channel: string; ts: string; tag: string | null }>(c, "select channel, ts, tag from slack_posts where company_id=$1 and run_id = any($2::uuid[])", [co.id, runIds]);
-    if (posts.length) {
+    if (posts.length && !samePerson) {
       const now = "contact" in target ? `It is ${await nameOf(target.contact)}'s.` : "It is now linked to no one.";
       const text = `~This call was not ${old.name}'s.~ ${now} (${a.why.trim()})`;
       add(`edit ${posts.length} Slack post${posts.length > 1 ? "s" : ""} to: ${text}`, async () => { const bot = await slackBot(c, co.id); if (!bot || !adapters.notifier.update) throw new Error("Slack cannot edit posts here"); for (const p of posts) await adapters.notifier.update(bot.token, p.channel, p.ts, text); });
     }
   }
-  const toOut = "contact" in target ? { contact: target.contact, name: await nameOf(target.contact), appointment: target.appointment, by: target.by } : { linked: false as const, reason: target.reason };
+  const toOut = "contact" in target ? { contact: target.contact, name: await nameOf(target.contact), appointment: target.appointment, by: target.by, ...(target.placed ? { placed: target.placed } : {}) } : { linked: false as const, reason: target.reason };
   // what they made goes first, so nothing is copied back from a record that is about to go
   const ordered = [...steps.filter((x) => x.first), ...steps.filter((x) => !x.first)];
   if (a.dryRun !== false) return { ok: true, dryRun: true, recording: r.id, from: old, to: toOut, undo: ordered.map((x) => ({ what: x.what })), kept };
@@ -141,7 +145,7 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
   await c.query("update recordings set contact_id=null, appointment_id=null, link_status='unlinked', linked_by=null, unlinked_reason=$2 where id=$1", [r.id, "contact" in target ? "moving" : target.reason]);
   let started: number | undefined;
   if ("contact" in target) {
-    const l = await linkRecording(c, co.id, r.id, target.contact, { remember: false, appointmentId: target.appointment, by: target.by === "manual" ? "manual" : target.by });
+    const l = await linkRecording(c, co.id, r.id, target.contact, { remember: false, appointmentId: target.appointment, by: target.by === "manual" ? "manual" : target.by, placed: target.placed });
     started = l.started;
   }
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'recording.relinked','recording',$2,$3,$4)",

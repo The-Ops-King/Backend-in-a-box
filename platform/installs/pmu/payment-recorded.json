@@ -209,7 +209,8 @@
     "key": "{{records.sales_call.key}}",
     "if_missing": "skip",
     "properties": {
-     "cash_collected": "{{event.running_total}}"
+     "cash_collected": "{{event.running_total}}",
+     "disposition": "{{vars.close_disp | default:}}"
     }
    },
    {
@@ -261,6 +262,18 @@
     "id": "x1",
     "type": "exit",
     "reason": "recorded"
+   },
+   {
+    "id": "v_close",
+    "type": "set_var",
+    "title": "Cash beyond a deposit is a close (D236)",
+    "key": "close_disp",
+    "value": "{{event.kind}}",
+    "pick": {
+     "deposit": "",
+     "refund": ""
+    },
+    "else_value": "closed_won"
    }
   ],
   "edges": [
@@ -435,7 +448,7 @@
    },
    {
     "from": "b2",
-    "to": "r2",
+    "to": "v_close",
     "when": {
      "exists": "records.sales_call.key"
     },
@@ -462,6 +475,10 @@
    {
     "from": "f1",
     "to": "n4"
+   },
+   {
+    "from": "v_close",
+    "to": "r2"
    }
   ]
  }
