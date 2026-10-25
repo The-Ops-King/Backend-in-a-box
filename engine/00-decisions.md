@@ -6344,3 +6344,27 @@ each offer's dry run repeated against an unchanged live version, then saved: Dat
 v7→v8, Hair Call booked v18→v19. Read back: each finds or creates the contact, has the card fork and the no-link steps; enabled
 and mode as they were. Branding set the same day (Tyler approved): Dating "Nelly Sudri" #281A39, Hair "Save Your Hair Today"
 #3D7ACF; no logo for either (the sites have none but the name in type).
+
+## D236. A close is cash collected; a call no booking fits is placed by what the ledger holds (2026-10-25)
+
+Erica Asturrizaga's consultation (booked Oct 23) was held on an impromptu Meet on Oct 24: the engine made a second Sales Call for it,
+keyed by the recording, which the AI marked closed won; Rafaela Santana's onboarding call as a client made her a second Sales Call too.
+Tyler: "the AI shouldn't be marking as closed. at least not permanently. it should only be marking closed when cash is collected. (or
+in EOD)"; Rafaela "shouldn't have gotten a second sales call, it should have updated the first one"; existing clients' calls "don't
+need a slack message"; "show them as pending until we can check". Every offer ("Those should be for all offers"), saved one at a time
+with a dry run each (Sales call recorded and Payment recorded on Dating Nelly, PMU and Hair); no send lock changed.
+
+- **A close is cash.** Sales call recorded writes a close the AI hears as close pending (`v_disp`); the Slack review says so. A Sales
+  Call is closed won by the closer filing it (the end of day) or by cash beyond a deposit (Payment recorded's `v_close`, in the same
+  write as cash collected). The ledger follows: pending is a close once cash beyond a deposit is collected, a deposit where the
+  company has that answer, and pending until then (a signature alone no longer makes it half a close, nor no evidence a follow up).
+  The end of day pre-fills the AI's close as Pending.
+- **A call no booking fits** (the person known, D227), placed in this order (`placeCall`): **client** (cash collected, or a close or
+  deposit filed on an earlier call): the note only, no Sales Call, no Slack; **held late**: exactly one closing booking of theirs in
+  the 3 days before with nothing filed: the call is that booking; **follow-up**: their latest closing call held before: the call
+  updates that booking's Sales Call (nothing marked showed again); **unbooked**: a sales booking of theirs within two weeks either
+  side: no Sales Call yet, the team is asked which booking it was (the question the phone calls had); **no booking** near it: the call
+  keeps its own Sales Call, as before. The recording event carries `placed`.
+- The templates carry the same (`fixtures/before-d236` holds them as they were for D118's guard); PMU's copies are rebuilt.
+
+Tests: `recordings.test.ts`, `health.drift.test.ts`, the scenarios.

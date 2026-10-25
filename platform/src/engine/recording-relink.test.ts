@@ -123,8 +123,7 @@ describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong per
       [companyId, beth, apptB, JSON.stringify([{ speaker: "Cal", email: "closer@relink.test", text: "you be the client" }, { speaker: "Cal Closer", text: "ok" }])]))!.id);
     const r = await asOperator((c) => checkRecordings(c, fake, companyId, new Date("2026-10-22T00:00Z"), new Date("2026-10-23T00:00Z")));
     expect(r.checked).toBe(3);
-    expect(r.differ).toEqual(expect.arrayContaining([expect.objectContaining({ id: roleplay, now: "Beth Huffman", rules: "internal: no one", why: expect.stringMatching(/only the team spoke/) }),
-      expect.objectContaining({ title: "Impromptu", now: "Beth Huffman", rules: "Beth Huffman (no booking) by speaker" })]));   // after her booking ended: hers, but not that booking
-    expect(r.differ).toHaveLength(2);
+    // the 22:20 call after Beth's booking ended is that booking held late (D236), as it is linked: not listed
+    expect(r.differ).toEqual([expect.objectContaining({ id: roleplay, now: "Beth Huffman", rules: "internal: no one", why: expect.stringMatching(/only the team spoke/) })]);
   });
 });

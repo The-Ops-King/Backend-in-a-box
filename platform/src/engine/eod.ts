@@ -205,11 +205,12 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     // failed recording or a phone call never becomes a no-show because nobody changed a default
     const over = DateTime.fromJSDate(a.ends_at ?? a.starts_at) < now;
     // what the ledger says first (a recorded or marked outcome, then money), then Jev's read of the transcript as the tentative pre-set
+    // (D236: the AI never pre-sets Closed: a close it hears is Pending until cash is collected or the closer files it)
     // the company's own answer for what the ledger holds (B6): each outcome is found by what it means, not by its key
     const byCall = a.call_outcome_cat ? v({ call_outcome: a.call_outcome_cat as CallMeaning }) || (a.call_outcome_cat === "deposit" ? v({ call_outcome: "closed" }) : "") : "";
     const outcome: string = a.outcome_cat === "noshow" || a.status === "noshow" ? v({ attendance: "noshow" }) : a.outcome_cat === "rescheduled" ? v({ attendance: "rescheduled" })
       : byCall || (paid > 0 ? (pay?.all_deposit ? v({ call_outcome: "deposit" }) || v({ call_outcome: "closed" }) : v({ call_outcome: "closed" })) : won ? v({ call_outcome: "closed" })
-      : disp === "closed_won" ? v({ call_outcome: "closed" }) : disp === "follow_up" ? v({ call_outcome: "follow_up" }) : disp === "close_pending" ? v({ call_outcome: "pending" }) || v({ call_outcome: "follow_up" }) : disp === "lost" ? v({ call_outcome: "lost" }) : disp === "dq" ? v({ call_outcome: "unqualified" }) : "");
+      : disp === "closed_won" || disp === "close_pending" ? v({ call_outcome: "pending" }) || v({ call_outcome: "follow_up" }) : disp === "follow_up" ? v({ call_outcome: "follow_up" }) : disp === "lost" ? v({ call_outcome: "lost" }) : disp === "dq" ? v({ call_outcome: "unqualified" }) : "");
     const money = isMoney(outcome, fields), contracted = isRevenueOutcome(outcome, fields);
     // A1 (D88): a card dragged to Lost or Disqualified filed the outcome; the form says so and asks why
     const moved = a.via === "card_moved" && (a.call_outcome_cat === "lost" || a.call_outcome_cat === "unqualified") ? `${a.notes ?? "Moved in the CRM"}. Say why.` : "";

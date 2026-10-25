@@ -267,11 +267,11 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       const again = drift((await sweep()).findings);
       expect(await resultOf("AP11")).toBe("lost");
       expect(await asOperator(async (c) => (await one<{ name: string }>(c, "select t.name from appointments a join company_terms t on t.id=a.call_outcome_term where a.company_id=$1 and a.external_id='AP11'", [companyId]))?.name)).toBe("Financing denied");
-      expect(await resultOf("AP12")).toBe("follow_up");   // close pending in GHL, but nothing paid or signed: still a follow up
+      expect(await resultOf("AP12")).toBe("pending");   // D236: close pending in GHL and no cash yet: pending until it is collected
       const k3 = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K3'", [companyId])))!.id;
       await asOperator((c) => c.query("insert into agreements (company_id, contact_id, external_id, status, sent_at, signed_at) values ($1,$2,'DOC-K3','completed',now(),now())", [companyId, k3]));
       await sweep();
-      expect(await resultOf("AP12")).toBe("pending");     // signed, not paid: half a close
+      expect(await resultOf("AP12")).toBe("pending");     // D236: signed, not paid: a signature alone does not close it
       await asOperator((c) => c.query("insert into payments (company_id, contact_id, whop_payment_id, amount, status, paid_at) values ($1,$2,'pay-k3',500,'succeeded',now())", [companyId, k3]));
       await sweep();
       expect(await resultOf("AP12")).toBe("closed");      // signed and paid: a close
