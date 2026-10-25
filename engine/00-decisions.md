@@ -6307,3 +6307,10 @@ was 36.7 s of a 58.5 s tick, every minute. Now each pass keeps every event's own
 is read again once an hour (`FULL_BOOKING_READ_MS`), so a change the source did not stamp is still seen. This is no less current
 than before: the invitee cache was already keyed on the event's stamp. GHL calendars give no stamps and are read as before.
 Tests: `poll.booking-delta.test.ts`.
+
+**D226 applied (2026-10-25, Tyler: "Go ahead on all three").** Tyler: pitched is "just a check mark" on a call that showed, apart
+from the outcome (a follow up or a DQ can be either). Dating, PMU and Hair, in that order, each a patch of the offer's own copy
+(never the template), dry run first: Call outcome filed writes Pitched (v_pitch → the showed record; a no-show or a call moved
+empties it), the daily/weekly/monthly wrap-ups show Pitched, Pitch rate and Close rate when pitched, the end-of-day post says
+"not pitched" on a call. GHL: the Sales Call's Pitched field (yes/no) created on Dating and Hair (PMU had it). Each offer's
+`prompt.call_review` asks for `pitched`: Dating's and PMU's were the repo's text, Hair's is its own and got the one line.
