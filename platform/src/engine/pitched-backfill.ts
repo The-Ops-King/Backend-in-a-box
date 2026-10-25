@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { many, one } from "@/db/client";
+import { many } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
 import { loadCompany } from "./context";
 import { transcriptFor } from "./transcripts";

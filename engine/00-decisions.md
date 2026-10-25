@@ -6319,3 +6319,22 @@ empties it), the daily/weekly/monthly wrap-ups show Pitched, Pitch rate and Clos
 escaped quotes the list's argument needs, so on Dating, PMU and Hair the post would have printed raw template text (the template
 itself was right). Found by the offer comparison (engine/17); saved fixed on all three, each rendered with the engine's own
 renderer first; no post went out in between. A patch that writes inside a quoted argument is now render-tested before it is saved.
+
+## D235. One Call booked for every offer: find or create the contact, the card fork, no-link at booking (2026-10-25)
+
+Tyler: "standardize as much as possible while linking to their own process"; "The no-meeting-link alert is at booking on all
+offers ... No 'link coming' text to the contact." The template's Call booked now carries what Dating's closing call (D105, D107)
+and Hair's copy had apart: after the booking paths, one fork moves the closer card. A new booking goes to Scheduled, named
+"-- Direct" / "-- Setter Booked", with the video task. A reschedule moves the card only from Scheduled or Cancelled
+(a card past the call stays), keeps its name, makes no second task, and logs the old slot's Sales Call as rescheduled. A call with
+no meeting link gets 🔗 on the booking card, a thread note asking the closer to send the link, and an issue in the no-link channel
+(the alerts channel when that is unbound). This supersedes D208's removal for the closing call; the prospect is told nothing.
+The template already found or created the contact in GHL (D141) and carried the ⚠️ texts-off note (D188).
+
+Two references became optional so no offer's Call booked is switched off for want of them: the Cancelled stage in the
+reschedule guard (unbound, only a Scheduled card moves) and the setter-owner field on the closer card (unbound, not written).
+The playbooks build from it: Dating's closing copy is the template with its call type; its triage copy drops the closer side and
+the no-link steps (a phone call); PMU's one-board copy as before. Applied to each offer's own copy, dry run first, Dating, PMU,
+Hair. Dating: the no-link steps. PMU: find-or-create in place of the hour-long wait, ⚠️ and no-link. Hair (patched live, no
+playbook): find-or-create and the fork; its card words, Sales Call properties and Calendly-worded no-link steps stay. Tests:
+`journey.test.ts` (a booking with no meeting link), `dating-copies.test.ts`, `sweep.test.ts`.

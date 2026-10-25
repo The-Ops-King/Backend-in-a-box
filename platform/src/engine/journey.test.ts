@@ -96,7 +96,7 @@ const newContact = (ghlId: string, first: string, last: string, email: string, p
   return id;
 });
 const leadCreated = (contactId: string) => asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: {} }), { contact: { id: contactId } }));
-const snap = (id: string, ghlContact: string, start: DateTime, over: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => ({ id, calendarId: "CAL", contactId: ghlContact, assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), raw: {}, ...over });
+const snap = (id: string, ghlContact: string, start: DateTime, over: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => ({ id, calendarId: "CAL", contactId: ghlContact, assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), meetingUrl: "https://zoom.us/j/1", raw: {}, ...over });
 const book = async (s: AppointmentSnapshot) => { apptStore.set(s.id, s); await asOperator(async (c) => { const { row, adapterCompany } = await loadCompany(c, companyId); await applyAppointment(c, row, adapterCompany, fake, s); }); };
 const pay = (contactId: string, paymentId: string, amount: number) => asOperator(async (c) => { const ev = await applyPayment(c, companyId, contactId, { whopPaymentId: paymentId, amount, currency: "USD", status: "succeeded", paidAt: new Date(), raw: {} }); return dispatchEvent(c, ev, { contact: { id: contactId } }); });
 /** One pass of the cards poll for this company, as the tick would run it (D61). */
@@ -324,6 +324,22 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
   });
 
   // ---- a call booked five hours out ----
+  describe("a booking with no meeting link (every offer's Call booked, 2026-10-25)", () => {
+    it("🔗 on the booking card, a thread note asking the closer to send the link, and an issue in the alerts channel (no no-link channel bound)", async () => {
+      const lin = await newContact("LIN1", "Lin", "Okafor", "lin@x.com", "+16025550199");
+      const A = daysOut(3, 14);
+      await book(snap("A-LIN", "LIN1", A, { meetingUrl: undefined }));
+      await tickAt(A.minus({ days: 2 }));
+      const booked = await lastRun("call-booked", lin);
+      expect(booked).toMatchObject({ status: "completed" });
+      expect(await stepStatus(booked.id, ["n_nolink_note", "n_nolink_alert"])).toEqual({ n_nolink_note: "ok", n_nolink_alert: "ok" });
+      const ts = (await postTs(`appointment:${booked.appointment_id}`))!;
+      expect(reactionsOn(ts)).toEqual(["link"]);
+      expect(threadOf(ts)).toEqual([expect.stringMatching(/^🔗 No meeting link on this call\. .+, please send them the link\.$/)]);
+      expect(posts.filter((p) => p.channel === SLACK.alerts && /Lin Okafor's call .+ has no meeting link/.test(p.text))).toHaveLength(1);
+    });
+  });
+
   describe("a call booked five hours out: what the prospect receives", () => {
     let kai: string, run: Run, bookingTs: string;
     const A = daysOut(1, 15);          // tomorrow 3pm, their time (so "the morning of" applies: the call is at 11am or later)
@@ -370,7 +386,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       await tickAt(A.minus({ minutes: 5 }));
       const booked = await lastRun("call-booked", kai);
       expect(booked).toMatchObject({ status: "completed", exit_reason: "booked" });
-      expect(await stepStatus(booked.id, ["k3", "n4"])).toEqual({ k3: "skipped", n4: "ok" });
+      expect(await stepStatus(booked.id, ["k3", "c_rs", "n4"])).toEqual({ c_rs: "ok", n4: "ok" });   // a reschedule takes the card fork: no second video task
       const card = posts.at(-1)!;
       expect(card).toMatchObject({ threadTs: undefined, as: { name: "Call rescheduled", icon: ":repeat:" } }); expect(card.text).toMatch(/^\*Name:\*/); expect(card.text).not.toContain("Rescheduled to");
       expect(posts.filter((p) => p.threadTs === bookingTs && /Rescheduled/.test(p.text))).toEqual([]);

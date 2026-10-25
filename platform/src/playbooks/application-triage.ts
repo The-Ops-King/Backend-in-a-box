@@ -221,27 +221,8 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
  * fork's c_new / c_rs) and k3's and k5's "only if" (the fork's ways say it); nothing else.
  */
 function bookedWithFork(): Def {
-  const d = load("call-booked");
-  for (const id of ["s4", "b5"]) drop(d, id);
-  after(d, "s2b", { id: "s_suffix", type: "set_var", key: "card_suffix", value: "Direct" });
-  after(d, "b2b", { id: "b_suffix", type: "set_var", key: "card_suffix", value: "Setter Booked" });
-  const edges = d.edges as Edge[];
-  if (edges.filter((e) => e.to === "k3").map((e) => e.from).sort().join() !== "b6,s5") throw new Error("Call booked's paths no longer meet at k3");
-  const card = { type: "pipeline_card", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_scheduled}}", name: "{{contact.name}} -- {{vars.card_suffix}}", assign_to: "{{appointment.closer.ghl_user_id | default:}}",
-    fields: [{ id: "{{crm.field_opportunity_setter_owner}}", value: "{{appointment.set_by | default:}}" }] };
-  d.nodes.splice(d.nodes.findIndex((n) => n.id === "k3"), 0,
-    { id: "f_card", type: "branch", title: "A new booking or a reschedule?" },
-    { ...card, id: "c_new", title: "Closer card → Scheduled, named -- Direct / -- Setter Booked" },
-    { ...card, id: "c_rs", title: "Closer card → Scheduled, if it is before the call (its name stays)", keep_name: true, from_stages: ["{{crm.stage_closer_scheduled}}", "{{crm.stage_closer_cancelled}}"] });
-  d.edges = edges.filter((e) => e.to !== "k3" && e.from !== "k3" && e.from !== "k5");
-  (d.edges as Edge[]).push({ from: "s5", to: "f_card" }, { from: "b6", to: "f_card" },
-    { from: "f_card", to: "c_rs", label: "a reschedule", when: RESCHEDULE }, { from: "f_card", to: "c_new", label: "a new booking", else: true },
-    { from: "c_new", to: "k3" }, { from: "k3", to: "k4" }, { from: "c_rs", to: "k5" }, { from: "k5", to: "k4" });
-  delete node(d, "k3").only_if; delete node(d, "k5").only_if;
-  node(d, "k5").title = "The Sales Call for the old time: logged as rescheduled";
-  const k5 = d.nodes.splice(d.nodes.findIndex((n) => n.id === "k5"), 1)[0];
-  d.nodes.splice(d.nodes.findIndex((n) => n.id === "k3") + 1, 0, k5);
-  return d;
+  // the template carries the fork and the no-link steps (D235); Dating's closing call takes it as is
+  return load("call-booked");
 }
 
 const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
@@ -260,19 +241,21 @@ const rechannel = (d: Def, slot?: string) => {
  */
 function triageBooked(): Def {
   const d = load("call-booked");
-  for (const id of ["s4", "b5"]) drop(d, id);
+  // a triage call is a phone call: no meeting link to ask for, and no closer card (the fork's)
+  for (const id of ["n_nolink_note", "n_nolink_alert", "s_suffix", "b_suffix"]) drop(d, id);
   const edges = d.edges as Edge[];
-  if (edges.filter((e) => e.to === "k3").map((e) => e.from).sort().join() !== "b6,s5") throw new Error("Call booked's paths no longer meet at k3");
+  if (edges.filter((e) => e.to === "f_card").map((e) => e.from).sort().join() !== "b6,s5") throw new Error("Call booked's paths no longer meet at the card fork");
   if ((edges.filter((e) => e.from === "k4").map((e) => e.to)).join() !== "v4") throw new Error("Call booked's record no longer leads to the card words");
   const rec = "{{crm.object_discovery_call | default:custom_objects.discovery_call}}";
   const props = { display_label: "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}", external_id: "{{appointment.slot_key}}", contact_id: "{{contact.ghl_contact_id | default:}}",
     occurred_at: "{{appointment.starts_at | date_company}}", setter: "{{appointment.closer.name | default:}}", outcome: "scheduled" };
-  d.nodes = d.nodes.filter((n) => !["k3", "k4", "k5"].includes(n.id));
+  const gone = ["f_card", "c_new", "c_rs", "k3", "k4", "k5"];
+  d.nodes = d.nodes.filter((n) => !gone.includes(n.id));
   d.nodes.splice(d.nodes.findIndex((n) => n.id === "v4"), 0,
     { id: "d_rs", type: "crm_record", object: rec, key: "{{event.slot.from | default:}}", if_missing: "skip", only_if: RESCHEDULE, properties: { outcome: "rescheduled" }, title: "The Discovery Call for the old time: logged as rescheduled" },
     { id: "d1", type: "crm_record", object: rec, key: "{{appointment.slot_key}}", owner: "{{appointment.closer.ghl_user_id | default:}}", properties: props, title: "The triage call's Discovery Call record",
       relate: [{ association: "{{crm.assoc_discovery_call_contact}}", first: "{{contact.ghl_contact_id | default:}}", second: "{{record.id}}" }] });
-  d.edges = edges.filter((e) => !["k3", "k4", "k5"].includes(e.from) && !["k3", "k4", "k5"].includes(e.to));
+  d.edges = edges.filter((e) => !gone.includes(e.from) && !gone.includes(e.to));
   (d.edges as Edge[]).push({ from: "s5", to: "d_rs" }, { from: "b6", to: "d_rs" }, { from: "d_rs", to: "d1" }, { from: "d1", to: "v4" });
   return d;
 }

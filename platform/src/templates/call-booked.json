@@ -150,18 +150,16 @@
         "value": "{{picklist.sales_call_booking_source.self}}"
       },
       {
+        "id": "s_suffix",
+        "type": "set_var",
+        "key": "card_suffix",
+        "value": "Direct"
+      },
+      {
         "id": "s3",
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_setter}}",
         "stage": "{{crm.stage_setter_direct_booked}}",
-        "name": "{{contact.name}} -- Direct",
-        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
-      },
-      {
-        "id": "s4",
-        "type": "pipeline_card",
-        "pipeline": "{{crm.pipeline_closer}}",
-        "stage": "{{crm.stage_closer_scheduled}}",
         "name": "{{contact.name}} -- Direct",
         "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
       },
@@ -203,6 +201,12 @@
         "value": "{{picklist.sales_call_booking_source.setter}}"
       },
       {
+        "id": "b_suffix",
+        "type": "set_var",
+        "key": "card_suffix",
+        "value": "Setter Booked"
+      },
+      {
         "id": "b3",
         "type": "update_contact",
         "fields": [
@@ -218,20 +222,6 @@
         "pipeline": "{{crm.pipeline_setter}}",
         "stage": "{{crm.stage_setter_appointment_set}}",
         "name": "{{contact.name}} -- Set",
-        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-        "fields": [
-          {
-            "id": "{{crm.field_opportunity_setter_owner}}",
-            "value": "{{appointment.set_by | default:}}"
-          }
-        ]
-      },
-      {
-        "id": "b5",
-        "type": "pipeline_card",
-        "pipeline": "{{crm.pipeline_closer}}",
-        "stage": "{{crm.stage_closer_scheduled}}",
-        "name": "{{contact.name}} -- Setter Booked",
         "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
         "fields": [
           {
@@ -260,18 +250,52 @@
         ]
       },
       {
+        "id": "f_card",
+        "type": "branch",
+        "title": "A new booking or a reschedule?"
+      },
+      {
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "name": "{{contact.name}} -- {{vars.card_suffix}}",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "fields": [
+          {
+            "id": "{{crm.field_opportunity_setter_owner | default:}}",
+            "value": "{{appointment.set_by | default:}}"
+          }
+        ],
+        "id": "c_new",
+        "title": "Closer card → Scheduled, named -- Direct / -- Setter Booked"
+      },
+      {
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "name": "{{contact.name}} -- {{vars.card_suffix}}",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "fields": [
+          {
+            "id": "{{crm.field_opportunity_setter_owner | default:}}",
+            "value": "{{appointment.set_by | default:}}"
+          }
+        ],
+        "id": "c_rs",
+        "title": "Closer card → Scheduled, if it is before the call (its name stays)",
+        "keep_name": true,
+        "from_stages": [
+          "{{crm.stage_closer_scheduled}}",
+          "{{crm.stage_closer_cancelled | default:}}"
+        ]
+      },
+      {
         "id": "k3",
         "type": "create_task",
         "title": "Send {{contact.first_name}} a personalized video",
         "body": "Booked for {{appointment.starts_at | date_company}}. A quick personal video before the call.",
         "due": "+1d",
-        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
-        "only_if": {
-          "neq": [
-            "{{event._type}}",
-            "appointment.rescheduled"
-          ]
-        }
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
       },
       {
         "id": "k5",
@@ -279,13 +303,10 @@
         "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
         "key": "{{event.slot.from | default:}}",
         "if_missing": "skip",
-        "only_if": {
-          "exists": "event.slot.from"
-        },
         "properties": {
           "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
         },
-        "title": "A reschedule: the slot the call left keeps its Sales Call, logged as rescheduled"
+        "title": "The Sales Call for the old time: logged as rescheduled"
       },
       {
         "id": "k4",
@@ -428,6 +449,42 @@
         "title": "Texts can't reach them (Do Not Disturb or no phone): ⚠️ on the card and a note under it, once per booking"
       },
       {
+        "id": "n_nolink_note",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "only_if": {
+          "not": {
+            "exists": "appointment.meeting_url"
+          }
+        },
+        "react": "link",
+        "as": {
+          "name": "No meeting link",
+          "icon": ":link:"
+        },
+        "template": "🔗 No meeting link on this call. {{appointment.closer.mention | default:Closer}}, please send them the link.",
+        "title": "No meeting link: a note under the booking card, 🔗 on it"
+      },
+      {
+        "id": "n_nolink_alert",
+        "type": "slack_post",
+        "channel": "{{slack.channel.no_link_alerts}}",
+        "fallback_channel": "{{slack.channel.alerts}}",
+        "only_if": {
+          "not": {
+            "exists": "appointment.meeting_url"
+          }
+        },
+        "as": {
+          "name": "No meeting link",
+          "icon": ":link:"
+        },
+        "template": "{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s call {{appointment.starts_at | date_company}} has no meeting link. Please send them the link.",
+        "title": "No meeting link: an issue in the no-link channel (else the alerts channel)"
+      },
+      {
         "id": "x1",
         "type": "exit",
         "reason": "booked"
@@ -481,10 +538,6 @@
       },
       {
         "from": "s3",
-        "to": "s4"
-      },
-      {
-        "from": "s4",
         "to": "s5"
       },
       {
@@ -501,23 +554,7 @@
       },
       {
         "from": "b4",
-        "to": "b5"
-      },
-      {
-        "from": "b5",
         "to": "b6"
-      },
-      {
-        "from": "k3",
-        "to": "k5"
-      },
-      {
-        "from": "s5",
-        "to": "k3"
-      },
-      {
-        "from": "b6",
-        "to": "k3"
       },
       {
         "from": "k4",
@@ -532,16 +569,12 @@
         "to": "v_textoff"
       },
       {
-        "from": "k5",
-        "to": "k4"
-      },
-      {
         "from": "s2b",
-        "to": "s3"
+        "to": "s_suffix"
       },
       {
         "from": "b2b",
-        "to": "b3"
+        "to": "b_suffix"
       },
       {
         "from": "c_via",
@@ -557,7 +590,7 @@
       },
       {
         "from": "n_dnd",
-        "to": "x1"
+        "to": "n_nolink_note"
       },
       {
         "from": "v_textoff",
@@ -566,6 +599,63 @@
       {
         "from": "v_nophone",
         "to": "n_dnd"
+      },
+      {
+        "from": "s_suffix",
+        "to": "s3"
+      },
+      {
+        "from": "b_suffix",
+        "to": "b3"
+      },
+      {
+        "from": "s5",
+        "to": "f_card"
+      },
+      {
+        "from": "b6",
+        "to": "f_card"
+      },
+      {
+        "from": "f_card",
+        "to": "c_rs",
+        "label": "a reschedule",
+        "when": {
+          "eq": [
+            "{{event._type}}",
+            "appointment.rescheduled"
+          ]
+        }
+      },
+      {
+        "from": "f_card",
+        "to": "c_new",
+        "label": "a new booking",
+        "else": true
+      },
+      {
+        "from": "c_new",
+        "to": "k3"
+      },
+      {
+        "from": "k3",
+        "to": "k4"
+      },
+      {
+        "from": "c_rs",
+        "to": "k5"
+      },
+      {
+        "from": "k5",
+        "to": "k4"
+      },
+      {
+        "from": "n_nolink_note",
+        "to": "n_nolink_alert"
+      },
+      {
+        "from": "n_nolink_alert",
+        "to": "x1"
       }
     ]
   }

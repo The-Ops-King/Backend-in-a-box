@@ -53,7 +53,7 @@ const day = (d: number, h: number) => local().plus({ days: d }).set({ hour: h, m
 const T0 = day(5, 10), T1 = day(7, 14);
 const person = (id: string, email: string, first: string, over: Partial<ContactSnapshot> = {}): ContactSnapshot => ({ id, firstName: first, lastName: "Sweep", email, phone: undefined, tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString(), ...over });
 const appt = (id: string, start: string, over: Partial<AppointmentSnapshot> = {}): AppointmentSnapshot => ({ id, calendarId: "ET-SELF", startTime: start, endTime: DateTime.fromISO(start).plus({ minutes: 45 }).toUTC().toISO()!, status: "confirmed", assignedUserEmail: "james@sweep.test",
-  invitee: { email: "tyler@sweep-test.com", firstName: "Tess", lastName: "Sweep", timezone: TZ }, raw: {}, ...over });
+  invitee: { email: "tyler@sweep-test.com", firstName: "Tess", lastName: "Sweep", timezone: TZ }, meetingUrl: "https://zoom.us/j/1", raw: {}, ...over });
 const salesCalls = () => records.filter((r) => r.object === "custom_objects.sales_call");
 const runsOf = (name: string) => asOperator((c) => many<{ id: string; status: string; current_node: string | null; exit_reason: string | null; appointment_id: string | null }>(c, "select r.id, r.status, r.current_node, r.exit_reason, r.appointment_id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name=$2 order by r.started_at", [companyId, name]));
 const apptId = (ext: string) => asOperator(async (c) => (await one<{ id: string }>(c, "select id from appointments where company_id=$1 and external_id=$2", [companyId, ext]))!.id);

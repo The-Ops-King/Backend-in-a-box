@@ -6,7 +6,7 @@
  * card names, the call types, the objections, the Slack faces) is its params, never this file.
  * Was installs/pmu/build.py.
  */
-import { after, asCopy, drop, load, node, RESCHEDULE, type Copy, type Node } from "./kit";
+import { after, asCopy, drop, load, node, type Copy, type Node } from "./kit";
 
 export type OneBoardParams = {
   /** whose copies these are, as the notes say it ("PMU") */
@@ -51,32 +51,20 @@ export function oneBoardCopies(p: OneBoardParams): Copy[] {
   for (const id of ["u1", "s3", "b4"]) drop(d, id);
   // D105: cards from before the engine sit anywhere; one past the call (Follow Up, Lost, Purchase, won, DQ) is left alone
   const PRE_CALL = ["new_lead", "scheduled", "unresponsive", "confirmed", "no_show", "cancelled", "rescheduled"].map((s) => `{{crm.stage_closer_${s}}}`);
-  drop(d, "s4"); drop(d, "b5");
-  after(d, "s2b", { id: "s_suffix", type: "set_var", key: "card_suffix", value: p.cardNames.self });
-  after(d, "b3", { id: "b_suffix", type: "set_var", key: "card_suffix", value: p.cardNames.setter });
-  const k3In = d.edges.filter((e) => e.to === "k3");
-  if (k3In.map((e) => e.from).sort().join() !== "b6,s5") throw new Error("Call booked's paths no longer meet at k3");
-  for (const e of k3In) e.to = "f_card";
-  const card = { type: "pipeline_card", pipeline: CLOSER, name: "{{contact.name}} -- {{vars.card_suffix}}", assign_to: "{{appointment.closer.ghl_user_id | default:}}",
-    fields: [{ id: "{{crm.field_opportunity_setter_owner}}", value: "{{appointment.set_by | default:}}" }] };
-  d.nodes.splice(d.nodes.findIndex((n) => n.id === "k3"), 0,
-    { id: "f_card", type: "branch", title: "A new booking or a reschedule?" },
-    { ...card, id: "c_new", title: `Card → ${S.booked}, named -- ${p.cardNames.setter} / -- ${p.cardNames.self}`, stage: "{{crm.stage_closer_scheduled}}" },
-    { ...card, id: "c_rs", title: `Card → ${S.rescheduled}, if it is before the call (its name stays)`, stage: "{{crm.stage_closer_rescheduled}}", keep_name: true, from_stages: PRE_CALL });
-  d.edges.push({ from: "f_card", to: "c_rs", label: "a reschedule", when: RESCHEDULE }, { from: "f_card", to: "c_new", label: "a new booking", else: true }, { from: "c_new", to: "k3" }, { from: "c_rs", to: "k3" });
+  // the template's fork (a new booking or a reschedule) on the one board: the card's own names, Rescheduled off any pre-call stage
+  node(d, "s_suffix").value = p.cardNames.self;
+  drop(d, "b_suffix"); after(d, "b3", { id: "b_suffix", type: "set_var", key: "card_suffix", value: p.cardNames.setter });
+  Object.assign(node(d, "c_new"), { title: `Card → ${S.booked}, named -- ${p.cardNames.setter} / -- ${p.cardNames.self}` });
+  Object.assign(node(d, "c_rs"), { title: `Card → ${S.rescheduled}, if it is before the call (its name stays)`, stage: "{{crm.stage_closer_rescheduled}}", from_stages: PRE_CALL });
   (node(d, "n1").fields as { value: string }[])[0].value = `{{appointment.starts_at | date_company:${p.appointmentDateFormat}}}`;
   Object.assign(node(d, "k4").properties as Record<string, string>, { call_type: "{{vars.call_type}}", closer: "{{appointment.closer.first_name | default: | lower}}" });
-  after(d, "k3", { id: "v_type", type: "set_var", title: `${p.callTypes.title}: the call type the calendar books`, key: "call_type", value: "{{appointment.term.name}}", pick: p.callTypes.pick, else_value: p.callTypes.otherwise });
-  // what belongs to one side sits on that side: the video task under a new booking, the old slot's Sales Call under a
-  // reschedule (every reschedule carries the slot it left), so neither is a sometimes-step
-  d.edges = d.edges.filter((e) => !["f_card", "k3", "k5", "v_type"].includes(e.from) && e.to !== "k3");
-  d.edges.push({ from: "f_card", to: "c_rs", label: "a reschedule", when: RESCHEDULE }, { from: "f_card", to: "c_new", label: "a new booking", else: true },
-    { from: "c_new", to: "k3" }, { from: "k3", to: "v_type" }, { from: "c_rs", to: "k5" }, { from: "k5", to: "v_type" }, { from: "v_type", to: "k4" });
-  delete node(d, "k3").only_if; delete node(d, "k5").only_if;
-  node(d, "k5").title = "The Sales Call for the old time: logged as rescheduled";
+  // the call type the calendar books, set on both sides of the fork before the Sales Call record
+  const toRecord = d.edges.filter((e) => e.to === "k4");
+  if (toRecord.map((e) => e.from).sort().join() !== "k3,k5") throw new Error("Call booked's fork no longer meets at k4");
+  for (const e of toRecord) e.to = "v_type";
+  d.nodes.splice(d.nodes.findIndex((n) => n.id === "k5") + 1, 0, { id: "v_type", type: "set_var", title: `${p.callTypes.title}: the call type the calendar books`, key: "call_type", value: "{{appointment.term.name}}", pick: p.callTypes.pick, else_value: p.callTypes.otherwise });
+  d.edges.push({ from: "v_type", to: "k4" });
   node(d, "b3").title = "The setter goes on the contact";
-  const k5 = d.nodes.splice(d.nodes.findIndex((n) => n.id === "k5"), 1)[0];
-  d.nodes.splice(d.nodes.findIndex((n) => n.id === "k3") + 1, 0, k5);
   const typeWords = Object.keys(p.callTypes.pick).length ? `the Sales Call says ${[...new Set([p.callTypes.otherwise, ...Object.values(p.callTypes.pick)])].map(cap).join(" or ")}` : "";
   out.push(asCopy("call-booked", d, `${p.name}: one board, one card fork after the setter / self paths: a new booking puts the card on ${S.booked} named -- ${p.cardNames.self} or -- ${p.cardNames.setter}; a reschedule moves it to ${S.rescheduled} only off a pre-call stage and keeps its name; ${typeWords}; no UTM fields; Appointment Start Time in ${p.name}'s format (${p.appointmentDateFormat})`));
 
