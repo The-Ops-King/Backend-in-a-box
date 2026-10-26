@@ -6447,3 +6447,11 @@ Notes fields; PMU's Discovery Call object and its contact link (bound). Then:
 **D239 follow-up (2026-10-26, Tyler).** Hair's Setter call filed turned on ("I think it should be on"): Hair's end of day now
 writes its setting calls' Discovery Calls. No-show recovery ("off intentionally. get the guard, and keep it off"): the template's
 closing-calls-only guard on both triggers, saved on Dating v2, PMU v2, Hair v5; still off on all three.
+
+## D240. Following a merge the operator names (2026-10-26)
+
+Tyler merged Alma Saucedo's and Elena Jocobi's two GHL contacts each. D222 finds the contact a merge kept by a shared email or
+phone, and these pairs had none in common, so nothing found it. `POST /api/admin/contact/merged { company, gone, into, why,
+dryRun = true }` follows a merge the operator names. GHL must already have dropped the gone contact, and the one it went into
+must be live. The dry run counts what would move. Applied, D222's follow moves it all and keeps the gone row as merged into the
+survivor. Audited. Tests: `contact-ops.test.ts`.
