@@ -6434,3 +6434,12 @@ same person, they own both one discovery call, and one closing call, both show u
   Discovery Call object (Dating's fields) and its link to the contact (bound).
 Tests: `setter-result.test.ts` (rewritten for the model: blank record, nothing asked or done, the triage-call skip),
 `setter-call-filed.test.ts` (one board), `eod.setter-calls.test.ts`, `dating-copies.test.ts`, `templates.scenarios.test.ts`.
+
+**D239 applied (2026-10-26).** Full suite (1265 tests), deployed, then each offer's own copy, dry run first; no setter run was waiting
+on any offer. GHL first (additive): Hair's setter board DQ and Not Interested stages (bound) and its Discovery Call's DQ Reason and
+Notes fields; PMU's Discovery Call object and its contact link (bound). Then:
+- Dating: Setter call logged v5 (the blank Discovery Call at call time; its own words kept) and Setter call filed v3 (from the template).
+- PMU: `eod.setter_calls` on; Setter call logged v3 (the template; still off, as it was); Setter call filed made (off).
+- Hair: `eod.setter_calls` on; Setter call logged v10 (the template: Jev no longer writes the result or acts); Setter call filed made,
+  **off: turning it on waits for Tyler's word**. Until it is on, Hair's end of day answers for setting calls with no booking are
+  recorded (setter_call.filed) but written to GHL by nothing.
