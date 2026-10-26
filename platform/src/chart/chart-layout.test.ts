@@ -131,8 +131,12 @@ describe("D107/D111: the chart draws every step, exactly", () => {
     expect(tidyOf(chart).tidy.exact).toBe(true);
   });
 
-  it("the shipped setter-call-logged is fully placed: the tap fork inside 'Jev unsure' inside 'setting or confirmation call'", () => {
-    const chart = chartOf(template("setter-call-logged"), company); const rows = arrange(chart);
+  it("setter-call-logged as it was before D239 is fully placed: the tap fork inside 'Jev unsure' inside 'setting or confirmation call'; the shipped one is fully placed too", () => {
+    const shipped = chartOf(template("setter-call-logged"), company);
+    expect(new Set(placedIds(arrange(shipped)))).toEqual(new Set(drawable(shipped)));
+    // the nested forks and the tap the template had until D239 stay the layout's test case
+    const before = parseDefinition(JSON.parse(fs.readFileSync(path.resolve(__dirname, "../engine/fixtures/before-d239/setter-call-logged.json"), "utf8")).definition);
+    const chart = chartOf(before, company); const rows = arrange(chart);
     expect(new Set(placedIds(rows))).toEqual(new Set(drawable(chart)));
     const kind = rows.find((r) => r.kind === "fork" && r.fork?.id === "b_kind"); if (kind?.kind !== "fork") throw new Error("no b_kind");
     const setting = kind.groups.find((g) => placedIds(g.rows).includes("b_ask"))!;

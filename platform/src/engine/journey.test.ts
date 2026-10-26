@@ -145,7 +145,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await lastRun("speed-to-lead", jordan)).toMatchObject({ status: "waiting", current_node: "n3" });
     });
 
-    it("setter call logged: a connected 3-minute dial with a transcript, no setter booking, posted 15 minutes after it ended with Jev's read → Discovery Call record linked, note, Slack; nothing moves on the cards (the actions are off)", async () => {
+    it("setter call logged: a connected 3-minute dial with a transcript, no setter booking, posted 15 minutes after it ended with Jev's read → a blank Discovery Call record linked, Slack; nothing moves on the cards (D239: Jev only guesses, the end of day files)", async () => {
       const nRec = recordWrites.length, nCards = JSON.stringify(await cardsOf(jordan));
       await asOperator(async (c) => {
         const { recording } = await recordPhoneCall(c, companyId, { externalId: "dial-1", contactId: jordan, startedAt: T0.minus({ minutes: 40 }).toJSDate(), durationSec: 184, direction: "outbound", status: "completed", callerGhlUserId: "U1" });
@@ -156,7 +156,9 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       await tickAt(T0); await tickAt(T0);
       expect(await lastRun("setter-call-logged", jordan)).toMatchObject({ status: "completed", exit_reason: "posted" });
       expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: "dial-1", contact_id: "JV1", setter: "Sam Closer" })]);
-      expect(posts.filter((p) => p.channel === "CSET").at(-1)?.text).toContain("*Outcome:* Follow up (Jev is 95% sure)\n*Would have (actions are off):* a task for Sam Closer to call back Jordan Vale, due next business day.");   // D79: Jev's read of the result; the actions are off until the company turns them on
+      expect(recordWrites.slice(nRec)[0]).not.toHaveProperty("call_result");
+      const post = posts.filter((p) => p.channel === "CSET").at(-1)?.text;
+      expect(post).toContain("*Outcome:* Follow up (Jev is 95% sure)"); expect(post).not.toContain("Would have");
       expect(JSON.stringify(await cardsOf(jordan))).toBe(nCards);
     });
 

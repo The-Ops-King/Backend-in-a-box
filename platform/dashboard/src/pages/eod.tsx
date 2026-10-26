@@ -81,7 +81,9 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
       <button className="eodx-btn ghost" type="button" onClick={() => setEditing(true)}>Change an answer</button>
     </div>;
   }
-  const left = calls.filter((c) => !complete(c)).length;
+  const indexed = calls.map((c, i) => ({ c, i }));
+  const groups = [{ title: "Discovery calls", rows: indexed.filter((x) => isSetterCall(x.c.kind)) }, { title: "Closing calls", rows: indexed.filter((x) => !isSetterCall(x.c.kind)) }]
+    .filter((g) => g.rows.length).map((g) => ({ ...g, left: g.rows.filter((x) => !complete(x.c)).length }));
   return <form className="eodx-form" onSubmit={submit}>
     {err ? <div className="eodx-banner warn"><strong>That didn't save.</strong> {err}. Your answers are still here, so fix that and send it again.</div> : null}
     <section className="eodx-card">
@@ -96,14 +98,16 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
         </> : null}
       </div>
     </section>
-    <h2 className="eodx-h2 out">Your calls <small>{calls.length ? (left ? `${left} to go` : "all set") : ""}</small></h2>
-    {calls.length === 0 ? <div className="eodx-empty">No calls on your calendar this day.</div> : null}
-    {calls.map((c, i) => { const after = fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : c.kind === "dial" ? DIAL_OUTCOMES : d.outcomes;
+    {/* Tyler: one person can set and close the same day; their calls come in two sections, "Discovery calls" and "Closing calls" */}
+    {calls.length === 0 ? <><h2 className="eodx-h2 out">Your calls</h2><div className="eodx-empty">No calls on your calendar this day.</div></> : null}
+    {groups.map((g) => <div key={g.title}>
+      <h2 className="eodx-h2 out">{g.title} <small>{g.left ? `${g.left} to go` : "all set"}</small></h2>
+      {g.rows.map(({ c, i }, n) => { const after = fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : c.kind === "dial" ? DIAL_OUTCOMES : d.outcomes;
       const done_ = complete(c), shown = !done_ || open[c.appointment_id];
-      const kind = c.kind === "triage" ? "Triage call" : c.kind === "dial" ? "Outbound call" : calls.some((x) => isSetterCall(x.kind)) ? "Closing call" : null;
+      const kind = c.kind === "triage" ? "Triage call" : c.kind === "dial" ? "Outbound call" : null;
       return <section key={c.appointment_id} className={`eodx-call${done_ ? " done" : ""}`}>
         <button type="button" className="eodx-call-hd" onClick={() => done_ && setOpen((o) => ({ ...o, [c.appointment_id]: !o[c.appointment_id] }))} aria-expanded={!!shown}>
-          <span className="eodx-dot" aria-hidden>{done_ ? "✓" : i + 1}</span>
+          <span className="eodx-dot" aria-hidden>{done_ ? "✓" : n + 1}</span>
           <span className="eodx-who"><b>{c.contact}</b><small>{time(c.starts_at)}{kind ? ` · ${kind}` : ""}</small></span>
           {done_ ? <span className="eodx-pill">{outcomeLabel(c.outcome, d.fields, c.kind)}</span> : null}
           {done_ ? <span className="eodx-edit">{shown ? "Close" : "Edit"}</span> : null}
@@ -116,6 +120,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
           {after.length ? <div className="eodx-after">{after.map((f) => <Field key={f.key} f={f} value={valueOf(c, f.key)} onChange={(v) => setField(i, f.key, v)} />)}</div> : null}
         </div> : null}
       </section>; })}
+    </div>)}
     {dayFields(d.fields).map((f) => <section key={f.key} className="eodx-card"><Field f={f} value={dayAnswers[f.key] ?? ""} onChange={(v) => setDayAnswers((x) => ({ ...x, [f.key]: v }))} /></section>)}
     <div className="eodx-bar"><button className="eodx-btn" type="submit" disabled={busy}>{busy ? "Sending…" : d.filed ? "Update my day" : "Send my day"}</button></div>
   </form>;

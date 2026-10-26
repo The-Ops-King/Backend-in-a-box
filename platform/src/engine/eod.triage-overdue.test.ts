@@ -43,14 +43,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D207: setters' blank triage calls in
   const evening = async (wf: string) => { const { fireNow } = await import("@/engine/clock"); await asOperator(async (c) => { for (const t of ["run_steps", "sends", "step_effects", "slack_posts"]) await c.query(`delete from ${t} where run_id in (select id from runs where workflow_id=$1)`, [wf]).catch(() => undefined); await c.query("update events set run_id=null where run_id in (select id from runs where workflow_id=$1)", [wf]); await c.query("delete from runs where workflow_id=$1", [wf]); }); await asOperator((c) => fireNow(c, co, wf, "t_evening")); await tick(fake, undefined, co); return posts; };
   let wf = "";
 
-  it("off (every company as it was): the setter is reminded, the operator hears nothing", async () => {
+  it("off (an offer that turned it off; on is every offer's default since D239): the setter is reminded, the operator hears nothing", async () => {
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'eod.triage_overdue','text',$2)", [co, Buffer.from("off")]));
     wf = await asOperator((c) => installTemplateForTest(c, co, "eod-reminder", { patch: (d) => { const op = d.nodes.find((x) => x.id === "n_op")!; if (op.type === "slack_post") op.template = "{{user.name}}: {{vars.due.overdue | each:\"<{{item.url}}|{{item.label}}> {{item.names | join}}\" | join:\"; \"}}"; } }));
     const out = await evening(wf);
     expect(out.map((p) => p.channel)).toEqual(["UMITCH"]);
   });
 
   it("on: the blank one past two days is named to the operator with the setter's link for that day; the one GHL answered and the recent one are not", async () => {
-    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'eod.triage_overdue','text',$2)", [co, Buffer.from("on")]));
+    await asOperator((c) => c.query("update bindings set value=$2 where company_id=$1 and key='eod.triage_overdue'", [co, Buffer.from("on")]));
     const out = await evening(wf);
     const token = await asOperator((c) => tokenFor(c, mitch));
     const d3 = DateTime.now().setZone(TZ).minus({ days: 3 });

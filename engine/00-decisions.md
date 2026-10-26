@@ -6409,3 +6409,28 @@ offer's own copy, dry run first, Dating, PMU, Hair:
   leaderboard uses the reports channel, not ops: Hair's ops channel is its test channel, #ops-test.
 - GHL, additive: PMU's Sales Call gets Duration (min), Transcript, Next Step Date, Payment Terms; Hair's gets Next Step, Next Step
   Date, Payment Terms. Every Sales Call field each offer's workflows write now exists. PMU also has its own Follow Up Date.
+
+## D239. One setter/closer model on every offer: Jev guesses, the end of day writes (2026-10-26)
+
+Tyler: "EOD writes the result. the AI takes a guess and prefills the EOD ... AI doesn't move anything or change anything. only the
+EOD." Hair's setter: "Don't do that. EOD does that." And the hybrid: "if they make a set call, at 10am, then a closing call at 11am,
+same person, they own both one discovery call, and one closing call, both show up on the EOD. Separated into sections of
+'Discovery calls' and 'Closing calls'."
+- **Setter call logged** (the template, so every offer): D154 is no longer Dating's alone. Jev reads the call (what kind, what it
+  achieved, why a DQ, the write-up); a setting call is posted in the setter channel and its read logged for the caller's end of day;
+  a closing call goes to Sales call recorded, whoever made it. Gone from the template: the result on the record, the note, the
+  question to the team and its taps, the task, tag and card actions (`setter_result.act`, their switch, is read by no template now;
+  the setting itself is left for a cleanup). New:
+  the call's Discovery Call is made at call time, blank (no outcome, no result), owned by the caller, so GHL shows it as owed until
+  the end of day files it; not when the person had a triage call booked with that caller that day (its own Discovery Call stands for
+  it, and the end of day folds the read into that row).
+- **Setter call filed** is a template now (was Dating's own, D156): the end of day's answer writes that same record (showed, the
+  result, why a DQ, notes) and moves the setter card to Appointment Set, DQ or Not Interested where the offer has a setter board and
+  that stage; an offer on one board (PMU) has none and its card is left alone.
+- **The end of day**: a caller's setting calls with no booking are on their day on every offer (`eod.setter_calls`, now on by
+  default), and a setter's blank triage calls are in the operator's ping (`eod.triage_overdue`, on by default, a registered setting).
+  The page puts a person's calls in two sections, "Discovery calls" (triage and outbound) and "Closing calls".
+- **GHL, additive**: Hair's setter board gets DQ and Not Interested (bound), its Discovery Call gets DQ Reason and Notes; PMU gets a
+  Discovery Call object (Dating's fields) and its link to the contact (bound).
+Tests: `setter-result.test.ts` (rewritten for the model: blank record, nothing asked or done, the triage-call skip),
+`setter-call-filed.test.ts` (one board), `eod.setter-calls.test.ts`, `dating-copies.test.ts`, `templates.scenarios.test.ts`.

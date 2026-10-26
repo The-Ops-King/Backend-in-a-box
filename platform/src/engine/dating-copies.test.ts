@@ -52,23 +52,25 @@ describe("D118: Dating Nelly's copies", () => {
     expect(JSON.stringify(file("setter-call-logged").definition)).not.toMatch(/medical condition|medical, timeline/);
   });
 
-  it("D154: her Setter call logged reads and posts only: her setting-call meaning and DQ reasons; no CRM write, no question to the team, no actions; the read is logged with its call type for the end of day", () => {
+  it("D154 (every offer's since D239): her Setter call logged is the template's with her setting-call meaning and DQ reasons; no result written, no question to the team, no actions; the read is logged with its call type for the end of day", () => {
     type N = { id: string } & Record<string, unknown>; type E = { from: string; to: string };
     const t = new Map(template("setter-call-logged").nodes.map((n) => [n.id, n as N]));
     const d = file("setter-call-logged").definition as unknown as { nodes: N[]; edges: E[] };
     const ids = d.nodes.map((n) => n.id);
-    expect(ids.filter((id) => !t.has(id))).toEqual([]);
-    expect([...t.keys()].filter((id) => !ids.includes(id)).sort()).toEqual(["b_ask", "k_lost_dq", "k_lost_ni", "k_tag", "k_task", "l1", "lt_act", "lt_key", "m1", "q1", "q_reply", "r1", "r2", "r_late", "rec_rev", "rs", "rs2", "ru1", "ru2",
-      "tv_act", "tv_agree", "tv_ask", "tv_by", "tv_key", "tv_res", "tv_words", "v_act", "v_ask", "v_due", "v_dqtag", "v_key", "v_mode", "w_hold"].sort());
-    expect(d.nodes.filter((n) => JSON.stringify(n) !== JSON.stringify(t.get(n.id))).map((n) => n.id).sort()).toEqual(["a1", "a3", "a4", "rec_late", "rec_read", "s1", "s_late", "v_by", "v_line"]);
+    expect(ids).toEqual([...t.keys()]);
+    expect(d.nodes.filter((n) => JSON.stringify(n) !== JSON.stringify(t.get(n.id))).map((n) => n.id).sort()).toEqual(["a1", "a3", "a4", "rec_late", "rec_read"]);
     const at = (id: string) => d.nodes.find((n) => n.id === id)!;
     expect((at("a1").criteria as Record<string, string>).setting).toBe(words.setterCall!.setting);
     expect(at("a4")).toMatchObject({ domain: "dating_dq_reason", criteria: words.setterDq.reasons });
     expect(Object.keys(at("a4").criteria as object)).toEqual(["budget", "not_ready", "in_relationship", "casual", "bad_contact", "other"]);
     for (const id of ["rec_read", "rec_late"]) expect(at(id).data).toMatchObject({ call_type: "{{vars.classify.call_type}}", dq_domain: "dating_dq_reason", digest: "{{vars.notes.digest | default:}}" });
-    expect(d.nodes.filter((n) => ["crm_record", "note", "create_task", "pipeline_card", "tags", "set_tag", "wait_for_reaction"].includes(n.type as string))).toEqual([]);
+    // its one CRM write: the call's Discovery Call, blank (no outcome, no result), unless a triage call booked with the caller that day stands for it
+    expect(d.nodes.filter((n) => ["crm_record", "note", "create_task", "pipeline_card", "tags", "set_tag", "wait_for_reaction"].includes(n.type as string)).map((n) => n.id)).toEqual(["r1"]);
+    expect(Object.keys(at("r1").properties as object)).not.toContain("call_result"); expect(Object.keys(at("r1").properties as object)).not.toContain("outcome");
+    expect(at("r1").only_if).toEqual({ eq: ["{{vars.triage_today.count}}", 0] });
+    expect(at("l_tri")).toMatchObject({ query: "appointments_for_contact", params: expect.objectContaining({ kind: "first_call", closer: "{{recording.caller.ghl_user_id | default:}}" }) });
     expect(d.edges.filter((e) => e.to === "x1").map((e) => e.from).sort()).toEqual(["b_late", "s_late"]);
-    expect(JSON.stringify(d)).not.toContain("act_line");
+    expect(JSON.stringify(d)).not.toMatch(/act_line|setter_result\.act/);
     // the read still goes out and is logged, and a booking through a setter's link still makes it Set
     for (const id of ["s1", "s_late", "rec_read", "rec_late", "w_post", "w_late"]) expect(ids).toContain(id);
   });

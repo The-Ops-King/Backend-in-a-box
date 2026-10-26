@@ -661,7 +661,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(sup?.suppressed_reason).toMatch(/sms_disabled/);
   });
 
-  it("setter-call-logged: a connected dialer call with a transcript → Jev calls it a setting call and, 15 minutes after hang-up with no setter booking, it posts Jev's read: digest, Discovery Call record linked to the contact, note, Slack; too short / no transcript / 'where are you' each stop at their check; a fresh call waits", async () => {
+  it("setter-call-logged: a connected dialer call with a transcript → Jev calls it a setting call and, 15 minutes after hang-up with no setter booking, it posts Jev's read: digest and Slack, and makes the call's Discovery Call blank, linked to the contact (D239: the end of day files the result); too short / no transcript / 'where are you' each stop at their check; a fresh call waits", async () => {
     const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB2'", [companyId])))!.id;
     const transcript = [{ speaker: "0", text: "Hey Leo, got two minutes?" }, { speaker: "1", text: "Sure. It has been getting worse for a year. What does it cost?" }, { speaker: "0", text: "The specialist covers that. Thursday at two?" }, { speaker: "1", text: "Works." }];
     const logCall = (ext: string, durationSec: number, minutesAgo: number, withTranscript: boolean, status = "completed", who = id) => asOperator(async (c) => {
@@ -682,7 +682,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(run).toMatchObject({ status: "completed", exit_reason: "posted" });
     expect(analyses.slice(nAn)).toHaveLength(1);   // the digest; the kind of call is Jev's (D48)
     const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
-    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", outcome: "connected", recording_url: "https://ghl.test/call-1/recording", call_result: "follow_up" });
+    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", recording_url: "https://ghl.test/call-1/recording" });
+    expect(rw[0]).not.toHaveProperty("call_result"); expect(rw[0]).not.toHaveProperty("outcome");   // D239: blank until the end of day files it;
     expect(rw[0]).not.toHaveProperty("led_to_booking");   // D87: only a Set call ticks it; Leo's booking came through no setter link
     expect(relations.slice(nRel)).toEqual([`ASSOC-DC:CCB2>rec-${nRec + 1}`]);
     const slack = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]));

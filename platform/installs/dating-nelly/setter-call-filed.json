@@ -16,7 +16,7 @@
     "id": "t1",
     "type": "trigger",
     "event": "setter_call.filed",
-    "title": "An outbound call answered on the end of day"
+    "title": "A setting call answered on the end of day"
    },
    {
     "id": "v_line",
@@ -38,7 +38,7 @@
     "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
     "key": "{{event.conversation}}",
     "owner": "{{event.setter_ghl_user_id | default:}}",
-    "title": "The call's Discovery Call record",
+    "title": "The call's Discovery Call record: showed, and the result filed",
     "properties": {
      "display_label": "{{contact.name | default:Unknown}} — {{event.started_at | date_company:yyyy-MM-dd}}",
      "external_id": "{{event.conversation}}",
@@ -72,30 +72,60 @@
    {
     "id": "c_set",
     "type": "pipeline_card",
-    "pipeline": "{{crm.pipeline_setter}}",
-    "stage": "{{crm.stage_setter_appointment_set}}",
+    "pipeline": "{{crm.pipeline_setter | default:}}",
+    "stage": "{{crm.stage_setter_appointment_set | default:}}",
     "if_missing": "skip",
     "pick": "latest",
+    "only_if": {
+     "and": [
+      {
+       "exists": "crm.pipeline_setter"
+      },
+      {
+       "exists": "crm.stage_setter_appointment_set"
+      }
+     ]
+    },
     "title": "Setter card → Appointment Set"
    },
    {
     "id": "c_dq",
     "type": "pipeline_card",
-    "pipeline": "{{crm.pipeline_setter}}",
-    "stage": "{{crm.stage_setter_dq}}",
+    "pipeline": "{{crm.pipeline_setter | default:}}",
+    "stage": "{{crm.stage_setter_dq | default:}}",
     "if_missing": "skip",
     "pick": "latest",
     "status": "lost",
+    "only_if": {
+     "and": [
+      {
+       "exists": "crm.pipeline_setter"
+      },
+      {
+       "exists": "crm.stage_setter_dq"
+      }
+     ]
+    },
     "title": "Setter card → DQ, marked lost"
    },
    {
     "id": "c_ni",
     "type": "pipeline_card",
-    "pipeline": "{{crm.pipeline_setter}}",
-    "stage": "{{crm.stage_setter_not_interested}}",
+    "pipeline": "{{crm.pipeline_setter | default:}}",
+    "stage": "{{crm.stage_setter_not_interested | default:}}",
     "if_missing": "skip",
     "pick": "latest",
     "status": "lost",
+    "only_if": {
+     "and": [
+      {
+       "exists": "crm.pipeline_setter"
+      },
+      {
+       "exists": "crm.stage_setter_not_interested"
+      }
+     ]
+    },
     "title": "Setter card → Not Interested, marked lost"
    },
    {

@@ -930,7 +930,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // D207: a setter's triage calls are named to the operator too once overdue, where the company turns it on (`eod.triage_overdue`;
       // Tyler: "add setters to the ping"). Owed is the ledger's: a triage call the end of day has not answered; one whose Discovery Call
       // record in GHL already has an outcome other than scheduled was answered there, and is not owed (as a filed Sales Call is not)
-      if (/^(on|true|yes)$/i.test((d.bindings["eod.triage_overdue"] ?? "").trim())) {
+      if (switchOn(d.bindings, "eod.triage_overdue")) {
         const open = [...new Set([...days.values()].flatMap((e) => [...e.ledger]))];
         const triage = open.length ? await many<{ id: string; slot_key: string | null; who: string }>(d.c, `select a.id::text as id, a.slot_key, coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), 'someone') as who
           from appointments a join company_terms t on t.id=a.appointment_term left join contacts ct on ct.id=a.contact_id where a.id = any($1::uuid[]) and t.category='first_call'`, [open]) : [];

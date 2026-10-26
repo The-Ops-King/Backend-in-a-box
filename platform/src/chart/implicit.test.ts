@@ -85,8 +85,8 @@ describe("D111: every way out of a step is on the chart, edge or not", () => {
     const chart = chartOf(pre, company);
     holds(chart, { from: "rs", to: "r72", label: "back to the step the run was on: “Wait until 3 days before the call” or one after it" });
     expect(chart.edges.filter((e) => e.from === "rs")).toHaveLength(1);
-    // setter-call-logged: both of its resumes go back to the question's hold, or a step after it
-    const scl = chartOf(parseDefinition(templates.find((t) => t.slug === "setter-call-logged")!.definition), company);
+    // setter-call-logged as it was before D239 (its question to the team): both of its resumes go back to the question's hold, or a step after it
+    const scl = chartOf(parseDefinition(JSON.parse(fs.readFileSync(path.resolve(__dirname, "../engine/fixtures/before-d239/setter-call-logged.json"), "utf8")).definition), company);
     for (const r of ["rs", "rs2"]) expect(scl.edges.filter((e) => e.from === r).map((e) => [e.to, e.label])).toEqual([["w_hold", "back to the step the run was on: “Wait 2 days” or one after it"]]);
   });
 

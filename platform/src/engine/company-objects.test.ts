@@ -41,8 +41,10 @@ const BEFORE_D141 = path.resolve(__dirname, "fixtures/before-d141");
 const BEFORE_D236 = path.resolve(__dirname, "fixtures/before-d236");
 // D238 made the cancel post's rebook task line a step of its own: held against Call cancelled as it was before
 const BEFORE_D238 = path.resolve(__dirname, "fixtures/before-d238");
+// D239 made Setter call logged read-only for every offer (the end of day writes): held against it as it was before
+const BEFORE_D239 = path.resolve(__dirname, "fixtures/before-d239");
 const frozen = (dir: string, slug: string) => (fs.existsSync(path.join(dir, `${slug}.json`)) ? JSON.parse(fs.readFileSync(path.join(dir, `${slug}.json`), "utf8")).definition : undefined);
-const after = (slug: string) => (frozen(AFTER_D118, slug) ?? frozen(BEFORE_D141, slug) ?? frozen(BEFORE_D236, slug) ?? frozen(BEFORE_D238, slug) ?? templates.find((t) => t.slug === slug)!.definition) as unknown;
+const after = (slug: string) => (frozen(AFTER_D118, slug) ?? frozen(BEFORE_D141, slug) ?? frozen(BEFORE_D236, slug) ?? frozen(BEFORE_D238, slug) ?? frozen(BEFORE_D239, slug) ?? templates.find((t) => t.slug === slug)!.definition) as unknown;
 
 type Out = { ok: string } | { err: string };
 /** Every string of a definition by where it sits, rendered as a step would render it (a path the context lacks is its error). */
