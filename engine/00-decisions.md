@@ -6395,3 +6395,17 @@ only when a task was made (Dating's GHL tasks are off, by Tyler's choice).
   the same safety rules as the hour text (not on the heels of another text, skipped when stale). `hourNoLink` no longer adds
   Slack posts to the pre-call: Call booked says it at booking (D235). No "link coming" text to anyone.
 Tests: `cancel-task-line.test.ts`, `dating-copies.test.ts`, `eod.test.ts`.
+
+**D237, D238 applied (2026-10-25, Tyler: "fix the issues").** After the full suite (1260 tests) and the deploy, each a patch of the
+offer's own copy, dry run first, Dating, PMU, Hair:
+- Dating: Call cancelled v3 and Triage call cancelled v4 (the rebook task line only with tasks on; hers are off), Closing pre-call
+  v8 (the no-link hour text), Send agreement manually v2 (the /agreement trigger; left off, as it was).
+- PMU: EOD reminder v2 (linked operator ping), Deal closed v5 (the won card's value; its welcome words are still Hair's, for the
+  Deal closed rebuild before go-live), Call cancelled v3, Calendar availability v2 and Health check v3 (D189: availability alerts
+  said by Calendar availability, in that order).
+- Hair: EOD reminder v6, Deal closed v7, Call cancelled v8, Send agreement manually v3 (/agreement), the daily, weekly and monthly
+  wrap-ups v4 (Deposits and Deposit cash rows, quiet when empty) and Weekly leaderboard v3 (quiet when empty), all posting through
+  `slack.channel.reports`, now #sales-ops (was #ops-test; they posted to #sales-ops by its typed id, so nothing moved). Hair's
+  leaderboard uses the reports channel, not ops: Hair's ops channel is its test channel, #ops-test.
+- GHL, additive: PMU's Sales Call gets Duration (min), Transcript, Next Step Date, Payment Terms; Hair's gets Next Step, Next Step
+  Date, Payment Terms. Every Sales Call field each offer's workflows write now exists. PMU also has its own Follow Up Date.
