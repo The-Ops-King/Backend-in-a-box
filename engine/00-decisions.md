@@ -6443,3 +6443,7 @@ Notes fields; PMU's Discovery Call object and its contact link (bound). Then:
 - Hair: `eod.setter_calls` on; Setter call logged v10 (the template: Jev no longer writes the result or acts); Setter call filed made,
   **off: turning it on waits for Tyler's word**. Until it is on, Hair's end of day answers for setting calls with no booking are
   recorded (setter_call.filed) but written to GHL by nothing.
+
+**D239 follow-up (2026-10-26, Tyler).** Hair's Setter call filed turned on ("I think it should be on"): Hair's end of day now
+writes its setting calls' Discovery Calls. No-show recovery ("off intentionally. get the guard, and keep it off"): the template's
+closing-calls-only guard on both triggers, saved on Dating v2, PMU v2, Hair v5; still off on all three.
