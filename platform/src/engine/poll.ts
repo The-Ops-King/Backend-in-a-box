@@ -282,6 +282,9 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (rep) { rep.appointmentsChanged++; rep.eventsDispatched += started.length; }
 }
 
+/** D241: how often the minute tick reads GHL's documents (an offer waiting on a signature is read every ten seconds by its own job). */
+export const AGREEMENTS_EVERY_MS = 5 * 60e3 - 15e3;
+
 /** D234: how often every booking in the window is read again in full, whatever the source stamps say. */
 export const FULL_BOOKING_READ_MS = 60 * 60e3;
 
@@ -482,7 +485,13 @@ export async function pollCompany(adapters: Adapters, companyId: string, rep: Po
     ["conversations", pollInbound],
     ["calls", pollPendingCalls],
     ["setters", async (c, co, ac, adapters) => { await settleSetterAlerts(c, co, ac, adapters); }],   // D121, after the calls: a dial just logged can name the setter
-    ["agreements", pollAgreements],
+    // D241: the minute tick reads GHL's documents every five minutes; the ten-second documents job (D202) covers an offer waiting on a signature
+    ["agreements", async (c, co, ac, adapters, rep, bindings) => {
+      const last = await one<{ at: string }>(c, "select value->>'at' as at from engine_state where key=$1", [`agreements_read:${co.id}`]);
+      if (last?.at && Date.now() - Date.parse(last.at) < AGREEMENTS_EVERY_MS) return;
+      await pollAgreements(c, co, ac, adapters, rep, bindings);
+      await c.query("insert into engine_state (key, value, updated_at) values ($1,$2,now()) on conflict (key) do update set value=$2, updated_at=now()", [`agreements_read:${co.id}`, { at: new Date().toISOString() }]);
+    }],
     ["cards", pollCards],
   ];
   if (timings) timings.setup = Date.now() - t0;
