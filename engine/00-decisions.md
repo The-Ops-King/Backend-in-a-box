@@ -6444,7 +6444,11 @@ Notes fields; PMU's Discovery Call object and its contact link (bound). Then:
   **off: turning it on waits for Tyler's word**. Until it is on, Hair's end of day answers for setting calls with no booking are
   recorded (setter_call.filed) but written to GHL by nothing.
 
-## D235. Following a merge the operator names (2026-10-26)
+**D239 follow-up (2026-10-26, Tyler).** Hair's Setter call filed turned on ("I think it should be on"): Hair's end of day now
+writes its setting calls' Discovery Calls. No-show recovery ("off intentionally. get the guard, and keep it off"): the template's
+closing-calls-only guard on both triggers, saved on Dating v2, PMU v2, Hair v5; still off on all three.
+
+## D240. Following a merge the operator names (2026-10-26)
 
 Tyler merged Alma Saucedo's and Elena Jocobi's two GHL contacts each. D222 finds the contact a merge kept by a shared email or
 phone, and these pairs had none in common, so nothing found it. `POST /api/admin/contact/merged { company, gone, into, why,

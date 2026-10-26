@@ -325,7 +325,7 @@ export async function opportunityStatus(c: PoolClient, a: { company: string; con
 }
 
 /**
- * D235: a merge the operator names (Tyler merged Alma Saucedo's and Elena Jocobi's two GHL contacts each; the two had no email or
+ * D240: a merge the operator names (Tyler merged Alma Saucedo's and Elena Jocobi's two GHL contacts each; the two had no email or
  * phone in common, so nothing could find the survivor on its own). Only when GHL confirms the gone one is gone and the one it went
  * into is live. The dry run counts what would move; applied, D222's follow moves it all and keeps the gone row as merged into it.
  */

@@ -40,7 +40,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D233: contact fields and deal status
     expect(await asOperator((c) => one(c, "select status, won_at from opportunities where contact_id=$1", [ct]))).toEqual({ status: "won", won_at: new Date("2026-10-23T00:04:34Z") });
   });
 
-  it("D235: a named merge is followed only once GHL has dropped the gone one; its booking moves and it is kept as merged", async () => {
+  it("D240: a named merge is followed only once GHL has dropped the gone one; its booking moves and it is kept as merged", async () => {
     const crm = new Map([["GKEEP", { id: "GKEEP", firstName: "Alma", tags: [], customFields: {}, dateUpdated: "2026-10-20T00:00:00Z", dateAdded: "2026-10-01T00:00:00Z" }], ["GDUP", { id: "GDUP", firstName: "Alma", tags: [], customFields: {}, dateUpdated: "2026-10-20T00:00:00Z", dateAdded: "2026-10-01T00:00:00Z" }]]);
     const ghl = fakeAdapters({ crm });
     const [keep, dup] = await asOperator(async (c) => {

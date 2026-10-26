@@ -5,7 +5,7 @@ import { operatorAuthorized } from "@/engine/admin-auth";
 import { contactMerged } from "@/engine/contact-ops";
 export const dynamic = "force-dynamic"; export const maxDuration = 60;
 
-/** D235: POST { company, gone (GHL id or ours), into (GHL id or ours), why, dryRun = true }: a merge done in GHL, followed in the engine. Audited. Authorization: Bearer $CRON_SECRET. */
+/** D240: POST { company, gone (GHL id or ours), into (GHL id or ours), why, dryRun = true }: a merge done in GHL, followed in the engine. Audited. Authorization: Bearer $CRON_SECRET. */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const b = (await req.json().catch(() => null)) as { company?: string; gone?: string; into?: string; why?: string; dryRun?: boolean } | null;
