@@ -111,6 +111,17 @@ export const calendlyBooking: BookingRead = {
           questions: (t.custom_questions ?? []).filter((q) => q.enabled !== false).sort((a, z) => (a.position ?? 0) - (z.position ?? 0)).map((q) => ({ name: q.name, type: q.type, position: q.position, required: q.required, choices: q.answer_choices?.length ? q.answer_choices : undefined })) });
       }
     }
+    // D243: a member's own listing also carries team (round robin) types they only own or administer: Calendly listed Mary Emily
+    // (team@) under PMU's three round robins whose hosts are Carly and Jose. A shared type's hosts are what Calendly says hosts it;
+    // the listing is kept only when that read is refused (the hosts endpoint takes a personal access token)
+    for (const cal of byId.values()) {
+      if (!cal.pooling) continue;
+      try {
+        const ms = await calendlyAll<{ member: { email?: string; name?: string } }>(b.token, `/event_type_memberships?event_type=${encodeURIComponent(`https://api.calendly.com/event_types/${cal.id}`)}&count=100`);
+        const hosts = ms.filter((m) => m.member.email).map((m) => ({ name: m.member.name ?? m.member.email!, email: m.member.email! }));
+        if (hosts.length) cal.hosts = hosts;
+      } catch { /* keep the listing's */ }
+    }
     return [...byId.values()].sort((a, z) => a.name.localeCompare(z.name));
   },
   async appointmentsInWindow(c, calendarId, from, to, delta) {
