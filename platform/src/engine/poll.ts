@@ -14,6 +14,7 @@ import { foldCard } from "./cards";
 import { handMoved } from "./card-moves";
 import { carriesTag, companyScopeTag, inScope, scopeTag, stillInScope, tagIntoScope } from "./scope";
 import { raiseSetterMissing, settleSetterAlerts } from "./setter-missing";
+import { raise, resolve } from "./alerts";
 import { runningSql } from "./running";
 
 export type PollReport = { companies: number; contacts: number; appointmentsNew: number; appointmentsChanged: number; inbound: number; calls: number; agreements: number; cardsMoved: number; eventsDispatched: number; baselined: number; errors: { company: string; entity: string; error: string }[] };
@@ -235,6 +236,8 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
       await tagIntoScope(c, co, ac, adapters, (await loadCompany(c, co.id)).bindings, contact.id, row!.id, tag);
     // D121: setter-booked with no setter named is an alert to say who, before Call booked reads the booking (a dial may already say)
     if (cal.self_booked === false && !s.setBy?.trim()) await raiseSetterMissing(c, co, row!.id);
+    // D242: the source could not make the call's meeting (Calendly's Zoom failed): said the minute it books, naming the host whose connection broke
+    if (s.meetingFailed && s.status === "confirmed" && new Date(s.startTime).getTime() > Date.now()) await raiseMeetingFailed(c, co, row!.id, s);
     if (contact.lead) {   // the booking brought a new person: lead.created first (New lead, Speed to lead), the same shape the contacts poll emits, then the booking
       const started = await dispatchEvent(c, await emitEvent(c, { company_id: co.id, contact_id: contact.id, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "ghl_poll", data: { ghl_contact_id: contact.lead.ghlContactId } }), { contact: { id: contact.id, ghl_contact_id: contact.lead.ghlContactId, tags: contact.lead.tags } });
       if (rep) rep.eventsDispatched += started.length;
@@ -249,7 +252,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   }
   // D102: a booking from before the link was kept, or one whose link changed (a Calendly reschedule is a new meeting), gets it without an event
   if (key && key !== existing.meeting_key) await c.query("update appointments set meeting_key=$2 where id=$1", [existing.id, key]);
-  if (s.meetingUrl) await c.query("update appointments set meeting_url=$2 where id=$1 and meeting_url is distinct from $2", [existing.id, s.meetingUrl]);   // D144
+  if (s.meetingUrl) { await c.query("update appointments set meeting_url=$2 where id=$1 and meeting_url is distinct from $2", [existing.id, s.meetingUrl]); await resolve(c, co.id, meetingFailedKey(existing.id)); }   // D144; D242: the link came after all
   const changes: Record<string, unknown> = {};
   // D76: a cancel after the call's start never overwrites a show or a no-show the call already has: the outcome stands
   if (s.status === "cancelled" && existing.status !== "cancelled" && Math.min(Date.now(), Date.parse(s.dateUpdated ?? "") || Date.now()) >= new Date(s.startTime).getTime()) {
@@ -287,6 +290,19 @@ export const AGREEMENTS_EVERY_MS = 5 * 60e3 - 15e3;
 
 /** D234: how often every booking in the window is read again in full, whatever the source stamps say. */
 export const FULL_BOOKING_READ_MS = 60 * 60e3;
+
+/** D242: one alert per booking whose meeting the source could not make. */
+export const meetingFailedKey = (appointmentId: string) => `booking:meeting-failed:${appointmentId}`;
+async function raiseMeetingFailed(c: PoolClient, co: CompanyRow, appointmentId: string, s: AppointmentSnapshot) {
+  const a = await one<{ who: string; host: string | null; host_email: string | null }>(c, `select trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as who, u.name as host, u.email as host_email
+    from appointments a join contacts ct on ct.id=a.contact_id left join users u on u.id=a.assigned_user_id where a.id=$1`, [appointmentId]);
+  const kind = s.meetingFailed === "zoom" ? "Zoom" : s.meetingFailed === "google_conference" ? "Google Meet" : s.meetingFailed === "microsoft_teams_conference" ? "Teams" : "meeting";
+  const host = a?.host ?? s.assignedUserEmail ?? "the host";
+  const when = DateTime.fromISO(s.startTime).setZone(co.timezone).toFormat("ccc LLL d, h:mm a");
+  await raise(c, { companyId: co.id, key: meetingFailedKey(appointmentId), level: "error", source: "engine", href: null,
+    text: `${a?.who || "A new booking"} just booked a call with ${host} (${when}) and Calendly could not make the ${kind}: ${host}'s ${kind} is not connected in Calendly. Reconnect it (Calendly → Integrations → ${kind}), then send ${a?.who || "them"} a link.`,
+    detail: { appointment_id: appointmentId, host, host_email: a?.host_email ?? s.assignedUserEmail ?? null, conferencing: s.meetingFailed } });
+}
 
 async function pollCalendar(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, calendarId: string) {
   const entity = `appointments:${calendarId}`;
