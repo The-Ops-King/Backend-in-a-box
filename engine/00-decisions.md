@@ -6475,3 +6475,10 @@ The engine listed every member whose own event-type listing carried a round robi
 under a member who only owns or administers it: Mary Emily (team@) showed as a host on PMU's three round robins, whose hosts
 are Carly and Jose. A shared type's hosts now come from `/event_type_memberships`. The member listings are kept only when
 that read is refused. Tests: `list-calendars.test.ts`.
+
+## D244. In the end of day, each payment counts on the call it followed (2026-10-26)
+
+Jose's Oct 22 end of day showed $20,000 collected for Jennyfer Cantrell's $10,000. Each of her two calls that day was credited
+with all of her payments that day. Now a person's payment belongs to the latest of their closing calls that day that started
+by the time they paid, and a payment made before their first call counts on that first call. Being won works the same way.
+Her $250 is the 10 AM call's deposit and her $9,750 the 7 PM call's close. Tests: `eod.money-per-call.test.ts`.

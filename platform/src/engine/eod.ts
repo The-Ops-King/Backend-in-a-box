@@ -177,6 +177,16 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   const reads = (await setterCallsOn(c, company.id)) ? await setterReads(c, company.id, tz, closer.id, from, to) : [];
   const triaged = new Set(appts.filter((a) => a.term_cat === "first_call").map((a) => a.contact_id));
   const dqOption = (label: string) => (label && fields.find((f) => f.key === "dq_reason")?.options?.includes(label) ? label : "");
+  // D244: a person's payments that day belong to one call each: the latest of their closing calls that day that started by the time
+  // they paid (one paid before their first call counts on that first call). Two calls with one buyer no longer each claim the day's money
+  // (Jose's Oct 22: Jennyfer's $250 after the 10 AM call and $9,750 after the 7 PM one read as $20,000).
+  const moneyWindow = new Map<string, { from: Date; to: Date }>();
+  for (const a of appts) {
+    if (a.term_cat === "triage") continue;
+    const mine = appts.filter((b) => b.contact_id === a.contact_id && b.term_cat !== "triage");
+    const i = mine.indexOf(a), next = mine[i + 1];
+    moneyWindow.set(a.id, { from: i === 0 ? from.toJSDate() : a.starts_at, to: next ? new Date(next.starts_at.getTime() - 1) : to.toJSDate() });
+  }
   for (const a of appts) {
     // D143: a triage call (a first call) asks its own questions; "set" pre-fills when they have booked a closing call since
     if (a.term_cat === "first_call") {
@@ -197,8 +207,9 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const rec = await one<{ share_url: string | null; analysis: Record<string, unknown> }>(c, "select share_url, analysis from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) order by started_at desc limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
     const notes = (rec?.analysis?.notes ?? {}) as Record<string, unknown>;
     // D119: a day whose payments were all deposits pre-fills Deposit; the amount says nothing about it
-    const pay = await one<{ total: string; all_deposit: boolean }>(c, "select coalesce(sum(amount),0)::text as total, coalesce(bool_and(kind='deposit'),false) as all_deposit from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
-    const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
+    const win = moneyWindow.get(a.id) ?? { from: from.toJSDate(), to: to.toJSDate() };
+    const pay = await one<{ total: string; all_deposit: boolean }>(c, "select coalesce(sum(amount),0)::text as total, coalesce(bool_and(kind='deposit'),false) as all_deposit from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4", [company.id, a.contact_id, win.from, win.to]);
+    const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, win.from, win.to]);
     const paid = num(pay?.total), contract = won?.v ? num(won.v) : price;
     const disp = str(notes.disposition);
     // D80 (replaces D54's presumption): only evidence pre-fills. A past call with no recording, no outcome and no money opens BLANK with a hint, so a
