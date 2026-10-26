@@ -41,7 +41,8 @@ const call = (id: string, contactId: string): MessageSnapshot => ({ id, conversa
 const booking = (id: string, contactId: string): AppointmentSnapshot => ({ id, calendarId: "CAL", contactId, startTime: iso(NOW.plus({ days: 1 })), endTime: iso(NOW.plus({ days: 1, minutes: 30 })), status: "confirmed", dateAdded: iso(NOW), raw: {} });
 
 let companyId: string;
-const poll = () => pollCompany(fake, companyId);
+// D241: each poll here stands for five minutes passing, so the documents are read every time
+const poll = async () => { await asOperator((c) => c.query("delete from engine_state where key=$1", [`agreements_read:${companyId}`])); return pollCompany(fake, companyId); };
 const contactOf = async (ghl: string) => (await asOperator((c) => one<{ id: string; tags: string[] }>(c, "select id, tags from contacts where company_id=$1 and ghl_contact_id=$2", [companyId, ghl]))) ?? null;
 const events = (type: string) => asOperator((c) => many<{ contact_id: string | null; data: Record<string, unknown> }>(c, "select contact_id, data from events where company_id=$1 and event_type=$2 order by id", [companyId, type]));
 

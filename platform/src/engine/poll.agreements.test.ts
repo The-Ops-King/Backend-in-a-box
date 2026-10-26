@@ -23,7 +23,8 @@ const fake: Adapters = {
 const events = () => asOperator((c) => many<{ event_type: string; data: Record<string, unknown> }>(c, "select event_type, data from events where company_id=$1 and event_type like 'agreement.%' order by id", [companyId]));
 
 describe.skipIf(!HAS_DB)("agreements mirrored from the CRM's documents", () => {
-  const poll = () => pollCompany(fake, companyId);   // this company only: the test database holds every other suite's too
+  // D241: each poll here stands for five minutes passing, so the documents are read every time
+  const poll = async () => { await asOperator((c) => c.query("delete from engine_state where key=$1", [`agreements_read:${companyId}`])); return pollCompany(fake, companyId); };
   beforeAll(async () => {
     await migrate();
     await asOperator(async (c) => {
@@ -59,5 +60,18 @@ describe.skipIf(!HAS_DB)("agreements mirrored from the CRM's documents", () => {
     await Promise.all([pollDocumentsNow(fake, companyId), poll(), pollDocumentsNow(fake, companyId)]);
     const d2 = (await events()).filter((e) => e.data.external_id === "d2").map((e) => e.event_type);
     expect(d2).toEqual(["agreement.sent", "agreement.signed"]);
+  });
+});
+
+describe.skipIf(!HAS_DB)("D241: the minute tick reads documents every five minutes", () => {
+  it("a second poll within five minutes does not read them; one after does", async () => {
+    let reads = 0;
+    const counting: Adapters = { ...fake, read: { ...fake.read, documents: async (c) => { reads++; return fake.read.documents(c); } } };
+    await asOperator((c) => c.query("delete from engine_state where key=$1", [`agreements_read:${companyId}`]));
+    await pollCompany(counting, companyId); await pollCompany(counting, companyId);
+    expect(reads).toBe(1);
+    await asOperator((c) => c.query("update engine_state set value=jsonb_build_object('at', (now() - interval '6 minutes')::text) where key=$1", [`agreements_read:${companyId}`]));
+    await pollCompany(counting, companyId);
+    expect(reads).toBe(2);
   });
 });
