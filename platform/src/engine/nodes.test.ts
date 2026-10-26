@@ -91,7 +91,7 @@ const DEFS = [
     [{ from: "t1", to: "o3" }, { from: "o3", to: "l1" }, { from: "l1", to: "l2" }, { from: "l2", to: "l3" }, { from: "l3", to: "l4" }, { from: "l4", to: "l5" }, { from: "l5", to: "l6" }, { from: "l6", to: "x1" }]),
   // D85: a record the engine did not make, by the CRM's own id
   flow("By id", [trig("byid"), { id: "n1", type: "crm_record", object: "custom_objects.sales_call", record_id: "{{event.record | default:}}", properties: { outcome: "{{event.outcome}}", disposition: "{{event.disp | default:}}", not_a_field: "x" },
-    clear: ["disposition", "next_step"], relate: [{ association: "ASSOC-1", first: "{{record.id}}", second: "{{contact.ghl_contact_id}}" }] }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
+    clear: ["disposition", "next_step", "cash_collected"], relate: [{ association: "ASSOC-1", first: "{{record.id}}", second: "{{contact.ghl_contact_id}}" }] }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
   flow("Typed", [trig("typed"), { id: "n1", type: "crm_record", object: "custom_objects.sales_call", record_id: "{{event.record}}", properties: { cash_collected: "{{event.cash | default:}}", duration_min: "{{event.minutes}}", objections_raised: "{{event.objections}}", score_total: "{{event.score}}", next_step: "{{event.next}}" } }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
   // D85: an opportunity won or lost, its event, its card
   flow("Close it", [trig("close"), { id: "n1", type: "update_opportunity", status: "{{event.status}}", lost_reason: "{{event.reason | default:}}", set: { contract_value: "{{event.value | default:}}" }, card: { pipeline: "{{crm.pipeline_x}}" } }, { id: "x1", type: "exit", reason: "done" }], [{ from: "t1", to: "n1" }, { from: "n1", to: "x1" }]),
@@ -384,17 +384,17 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
   });
   describe("crm_record by the CRM's id", () => {
     const ledger = (ghl: string) => asOperator((c) => many<{ record_key: string; ghl_record_id: string; properties: Record<string, unknown> }>(c, "select record_key, ghl_record_id, properties from crm_records where company_id=$1 and ghl_record_id=$2", [companyId, ghl]));
-    it("updates that record: unknown properties dropped and named, clear empties what this answer does not set, relate links it; never a create", async () => {
+    it("updates that record: unknown properties dropped and named, clear empties what this answer does not set (a money field as no money, D245), relate links it; never a create", async () => {
       const ct = await newContact("Rae"); recordCalls.length = 0;
       const id = await fire(ct, "byid", { record: "REC-9", outcome: "showed" });
       await tickAt(DateTime.now());
       expect(await run(id)).toMatchObject({ status: "completed" });
-      expect(recordCalls).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-9", props: { outcome: "showed", disposition: null, next_step: null } }, { op: "relate", object: "ASSOC-1", id: expect.stringMatching(/^REC-9→GN\d+$/) }]);
+      expect(recordCalls).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-9", props: { outcome: "showed", disposition: null, next_step: null, cash_collected: { currency: "default", value: 0 } } }, { op: "relate", object: "ASSOC-1", id: expect.stringMatching(/^REC-9→GN\d+$/) }]);
       expect((await steps(id, "n1"))[0]).toMatchObject({ status: "ok", result: { record: "updated", by_crm_id: true, crm_id: "REC-9", not_on_object: ["not_a_field"] } });
-      expect(await ledger("REC-9")).toEqual([{ record_key: "ghl:REC-9", ghl_record_id: "REC-9", properties: { outcome: "showed", disposition: null, next_step: null } }]);
+      expect(await ledger("REC-9")).toEqual([{ record_key: "ghl:REC-9", ghl_record_id: "REC-9", properties: { outcome: "showed", disposition: null, next_step: null, cash_collected: { currency: "default", value: 0 } } }]);
       // a second answer: the ledger row is the same one, a set value is not cleared
       await fire(ct, "byid", { record: "REC-9", outcome: "showed", disp: "closed_won" }); await tickAt(DateTime.now());
-      expect(recordCalls.filter((r) => r.op === "update").at(-1)!.props).toEqual({ outcome: "showed", disposition: "closed_won", next_step: null });
+      expect(recordCalls.filter((r) => r.op === "update").at(-1)!.props).toEqual({ outcome: "showed", disposition: "closed_won", next_step: null, cash_collected: { currency: "default", value: 0 } });   // D245: GHL takes no empty money field
       expect(await ledger("REC-9")).toMatchObject([{ record_key: "ghl:REC-9", properties: { disposition: "closed_won" } }]);
     });
     it("a record the engine already keeps under its own key is updated under that key, not a second ledger row", async () => {
@@ -414,7 +414,7 @@ describe.skipIf(!HAS_DB)("building blocks (D85)", () => {
       expect(await run(b)).toMatchObject({ status: "waiting", current_node: "n1" });
       await wake(b); await tickAt(DateTime.now().plus({ minutes: 1 }));
       expect(await run(b)).toMatchObject({ status: "completed" });
-      expect(recordCalls.filter((r) => r.op === "update" || r.op === "create")).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-11", props: { outcome: "showed", disposition: null, next_step: null } }]);
+      expect(recordCalls.filter((r) => r.op === "update" || r.op === "create")).toEqual([{ op: "update", object: "custom_objects.sales_call", id: "REC-11", props: { outcome: "showed", disposition: null, next_step: null, cash_collected: { currency: "default", value: 0 } } }]);
     });
     it("each property goes as the object's field type says: money as an amount with its currency, numbers as numbers, options as a list, text as text; an empty value is left out, never 0 (found live 2026-10-12)", async () => {
       const ct = await newContact("Ivo"); recordCalls.length = 0;

@@ -6482,3 +6482,10 @@ Jose's Oct 22 end of day showed $20,000 collected for Jennyfer Cantrell's $10,00
 with all of her payments that day. Now a person's payment belongs to the latest of their closing calls that day that started
 by the time they paid, and a payment made before their first call counts on that first call. Being won works the same way.
 Her $250 is the 10 AM call's deposit and her $9,750 the 7 PM call's close. Tests: `eod.money-per-call.test.ts`.
+
+## D245. An emptied money field is sent as no money (2026-10-26)
+
+PMU's Call outcome filed empties a held call's fields on a no-show (`clear`, `cash_collected` among them). GHL refuses a null
+money field ("Cash Collected is missing a currency code") and with it the whole update, so Renee G's two Oct 22 no-shows stayed
+"scheduled" in GHL. A money field in `clear` is now sent as `{ currency: "default", value: 0 }`, which GHL takes. Engine code:
+it changes only writes GHL was refusing. Tests: `nodes.test.ts`.
