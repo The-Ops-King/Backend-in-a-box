@@ -6455,3 +6455,23 @@ phone, and these pairs had none in common, so nothing found it. `POST /api/admin
 dryRun = true }` follows a merge the operator names. GHL must already have dropped the gone contact, and the one it went into
 must be live. The dry run counts what would move. Applied, D222's follow moves it all and keeps the gone row as merged into the
 survivor. Audited. Tests: `contact-ops.test.ts`.
+
+## D241. The minute tick reads GHL documents every five minutes (2026-10-26)
+
+PMU's documents read took 5.8 s of every minute's tick. The minute tick now reads them at most every five minutes
+(`AGREEMENTS_EVERY_MS`, an `engine_state` stamp per company). An offer waiting on a signature (a payment, or an agreement sent
+in the last 30 minutes) is still read every ten seconds by its own job (D202). Tests: `poll.agreements.test.ts`.
+
+## D242. A booking whose meeting Calendly could not make is an alert the minute it books (2026-10-26)
+
+Tyler: "it should warn me that zoom is not connected the minute a single call books." Calendly's event carries
+`location.status`. "failed" means it could not make the Zoom (or Meet or Teams), so the booking has no link. A new booking like
+that raises `booking:meeting-failed:<appointment>` at once, naming the host whose connection broke and what to do. The alert
+closes itself if the link turns up later. Tests: `poll.meeting-failed.test.ts`.
+
+## D243. A round robin's hosts are the ones Calendly says host it (2026-10-26)
+
+The engine listed every member whose own event-type listing carried a round robin as its host. Calendly carries the type
+under a member who only owns or administers it: Mary Emily (team@) showed as a host on PMU's three round robins, whose hosts
+are Carly and Jose. A shared type's hosts now come from `/event_type_memberships`. The member listings are kept only when
+that read is refused. Tests: `list-calendars.test.ts`.
