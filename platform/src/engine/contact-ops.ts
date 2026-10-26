@@ -323,3 +323,30 @@ export async function opportunityStatus(c: PoolClient, a: { company: string; con
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'opportunity.status','opportunity',$2,$3,$4)", [co.id, opp.id, { status: opp.status }, { status: a.status, at: at.toISOString(), why: a.why }]);
   return { ok: true, dryRun: false, who: ct.who, opportunity: opp.id, was: opp.status, to: a.status };
 }
+
+/**
+ * D235: a merge the operator names (Tyler merged Alma Saucedo's and Elena Jocobi's two GHL contacts each; the two had no email or
+ * phone in common, so nothing could find the survivor on its own). Only when GHL confirms the gone one is gone and the one it went
+ * into is live. The dry run counts what would move; applied, D222's follow moves it all and keeps the gone row as merged into it.
+ */
+export async function contactMerged(c: PoolClient, adapters: Adapters, a: { company: string; gone: string; into: string; why: string; dryRun?: boolean }): Promise<{ ok: true; dryRun: boolean; gone: string; into: string; moves: Record<string, number>; result?: unknown } | Fail> {
+  if (!a.gone || !a.into || !a.why?.trim()) return { ok: false, status: 400, error: "gone, into and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const g = await contactOf(c, co.id, a.gone), i = await contactOf(c, co.id, a.into);
+  if (!g || !i) return { ok: false, status: 404, error: `no such contact: ${!g ? a.gone : a.into}` };
+  if (g.id === i.id) return { ok: false, status: 400, error: "gone and into are the same contact" };
+  const { row, adapterCompany: ac } = await loadCompany(c, co.id);
+  if (g.ghl_contact_id && await adapters.read.getContact(ac, g.ghl_contact_id)) return { ok: false, status: 409, error: `${g.who} (${g.ghl_contact_id}) is still in GHL: merge it there first` };
+  if (!i.ghl_contact_id || !(await adapters.read.getContact(ac, i.ghl_contact_id))) return { ok: false, status: 409, error: `${i.who} is not a live GHL contact` };
+  const moves: Record<string, number> = {};
+  for (const t of ["appointments", "opportunities", "pipeline_cards", "payments", "crm_records", "recordings", "form_submissions", "intake", "agreements", "messages"]) {
+    const n = (await one<{ n: number }>(c, `select count(*)::int as n from ${t} where company_id=$1 and contact_id=$2`, [co.id, g.id]))!.n; if (n) moves[t] = n;
+  }
+  if (a.dryRun !== false) return { ok: true, dryRun: true, gone: `${g.who} (${g.ghl_contact_id})`, into: `${i.who} (${i.ghl_contact_id})`, moves };
+  await c.query("update contacts set gone_at=coalesce(gone_at, now()), updated_at=now() where id=$1", [g.id]);
+  const { followMerge } = await import("./merge");
+  const result = await followMerge(c, co.id, row.timezone, ac, adapters, g.id, i.id);
+  if (!result.folded) return { ok: false, status: 409, error: `not followed: ${result.why}` };
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.merge_named','contact',$2,$3)", [co.id, g.id, { into: i.id, why: a.why, moved: result.moved }]);
+  return { ok: true, dryRun: false, gone: `${g.who} (${g.ghl_contact_id})`, into: `${i.who} (${i.ghl_contact_id})`, moves, result };
+}

@@ -6443,3 +6443,11 @@ Notes fields; PMU's Discovery Call object and its contact link (bound). Then:
 - Hair: `eod.setter_calls` on; Setter call logged v10 (the template: Jev no longer writes the result or acts); Setter call filed made,
   **off: turning it on waits for Tyler's word**. Until it is on, Hair's end of day answers for setting calls with no booking are
   recorded (setter_call.filed) but written to GHL by nothing.
+
+## D235. Following a merge the operator names (2026-10-26)
+
+Tyler merged Alma Saucedo's and Elena Jocobi's two GHL contacts each. D222 finds the contact a merge kept by a shared email or
+phone, and these pairs had none in common, so nothing found it. `POST /api/admin/contact/merged { company, gone, into, why,
+dryRun = true }` follows a merge the operator names. GHL must already have dropped the gone contact, and the one it went into
+must be live. The dry run counts what would move. Applied, D222's follow moves it all and keeps the gone row as merged into the
+survivor. Audited. Tests: `contact-ops.test.ts`.

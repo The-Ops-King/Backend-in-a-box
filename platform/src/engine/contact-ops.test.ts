@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { installCompany } from "./install";
-import { contactFields, opportunityStatus } from "./contact-ops";
+import { contactFields, contactMerged, opportunityStatus } from "./contact-ops";
 import { fakeAdapters } from "./test-install";
 import type { Adapters } from "@/adapters/types";
 
@@ -38,5 +38,25 @@ describe.skipIf(!process.env.DATABASE_URL)("D233: contact fields and deal status
   it("deal: marked won at the time given", async () => {
     expect(await asOperator((c) => opportunityStatus(c, { company: SLUG, contact: "GJ", status: "won", at: "2026-10-23T00:04:34Z", why: "t", dryRun: false }))).toMatchObject({ ok: true, was: "open", to: "won" });
     expect(await asOperator((c) => one(c, "select status, won_at from opportunities where contact_id=$1", [ct]))).toEqual({ status: "won", won_at: new Date("2026-10-23T00:04:34Z") });
+  });
+
+  it("D235: a named merge is followed only once GHL has dropped the gone one; its booking moves and it is kept as merged", async () => {
+    const crm = new Map([["GKEEP", { id: "GKEEP", firstName: "Alma", tags: [], customFields: {}, dateUpdated: "2026-10-20T00:00:00Z", dateAdded: "2026-10-01T00:00:00Z" }], ["GDUP", { id: "GDUP", firstName: "Alma", tags: [], customFields: {}, dateUpdated: "2026-10-20T00:00:00Z", dateAdded: "2026-10-01T00:00:00Z" }]]);
+    const ghl = fakeAdapters({ crm });
+    const [keep, dup] = await asOperator(async (c) => {
+      const k = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GKEEP','Alma') returning id", [co]))!.id;
+      const d = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GDUP','Alma') returning id", [co]))!.id;
+      const term = (await one<{ id: string }>(c, "insert into company_terms (company_id, domain, name, category, is_default, sort) values ($1,'appointment_type','Closing','closing',true,1) on conflict do nothing returning id", [co]))?.id
+        ?? (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' limit 1", [co]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly','EV-DUP',$3,now(),now(),now(),'confirmed')", [co, d, term]);
+      return [k, d];
+    });
+    const go = (dryRun: boolean) => asOperator((c) => contactMerged(c, ghl, { company: SLUG, gone: "GDUP", into: "GKEEP", why: "t", dryRun }));
+    expect(await go(true)).toMatchObject({ ok: false, status: 409 });   // still in GHL
+    crm.delete("GDUP");
+    expect(await go(true)).toMatchObject({ ok: true, dryRun: true, moves: { appointments: 1 } });
+    expect(await go(false)).toMatchObject({ ok: true, dryRun: false });
+    expect(await asOperator((c) => one(c, "select contact_id from appointments where external_id='EV-DUP' and company_id=$1", [co]))).toEqual({ contact_id: keep });
+    expect(await asOperator((c) => one(c, "select merged_into from contacts where id=$1", [dup]))).toEqual({ merged_into: keep });
   });
 });
