@@ -182,8 +182,8 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   // (Jose's Oct 22: Jennyfer's $250 after the 10 AM call and $9,750 after the 7 PM one read as $20,000).
   const moneyWindow = new Map<string, { from: Date; to: Date }>();
   for (const a of appts) {
-    if (a.term_cat === "triage") continue;
-    const mine = appts.filter((b) => b.contact_id === a.contact_id && b.term_cat !== "triage");
+    if (a.term_cat === "first_call") continue;
+    const mine = appts.filter((b) => b.contact_id === a.contact_id && b.term_cat !== "first_call");
     const i = mine.indexOf(a), next = mine[i + 1];
     moneyWindow.set(a.id, { from: i === 0 ? from.toJSDate() : a.starts_at, to: next ? new Date(next.starts_at.getTime() - 1) : to.toJSDate() });
   }
