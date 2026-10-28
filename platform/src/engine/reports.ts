@@ -45,7 +45,9 @@ export type Layout = { heading: Record<string, string>; sections: { title: strin
  * nothing was said on a form, no per-person number, and GHL was read), else null; a company quiet when empty posts nothing then.
  */
 export type ReportFacts = { kind: ReportKind; to_date: boolean; start: string; end: string; read_at: string; period: Period; n: Numbers; raw: Record<string, number>; calls: Record<keyof CallsSeen, number | null> | null; rates: { show_rate: number | null; close_rate: number | null; pitch_rate: number | null; pitched_close_rate: number | null }; money_moved: true | null;
-  said: { label: string; answered: number; top: { answer: string; count: number }[]; rest: number; rest_kinds: number }[]; by: { closer: Breakdown[]; setter: Breakdown[] }; ghl_error: string | null; nothing: true | null };
+  said: { label: string; answered: number; top: { answer: string; count: number }[]; rest: number; rest_kinds: number }[]; by: { closer: Breakdown[]; setter: Breakdown[] }; ghl_error: string | null; nothing: true | null;
+  /** D246: who owes an end of day, one line each ("Jose P: Mon Oct 26 (Tommy Arakilian)"); count null when no one does */
+  missing_eods: { count: number | null; lines: string[] } };
 
 /** D124: nothing happened in the period, from the numbers (never the words): see `ReportFacts.nothing`. A GHL read that failed is not nothing: what it would have said is not known. */
 export function nothingHappened(a: { numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] } }): true | null {
@@ -72,7 +74,7 @@ export async function whatTheySaid(c: PoolClient, companyId: string, period: Per
 }
 
 /** The facts a layout reads, from the period's numbers. Pure. */
-export function reportFacts(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] }; readAt?: Date }): ReportFacts {
+export function reportFacts(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] }; readAt?: Date; missingEods?: string[] }): ReportFacts {
   const { numbers } = args, k = args.calls ?? null;
   const v = (key: string) => numbers[key] ?? 0, nz = (x: number | null | undefined) => (x ? x : null);
   const pct = (a: number, of: number) => (a > 0 && of > 0 ? Math.round((a / of) * 100) : null);
@@ -87,6 +89,7 @@ export function reportFacts(args: { kind: ReportKind; period: Period; tz: string
     said: args.said.slice(0, 10).map((q) => ({ label: q.label, answered: q.answered, top: q.top.map(([a, n]) => ({ answer: a.length > 62 ? `${a.slice(0, 59)}…` : a, count: n })), rest: q.rest, rest_kinds: q.restKinds })),
     by: args.by ?? { closer: [], setter: [] }, ghl_error: args.ghlError ?? null,
     nothing: nothingHappened(args),
+    missing_eods: { count: args.missingEods?.length || null, lines: args.missingEods ?? [] },
   };
 }
 
@@ -140,7 +143,10 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   const ghlError = [...new Set(errors.filter((x) => /GHL could not be read/.test(x)))][0]?.replace(/^GHL could not be read /, "").slice(0, 200);
   // breakdowns: per closer and per setter from the ledger's rollups, for a layout that words them (D29: totals by default, per person switchable)
   const want = new Set(opts.breakdowns ?? []);
-  const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now });
+  // D246: who owes an end of day, as the wrap-up is read (a layout that does not word it says nothing about it)
+  const { missingEods, missingLines } = await import("./missing-eods");
+  const missing = missingLines(await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>));
+  const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now, missingEods: missing });
   const body = renderLayout(opts.layout ?? shippedLayout(kind), facts, opts.ctx ?? {}, { tz: company.timezone, companyTz: company.timezone });
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers) values ($1,$2,$3,$4,$5,$6,$7) returning id",
     [company.id, kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers, registry: numbers }]);
