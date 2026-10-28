@@ -103,4 +103,10 @@ export const MIGRATIONS: Migration[] = [
     const b = await t.query("update events set data = data || '{\"prior_non_deposit_total\":0}'::jsonb where company_id=$1 and event_type='payment.received' and data->>'provider_payment_id'='pay_x8FSlakIYHNzDc' returning id", [co.id]);
     await t.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'events.ledger_fix','company',$2,$3)", [co.id, co.id, { deposit_event: a.rows.map((r) => r.id), balance_event: b.rows.map((r) => r.id) }]);
   }) },
+  // D251: one shared Slack app installed in each workspace (an install link), next to the per-offer apps made by hand (D174). A
+  // connection says which app it came through; the shared app's doors find the offer by its workspace, so one is looked up by team
+  { id: "0011-slack-shared-app", run: async (c) => {
+    await c.query("alter table slack_connections add column if not exists app text not null default 'own' check (app in ('own','shared'))");
+    await c.query("create index if not exists slack_connections_team on slack_connections (team_id)");
+  } },
 ];

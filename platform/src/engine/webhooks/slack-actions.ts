@@ -10,7 +10,7 @@ import { slackBot } from "../slack-conn";
 
 /**
  * D93: Retry and Resolve on an alert's Slack post. The Health check workflow puts the buttons on the post (slack_post `buttons`);
- * a press comes to the interactions door (`/api/webhooks/slack/<companyId>/interactions`), signed like the other Slack doors,
+ * a press comes to the interactions door (`/api/webhooks/slack/<companyId>/interactions`, or `/api/slack/interactions` for the shared app, D251), signed like the other Slack doors,
  * is acknowledged at once and handled here after the response. Only the company's owners and managers (users by slack_user_id)
  * and the operator (`bot.escalate_to`) may press; the alert row is locked for the press, so a second press waits for the first
  * and finds it done.

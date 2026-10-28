@@ -6549,3 +6549,28 @@ reads every completed and partial response of the named forms, finds each person
 A person GHL does not have is listed, never created; `skip` (GHL ids) leaves the named contacts (tests) alone. Dry run by default; apply re-reads each contact live and writes only what
 it lacks. `POST /api/admin/bindings { company, key, value, why }` sets one setting (a secret encrypted, never answered back);
 the Typeform token is allowed before an offer's forms are mapped.
+
+## D251. One shared Slack app, installed per offer from a link (2026-10-28)
+
+Tyler: "installable shared app. one that does it all so we update once and it all gets it. however it's connected to the app
+itself so we can make sure to get the right data. if i do /team on one account for example I should Only get that team".
+
+- One Slack app (its manifest from `GET /api/admin/slack/install`), made once and distributed (unlisted). Its keys live on the server:
+  `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`. Its doors: `/api/slack/events`, `/commands`, `/interactions`,
+  `/oauth`. Changing a command or a scope means updating that one app, and every workspace gets the change.
+- An offer connects it with its own "Add to Slack" link (the dashboard's Slack step, or `GET /api/admin/slack/install?company=`).
+  The link carries the offer, signed and valid for an hour. The bot token Slack hands back becomes that offer's Slack (encrypted), with
+  `slack_connections.app = 'shared'`. Installing into a different workspace from the offer's existing one is refused.
+- Which offer a request is for: the workspace (`team_id`) among the offers on the shared app. If a workspace runs several offers,
+  the request's channel decides (a channel-slot setting, or a post the engine made there; for a reaction or button, that exact post). A
+  DM is decided by the person (whose active team they are on). A form is decided by the channel it was opened from. Anything still
+  unclear is answered "which offer?" and never guessed. So `/team` in one offer's channel answers for that offer only.
+- The per-offer apps (D174) keep working. Once an offer moves to the shared app, its own app's doors stop acting: commands
+  answer that the app can be removed, and events and buttons are dropped. Re-pasting an own app's token in the wizard moves the
+  offer back to it.
+- If the app is uninstalled or its token revoked, each offer in that workspace loses its Slack connection, and an engine alert
+  says so.
+- The three doors are one piece of code (`src/api/slack-doors.ts`) whichever app a request came through. The shared app and the
+  per-offer apps build their manifests from one place (`manifestYaml`).
+
+Not done: moving Dating, PMU and Hair onto it. Each is one click on its link once the app exists, and is Tyler's call, one offer at a time.

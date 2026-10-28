@@ -218,6 +218,13 @@ function SlackStep({ slug, invalidate }: { slug: string; invalidate: string[] })
   const name = (id: string | null) => s.visible?.find((c) => c.id === id)?.name;
   return <>
     {err ? <div className="banner warn">{err}</div> : null}
+    <div className="call form">
+      <div className="hd"><b>The shared app</b>{s.connected?.app === "shared" ? <Tag kind="ok">on the shared app in {s.connected.team}</Tag> : null}</div>
+      {s.shared.installUrl
+        ? <div><a className="btn" href={s.shared.installUrl} target="_blank" rel="noreferrer">Add to Slack</a></div>
+        : <div className="banner warn" style={{ marginTop: 0 }}>Not available: {"why" in s.shared ? s.shared.why : ""}.</div>}
+      <p className="note">One app for every offer, updated once for all. Sign in to this offer's workspace, add it, and come back; the link lasts an hour. Its commands answer for this offer only. Or make this offer its own app below.</p>
+    </div>
     <div className="call form"><b>1. Make the app</b>
       <div className="g2">
         <label><span>App name</span><input value={opts.appName} onChange={(e) => setOpts({ ...opts, appName: e.target.value })} /></label>
@@ -231,7 +238,7 @@ function SlackStep({ slug, invalidate }: { slug: string; invalidate: string[] })
       <p className="note">api.slack.com/apps → Create New App → From an app manifest → pick the workspace → YAML → paste → Create → Install to Workspace.</p>
     </div>
     <form className="call form" autoComplete="off" onSubmit={async (e) => { e.preventDefault(); if (await run({ token, signingSecret: secret }, "Slack connected.")) { setToken(""); setSecret(""); } }}>
-      <div className="hd"><b>2. Connect it</b>{s.connected ? <Tag kind="ok">connected to {s.connected.team}</Tag> : <Tag>not connected</Tag>}</div>
+      <div className="hd"><b>2. Connect it</b>{s.connected?.app === "own" ? <Tag kind="ok">connected to {s.connected.team}</Tag> : <Tag>{s.connected ? "on the shared app" : "not connected"}</Tag>}</div>
       <div className="g2">
         <label><span>Bot User OAuth Token<span className="note"> · OAuth &amp; Permissions, starts xoxb-</span></span><input type="password" autoComplete="new-password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={s.connected ? "set; paste a new one to replace it" : ""} /></label>
         <label><span>Signing Secret<span className="note"> · Basic Information → App Credentials</span></span><input type="password" autoComplete="new-password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={s.signingSet ? "set; paste a new one to replace it" : ""} /></label>
