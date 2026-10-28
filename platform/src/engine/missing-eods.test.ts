@@ -41,6 +41,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D246: missing EODs", () => {
     expect(missingLines(list)[0]).toMatch(/^Jose P: \w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
     expect(formatMissingEods(list, "PMU")).toMatch(/^⚠️ \*Missing EODs · PMU\* \(2 days\)\n• Jose P: /);
     expect(formatMissingEods([], "PMU")).toMatch(/Everyone is filed/);
+    // the closers' private links are never in it; the operator's page is
+    expect(formatMissingEods(list, "PMU", "https://biab.test/app/c/pmu/eod")).toMatch(/<https:\/\/biab\.test\/app\/c\/pmu\/eod\|Open each day's form on the End of day page>$/);
+    expect(formatMissingEods(list, "PMU", "https://biab.test/app/c/pmu/eod")).not.toMatch(/\/eod\/[a-z0-9]{8,}/i);
   });
 
   it("/missing-eod plans without a period", () => {

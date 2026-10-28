@@ -36,8 +36,9 @@ export const missingLines = (list: MissingPerson[]): string[] =>
   list.map((p) => `${p.name}: ${p.days.map((d) => `${d.label}${d.names.length ? ` (${d.names.join(", ")})` : ` (${d.calls} call${d.calls === 1 ? "" : "s"})`}`).join(", ")}`);
 
 /** The Slack answer. */
-export function formatMissingEods(list: MissingPerson[], companyName: string): string {
+export function formatMissingEods(list: MissingPerson[], companyName: string, page?: string): string {
   if (!list.length) return `✅ *Missing EODs · ${companyName}*\nEveryone is filed up to yesterday.`;
   const n = list.reduce((s, p) => s + p.days.length, 0);
-  return [`⚠️ *Missing EODs · ${companyName}* (${n} day${n === 1 ? "" : "s"})`, ...missingLines(list).map((l) => `• ${l}`)].join("\n");
+  // the closers' own links are private (whoever holds one files as them): the operator's End of day page opens each day's form
+  return [`⚠️ *Missing EODs · ${companyName}* (${n} day${n === 1 ? "" : "s"})`, ...missingLines(list).map((l) => `• ${l}`), ...(page ? [`<${page}|Open each day's form on the End of day page>`] : [])].join("\n");
 }

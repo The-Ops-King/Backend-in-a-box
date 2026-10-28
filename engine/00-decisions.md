@@ -6506,3 +6506,13 @@ Mel Reynolds was in the engine under her old GHL email (ops@thebeautybosses.com)
 mel@thebeautymoguls.com, the address Calendly knows her by, and `/api/admin/team` still answered "not a GHL user". The roster
 sync matched her GHL user but only took the name. It now takes the email too, unless another member already has that address.
 A GHL user whose address is already another member's is skipped, where before it stopped the whole sync. Tests: `team.test.ts`.
+
+Addendum to D246 (2026-10-28). Tyler: "The 'missing EOD' doesn't link me to the missing EOD." A closer's link is private:
+whoever holds it files as them. So it never goes in Slack. On the operator's End of day page, each owed day opens that
+person's form for that day. `/missing-eod` links to that page.
+
+## D248. What the offer's Fathom key can see, by recorder (2026-10-28)
+
+`GET /api/admin/fathom/meetings?company&days` is read only. For each recorder, it gives the meetings the key can read, how
+many are in the engine, and the latest one. It answers "can the engine see Jose's calls" from Fathom's side: a key sees its
+own user's recordings, plus what is shared with that user or their team.

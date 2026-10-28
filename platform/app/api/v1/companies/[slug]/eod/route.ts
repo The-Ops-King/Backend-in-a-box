@@ -14,7 +14,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ slug: stri
     const reports = (await companyReports(c, co.id)).map((r) => ({ id: r.id, day: r.day, closer: r.closer, submitted_at: r.submitted_at, reminded_at: r.reminded_at, totals: r.answers ? totalsLine({ ...r.answers, deposits: r.answers.deposits ?? 0, cash: Number(r.answers.cash), revenue: Number(r.answers.revenue) }) : null, changes: r.changes ?? [] }));
     const us = await many<{ id: string; name: string; email: string; role: string }>(c, "select id, name, email, role from users where company_id=$1 and active and role in ('closer','setter') order by role, name", [co.id]);
     const closers = []; for (const u of us) closers.push({ ...u, url: `${base}/eod/${await tokenFor(c, u.id)}` });
-    const missing = (await missingEods(c, (await loadCompany(c, co.id)).row)).map((p) => ({ name: p.name, role: p.role, days: p.days }));
+    // the operator's own page: each owed day opens that person's form on that day (their private link, never posted anywhere)
+    const missing = []; for (const p of await missingEods(c, (await loadCompany(c, co.id)).row)) { const t = await tokenFor(c, p.user_id); missing.push({ name: p.name, role: p.role, days: p.days.map((d) => ({ ...d, url: `${base}/eod/${t}?day=${d.day}` })) }); }
     return ok({ company: co, reports, closers, missing });
   });
 }
