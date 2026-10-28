@@ -167,7 +167,7 @@
         "id": "s5",
         "type": "tags",
         "add": [
-          "stat-booked",
+          "stat-call-booked",
           "stat-self-booked",
           "meta booked call"
         ],
@@ -179,7 +179,8 @@
           "stat-no-show",
           "stat-cancelled",
           "stat-possible-cancel",
-          "stat-needs-attention"
+          "stat-needs-attention",
+          "stat-call-not-booked"
         ]
       },
       {
@@ -234,7 +235,7 @@
         "id": "b6",
         "type": "tags",
         "add": [
-          "stat-booked",
+          "stat-call-booked",
           "stat-set",
           "meta booked call"
         ],
@@ -246,7 +247,8 @@
           "stat-no-show",
           "stat-cancelled",
           "stat-possible-cancel",
-          "stat-needs-attention"
+          "stat-needs-attention",
+          "stat-call-not-booked"
         ]
       },
       {

@@ -6521,3 +6521,31 @@ Addendum to D246 (2026-10-28). Tyler: "i'd prefer each day gives the link. Jose 
 Each owed day is now its own link, in Slack and in the wrap-up line: "Jose P is missing EOD for <Mon Oct 26> (Tommy Arakilian)".
 The link is `/go/eod/<offer>/<person>/<day>`. It sits behind the dashboard's sign-in, then opens that person's form on that day,
 so the closer's private link is still never posted.
+
+## D249. One name per stat tag in the shipped templates (2026-10-28)
+
+Tyler: "I want all of them to have a booking tag that they have booked a call at least once." The shipped templates now use:
+
+- `stat-call-not-booked`: New lead adds it with `stat-new`; Call booked takes it off (setter and closer bookings).
+- `stat-call-booked`: Call booked adds it. It is sticky: Call cancelled no longer removes it. It replaces `stat-booked` and
+  `stat-booked-call`.
+- `stat-no-show`, `stat-cancelled`, `stat-closed-won`: unchanged in the templates.
+
+This is a template change only. Per the rules in CLAUDE.md it reaches no existing offer; PMU's workflows change one at a time,
+by name, through the definition route with a dry run.
+
+## D250. Application and booking tags over an offer's Typeform history (2026-10-28)
+
+Tyler: "we also want to add Application partial and application complete tags", and "compare all of the ones in type form.
+Anybody that has not booked a call, add that tag". `POST /api/admin/contact/application-tags { company, forms, why, dryRun }`
+reads every completed and partial response of the named forms, finds each person in GHL (email, then phone), and sets:
+
+- `stat-application-complete` if any response of theirs was submitted (`stat-application-partial` comes off), else
+  `stat-application-partial`;
+- `stat-call-not-booked` if they never booked, taken off if they did. Booked at least once: a booking tag in GHL
+  (`stat-call-booked`, `stat-booked-call`, `stat-booked`, `meta booked call`), a booking in the ledger, or any Calendly booking
+  under their email, a cancelled one included. The ledger starts at install, so Calendly covers the months before.
+
+A person GHL does not have is listed, never created. Dry run by default; apply re-reads each contact live and writes only what
+it lacks. `POST /api/admin/bindings { company, key, value, why }` sets one setting (a secret encrypted, never answered back);
+the Typeform token is allowed before an offer's forms are mapped.

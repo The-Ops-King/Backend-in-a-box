@@ -76,7 +76,6 @@
           "stat-cancelled"
         ],
         "remove": [
-          "stat-booked",
           "stat-self-booked",
           "stat-set",
           "stat-confirmed"
