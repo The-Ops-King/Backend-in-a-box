@@ -6489,3 +6489,13 @@ PMU's Call outcome filed empties a held call's fields on a no-show (`clear`, `ca
 money field ("Cash Collected is missing a currency code") and with it the whole update, so Renee G's two Oct 22 no-shows stayed
 "scheduled" in GHL. A money field in `clear` is now sent as `{ currency: "default", value: 0 }`, which GHL takes. Engine code:
 it changes only writes GHL was refusing. Tests: `nodes.test.ts`.
+
+## D246. Who owes an end of day, at a glance (2026-10-28)
+
+Tyler: "i can't see who has missing EODs at a glance." One list, from the end-of-day reminder's own rule: for each active
+closer and setter, the days before today with calls and no report filed, with the names of the calls still open. Today is not
+late yet. No one's private link appears in it. It shows up in three places:
+- `/missing-eod` in Slack, for every offer (in both Slack app manifests; each app needs its manifest pasted and reinstalling).
+- `report.missing_eods` (`count`, `lines`) for a wrap-up's words: an offer's copy says it only where its layout lines word it.
+- The dashboard: a Missing section at the top of an offer's End of day page, and a line on the offer's page.
+Tests: `missing-eods.test.ts`.
