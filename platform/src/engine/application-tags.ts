@@ -124,7 +124,7 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
   changes.sort((x, y) => x.who.localeCompare(y.who));
   const totals: Record<string, number> = {};
   for (const ch of changes) { for (const t of ch.add) totals[`+${t}`] = (totals[`+${t}`] ?? 0) + 1; for (const t of ch.remove) totals[`-${t}`] = (totals[`-${t}`] ?? 0) + 1; }
-  if (!dryRun && changes.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.application_tags','company',$1,$2)", [co.id, { forms: a.forms, why: a.why, totals, skipped: a.skip ?? [], changes: changes.map((x) => ({ ghl_contact_id: x.ghl_contact_id, add: x.add, remove: x.remove })) }]);
+  if (!dryRun && changes.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.application_tags','company',$2,$3)", [co.id, co.id, { forms: a.forms, why: a.why, totals, skipped: a.skip ?? [], changes: changes.map((x) => ({ ghl_contact_id: x.ghl_contact_id, add: x.add, remove: x.remove })) }]);
   return { ok: true, dryRun, forms, people: people.length, unidentified, changes, unchanged, skipped, notInGhl, errors, totals };
 }
 
