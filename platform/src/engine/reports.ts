@@ -145,7 +145,8 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   const want = new Set(opts.breakdowns ?? []);
   // D246: who owes an end of day, as the wrap-up is read (a layout that does not word it says nothing about it)
   const { missingEods, missingLines } = await import("./missing-eods");
-  const missing = missingLines(await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>));
+  const goBase = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
+  const missing = missingLines(await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>), goBase ? `${goBase}/go/eod/${company.slug}` : undefined);
   const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now, missingEods: missing });
   const body = renderLayout(opts.layout ?? shippedLayout(kind), facts, opts.ctx ?? {}, { tz: company.timezone, companyTz: company.timezone });
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers) values ($1,$2,$3,$4,$5,$6,$7) returning id",

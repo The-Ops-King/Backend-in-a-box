@@ -6516,3 +6516,8 @@ person's form for that day. `/missing-eod` links to that page.
 `GET /api/admin/fathom/meetings?company&days` is read only. For each recorder, it gives the meetings the key can read, how
 many are in the engine, and the latest one. It answers "can the engine see Jose's calls" from Fathom's side: a key sees its
 own user's recordings, plus what is shared with that user or their team.
+
+Addendum to D246 (2026-10-28). Tyler: "i'd prefer each day gives the link. Jose is missing EOD for [mon oct 26](link)."
+Each owed day is now its own link, in Slack and in the wrap-up line: "Jose P is missing EOD for <Mon Oct 26> (Tommy Arakilian)".
+The link is `/go/eod/<offer>/<person>/<day>`. It sits behind the dashboard's sign-in, then opens that person's form on that day,
+so the closer's private link is still never posted.
