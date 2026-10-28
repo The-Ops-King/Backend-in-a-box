@@ -376,8 +376,8 @@ function render(held: Held[], ids: string[], o: Pick<AnswerParts, "headline" | "
 
 // ---- slash commands ----------------------------------------------------------------------------------------------------
 export type SlashCommand = { command: string; text: string; userId: string; channelId: string; channelName?: string; teamId?: string; responseUrl?: string };
-export type Shortcut = "mtd" | "weekly" | "monthly" | "show-rate" | "close-rate" | "cash" | "availability" | "leads" | "closes" | "leaderboard" | "help";
-export const COMMANDS: Record<string, Shortcut> = { mtd: "mtd", weekly: "weekly", monthly: "monthly", "show-rate": "show-rate", "close-rate": "close-rate", cash: "cash", availability: "availability", leads: "leads", closes: "closes", leaderboard: "leaderboard", help: "help", "ops-help": "help", "bot-help": "help" };
+export type Shortcut = "mtd" | "weekly" | "monthly" | "show-rate" | "close-rate" | "cash" | "availability" | "leads" | "closes" | "leaderboard" | "missing-eod" | "help";
+export const COMMANDS: Record<string, Shortcut> = { "missing-eod": "missing-eod", "missing-eods": "missing-eod", mtd: "mtd", weekly: "weekly", monthly: "monthly", "show-rate": "show-rate", "close-rate": "close-rate", cash: "cash", availability: "availability", leads: "leads", closes: "closes", leaderboard: "leaderboard", help: "help", "ops-help": "help", "bot-help": "help" };
 export type Plan = { shortcut: Exclude<Shortcut, "help">; title: string; period?: Period; days?: number };
 
 /** What a command means before any work: its period from the text (or its default), or the reason it cannot be read. */
@@ -386,6 +386,8 @@ export function planCommand(cmd: SlashCommand, tz: string, now: DateTime = DateT
   if (!name) return { error: `I don't know the command ${cmd.command}.` };
   if (name === "help") return { help: true };
   const text = cmd.text.trim();
+  // D246: who owes an end of day, as of now (no period to read)
+  if (name === "missing-eod") return { plan: { shortcut: name, title: "Missing EODs" } };
   if (name === "availability") {
     const m = /^(?:next\s+)?(\d{1,2})?(?:\s*days?)?$/i.exec(text);
     if (!m) return { error: `\`${cmd.command} ${text}\`: give a number of days (up to 7), e.g. \`${cmd.command} 3\`.` };
@@ -407,6 +409,11 @@ const SUMMARY = ["leads", "mqls", "calls_booked_due", "show_rate", "close_rate",
 export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan, askedBy?: string): Promise<string> {
   const now = deps.now ?? DateTime.now();
   const foot: Foot = { now, askedBy };
+  if (plan.shortcut === "missing-eod") {
+    const { missingEods, formatMissingEods } = await import("./missing-eods");
+    const { loadCompany } = await import("./context");
+    return asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return formatMissingEods(await missingEods(c, row, now as DateTime<true>), row.name); });
+  }
   if (plan.shortcut === "availability") return `📊 ${formatAvailability(await asOperator((c) => getAvailability(c, companyId, deps.probes ?? liveProbes, plan.days ?? 7, now)), foot)}`;
   const reads = memoReads(deps.ghl ?? liveGhlReads);
   return asCompany(companyId, async (c) => {
