@@ -38,12 +38,13 @@ describe.skipIf(!process.env.DATABASE_URL)("D246: missing EODs", () => {
   it("lists each person who owes a day, with the open names; today is left out; someone up to date is not listed", async () => {
     const list = await asOperator(async (c) => missingEods(c, (await loadCompany(c, companyId)).row));
     expect(list.map((p) => [p.name, p.days.map((d) => d.names)])).toEqual([["Jose P", [["Tommy"], ["Kimberly"]]]]);
-    expect(missingLines(list)[0]).toMatch(/^Jose P: \w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
-    expect(formatMissingEods(list, "PMU")).toMatch(/^⚠️ \*Missing EODs · PMU\* \(2 days\)\n• Jose P: /);
+    expect(missingLines(list)[0]).toMatch(/^Jose P is missing EOD for \w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
+    expect(formatMissingEods(list, "PMU")).toMatch(/^⚠️ \*Missing EODs · PMU\* \(2 days\)\n• Jose P is missing EOD for \w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
     expect(formatMissingEods([], "PMU")).toMatch(/Everyone is filed/);
-    // the closers' private links are never in it; the operator's page is
-    expect(formatMissingEods(list, "PMU", "https://biab.test/app/c/pmu/eod")).toMatch(/<https:\/\/biab\.test\/app\/c\/pmu\/eod\|Open each day's form on the End of day page>$/);
-    expect(formatMissingEods(list, "PMU", "https://biab.test/app/c/pmu/eod")).not.toMatch(/\/eod\/[a-z0-9]{8,}/i);
+    // each day links through the operator's sign-in to that day's form; the closers' private links are never in it
+    const linked = formatMissingEods(list, "PMU", "https://biab.test/go/eod/pmu");
+    expect(linked).toMatch(new RegExp(`<https://biab\\.test/go/eod/pmu/${list[0].user_id}/\\d{4}-\\d{2}-\\d{2}\\|\\w{3} \\w{3} \\d+> \\(Tommy\\)`));
+    expect(linked).not.toMatch(/\/eod\/[a-z0-9]{20,}/i);
   });
 
   it("/missing-eod plans without a period", () => {
