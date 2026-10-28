@@ -162,17 +162,17 @@ describe.skipIf(!HAS_DB)("the live contact is read before a run acts (D68)", () 
 
   it("a refresh never emits lead.created or tag.added; the poll still sees the tag it left in place", async () => {
     inCrm("T5", { firstName: "Quiet", email: "t5@x.com", phone: "+16025550351" });
-    await poll(); await run();   // New lead tags them stat-new (the engine's own tag.added, source engine)
-    const ct = (await person("T5"))!; expect(ct.tags).toEqual(["stat-new"]);
-    crmNow("T5", { firstName: "Louder", tags: ["hot", "stat-new"] });   // a tag added by hand in the CRM since the poll
+    await poll(); await run();   // New lead tags them stat-new and stat-call-not-booked (D249; the engine's own tag.added, source engine)
+    const ct = (await person("T5"))!; expect([...ct.tags].sort()).toEqual(["stat-call-not-booked", "stat-new"]);
+    crmNow("T5", { firstName: "Louder", tags: ["hot", "stat-new", "stat-call-not-booked"] });   // a tag added by hand in the CRM since the poll
     const polls = () => eventCount(["lead.created", "tag.added", "tag.removed"], "ghl_poll");
     const before = await polls();
     const stl = await runOf("speed-to-lead", ct.id); await expireReplyWait(stl.id, "n3"); await run();
     expect(await polls()).toBe(before);
-    expect((await person("T5"))!).toMatchObject({ first_name: "Louder", tags: ["stat-new"] });   // the name followed the CRM; the tags are the poll's to deliver
+    const now = (await person("T5"))!; expect(now.first_name).toBe("Louder"); expect([...now.tags].sort()).toEqual(["stat-call-not-booked", "stat-new"]);   // the name followed the CRM; the tags are the poll's to deliver
     changed.push(crm.get("T5")!); await poll();   // the poll delivers the same snapshot and the delta is still seen, once
     expect(await polls()).toBe(before + 1);
-    expect([...(await person("T5"))!.tags].sort()).toEqual(["hot", "stat-new"]);
+    expect([...(await person("T5"))!.tags].sort()).toEqual(["hot", "stat-call-not-booked", "stat-new"]);
     const tagEvents = await asOperator((c) => many<{ data: { tag: string } }>(c, "select data from events where company_id=$1 and contact_id=$2 and event_type='tag.added' and source='ghl_poll'", [companyId, ct.id]));
     expect(tagEvents.map((e) => e.data.tag)).toEqual(["hot"]);
   });

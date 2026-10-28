@@ -52,7 +52,10 @@
    {
     "id": "n3",
     "type": "set_tag",
-    "tag": "stat-new"
+    "tag": [
+     "stat-new",
+     "stat-call-not-booked"
+    ]
    },
    {
     "id": "x1",

@@ -76,7 +76,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     expect(newLead).toMatchObject({ workflow: "new-lead", status: "completed", exit_reason: "done" });
     expect(speed).toMatchObject({ workflow: "speed-to-lead", status: "waiting", current_node: "n3" });   // parked for a reply as live would be
     const steps = await stepsOf(newLead.id);
-    expect(steps.find((s) => s.node_type === "set_tag")).toMatchObject({ status: "ok", result: { ghost: true, would_tag: ["stat-new"] } });
+    expect(steps.find((s) => s.node_type === "set_tag")).toMatchObject({ status: "ok", result: { ghost: true, would_tag: ["stat-new", "stat-call-not-booked"] } });
     expect(steps.find((s) => s.node_type === "pipeline_card")).toMatchObject({ status: "ok", result: { ghost: true, card: "created" } });
     expect((await sendsOf(real))).toMatchObject([{ status: "ghost", suppressed_reason: null }, { status: "ghost", suppressed_reason: null }]);   // email and text, written down, not delivered
     expect(await localTags(real)).not.toContain("stat-new");   // ghost: neither the CRM's tags nor our replica of them
@@ -106,7 +106,7 @@ describe.skipIf(!process.env.DATABASE_URL)("mode ladder", () => {
     const runs = await runsOf(tagged);
     expect(runs.map((r) => r.born_in)).toEqual(["test", "test"]);
     expect(runs.find((r) => r.workflow === "new-lead")).toMatchObject({ status: "completed", exit_reason: "done" });
-    expect((await stepsOf(runs.find((r) => r.workflow === "new-lead")!.id)).find((s) => s.node_type === "set_tag")).toMatchObject({ result: { ghost: true, would_tag: ["stat-new"] } });
+    expect((await stepsOf(runs.find((r) => r.workflow === "new-lead")!.id)).find((s) => s.node_type === "set_tag")).toMatchObject({ result: { ghost: true, would_tag: ["stat-new", "stat-call-not-booked"] } });
     expect((await sendsOf(tagged)).map((s) => s.status)).toEqual(["ghost", "ghost"]);
     expect(crmTags.some((t) => t.to === "L4")).toBe(false); expect(sent.some((s) => s.to === "L4")).toBe(false);
     expect(await asOperator((c) => contactPasses(c, companyId, tagged, "test", { "test.domains": "jtylerray.com" }))).toMatchObject({ ok: false });
