@@ -6499,3 +6499,10 @@ late yet. No one's private link appears in it. It shows up in three places:
 - `report.missing_eods` (`count`, `lines`) for a wrap-up's words: an offer's copy says it only where its layout lines word it.
 - The dashboard: a Missing section at the top of an offer's End of day page, and a line on the offer's page.
 Tests: `missing-eods.test.ts`.
+
+## D247. A team member whose email changed in GHL is found by the new one (2026-10-28)
+
+Mel Reynolds was in the engine under her old GHL email (ops@thebeautybosses.com). Tyler changed it in GHL to
+mel@thebeautymoguls.com, the address Calendly knows her by, and `/api/admin/team` still answered "not a GHL user". The roster
+sync matched her GHL user but only took the name. It now takes the email too, unless another member already has that address.
+A GHL user whose address is already another member's is skipped, where before it stopped the whole sync. Tests: `team.test.ts`.
