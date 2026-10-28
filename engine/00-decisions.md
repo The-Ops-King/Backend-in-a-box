@@ -6546,6 +6546,6 @@ reads every completed and partial response of the named forms, finds each person
   (`stat-call-booked`, `stat-booked-call`, `stat-booked`, `meta booked call`), a booking in the ledger, or any Calendly booking
   under their email, a cancelled one included. The ledger starts at install, so Calendly covers the months before.
 
-A person GHL does not have is listed, never created. Dry run by default; apply re-reads each contact live and writes only what
+A person GHL does not have is listed, never created; `skip` (GHL ids) leaves the named contacts (tests) alone. Dry run by default; apply re-reads each contact live and writes only what
 it lacks. `POST /api/admin/bindings { company, key, value, why }` sets one setting (a secret encrypted, never answered back);
 the Typeform token is allowed before an offer's forms are mapped.
