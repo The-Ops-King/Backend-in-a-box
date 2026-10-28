@@ -17,7 +17,7 @@ import { findInGhl, matchPolicy, TF_TOKEN_KEY } from "./typeform";
  *   - `stat-call-not-booked` when they never booked a call, and it comes off when they did.
  * Booked at least once: a booking tag in GHL (BOOKED_TAGS), a booking in the ledger, or any Calendly booking under their email
  * (a cancelled one counts: they booked). The ledger only starts when the offer was installed, so Calendly is asked for the rest.
- * Nothing is created: a person GHL does not have is listed, not added. Dry run (the default) reads only. Apply re-reads each
+ * Nothing is created: a person GHL does not have is listed, not added. `skip` (GHL ids, Tyler: "skip clear tests") leaves those alone. Dry run (the default) reads only. Apply re-reads each
  * contact in GHL and writes only what it still lacks; the replica follows and one audit row says what changed.
  */
 export const APP_COMPLETE = "stat-application-complete", APP_PARTIAL = "stat-application-partial", NOT_BOOKED = "stat-call-not-booked";
@@ -28,7 +28,7 @@ type Person = { key: string; email?: string; phone?: string; name?: string; stat
 export type Change = { who: string; ghl_contact_id: string; status: Status; booked: string | null; add: string[]; remove: string[] };
 export type AppTagsResult = {
   ok: true; dryRun: boolean; forms: { id: string; completed: number; partial: number }[];
-  people: number; unidentified: number; changes: Change[]; unchanged: number;
+  people: number; unidentified: number; changes: Change[]; unchanged: number; skipped: { who: string; ghl_contact_id: string }[];
   notInGhl: { name?: string; email?: string; phone?: string; status: Status }[];
   errors: { who: string; error: string }[];
   totals: Record<string, number>;
@@ -74,7 +74,7 @@ async function eachLimited<T>(xs: T[], n: number, fn: (x: T) => Promise<void>) {
   await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (i < xs.length) await fn(xs[i++]); }));
 }
 
-export async function applicationTags(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; tf?: TypeformApi; cal?: CalendlyLookup; concurrency?: number }): Promise<AppTagsResult | { ok: false; status: number; error: string }> {
+export async function applicationTags(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; skip?: string[]; tf?: TypeformApi; cal?: CalendlyLookup; concurrency?: number }): Promise<AppTagsResult | { ok: false; status: number; error: string }> {
   if (!a.forms?.length || !a.why?.trim()) return { ok: false, status: 400, error: "company, forms (Typeform form ids) and why are required" };
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [a.company]); if (!co) return { ok: false, status: 404, error: "no such company" };
   const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
@@ -90,7 +90,7 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
   }
   const { people, unidentified } = peopleOf(all);
   const policy = matchPolicy(bindings);
-  const changes: Change[] = [], notInGhl: AppTagsResult["notInGhl"] = [], errors: AppTagsResult["errors"] = [];
+  const skipped: AppTagsResult["skipped"] = [], changes: Change[] = [], notInGhl: AppTagsResult["notInGhl"] = [], errors: AppTagsResult["errors"] = [];
   let unchanged = 0;
   const ledgerBooked = async (ghlId: string) => !!(await one(c, "select 1 from appointments a join contacts ct on ct.id=a.contact_id where a.company_id=$1 and ct.ghl_contact_id=$2 limit 1", [co.id, ghlId]));
 
@@ -101,6 +101,7 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
       if (!found) { notInGhl.push({ name: p.name, email: p.email, phone: p.phone, status: p.status }); return; }
       const snap: ContactSnapshot = found.snap;
       const name = [snap.firstName, snap.lastName].filter(Boolean).join(" ") || who;
+      if (a.skip?.includes(snap.id)) { skipped.push({ who: name, ghl_contact_id: snap.id }); return; }
       const tagHit = BOOKED_TAGS.find((t) => snap.tags.some((x) => x.toLowerCase() === t));
       let booked: string | null = tagHit ? `tag ${tagHit}` : (await ledgerBooked(snap.id)) ? "a booking in the ledger" : null;
       if (!booked && calendlyCfg) for (const e of [...new Set([p.email, normEmail(snap.email)].filter((x): x is string => !!x))]) if (await cal(calendlyCfg.token, calendlyCfg.organization, e)) { booked = `Calendly (${e})`; break; }
@@ -123,7 +124,7 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
   changes.sort((x, y) => x.who.localeCompare(y.who));
   const totals: Record<string, number> = {};
   for (const ch of changes) { for (const t of ch.add) totals[`+${t}`] = (totals[`+${t}`] ?? 0) + 1; for (const t of ch.remove) totals[`-${t}`] = (totals[`-${t}`] ?? 0) + 1; }
-  if (!dryRun && changes.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.application_tags','company',$1,$2)", [co.id, { forms: a.forms, why: a.why, totals, changes: changes.map((x) => ({ ghl_contact_id: x.ghl_contact_id, add: x.add, remove: x.remove })) }]);
-  return { ok: true, dryRun, forms, people: people.length, unidentified, changes, unchanged, notInGhl, errors, totals };
+  if (!dryRun && changes.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.application_tags','company',$1,$2)", [co.id, { forms: a.forms, why: a.why, totals, skipped: a.skip ?? [], changes: changes.map((x) => ({ ghl_contact_id: x.ghl_contact_id, add: x.add, remove: x.remove })) }]);
+  return { ok: true, dryRun, forms, people: people.length, unidentified, changes, unchanged, skipped, notInGhl, errors, totals };
 }
 
