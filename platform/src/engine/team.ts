@@ -26,10 +26,16 @@ export async function changeTeam(c: PoolClient, args: { companyId: string; ac: C
   if (!change.remove && change.role !== "setter" && change.role !== "closer") return { ok: false, status: 400, why: 'role: "setter" or "closer" (or remove: true)' };
   const find = () => one<{ id: string; name: string; email: string; role: string; slack_user_id: string | null }>(c, "select id, name, email, role, slack_user_id from users where company_id=$1 and lower(email)=$2", [companyId, email]);
   let person = await find(), synced = false;
-  // someone just added in GHL: the roster is read again (as install reads it), so they need no re-install
+  // someone just added in GHL: the roster is read again (as install reads it), so they need no re-install. D247: a GHL user whose
+  // email changed in GHL (Mel Reynolds: ops@thebeautybosses.com → mel@thebeautymoguls.com) takes the new one, unless another member has it
   if (!person && !change.remove) {
-    for (const u of await adapters.read.listUsers(ac))
-      await c.query("insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'staff',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name", [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
+    for (const u of await adapters.read.listUsers(ac)) {
+      // an address another member already has is not taken (two GHL users, one email): that one stays as it is
+      if (u.email && await one(c, "select 1 from users where company_id=$1 and lower(email)=lower($2) and ghl_user_id is distinct from $3", [companyId, u.email, u.id])) continue;
+      await c.query(`insert into users (company_id, email, name, role, ghl_user_id) values ($1,$2,$3,'staff',$4) on conflict (company_id, ghl_user_id) do update set name=excluded.name,
+        email=case when excluded.email like '%@unclaimed.local' then users.email else excluded.email end
+        where not exists (select 1 from users o where o.company_id=excluded.company_id and lower(o.email)=lower(excluded.email) and o.ghl_user_id is distinct from excluded.ghl_user_id)`, [companyId, u.email ?? `${u.id}@unclaimed.local`, u.name || u.id, u.id]);
+    }
     synced = true; person = await find();
   }
   if (!person) return { ok: false, status: 404, why: change.remove ? `no one on the team is ${email}` : `${email} is not a GHL user of this location: add them in GHL first` };
