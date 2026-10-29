@@ -6574,3 +6574,17 @@ itself so we can make sure to get the right data. if i do /team on one account f
   per-offer apps build their manifests from one place (`manifestYaml`).
 
 Not done: moving Dating, PMU and Hair onto it. Each is one click on its link once the app exists, and is Tyler's call, one offer at a time.
+
+## D252. Nobody who showed up to a call, or bought, carries a reactivation tag (2026-10-29)
+
+Tyler: "I don't want anyone who showed up to a call to have those tags. This is to send out a reactivation sms and I don't want
+anyone who bought to receive one." Those tags: `stat-noshow`, `stat-no-show`, `stat-cancelled`, `stat-possible-cancel`,
+`stat-call-not-booked`. The run context gains `contact.showed_ever`: any booking of theirs marked or filed showed, whatever came
+after. Nothing read it before, so no saved workflow changes with it. PMU's workflows use it with `contact.paid`:
+
+- Call outcome filed: a call filed showed takes the five tags off (v8); its no-show and possible-cancel tags are skipped for
+  someone who showed before or paid.
+- Call cancelled: `stat-cancelled` is skipped for the same people.
+
+GHL was cleaned the same day: the six who had showed and still carried one of these (each from a later call cancelled or
+no-showed) lost it. Outbound dialer calls that connected are not a show. No buyer carried one.

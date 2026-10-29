@@ -38,4 +38,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D231: contact.call_closer", () => {
     await book(ct, carly, new Date(Date.now() + 1 * day));
     expect((await ctxOf(ct)).call_closer).toMatchObject({ name: "Jose P", from: "latest call" });
   });
+
+  it("D252: showed_ever is true once any call of theirs is marked or filed showed, whatever came after", async () => {
+    const ct = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, first_name) values ($1,'Sam') returning id", [companyId])))!.id;
+    const day = 86_400_000;
+    await book(ct, carly, new Date(Date.now() - 3 * day), { status: "noshow" });
+    expect(await ctxOf(ct)).toMatchObject({ showed_ever: false });
+    await book(ct, carly, new Date(Date.now() - 2 * day));
+    await asOperator((c) => c.query("update appointments set outcome_term=(select id from company_terms where company_id=$1 and domain='appointment_outcome' and category='showed') where contact_id=$2 and status='confirmed'", [companyId, ct]));
+    await book(ct, carly, new Date(Date.now() - 1 * day), { status: "cancelled" });
+    expect(await ctxOf(ct)).toMatchObject({ showed_ever: true });
+  });
 });
