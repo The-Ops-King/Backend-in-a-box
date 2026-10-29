@@ -164,7 +164,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const setterUser = setterName ? await one<{ name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select name, email, ghl_user_id, slack_user_id from users where company_id=$1 and lower(name)=lower($2) limit 1", [company.id, setterName]) : null;
     const firstBooking = await one<{ at: Date | null }>(c, "select min(starts_at) as at from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled'", [company.id, run.contact_id]);
     const firstBookedAt = firstBooking?.at ?? null, firstPaidAt = pay?.first_at ?? null;
-    // D251: has this person ever shown up to a call (any booking filed or marked showed)? Tyler: "I don't want anyone who showed up to a call to have those tags"
+    // D252: has this person ever shown up to a call (any booking filed or marked showed)? Tyler: "I don't want anyone who showed up to a call to have those tags"
     const showedEver = !!(await one(c, "select 1 from appointments a left join company_terms t on t.id=a.outcome_term where a.company_id=$1 and a.contact_id=$2 and (a.status='showed' or t.category='showed') limit 1", [company.id, run.contact_id]));
     // D44: a payment or a no-show lands as a reaction on the person's booking post and call review; these name which
     const latestAppt = await one<{ id: string }>(c, "select id from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' order by starts_at desc limit 1", [company.id, run.contact_id]);

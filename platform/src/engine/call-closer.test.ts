@@ -39,7 +39,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D231: contact.call_closer", () => {
     expect((await ctxOf(ct)).call_closer).toMatchObject({ name: "Jose P", from: "latest call" });
   });
 
-  it("D251: showed_ever is true once any call of theirs is marked or filed showed, whatever came after", async () => {
+  it("D252: showed_ever is true once any call of theirs is marked or filed showed, whatever came after", async () => {
     const ct = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, first_name) values ($1,'Sam') returning id", [companyId])))!.id;
     const day = 86_400_000;
     await book(ct, carly, new Date(Date.now() - 3 * day), { status: "noshow" });

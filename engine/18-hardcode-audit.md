@@ -132,3 +132,14 @@ Setter Confirmed, 06 No-show sweep. Dating: all 11 under one blanket mark; the c
 5. **Clean-ups**: Hair's welcome out of the Deal closed template (a words setting); Hair's intake, objections and DQ domain out of
    engine code and seeds; PMU's data migrations out of the migrator; Hair exported to `installs/hair`; the data list in section 7;
    mark or turn off the overlapping GHL workflows (section 8).
+
+## 10. Tyler's answers (2026-10-28), for the build
+
+1. **PMU's call types**: Triage call, Sales call, and a Follow-up call. (Its "Demo call" is the triage call; remap from closing.)
+2. **Three team shapes**: Hybrid (people do the job of both setter and closer), Setter + Closer (one sets, one closes), and Closer
+   only (closers take calls direct).
+3. **Rules**: yes. Facts stay in the engine with every threshold and name a per-offer setting; anything that acts is a workflow step.
+4. **Roles**: by role title. A setter can only be assigned as a setter, a closer only as a closer, a hybrid as either; "it just
+   should all be built to work no matter what craziness they do". So nothing may assume a person has one role, or that a call's
+   setter and closer are different people, or that an offer has a setter board.
+5. **Their own GHL workflows** (section 8): not now.

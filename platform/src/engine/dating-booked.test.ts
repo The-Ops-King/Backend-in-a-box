@@ -144,8 +144,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D123: Dating (Nelly)'s two booked-ca
     expect(cards.filter((k) => k.contact === sara.ghl)).toEqual([{ contact: sara.ghl, pipeline: "P-S", user: "U-MITCH" }]);   // the setter card only
     expect(cards.filter((k) => k.contact === cleo.ghl).map((k) => k.pipeline)).toContain("P-C");
     const tagsOf = (who: Who) => tags.filter((t) => t.id === who.ghl).map((t) => t.tag);
-    expect(tagsOf(sara)).toEqual(expect.arrayContaining(["dating", "stat-booked", "stat-self-booked", "stat-triage-first"]));
-    expect(tagsOf(cleo)).toEqual(expect.arrayContaining(["dating", "stat-booked", "stat-self-booked"]));
+    expect(tagsOf(sara)).toEqual(expect.arrayContaining(["dating", "stat-call-booked", "stat-self-booked", "stat-triage-first"]));
+    expect(tagsOf(cleo)).toEqual(expect.arrayContaining(["dating", "stat-call-booked", "stat-self-booked"]));
     expect(tagsOf(cleo)).not.toContain("stat-triage-first");
   });
 

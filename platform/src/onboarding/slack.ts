@@ -12,7 +12,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { encrypt, decrypt } from "@/engine/crypto";
 import { setBinding } from "@/engine/settings";
-import { SHORTCUTS } from "@/engine/bot-format";
+import { BOT_EVENTS, BOT_SCOPES, installUrl, manifestYaml, publicBase, sharedSlackApp, TEAM_SHORTCUT } from "@/engine/slack-app";
 import { TEST_CHANNEL_KEY } from "@/engine/mode";
 import { listSlackChannels, type SlackChannel } from "@/api/setup-data";
 import type { Intake } from "./intake";
@@ -26,47 +26,19 @@ export const slackAuthTest = async (token: string): Promise<SlackAuth> => {
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 160) }; }
 };
 
-/** D203: the operator's /team, in the manifest but not in /help (the team cannot run it). */
-export const TEAM_SHORTCUT = { command: "/team", description: "Operator only: add or remove a setter or closer, and what's left to set up", hint: "[add <email> <setter|closer>]" };
-const BOT_SCOPES = ["chat:write", "chat:write.customize", "channels:read", "groups:read", "reactions:read", "reactions:write", "users:read.email", "users:read", "app_mentions:read", "im:history", "channels:history", "groups:history"];
-const q = (s: string) => JSON.stringify(s);   // a JSON string is a YAML string
+export { TEAM_SHORTCUT };
 
 /** The app manifest (YAML), every request URL carrying this company's id. */
 export function slackManifest(companyId: string, base: string, o: SlackOptions, offer: string): string {
   const url = (p = "") => `${base}/api/webhooks/slack/${companyId}${p}`;
-  const commands = [...SHORTCUTS.map((s) => ({ command: s.command, description: s.about, hint: s.hint ?? "" })), { command: "/help", description: "What the bot can answer", hint: "" }, TEAM_SHORTCUT];
-  return [
-    `# ${o.appName}: api.slack.com/apps → Create New App → From an app manifest → the workspace → YAML → paste this → Create.`,
-    `# Then Install to Workspace; the Bot User OAuth Token (OAuth & Permissions) and the Signing Secret (Basic Information) go in the wizard.`,
-    ...(o.commands ? [] : ["# No slash commands: this workspace has another engine app, and Slack gives a command to the app installed last."]),
-    "display_information:",
-    `  name: ${q(o.appName)}`,
-    `  description: ${q(`Sales ops engine for ${offer}`)}`,
-    "features:",
-    "  app_home:",
-    "    messages_tab_enabled: true",
-    "    messages_tab_read_only_enabled: false",
-    "  bot_user:",
-    `    display_name: ${q(o.botName)}`,
-    "    always_online: true",
-    ...(o.commands ? ["  slash_commands:", ...commands.map((c) => `    - { command: ${c.command}, url: ${q(url("/commands"))}, description: ${q(c.description.slice(0, 100))}${c.hint ? `, usage_hint: ${q(c.hint)}` : ""}, should_escape: false }`)] : []),
-    "oauth_config:",
-    "  scopes:",
-    "    bot:",
-    ...[...BOT_SCOPES, ...(o.commands ? ["commands"] : [])].map((s) => `      - ${s}`),
-    "settings:",
-    "  interactivity:",
-    "    is_enabled: true",
-    `    request_url: ${q(url("/interactions"))}`,
-    "  event_subscriptions:",
-    `    request_url: ${q(url())}`,
-    "    bot_events:",
-    ...["reaction_added", "app_mention", "message.im", "message.channels", "message.groups"].map((e) => `      - ${e}`),
-    "  org_deploy_enabled: false",
-    "  socket_mode_enabled: false",
-    "  token_rotation_enabled: false",
-    "",
-  ].join("\n");
+  return manifestYaml({
+    notes: [`${o.appName}: api.slack.com/apps → Create New App → From an app manifest → the workspace → YAML → paste this → Create.`,
+      "Then Install to Workspace; the Bot User OAuth Token (OAuth & Permissions) and the Signing Secret (Basic Information) go in the wizard.",
+      ...(o.commands ? [] : ["No slash commands: this workspace has another engine app, and Slack gives a command to the app installed last."])],
+    appName: o.appName, botName: o.botName, description: `Sales ops engine for ${offer}`,
+    commandsUrl: o.commands ? url("/commands") : null, interactionsUrl: url("/interactions"), eventsUrl: url(),
+    scopes: [...BOT_SCOPES, ...(o.commands ? ["commands"] : [])], events: BOT_EVENTS,
+  });
 }
 
 /** Where the workflows post, and what each slot is for; `instead`: what a post uses while the slot is empty (D58). */
@@ -87,7 +59,9 @@ export const CHANNEL_SLOTS: { key: string; label: string; about: string; instead
 
 export type SlackState = {
   options: SlackOptions; manifest: string | null; manifestError?: string;
-  connected: { team: string; at: string } | null; signingSet: boolean;
+  connected: { team: string; at: string; app: "own" | "shared" } | null; signingSet: boolean;
+  /** D251: the shared app's "Add to Slack" link for this offer (an hour), or why there is none */
+  shared: { installUrl: string } | { installUrl: null; why: string };
   channels: { key: string; label: string; about: string; instead?: string; value: string | null }[];
   /** the channels the bot can see, once connected; null when Slack would not list them */
   visible: SlackChannel[] | null;
@@ -100,17 +74,21 @@ export async function slackState(c: PoolClient, companyId: string, opts: { listC
   const o = await one<{ slack: Partial<SlackOptions>; intake: Intake; name: string }>(c, "select o.slack, o.intake, co.name from onboarding o join companies co on co.id=o.company_id where o.company_id=$1", [companyId]);
   if (!o) return null;
   const options = optionsOf(o.slack, o.name);
-  const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
-  const conn = await one<{ team_id: string; bot_token: Buffer; connected_at: Date }>(c, "select team_id, bot_token, connected_at from slack_connections where company_id=$1", [companyId]);
+  const base = publicBase();
+  const conn = await one<{ team_id: string; bot_token: Buffer; connected_at: Date; app: "own" | "shared" }>(c, "select team_id, bot_token, connected_at, app from slack_connections where company_id=$1", [companyId]);
   const b = Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and (key like 'slack.channel.%' or key = any($2::text[]))", [companyId, ["alerts.slack_channel", TEST_CHANNEL_KEY, "secret.slack_signing", "slack.team_name"]]))
     .map((r) => [r.key, r.key.startsWith("secret.") ? "set" : r.value.toString("utf8")]));
   const channels = CHANNEL_SLOTS.filter((s) => !s.when || s.when(o.intake)).map((s) => ({ key: s.key, label: s.label, about: s.about, ...(s.instead ? { instead: s.instead } : {}), value: b[s.key] ?? null }));
   const visible = conn ? await (opts.listChannels ?? listSlackChannels)(decrypt(conn.bot_token)) : null;
-  const connected = conn ? { team: b["slack.team_name"] ?? conn.team_id, at: conn.connected_at.toISOString() } : null;
+  const connected = conn ? { team: b["slack.team_name"] ?? conn.team_id, at: conn.connected_at.toISOString(), app: conn.app } : null;
+  const app = sharedSlackApp();
+  const shared = !base ? { installUrl: null, why: "PUBLIC_URL is not set on the server" } : !app ? { installUrl: null, why: "the shared Slack app's keys are not on the server yet (SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_SIGNING_SECRET)" } : { installUrl: installUrl(companyId, app, base) };
+  // the shared app's requests are signed with the server's secret, so only an offer on its own app needs one stored
+  const signed = conn?.app === "shared" || !!b["secret.slack_signing"];
   return {
     options, ...(base ? { manifest: slackManifest(companyId, base, options, o.name) } : { manifest: null, manifestError: "PUBLIC_URL is not set on the server: the manifest needs the engine's address" }),
-    connected, signingSet: !!b["secret.slack_signing"], channels, visible,
-    ready: !!connected && !!b["secret.slack_signing"] && channels.every((ch) => ch.instead || ch.value),
+    connected, signingSet: !!b["secret.slack_signing"], shared, channels, visible,
+    ready: !!connected && signed && channels.every((ch) => ch.instead || ch.value),
   };
 }
 
@@ -124,14 +102,14 @@ export async function saveSlackOptions(c: PoolClient, companyId: string, o: unkn
   return { ok: true };
 }
 
-/** The bot token tested with Slack and kept (encrypted) with the signing secret, as install keeps them. */
+/** The bot token tested with Slack and kept (encrypted) with the signing secret, as install keeps them: the offer is on its own app (again, if it was on the shared one). */
 export async function connectSlack(c: PoolClient, companyId: string, args: { token?: unknown; signingSecret?: unknown; by?: string }, auth: (token: string) => Promise<SlackAuth> = slackAuthTest): Promise<SlackResult> {
   const token = typeof args.token === "string" ? args.token.trim() : "", secret = typeof args.signingSecret === "string" ? args.signingSecret.trim() : "";
   if (!/^xoxb-/.test(token)) return { ok: false, status: 400, why: "the Bot User OAuth Token starts with xoxb- (OAuth & Permissions)" };
   if (!/^[0-9a-f]{32}$/i.test(secret)) return { ok: false, status: 400, why: "the Signing Secret is 32 letters and digits (Basic Information → App Credentials)" };
   const a = await auth(token);
   if (!a.ok) return { ok: false, status: 422, why: `Slack refused the token, so nothing was kept: ${a.error}` };
-  await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id) values ($1,$2,$3,$4) on conflict (company_id) do update set team_id=excluded.team_id, bot_token=excluded.bot_token, bot_user_id=excluded.bot_user_id, connected_at=now()", [companyId, a.team_id, encrypt(token), a.bot_user_id]);
+  await c.query("insert into slack_connections (company_id, team_id, bot_token, bot_user_id, app) values ($1,$2,$3,$4,'own') on conflict (company_id) do update set team_id=excluded.team_id, bot_token=excluded.bot_token, bot_user_id=excluded.bot_user_id, app='own', connected_at=now()", [companyId, a.team_id, encrypt(token), a.bot_user_id]);
   await setBinding(c, companyId, "secret.slack_signing", "secret", secret, `onboarding (${args.by ?? "dashboard"})`);
   await setBinding(c, companyId, "slack.team_name", "text", a.team, `onboarding (${args.by ?? "dashboard"})`);
   await markStep(c, companyId, args.by ?? "dashboard");

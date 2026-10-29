@@ -113,7 +113,7 @@ describe.skipIf(!process.env.DATABASE_URL)("live per workflow (D92)", () => {
     const [nl] = await runsOf(real, newLead);
     expect(nl.born_in).toBe("test");
     expect(crmTags.some((t) => t.to === "F2")).toBe(false); expect(crmCards).not.toContain("F2");
-    expect((await stepOf(nl.id, "set_tag"))?.result).toMatchObject({ ghost: true, would_tag: ["stat-new"] });
+    expect((await stepOf(nl.id, "set_tag"))?.result).toMatchObject({ ghost: true, would_tag: ["stat-new", "stat-call-not-booked"] });
     const last = await asOperator((c) => one<{ before: unknown; after: unknown }>(c, "select before, after from audit_log where company_id=$1 and action='workflow.mode' order by id desc limit 1", [companyId]));
     expect(last).toMatchObject({ before: { mode: "live", runs_in: "live" }, after: { mode: null, runs_in: "test", by: "Tyler" } });
   });

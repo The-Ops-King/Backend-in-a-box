@@ -622,8 +622,11 @@ create table slack_connections (
   bot_token    bytea not null,                             -- encrypted
   channels     jsonb not null default '{}',                -- {"closers":"C0123","managers":"C0456","ops":"C0789"}
   connected_by uuid references users(id),
-  connected_at timestamptz not null default now()
+  connected_at timestamptz not null default now(),
+  bot_user_id  text,                                       -- the bot's own Slack user (its reactions and messages are not facts)
+  app          text not null default 'own' check (app in ('own','shared'))   -- D251: an app made by hand for this offer, or the shared app installed by link
 );
+create index slack_connections_team on slack_connections (team_id);
 
 -- D145: the people behind every offer, one roster across companies. The operator (Tyler) is the only one the send lock lets
 -- through. Not readable through the query door: it spans companies.
