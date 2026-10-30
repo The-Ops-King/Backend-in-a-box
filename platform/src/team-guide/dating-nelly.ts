@@ -2,7 +2,7 @@ import type { Guide } from "./types";
 
 /**
  * Dating (Nelly Sudri). Facts as the offer runs on 2026-10-30: Calendly books, Zoom hosts, Fathom records closing calls, the
- * end of day writes results to GHL. Channel names are the workspace's own (#dating-traige-booked is spelled that way in Slack).
+ * end of day writes results to GHL. Channel names are the workspace's own (#nelly-traige-booked is spelled that way in Slack).
  */
 export const datingNelly: Guide = {
   slug: "dating-nelly",
@@ -42,13 +42,13 @@ export const datingNelly: Guide = {
             { video: { title: "Walkthrough: one lead from application to close", url: null } },
             { steps: [
               "A lead fills out the application. The system tags them in GHL and gives them a card on the setter board.",
-              "They book the strategy session. It's posted in #dating-traige-booked.",
+              "They book the strategy session. It's posted in #nelly-traige-booked.",
               "The setter calls them at the booked time.",
-              "If they fit, the setter books the closing call with their setter link. It's posted in #dating-calls-booked.",
+              "If they fit, the setter books the closing call with their setter link. It's posted in #nelly-calls-booked.",
               "The closer runs the consultation on the Zoom link, with Fathom recording.",
-              "The recording lands in #dating-sales-call-recording with AI notes and a score.",
+              "The recording lands in #nelly-sales-call-recording with AI notes and a score.",
               "At the end of the day, everyone files their end-of-day report. That report is what records the result in GHL.",
-              "A close counts once they've signed and paid more than a deposit. Deals show up in #dating-deal-status.",
+              "A close counts once they've signed and paid more than a deposit. Deals show up in #nelly-deal-status.",
             ] },
           ] },
       ],
@@ -103,7 +103,7 @@ export const datingNelly: Guide = {
           summary: "A phone call through GHL. It's recorded and read automatically.",
           blocks: [
             { steps: [
-              "Check #dating-traige-booked for who's coming up. Each post shows their application answers and tags whoever the call is booked with.",
+              "Check #nelly-traige-booked for who's coming up. Each post shows their application answers and tags whoever the call is booked with.",
               "Call them from GHL at the booked time. GHL records and transcribes the call.",
               "If they fit, book the consultation while you're still on the phone, using your setter link.",
             ] },
@@ -114,7 +114,7 @@ export const datingNelly: Guide = {
           blocks: [
             { video: { title: "Running a consultation", url: null } },
             { steps: [
-              "Find the call in #dating-calls-booked. The post has their application answers, and you get a thread there for anything about this call.",
+              "Find the call in #nelly-calls-booked. The post has their application answers, and you get a thread there for anything about this call.",
               "Join from the Zoom link on the booking. Don't start a new meeting.",
               "Make sure Fathom is recording.",
               "Run the call.",
@@ -129,7 +129,7 @@ export const datingNelly: Guide = {
               "Fathom was recording, and",
               "the client actually spoke.",
             ] },
-            { p: "Within a few minutes of hanging up, check #dating-sales-call-recording for your call." },
+            { p: "Within a few minutes of hanging up, check #nelly-sales-call-recording for your call." },
             { note: "If a recording comes in that the system can't place, it's posted with a Link to a contact button. A manager can link it by hand.", tone: "tip" },
           ] },
         { id: "drag", title: "Moving cards in GHL", for: ["closer", "setter", "manager"],
@@ -156,7 +156,7 @@ export const datingNelly: Guide = {
               "Every call you had that day is listed and already filled in from the booking and the recording. Check each one and fix anything that's wrong.",
               "Your report is what writes the result into GHL. The system only suggests; what you file is what counts.",
               "If you don't file, you get a Slack DM that evening, and again the next morning, until it's done.",
-              "Once you file, your day posts in #dating-reports.",
+              "Once you file, your day posts in #nelly-reports.",
             ] },
           ] },
         { id: "eod-closer", title: "What closers fill in", for: ["closer", "manager"],
@@ -189,12 +189,12 @@ export const datingNelly: Guide = {
           summary: "Join the channels for your role. The system posts in them; you mostly read and reply in threads.",
           blocks: [
             { rows: [
-              ["#dating-traige-booked", "Strategy sessions booked, cancelled and filed. Setters."],
-              ["#dating-calls-booked", "Consultations booked, moved and cancelled, and missing Zoom links. Everyone."],
-              ["#dating-setters", "What each setter call found. Setters."],
-              ["#dating-sales-call-recording", "Each consultation's recording, notes and score. Closers."],
-              ["#dating-deal-status", "Agreements, payments and closes. Closers and managers."],
-              ["#dating-reports", "End-of-day reports, daily and weekly wrap-ups, the leaderboard. Everyone."],
+              ["#nelly-traige-booked", "Strategy sessions booked, cancelled and filed. Setters."],
+              ["#nelly-calls-booked", "Consultations booked, moved and cancelled, and missing Zoom links. Everyone."],
+              ["#nelly-setter-chat", "What each setter call found. Setters."],
+              ["#nelly-sales-call-recording", "Each consultation's recording, notes and score. Closers."],
+              ["#nelly-deal-status", "Agreements, payments and closes. Closers and managers."],
+              ["#nelly-reports", "End-of-day reports, daily and weekly wrap-ups, the leaderboard. Everyone."],
             ], head: ["Channel", "What's in it, and who joins"] },
           ] },
         { id: "bot", title: "Ask the bot", for: ["closer", "setter", "manager"],
@@ -253,7 +253,7 @@ export const datingNelly: Guide = {
           summary: "The things only you need to chase.",
           blocks: [
             { list: [
-              "Missing Zoom links on upcoming consultations (🔗 in #dating-calls-booked).",
+              "Missing Zoom links on upcoming consultations (🔗 in #nelly-calls-booked).",
               "Recordings posted with a Link to a contact button: link them to the right person.",
               "End-of-day reports not filed. Tyler is told when someone is two days behind.",
               "Calls to hand over when someone's out, with /reassign.",
