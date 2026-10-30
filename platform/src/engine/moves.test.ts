@@ -1,5 +1,5 @@
 /** D88: business rules that lived in engine code now live in workflows and settings. Each item: what an existing company sees is what it saw before, and editing the step or the setting changes it. */
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
@@ -291,6 +291,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day reminder's days 
       sam = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, slack_user_id) values ($1,'sam@x.test','Sam Closer','closer','USAM') returning id", [companyId]))!.id;
       const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const cal = (await one<{ id: string }>(c, "insert into calendars (company_id, external_id, name, appointment_term, active) values ($1,'CAL','Closer',$2,true) returning id", [companyId, term]))!.id;
+      // D264: what Sam owes is GHL's: three Sales Calls of his with no outcome (today, 3 days ago, 9 days ago)
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.object_sales_call','text',$2),($1,'sales_call.outcomes','text',$3)", [companyId, Buffer.from("custom_objects.sales_call"), Buffer.from(JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" }))]);
       for (const [i, daysAgo] of [[1, 0], [2, 3], [3, 9]] as const) {
         const ct = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,$2,$3) returning id", [companyId, `G${i}`, `P${i}`]))!.id;
         const at = DateTime.now().setZone(TZ).minus({ days: daysAgo }).set({ hour: daysAgo ? 10 : 0, minute: 30 });
@@ -298,6 +300,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day reminder's days 
       }
     });
   });
+  const ghlBefore = fake.read.objectRecords;
+  beforeAll(() => { fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? ([[1, 0], [2, 3], [3, 9]] as const).map(([i, daysAgo]) => { const at = DateTime.now().setZone(TZ).minus({ days: daysAgo }).set({ hour: daysAgo ? 10 : 0, minute: 30, second: 0, millisecond: 0 }); return { id: `SC${i}`, createdAt: at.toISO()!, properties: { closer: "Sam Closer", outcome: "", contact_id: `G${i}`, call_date: at.toISODate(), scheduled_at: at.toUTC().toISO(), display_label: `P${i} — ${at.toISODate()}`, external_id: `A${i}` } }; }) : []); });
+  afterAll(() => { fake.read.objectRecords = ghlBefore; });
   beforeEach(() => { posts.length = 0; });
   const evening = async (wf: string) => { const { fireNow } = await import("@/engine/clock"); await asOperator((c) => fireNow(c, companyId, wf, "t_evening")); await run(); return posts.filter((p) => p.channel === "USAM").map((p) => p.text); };
   const off = () => asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));

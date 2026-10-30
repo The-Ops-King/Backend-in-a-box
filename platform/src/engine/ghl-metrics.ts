@@ -295,7 +295,7 @@ async function calls(x: GhlCtx): Promise<Call[]> {
       const a = cand.length === 1 ? cand[0] : null;
       const filed = filedClass(p.outcome, cfg);
       const { cls, flipped, cancelUnknown } = classifyCall(filed, a ? { status: a.status, cancelledAt: a.cancelled_at, startsAt: a.starts_at } : null);
-      out.push({ id: r.id, ext: String(p.external_id ?? ""), ghl: ghlId, test: cand.some((h) => h.test) || !!facts.get(ghlId)?.test, name: a?.name ?? (String(p.display_label ?? "").trim() || ghlId || r.id), at, filed, disposition: norm(answerText(p.disposition)), cls, flipped, cancelUnknown,
+      out.push({ id: r.id, ext: String(p.external_id ?? ""), ghl: ghlId, test: cand.some((h) => h.test) || !!facts.get(ghlId)?.test, name: a?.name ?? (String(p.display_label ?? "").split(" — ")[0].trim() || ghlId || r.id), at, filed, disposition: norm(answerText(p.disposition)), cls, flipped, cancelUnknown,
         match: cand.length === 1 ? "one" : cand.length ? "many" : "none", appt: a ? { id: a.id, contact_id: a.contact_id, status: a.status, source: a.source, outcome: a.outcome, starts_at: a.starts_at, cancelled_at: a.cancelled_at } : null,
         closer: salesCloserOf(String(p.closer ?? "")), setter: setterOf(p), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? ""),
         links: { contact_field: ownField.has(r.id), opportunity: String(p.opportunity_id ?? "").trim() },

@@ -51,5 +51,5 @@ export type { SetupPage, WorkflowSlack };
 export type OnboardingPage = OnboardingState;
 export type EodListPage = { company: CompanyHead; reports: { id: string; day: string; closer: string; submitted_at: string | null; reminded_at: string | null; totals: string | null; changes: { field: string; from: unknown; to: unknown; contact?: string }[] }[]; closers: { id: string; name: string; email: string; role?: string; url: string }[];
   /** D246: who owes an end of day: the days before today with calls and no report, and whose calls are open */
-  missing: { name: string; role: string; days: { day: string; label: string; calls: number; names: string[]; url: string }[] }[] };
+  missing: { name: string; role: string; days: { day: string; label: string; calls: number; names: string[]; url: string | null }[]; today: string[] }[] };
 export type { Chart, PathItem };
