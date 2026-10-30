@@ -72,6 +72,33 @@ async function keySuffix(c: PoolClient, template: string, args: { event: EventRo
 
 /** Event in → every enabled trigger that matches → a run each (subject to reentry). */
 /** `only` (D195): hand the event to this one workflow and no other (a booking handed to its pre-call again, at the unlock). */
+/**
+ * D256: what an event was dispatched with, rebuilt from the event itself (its contact, its booking with the booking's call type, its
+ * recording), so an event run again (the operator's replay) is matched as it was the first time: a trigger that asks about the
+ * booking's type (a triage call's recording, D255) sees it.
+ */
+export async function eventMatchContext(c: PoolClient, e: EventRow): Promise<Record<string, unknown>> {
+  const ctx: Record<string, unknown> = {};
+  if (e.contact_id) ctx.contact = { id: e.contact_id };
+  if (e.appointment_id) {
+    const a = await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a left join company_terms t on t.id=a.appointment_term where a.id=$1", [e.appointment_id]);
+    if (a) ctx.appointment = a;
+  }
+  const rec = typeof e.data.recording_id === "string" ? await one<{ id: string; title: string | null; duration_min: number | null }>(c, "select id, title, duration_min from recordings where id=$1", [e.data.recording_id]) : null;
+  if (rec) ctx.recording = rec;
+  return ctx;
+}
+
+/** D256: whether one workflow's triggers would take this event with this context (its event type and its match), without starting anything. */
+export async function workflowTakes(c: PoolClient, e: EventRow, matchCtx: Record<string, unknown>, workflowId: string): Promise<boolean> {
+  const triggers = await many<{ node_id: string }>(c, "select t.node_id from workflow_triggers t join workflows w on w.id=t.workflow_id where t.company_id=$1 and t.event_type=$2 and t.enabled and t.workflow_id=$3", [e.company_id, e.event_type, workflowId]);
+  if (!triggers.length) return false;
+  const ver = await one<{ definition: unknown }>(c, "select v.definition from workflow_versions v join workflows w on w.id=v.workflow_id and w.current_version=v.version where w.id=$1", [workflowId]);
+  let nodes: ReturnType<typeof indexDefinition>["nodes"];
+  try { nodes = indexDefinition(parseDefinition(ver!.definition)).nodes; } catch { return false; }
+  return triggers.some((t) => { const n = nodes.get(t.node_id); return !!n && n.type === "trigger" && (!n.match || evaluate(n.match, { ...matchCtx, event: { ...e.data, _source: e.source, _type: e.event_type } })); });
+}
+
 export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record<string, unknown>, only?: { workflowId: string }): Promise<string[]> {
   // D117/D123: a lead is never started for someone out of the company's scope, whichever door the lead.created came through
   // (every one today is in scope; this holds the rule for a door or a workflow step added later). In scope is the replica's
