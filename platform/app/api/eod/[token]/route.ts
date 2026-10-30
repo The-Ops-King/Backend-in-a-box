@@ -3,6 +3,7 @@ import { liveAdapters } from "@/adapters";
 import { asOperator, many } from "@/db/client";
 import { fail, ok, readJson } from "@/api/http";
 import { loadCompany } from "@/engine/context";
+import { reassignOn } from "@/engine/reassign";
 import { closerByToken, loadEodForm, prefill, reportFor, submitEod, todayFor, DAY_FMT, type EodAnswers, type EodPrefill, type CallEntry } from "@/engine/eod";
 import { outcomesOf, dayFields, totalsOf, type CallOutcome } from "@/engine/eod-form";
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     return { closer: { first_name: closer.name.split(" ")[0], name: closer.name }, company: { name: company.name, timezone: company.timezone }, brand: brandOf(bindings, company.name), day, is_today: day === todayFor(company.timezone), prev: d.minus({ days: 1 }).toFormat(DAY_FMT), next: d.plus({ days: 1 }).toFormat(DAY_FMT),
       filed: filed?.submitted_at ? { at: filed.submitted_at, changes: filed.changes?.length ?? 0 } : null, pre: shown, seen: { calls: pre.calls_count, cash: pre.cash }, fields, day_answers: filed?.answers?.day_answers ?? {}, outcomes: outcomesOf(fields),
       // D254: who else could have taken a call ("Someone else took this call")
-      team: await many<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and active and id<>$2 and role<>'operator' order by name", [company.id, closer.id]) };
+      team: !(await reassignOn(c, company.id)) ? [] : await many<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and active and id<>$2 and role<>'operator' order by name", [company.id, closer.id]) };
   });
   return data ? ok(data) : fail(404, "this link is not for anyone");
 }

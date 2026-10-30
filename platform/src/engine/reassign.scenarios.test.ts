@@ -176,4 +176,9 @@ describe.skipIf(!HAS_DB)("D254: reassigning a call, the shipped workflows", () =
       calls: { v: { selected_options: [{ value: "a" }, { value: "b" }] } }, day: { v: { selected_date: "2026-10-30" } }, to: { v: { selected_option: { value: "m" } } } } } } }) }).toString();
     expect(parseSlackInteraction(raw)).toMatchObject({ kind: "submit", values: { calls: "a,b", day: "2026-10-30", to: "m" } });
   });
+  it("with Reassign request off, neither door is offered: /reassign says so", async () => {
+    await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1 and name='Reassign request'", [co]));
+    expect(await asOperator((c) => reassignStart(c, co, "S-JP", TZ, "CCHAN"))).toMatchObject({ say: expect.stringMatching(/isn't turned on for this offer/) });
+    await asOperator((c) => c.query("update workflows set enabled=true where company_id=$1 and name='Reassign request'", [co]));
+  });
 });
