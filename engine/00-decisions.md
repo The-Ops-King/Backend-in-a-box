@@ -6726,3 +6726,22 @@ the name GHL has, without a link. Today's calls are said apart, not as late. A r
 
 Precondition: a booking is only owed once GHL has its Sales Call. PMU's Call booked is in ghost, so a PMU booking gets no record
 until it is taken live or another process writes one.
+
+## D265. The end of day filed the other way from a sure AI read is posted to alerts (2026-10-30)
+
+Tyler: "I need to also alert a manager or someone if there is a discrepancy in the EOD... if the AI thinks it's qualified, and
+they put DQ, we'll want to be alerted for that." His answers: only the AI positive and the filing negative; only when the AI was
+at least 80% sure; to the alerts channel; nothing else on it; every offer.
+
+- The prefill keeps the AI's own read of each call and how sure it was (`ai_read`): a setter's or triage call's `predicted` and
+  `predicted_confidence` from its `setter_call.result`, a closing call's recording `analysis.outcome.disposition` (0-1, kept as a
+  percent).
+- Filing the day (`submitEod`) lists each call the AI read Set that was filed DQ or not interested, and each closing call it heard
+  closed or close pending that was filed lost or DQ (`disagreements`). Each is its own `eod.disagreement` event (new event type,
+  migration 0013) with the person, who filed it, the AI's read and confidence, the filed answer, the DQ or lost reason and the
+  recording link. A call handed to someone else is theirs to file, so it is not checked here.
+- The event carries every disagreement whatever the confidence; the new template `eod-disagreement` (End of day disagrees with the
+  AI) holds the 80% bar in its own check, so an offer can change it in its copy. It posts to `slack.channel.alerts`, tagged by
+  call, so a refiled day edits the post instead of posting it twice.
+- Engine change only adds an event; no existing workflow takes it, so no offer's saved workflows change. The template reaches an
+  offer only by being added to it (install, dry run first).

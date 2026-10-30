@@ -119,4 +119,8 @@ export const MIGRATIONS: Migration[] = [
     await c.query("alter table recordings add column if not exists client_spoke boolean");   // null: no transcript said
     await c.query("insert into event_types values ('appointment.reassign_requested','appointment'), ('appointment.reassigned','appointment') on conflict do nothing");
   } },
+  // D265: a call filed on the end of day the other way from the AI's read; the End of day disagrees with the AI workflow speaks it
+  { id: "0013-eod-disagreement", run: async (c) => {
+    await c.query("insert into event_types values ('eod.disagreement','report') on conflict do nothing");
+  } },
 ];

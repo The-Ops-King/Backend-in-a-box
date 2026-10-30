@@ -169,6 +169,7 @@ export type CallEntry = {
   dq_reason: string; dq_note: string;                  // dq
   lost_reason?: string;                                // lost (A1, D88: a card dragged to Lost asks why on the form)
   pitched?: string;                                    // D226: "Yes" / "No" after a call that happened short of a close
+  ai_read?: { read: string; confidence: number | null }; // D265: the AI's own read of the call (set, closed_won, ...) and how sure it was, in percent
   about: string; notes: string;
   extra: Record<string, string>;                       // the company's own questions, by key
 };

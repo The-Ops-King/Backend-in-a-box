@@ -1,0 +1,67 @@
+{
+  "slug": "eod-disagreement",
+  "name": "EOD: disagrees with the AI",
+  "category": "team",
+  "stage": "team",
+  "sort": 21,
+  "origin": "spec",
+  "description": "When someone files their end of day the other way from a sure AI read (the AI heard Set and they filed DQ or not interested; it heard a close and they filed lost or DQ), posts it to the alerts channel.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "none"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "eod.disagreement"
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "title": "The AI was at least 80% sure",
+        "when": {
+          "gte": [
+            "{{event.ai_confidence}}",
+            80
+          ]
+        },
+        "else_exit": "ai_not_sure"
+      },
+      {
+        "id": "n_alert",
+        "type": "slack_post",
+        "channel": "{{slack.channel.alerts}}",
+        "as": {
+          "name": "End of day",
+          "icon": ":warning:"
+        },
+        "template": "⚠️ *End of day disagrees with the AI*: {{event.contact}} ({{event.call_words}}, {{event.day_label}})\n*Filed by:* {{event.filer}}\n*AI read:* {{event.ai_label}} ({{event.ai_confidence}}% sure)\n*Filed:* {{event.filed_label}}{{event.reason | then:\"\\n*Reason:* \"}}{{event.reason}}{{event.recording_url | then:\"\\n*Recording:* \"}}{{event.recording_url}}",
+        "title": "Post the disagreement to the alerts channel",
+        "tag": "eod-disagreement:{{event.call_id}}",
+        "edit": true
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "done"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "n_alert"
+      },
+      {
+        "from": "n_alert",
+        "to": "x_done"
+      }
+    ]
+  }
+}

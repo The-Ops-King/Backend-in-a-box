@@ -369,7 +369,7 @@ insert into event_types values
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('setter_call.filed','call'), ('call.closing','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'), ('agreement.requested','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('card.moved','crm'), ('scope.left','crm'),
-  ('schedule','clock'), ('eod.filed','report'), ('slack.reaction','slack'),
+  ('schedule','clock'), ('eod.filed','report'), ('eod.disagreement','report'), ('slack.reaction','slack'),
   ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine'),
   ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');

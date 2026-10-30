@@ -74,6 +74,7 @@ export const EVENT_SOURCES: Record<string, string> = {
   "tag.removed": "the contacts poll, a tags step (D144)",
   "card.moved": "the cards poll (a card moved by hand in GHL)",
   "eod.filed": "a person filing their end of day",
+  "eod.disagreement": "a person filing their end of day the other way from the AI's read of a call (D265)",
   "schedule": "the clock",
   "alert.raised": "the alert sweep (a new alert)",
   "alert.repeated": "the alert sweep (still open, checked again)",

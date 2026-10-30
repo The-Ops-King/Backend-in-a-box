@@ -138,7 +138,7 @@ export async function triageRecords(c: PoolClient, adapters: Adapters, adapterCo
  * other is a row of its own (an outbound call, kind dial). `filed`: the answer the end of day last gave that conversation.
  */
 type SetterRead = { conversation: string; contact_id: string; contact: string; ghl_contact_id: string | null; started_at: Date; share_url: string | null; day: string;
-  result: string; dq_reason: string; digest: string; filed: string | null };
+  result: string; dq_reason: string; digest: string; filed: string | null; predicted: string; confidence: number | null };
 const setterCallsOn = async (c: PoolClient, companyId: string) => switchOn({ "eod.setter_calls": (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='eod.setter_calls'", [companyId]))?.v.toString("utf8") ?? "" }, "eod.setter_calls");
 async function setterReads(c: PoolClient, companyId: string, tz: string, userId: string, from: DateTime, to: DateTime): Promise<SetterRead[]> {
   const rows = await many<{ conversation: string; contact_id: string; contact: string; ghl_contact_id: string | null; started_at: Date; share_url: string | null; data: Record<string, string>; filed: Record<string, string> | null }>(c, `
@@ -152,7 +152,8 @@ async function setterReads(c: PoolClient, companyId: string, tz: string, userId:
   const label = new Map((await many<{ domain: string; value: string; label: string }>(c, "select domain, value, label from core_categories where domain in ('dating_dq_reason','setter_dq_reason')")).map((r) => [`${r.domain}:${r.value}`, r.label]));
   return rows.map((r) => ({ conversation: r.conversation, contact_id: r.contact_id, contact: r.contact || "—", ghl_contact_id: r.ghl_contact_id, started_at: r.started_at, share_url: r.share_url,
     day: DateTime.fromJSDate(r.started_at).setZone(tz).toFormat(DAY_FMT), result: String(r.data.result ?? ""),
-    dq_reason: r.data.dq_reason ? label.get(`${r.data.dq_domain || "setter_dq_reason"}:${r.data.dq_reason}`) ?? "" : "", digest: String(r.data.digest ?? ""), filed: r.filed?.result ?? null }))
+    dq_reason: r.data.dq_reason ? label.get(`${r.data.dq_domain || "setter_dq_reason"}:${r.data.dq_reason}`) ?? "" : "", digest: String(r.data.digest ?? ""), filed: r.filed?.result ?? null,
+    predicted: String(r.data.predicted ?? ""), confidence: r.data.predicted_confidence !== undefined && r.data.predicted_confidence !== "" && !isNaN(Number(r.data.predicted_confidence)) ? Math.round(Number(r.data.predicted_confidence)) : null }))
     .sort((a, b) => a.started_at.getTime() - b.started_at.getTime());
 }
 /** Jev's result (or the end of day's last answer) as the form's answer for a setter's call: set, follow up, DQ, not interested */
@@ -202,7 +203,8 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
       calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: href(a.ghl_contact_id), recording_url: read?.share_url ?? null,
         kind: "triage", outcome, ...(over && !outcome ? { hint: read ? "Jev could not tell what this call achieved." : "Nothing recorded for this triage call yet." } : {}), ...(a.set_since && !a.call_outcome_cat ? { hint: "They booked a closing call since: set." } : {}),
         ...(fromRead ? { hint: "Jev's read of the call: check it." } : {}),
-        revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: fromRead && read!.result === "dq" ? dqOption(read!.dq_reason) : "", dq_note: "", lost_reason: "", about: read?.digest ?? "", notes: a.notes ?? "", extra: {} });
+        revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: fromRead && read!.result === "dq" ? dqOption(read!.dq_reason) : "", dq_note: "", lost_reason: "", about: read?.digest ?? "", notes: a.notes ?? "", extra: {},
+        ...(read?.predicted ? { ai_read: { read: read.predicted, confidence: read.confidence } } : {}) });
       continue;
     }
     const rec = await one<{ share_url: string | null; analysis: Record<string, unknown> }>(c, "select share_url, analysis from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) order by started_at desc limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
@@ -213,6 +215,9 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, win.from, win.to]);
     const paid = num(pay?.total), contract = won?.v ? num(won.v) : price;
     const disp = str(notes.disposition);
+    // D265: the AI's own read of how the call ended and how sure it was (0-1 on the recording, a percent here), for the end of day's disagreement check
+    const aiDisp = (rec?.analysis?.outcome as { disposition?: { value?: unknown; confidence?: unknown } } | undefined)?.disposition;
+    const aiConf = aiDisp && typeof aiDisp.confidence === "number" ? Math.round(aiDisp.confidence * 100) : null;
     // D80 (replaces D54's presumption): only evidence pre-fills. A past call with no recording, no outcome and no money opens BLANK with a hint, so a
     // failed recording or a phone call never becomes a no-show because nobody changed a default
     const over = DateTime.fromJSDate(a.ends_at ?? a.starts_at) < now;
@@ -231,7 +236,8 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
       kind: "closing", outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
       next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {},
       // D226: what was filed, else the call review's read of the transcript (the closer confirms it)
-      pitched: a.pitched === true ? "Yes" : a.pitched === false ? "No" : notes.pitched === true ? "Yes" : notes.pitched === false ? "No" : "" });
+      pitched: a.pitched === true ? "Yes" : a.pitched === false ? "No" : notes.pitched === true ? "Yes" : notes.pitched === false ? "No" : "",
+      ...(str(aiDisp?.value) ? { ai_read: { read: str(aiDisp?.value), confidence: aiConf } } : {}) });
   }
   // D156: the setter's outbound calls with anyone who had no triage call with them that day, each a row; the answer filed before comes back
   for (const r of reads.filter((x) => !triaged.has(x.contact_id))) {
@@ -239,7 +245,8 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const said = r.filed ?? r.result, outcome = READ_MEANING[said] ? d({ call_outcome: READ_MEANING[said] }) : "";
     calls.push({ appointment_id: dialId(r.conversation), contact_id: r.contact_id, contact: r.contact, starts_at: r.started_at.toISOString(), href_contact: href(r.ghl_contact_id), recording_url: r.share_url,
       kind: "dial", outcome, ...(!outcome ? { hint: "Jev could not tell what this call achieved." } : !r.filed ? { hint: "Jev's read of the call: check it." } : {}),
-      revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: !r.filed && r.result === "dq" ? dqOption(r.dq_reason) : "", dq_note: "", lost_reason: "", about: r.digest, notes: "", extra: {} });
+      revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: !r.filed && r.result === "dq" ? dqOption(r.dq_reason) : "", dq_note: "", lost_reason: "", about: r.digest, notes: "", extra: {},
+      ...(r.predicted ? { ai_read: { read: r.predicted, confidence: r.confidence } } : {}) });
   }
   calls.sort((x, y) => x.starts_at.localeCompare(y.starts_at));
   return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls, fields), calls };
@@ -302,6 +309,27 @@ export function diffAnswers(pre: EodPrefill, ans: EodAnswers, fields?: EodField[
       const show = k === "next_date" ? dayWords : money;
       out.push({ field: CALL_WORDS[k], from: show(a), to: b === "" ? "removed" : show(b), contact: p.contact });
     }
+  }
+  return out;
+}
+/**
+ * D265 (Tyler: "if the AI thinks it's qualified, and they put DQ, we'll want to be alerted"). The calls filed the other way from a good
+ * AI read: a setter's or triage call the AI read Set filed DQ or not interested, a closing call it heard closed (or close pending)
+ * filed lost or DQ. Every one is listed whatever the AI's confidence; the company's End of day disagrees with the AI workflow decides
+ * how sure the AI must be to alert (80% as shipped). A call handed to someone else is theirs, not checked here.
+ */
+export type Disagreement = { call: CallEntry; ai_read: string; ai_label: string; ai_confidence: number | null; filed_label: string; filed_meaning: CallMeaning; reason: string };
+const AI_POSITIVE: Record<string, string> = { set: "Set", closed_won: "Closed", close_pending: "Close pending" };
+export function disagreements(pre: EodPrefill, ans: EodAnswers, fields: EodField[]): Disagreement[] {
+  const out: Disagreement[] = [];
+  for (const call of ans.calls) {
+    if (call.outcome === TAKEN) continue;
+    const ai = pre.calls.find((x) => x.appointment_id === call.appointment_id)?.ai_read; if (!ai) continue;
+    const positive = isSetterCall(call.kind) ? ai.read === "set" : ai.read === "closed_won" || ai.read === "close_pending";
+    const meaning = choiceOf(call.outcome, fields, call.kind)?.call_outcome;
+    if (!positive || (meaning !== "unqualified" && meaning !== "lost")) continue;
+    const reason = meaning === "lost" ? call.lost_reason ?? "" : [call.dq_reason, call.dq_note].filter(Boolean).join(" - ");
+    out.push({ call, ai_read: ai.read, ai_label: AI_POSITIVE[ai.read], ai_confidence: ai.confidence, filed_label: outcomeLabel(call.outcome, fields, call.kind), filed_meaning: meaning, reason });
   }
   return out;
 }
@@ -428,6 +456,15 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
         .map(({ x, m }) => ({ contact: x.contact, outcome_label: outcomeLabel(x.outcome, fields, x.kind), reason: m === "lost" ? x.lost_reason : [x.dq_reason, x.dq_note].filter(Boolean).join(" - ") })),
       corrections, corrections_lines: corrections.map((x) => `• ${x}`).join("\n"), corrections_block: corrections.length ? `*Corrected from what the engine had:*\n${corrections.map((x) => `• ${x}`).join("\n")}` : "", corrections_count: corrections.length, corrected: corrections.length > 0, day_answers: dayAnswers, day_answers_lines: dayAnswers.map((d) => `*${d.label}* ${d.answer}`).join("\n"), refiled: !!wasFiled } });
   await dispatchEvent(c, ev, { user: { id: closer.id } });
+  // D265: each call filed the other way from a good AI read is its own event: the company's End of day disagrees with the AI workflow alerts
+  const callWords = { triage: "triage call", dial: "setter call", closing: "closing call" } as const;
+  for (const d of disagreements(pre, args.answers, fields)) {
+    const p = pre.calls.find((x) => x.appointment_id === d.call.appointment_id)!;
+    const dis = await emitEvent(c, { company_id: company.id, contact_id: d.call.contact_id, opportunity_id: null, appointment_id: BOOKING_ID.test(d.call.appointment_id) ? d.call.appointment_id : null, event_type: "eod.disagreement", source: "user",
+      data: { user_id: closer.id, filer: closer.name, report_id: row?.id, day: args.day, day_label: DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d"), call_id: d.call.appointment_id, kind: p.kind ?? "closing", call_words: callWords[p.kind ?? "closing"],
+        contact: p.contact, href_contact: p.href_contact ?? "", recording_url: p.recording_url ?? "", ai_read: d.ai_read, ai_label: d.ai_label, ai_confidence: d.ai_confidence, filed: d.call.outcome, filed_label: d.filed_label, filed_meaning: d.filed_meaning, reason: d.reason, refiled: !!wasFiled } });
+    await dispatchEvent(c, dis, { user: { id: closer.id }, contact: { id: d.call.contact_id } });
+  }
   return { ok: true, changes, recorded };
 }
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? "blank"));
