@@ -6681,3 +6681,13 @@ Jassie's AOL GHL user was removed for her nellysudri one, and five open cards we
 contact to all of those open cards." `POST /api/admin/cards/reassign { company, from: <GHL user id or email>, to: <roster email>, why,
 dryRun = true }`: every open card the replica has on `from`, each read live in GHL first and moved only if GHL still has it open on
 `from` (the rest are said); the owner alone is written. Audited.
+
+## D261. Nelly's calendars for three closers, and the triage post tags who it is booked with (2026-10-30)
+
+Taylor and Jassie closing with Mitch, and setting too; Shawnee setting. Tyler: watch Jassie's and Taylor's own consultations, the
+Private Dating Consultation (closing) and the Complimentary Dating Strategy Session (triage) round robins, and stop watching
+Nelly's own consultation ("just the onboarding call now"); watch Shawnee's as a setter and "if something books with her, tag her in
+Slack". Her install: both round robins lose the owner D212 set when Mitch was their only host (each booking is its host's now);
+Jassie's and Taylor's consultations are closing calls (booking by link, D159); Shawnee's is a triage call; Nelly's is ignored (D148);
+closers Taylor and Jassie, setter Shawnee. Triage call booked's post tags whoever it is booked with (`appointment.closer.mention`,
+their name when they have no Slack).
