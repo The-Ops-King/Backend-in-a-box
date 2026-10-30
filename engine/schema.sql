@@ -35,6 +35,7 @@ create table users (
   report_token  text unique,        -- the closer's standing end-of-day link (D34)
   claimed_at    timestamptz,       -- null = auto-created from GHL roster, not yet logged in
   active        boolean not null default true,
+  booking_url   text,              -- D253: their own booking link (a reassigned call's reschedule)
   created_at    timestamptz not null default now(),
   unique (company_id, email),
   unique (company_id, ghl_user_id)
@@ -234,6 +235,8 @@ create table appointments (
   calendar_id          uuid references calendars(id),
   appointment_term     uuid not null references company_terms(id),  -- from the calendar at booking; overridable
   assigned_user_id     uuid references users(id),
+  reassigned_at        timestamptz,                                -- D253: handed to assigned_user_id by a person; the calendar's host no longer decides
+  reassigned_by        text,
   starts_at            timestamptz not null,
   ends_at              timestamptz not null,
   self_booked          boolean,
@@ -330,6 +333,7 @@ create table recordings (
   transcript       jsonb,                                -- [{speaker, email, text, timestamp}]
   summary          text,                                 -- provider's own summary, markdown
   analysis         jsonb not null default '{}',          -- what the analyze nodes produced, keyed by the node's `into`
+  client_spoke     boolean,                              -- D253: anyone but the team spoke (null: no transcript)
   link_status      text not null default 'unlinked' check (link_status in ('linked','unlinked')),
   linked_by        text,                                 -- email | meeting | name | calendar | manual
   unlinked_reason  text,
@@ -358,7 +362,7 @@ insert into event_types values
   ('lead.created','lead'), ('form.submitted','lead'),
   ('opportunity.opened','opportunity'), ('opportunity.won','opportunity'), ('opportunity.lost','opportunity'),
   ('appointment.booked','appointment'), ('appointment.rescheduled','appointment'),
-  ('appointment.status_changed','appointment'), ('appointment.outcome','appointment'),
+  ('appointment.status_changed','appointment'), ('appointment.outcome','appointment'), ('appointment.reassign_requested','appointment'), ('appointment.reassigned','appointment'),
   ('call.held','call'),
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'), ('intent.unanswered','message'), ('intent.unanswered_no_show','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),

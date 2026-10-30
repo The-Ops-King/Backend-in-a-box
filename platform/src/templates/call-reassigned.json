@@ -1,0 +1,242 @@
+{
+  "slug": "call-reassigned",
+  "name": "Call reassigned",
+  "category": "booking",
+  "stage": "booking",
+  "sort": 31,
+  "origin": "spec",
+  "description": "A call was handed to another closer: the Sales Call's closer, the contact's owner and the closer card move to them in the CRM, the booking's thread says who has it now, and, for a call still ahead, the new closer is told to reach the prospect with their own meeting link (the calendar's link stays the old closer's). If the new closer is not set up in Slack or the CRM, the team is told.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "appointment.reassigned"
+      },
+      {
+        "id": "k1",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+        "key": "{{appointment.slot_key}}",
+        "properties": {
+          "closer": "{{appointment.closer.name | default: | option:sales_call_closer}}"
+        },
+        "if_missing": "skip",
+        "title": "The Sales Call's closer is the new closer"
+      },
+      {
+        "id": "o1",
+        "type": "update_contact",
+        "set": {
+          "assign_to": "{{appointment.closer.ghl_user_id | default:}}"
+        },
+        "title": "The contact's owner is the new closer"
+      },
+      {
+        "id": "c1",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "if_missing": "skip",
+        "title": "Their closer card is the new closer's"
+      },
+      {
+        "id": "p1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.bookings}}",
+        "thread_of": "tag:appointment:{{appointment.id}}",
+        "thread_only": true,
+        "as": {
+          "name": "Call handed over",
+          "icon": ":twisted_rightwards_arrows:"
+        },
+        "template": "🔀 {{appointment.closer.mention}} has this call now (was {{event.from.name | default:nobody}}; {{event.by}})."
+      },
+      {
+        "id": "g1",
+        "type": "set_var",
+        "key": "setup_gap",
+        "value": "Slack or the CRM",
+        "when": {
+          "and": [
+            {
+              "not": {
+                "exists": "appointment.closer.slack_user_id"
+              }
+            },
+            {
+              "not": {
+                "exists": "appointment.closer.ghl_user_id"
+              }
+            }
+          ]
+        },
+        "else_value": ""
+      },
+      {
+        "id": "g2",
+        "type": "set_var",
+        "key": "setup_gap",
+        "value": "Slack",
+        "when": {
+          "and": [
+            {
+              "not": {
+                "exists": "appointment.closer.slack_user_id"
+              }
+            },
+            {
+              "exists": "appointment.closer.ghl_user_id"
+            }
+          ]
+        },
+        "else_value": "{{vars.setup_gap}}"
+      },
+      {
+        "id": "g3",
+        "type": "set_var",
+        "key": "setup_gap",
+        "value": "the CRM",
+        "when": {
+          "and": [
+            {
+              "exists": "appointment.closer.slack_user_id"
+            },
+            {
+              "not": {
+                "exists": "appointment.closer.ghl_user_id"
+              }
+            }
+          ]
+        },
+        "else_value": "{{vars.setup_gap}}"
+      },
+      {
+        "id": "b1",
+        "type": "branch",
+        "title": "Is the new closer set up?"
+      },
+      {
+        "id": "a1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.attention}}",
+        "fallback_channel": "{{slack.channel.bookings}}",
+        "as": {
+          "name": "Call handed over",
+          "icon": ":warning:"
+        },
+        "template": "⚠️ {{appointment.closer.name}} has <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name}}>'s call {{appointment.starts_at | date_company}} now, but isn't set up in {{vars.setup_gap}}. Add them so the call, their DM and their end of day reach them."
+      },
+      {
+        "id": "b2",
+        "type": "branch",
+        "title": "Is the call still ahead?"
+      },
+      {
+        "id": "d1",
+        "type": "slack_post",
+        "channel": "{{appointment.closer.slack_user_id}}",
+        "fallback_channel": "{{slack.channel.attention}}",
+        "as": {
+          "name": "Call handed over",
+          "icon": ":twisted_rightwards_arrows:"
+        },
+        "template": "{{appointment.closer.first_name}}, {{event.from.name | default:the team}} handed you <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name}}>'s call {{appointment.starts_at | date_company}}. Their invite still has the old meeting link, so reach out before the call and send them yours.{{appointment.closer.booking_url | line:If they need another time, send them your link →}}"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "done"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "k1"
+      },
+      {
+        "from": "k1",
+        "to": "o1"
+      },
+      {
+        "from": "o1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "p1"
+      },
+      {
+        "from": "p1",
+        "to": "g1"
+      },
+      {
+        "from": "g1",
+        "to": "g2"
+      },
+      {
+        "from": "g2",
+        "to": "g3"
+      },
+      {
+        "from": "g3",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "a1",
+        "when": {
+          "or": [
+            {
+              "not": {
+                "exists": "appointment.closer.slack_user_id"
+              }
+            },
+            {
+              "not": {
+                "exists": "appointment.closer.ghl_user_id"
+              }
+            }
+          ]
+        },
+        "label": "not set up"
+      },
+      {
+        "from": "b1",
+        "to": "b2",
+        "else": true,
+        "label": "set up"
+      },
+      {
+        "from": "a1",
+        "to": "b2"
+      },
+      {
+        "from": "b2",
+        "to": "d1",
+        "when": {
+          "eq": [
+            "{{appointment.started}}",
+            false
+          ]
+        },
+        "label": "still ahead"
+      },
+      {
+        "from": "b2",
+        "to": "x1",
+        "else": true,
+        "label": "already happened"
+      },
+      {
+        "from": "d1",
+        "to": "x1"
+      }
+    ]
+  }
+}

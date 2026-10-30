@@ -241,7 +241,7 @@ function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: s
     case "create_task": { const t = taskWords(n.title); const who = n.assign_to ? pathWords(n.assign_to) : null; return { title: `Task${who ? ` for ${who}` : ""}: ${t[0].toLowerCase()}${t.slice(1)}`, meta: /\{\{/.test(n.due) ? `due ${templateWords(n.due).replace(/^\[|\]$/g, "")}` : `due in ${durationWords(n.due)}` }; }
     case "note": return { title: "Leave a note" };
     case "record_outcome": return { title: `Record the call as ${valueWords(n.outcome)}${n.call_outcome ? `, ${valueWords(n.call_outcome)}` : ""}`, meta: n.source === "disposition" ? "as if the closer filed it" : undefined };
-    case "update_appointment": return "pending_read" in n.set && Object.keys(n.set).length === 1 ? { title: describeNode(n).title } : { title: `Mark the call ${Object.values(n.set).map((v) => valueWords(String(v))).join(", ")}` };
+    case "update_appointment": return "closer" in n.set || ("pending_read" in n.set && Object.keys(n.set).length === 1) ? { title: describeNode(n).title } : { title: `Mark the call ${Object.values(n.set).map((v) => valueWords(String(v))).join(", ")}` };
     case "update_opportunity": {
       const st = n.status ?? (typeof n.set.status === "string" ? n.set.status : undefined);
       const title = st === "open" ? "Reopen the opportunity" : st ? `Mark the opportunity ${/\{\{/.test(st) ? templateWords(st) : st}` : "Update the opportunity";

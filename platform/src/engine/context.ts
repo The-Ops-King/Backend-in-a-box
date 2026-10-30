@@ -115,7 +115,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const r = await one<RecordingRow & { closer_name: string | null; closer_ghl: string | null }>(c, "select r.*, u.name as closer_name, u.ghl_user_id as closer_ghl from recordings r left join users u on u.company_id=r.company_id and lower(u.email)=r.recorded_by_email where r.id=$1", [recId]);
     if (r) ctx.recording = { id: r.id, provider: r.provider, external_id: r.external_id, title: r.title, started_at: r.started_at.toISOString(), ended_at: r.ended_at?.toISOString(), duration_min: r.duration_min, url: r.url, share_url: r.share_url,
       recorded_by: { name: r.recorded_by_name, email: r.recorded_by_email }, closer: r.closer_name ? { name: r.closer_name, first_name: r.closer_name.split(" ")[0], ghl_user_id: r.closer_ghl } : undefined,
-      invitees: r.invitees, invitee_names: r.invitees.map((i) => i.name).filter(Boolean).join(", "), has_transcript: hasTranscript(r), matched_by: r.linked_by, analysis: r.analysis,
+      invitees: r.invitees, invitee_names: r.invitees.map((i) => i.name).filter(Boolean).join(", "), has_transcript: hasTranscript(r), matched_by: r.linked_by, analysis: r.analysis, client_spoke: r.client_spoke ?? null, recorder_email: r.recorded_by_email,
       // D87: no transcript here; `{{recording.transcript_text}}` is read from its source by the step that needs it (transcripts.ts)
       // phone calls (D28): the dialer's facts and who dialed
       kind: r.raw.kind === "phone" ? "phone" : "meeting", direction: r.raw.direction, status: r.raw.call_status, connected: isConnected(r), duration_sec: r.raw.duration_sec ?? (r.duration_min != null ? r.duration_min * 60 : undefined),
@@ -127,12 +127,12 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const a = await one<Record<string, unknown>>(c, `
       select a.id, a.source, a.external_id, coalesce(a.slot_key, a.external_id) as slot_key, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.answers, a.reschedule_url, a.cancel_url, a.meeting_url, a.tracking, a.cancelled_by, a.cancel_reason, a.pending_read,
              json_build_object('name', t.name, 'category', t.category) as term,
-             json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'email', u.email, 'ghl_user_id', u.ghl_user_id, 'slack_user_id', u.slack_user_id, 'mention', coalesce('<@' || u.slack_user_id || '>', u.name)) as closer,
+             json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'email', u.email, 'ghl_user_id', u.ghl_user_id, 'slack_user_id', u.slack_user_id, 'mention', coalesce('<@' || u.slack_user_id || '>', u.name), 'booking_url', u.booking_url) as closer, a.reassigned_at, a.reassigned_by,
              ot.category as outcome, cot.category as call_outcome
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
       where a.id=$1`, [run.appointment_id]);
-    if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString(), started: (a.starts_at as Date).getTime() <= Date.now() };   // started: the call's time has come (D88)
+    if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString(), reassigned_at: a.reassigned_at ? (a.reassigned_at as Date).toISOString() : null, started: (a.starts_at as Date).getTime() <= Date.now() };   // started: the call's time has come (D88)
   }
   if (run.opportunity_id) ctx.opportunity = await one(c, "select id, status, contract_value, opened_at from opportunities where id=$1", [run.opportunity_id]);
   // the contact's open card on each bound board: crm.pipeline_closer = <id> → cards.closer = { id (CRM), stage, name }

@@ -1,4 +1,7 @@
 import preCall from "./pre-call-sequence.json";
+import reassignRequest from "./reassign-request.json";
+import callReassigned from "./call-reassigned.json";
+import differentCloser from "./different-closer.json";
 import speedToLead from "./speed-to-lead.json";
 import noShow from "./no-show-recovery.json";
 import cancellation from "./cancellation-rebook.json";
@@ -29,4 +32,4 @@ import recordingUnlinked from "./recording-unlinked.json";
 import cardMoved from "./card-moved.json";
 import ledgerDrift from "./ledger-drift.json";
 import weeklyLeaderboard from "./weekly-leaderboard.json";
-export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, setterCallFiled, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, dailyWrapUp, weeklyWrapUp, monthlyWrapUp, callOutcome, paymentUnlinked, recordingUnlinked, cardMoved, ledgerDrift, weeklyLeaderboard] as const;
+export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentFailed, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, setterCallFiled, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, healthCheck, calendarAvailability, dailyWrapUp, weeklyWrapUp, monthlyWrapUp, callOutcome, paymentUnlinked, recordingUnlinked, cardMoved, ledgerDrift, weeklyLeaderboard, reassignRequest, callReassigned, differentCloser] as const;

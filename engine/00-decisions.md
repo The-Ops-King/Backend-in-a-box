@@ -6598,3 +6598,32 @@ transcript: an unmatched recording has no contact for the whole-call lookup), wi
 client, about buying or starting the program; a client's session is "other". It stays silent only when Jev clearly says internal or
 other; a sales call, an unsure read, or no transcript to read is still posted, so what the engine cannot tell still reaches a person.
 A Slack change, so every offer in one pass (D: Slack works the same on every offer), each saved with a dry run.
+
+## D254. A call handed from one closer to another (2026-10-30)
+
+Tyler: "if Jose essentially assigns one of his calls to Minerva ... it appears on the correct closer's end of day. It gets
+reassigned in the backend", "/reassign all my calls today to Minerva", and "Rather than an auto-reassign, just have it ... be an
+engine alert". Remember "this should all be a workflow not hard coded".
+
+- Three doors ask, none acts: the end of day's "Taken by another closer", `/reassign` in Slack (a closer their own calls, an
+  admin anyone's; today and later), and the different-closer alert's ✅. Each emits `appointment.reassign_requested` (who from,
+  who to, which door, who asked).
+- What a reassignment does is a workflow on that event (Call reassigned): `update_appointment` `set.closer` hands the call over
+  in the engine, then the Sales Call's closer, the contact's owner and the closer card move in the CRM, and the new closer is told
+  to reach the prospect with their own meeting link (the calendar's host and link cannot be changed at the source).
+- A call a person handed over keeps its closer when the calendar moves it (`appointments.reassigned_at`): the host decides only a
+  call nobody reassigned. Its end of day, its reminders' closer name and its credit follow whoever has it.
+- Whether the client spoke is kept on the recording (`client_spoke`), decided when it arrives, because the transcript is not kept.
+- A team member has their own booking link (`users.booking_url`, `appointment.closer.booking_url`) for a reassigned call's
+  reschedule.
+
+Nothing an existing offer runs changes: no booking is reassigned yet, and no saved workflow reads the new paths or events.
+
+The doors, as built: the end of day has "Someone else took this call" on every call with a picker of the team; the call leaves
+that day (it is not filed there) and lands on the other person's day to file. `/reassign` is two Slack forms (whose calls and
+which day, then that day's calls still ahead, all ticked, and who takes them); the person who ran it is told in a DM what was
+handed over. The shipped workflows: Reassign request (hand it over), Call reassigned (the Sales Call's closer, the owner, the
+closer card, a line in the booking's thread, a DM to the new closer to send their own link for a call still ahead, and a post to
+the team when the new closer is missing from Slack or the CRM: never a refusal), and Another closer took the call (a booked
+call with a client on it, recorded by someone else on the team: asked in the attention channel, ✅ hands it over, ❌ keeps it,
+asked again the next morning, then left). They install off on every offer; each is turned on by Tyler.

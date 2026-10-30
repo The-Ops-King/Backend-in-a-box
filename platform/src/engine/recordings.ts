@@ -32,7 +32,7 @@ export type RecordingInput = {
   summary?: string;
   raw?: Record<string, unknown>;
 };
-export type RecordingRow = { id: string; company_id: string; contact_id: string | null; appointment_id: string | null; provider: string; external_id: string; title: string | null; started_at: Date; ended_at: Date | null; duration_min: number | null; url: string | null; share_url: string | null; recorded_by_email: string | null; recorded_by_name: string | null; invitees: { name?: string; email?: string; isExternal?: boolean }[]; transcript: { speaker: string; email?: string; text: string; timestamp?: string }[] | null; summary: string | null; analysis: Record<string, unknown>; link_status: string; linked_by: string | null; unlinked_reason: string | null; raw: Record<string, unknown>; received_at: Date };
+export type RecordingRow = { id: string; company_id: string; contact_id: string | null; appointment_id: string | null; provider: string; external_id: string; title: string | null; started_at: Date; ended_at: Date | null; duration_min: number | null; url: string | null; share_url: string | null; recorded_by_email: string | null; recorded_by_name: string | null; invitees: { name?: string; email?: string; isExternal?: boolean }[]; transcript: { speaker: string; email?: string; text: string; timestamp?: string }[] | null; summary: string | null; analysis: Record<string, unknown>; client_spoke?: boolean | null; link_status: string; linked_by: string | null; unlinked_reason: string | null; raw: Record<string, unknown>; received_at: Date };
 export type RecordResult =
   | { outcome: "duplicate"; recording: RecordingRow }
   | { outcome: "internal"; recording: RecordingRow; reason: string }   // D227: only the team spoke; linked to no one, no one asked
@@ -152,6 +152,32 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
   return { match: { ...r.match, ...(p.appointmentId ? { appointmentId: p.appointmentId } : {}), placed: p.placed } };
 }
 
+/**
+ * Who spoke on a recording, and which of them are not the team (the roster, the recorder, whoever the invite marks as ours). D254:
+ * the same split says whether the client spoke at all (`clientSpoke`), kept on the recording because the transcript is not.
+ */
+async function speakersOf(c: PoolClient, companyId: string, input: RecordingInput, staffDropped: string[]) {
+  const users = await many<{ email: string; name: string | null }>(c, "select lower(email) as email, name from users where company_id=$1 or company_id is null", [companyId]);
+  const staffEmails = new Set([...users.map((u) => u.email), ...staffDropped, ...(input.recordedBy?.email ? [input.recordedBy.email.toLowerCase()] : [])]);
+  const staffNames = [...users.map((u) => u.name), input.recordedBy?.name, ...input.invitees.filter((i) => i.isExternal === false || (i.email && staffEmails.has(i.email.toLowerCase()))).map((i) => i.name)]
+    .map(tokens).filter((t) => t.length > 0);
+  const lines = input.transcript ?? [];
+  const spoke = new Map<string, { name: string; email?: string; byAddress?: boolean }>();
+  for (const l of lines) {
+    const label = l.speaker.trim(), asEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(label) ? normEmail(label) : undefined;   // a guest with no display name is shown by their address
+    const n = normName(label); if (n && !spoke.has(n)) spoke.set(n, { name: label, email: normEmail(l.email) ?? asEmail, ...(asEmail ? { byAddress: true } : {}) });
+  }
+  const guests = [...spoke.values()].filter((p) => !(p.email && staffEmails.has(p.email)) && !staffName(staffNames, p.name));
+  return { lines, spoke, guests, staffNames };
+}
+
+/** D254: did anyone but the team speak? null when there is no transcript to say. */
+export async function clientSpoke(c: PoolClient, companyId: string, input: RecordingInput): Promise<boolean | null> {
+  if (!input.transcript?.length) return null;
+  const { staffDropped } = await prospectsOnCall(c, companyId, input);
+  return (await speakersOf(c, companyId, input, staffDropped)).guests.length > 0;
+}
+
 async function matchRecording(c: PoolClient, companyId: string, input: RecordingInput): Promise<Resolution> {
   const { emails, names, staffDropped } = await prospectsOnCall(c, companyId, input);
   const key = meetingKey(input.meetingUrl);
@@ -163,20 +189,8 @@ async function matchRecording(c: PoolClient, companyId: string, input: Recording
   const fits = await fitsAt(c, companyId, input.startedAt);
   const theirs = (f: Fit) => !!recorder && f.assigned_user_id === recorder.id;
 
-  // the team: the roster, the recorder, and whoever the invite marks as ours
-  const users = await many<{ email: string; name: string | null }>(c, "select lower(email) as email, name from users where company_id=$1 or company_id is null", [companyId]);
-  const staffEmails = new Set([...users.map((u) => u.email), ...staffDropped, ...(input.recordedBy?.email ? [input.recordedBy.email.toLowerCase()] : [])]);
-  const staffNames = [...users.map((u) => u.name), input.recordedBy?.name, ...input.invitees.filter((i) => i.isExternal === false || (i.email && staffEmails.has(i.email.toLowerCase()))).map((i) => i.name)]
-    .map(tokens).filter((t) => t.length > 0);
-
   // 1. who spoke: the transcript says who showed up
-  const lines = input.transcript ?? [];
-  const spoke = new Map<string, { name: string; email?: string; byAddress?: boolean }>();
-  for (const l of lines) {
-    const label = l.speaker.trim(), asEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(label) ? normEmail(label) : undefined;   // a guest with no display name is shown by their address
-    const n = normName(label); if (n && !spoke.has(n)) spoke.set(n, { name: label, email: normEmail(l.email) ?? asEmail, ...(asEmail ? { byAddress: true } : {}) });
-  }
-  const guests = [...spoke.values()].filter((p) => !(p.email && staffEmails.has(p.email)) && !staffName(staffNames, p.name));
+  const { lines, spoke, guests } = await speakersOf(c, companyId, input, staffDropped);
   if (lines.length && spoke.size && !guests.length) return { match: null, internal: true, reason: `only the team spoke (${[...spoke.values()].map((p) => p.name).join(", ")}): not a call with a client, so it is linked to no one` };
   const named = guests.filter((p) => !GENERIC_SPEAKER.test(p.name.trim()));
   let unnamed = "";   // who spoke, when no one who spoke is anyone in the CRM
@@ -299,6 +313,7 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
     [companyId, provider, input.externalId, input.title ?? null, input.startedAt, input.endedAt ?? null, input.durationMin ?? null, input.url ?? null, input.shareUrl ?? null, normEmail(input.recordedBy?.email) ?? null, input.recordedBy?.name ?? null,
       JSON.stringify(input.invitees), has ? JSON.stringify(input.transcript) : null, { ...(input.raw ?? {}), transcript_status: has ? "ready" : input.raw?.transcript_status ?? "none" }]);
   if (!inserted) return { outcome: "duplicate", recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider=$2 and external_id=$3", [companyId, provider, input.externalId]))! };
+  await c.query("update recordings set client_spoke=$2 where id=$1", [inserted.id, await clientSpoke(c, companyId, input)]);   // D254
   const { match, reason, internal } = await resolveRecording(c, companyId, input);
   if (match) {
     const { event, appointmentId } = await settle(c, companyId, inserted, match.contactId, match.by, match.appointmentId ?? null, opts.silent, match.placed);
