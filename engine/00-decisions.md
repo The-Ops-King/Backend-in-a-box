@@ -6771,3 +6771,19 @@ counted the same hour two to four times (Minerva's "20 slots"). Now each count i
 (`bookable`): earliest first, each its calendar's own length (Calendly says it; a GHL calendar is an hour). `/availability` per
 calendar, per person (a person's calls on several calendars fitted together), and the day totals; and the low-availability alert,
 whose threshold now means bookable calls. Without the per-person split, a time two calendars offer counts once, as before.
+
+## D268. Setters follow the people they set, so their own Smart Lists find them (2026-10-30)
+
+Tyler: "they need to know about their sets ... a smart list called 'My closed' ... where they're the follower and one where it's
+'My no-show'". Results that matter: closed and no-show. The setter is whoever booked the call or ran its triage. All offers,
+Nelly first.
+
+- GHL Smart Lists have no "followed by me" or "current user" filter, and the public API cannot create them, so each setter gets two
+  lists made by hand once: Followers = them and tag `stat-closed-won`; Followers = them and tag `stat-no-show`. A rebook already
+  removes `stat-no-show` (Call booked), so the no-show list drops people who rebook.
+- `setsToFollow`: a closing call's setters are the user whose setter link booked it (`set_by`, by name) and whoever ran the
+  person's last triage call that started by the time it was booked (one hour's grace); both when they differ. Self-booked with
+  no triage: nobody. Test contacts never.
+- New GHL write `addFollowers` (POST /contacts/{id}/followers; adds, never removes).
+- `POST /api/admin/followers/backfill { company, days = 30, skip?, dryRun = true }` lists each contact and who would follow it
+  and why; applied, one write per contact, audited. Booking time onward (a workflow step on Call booked) is the next change.
