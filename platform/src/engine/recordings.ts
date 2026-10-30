@@ -153,7 +153,7 @@ export async function resolveRecording(c: PoolClient, companyId: string, input: 
 }
 
 /**
- * Who spoke on a recording, and which of them are not the team (the roster, the recorder, whoever the invite marks as ours). D253:
+ * Who spoke on a recording, and which of them are not the team (the roster, the recorder, whoever the invite marks as ours). D254:
  * the same split says whether the client spoke at all (`clientSpoke`), kept on the recording because the transcript is not.
  */
 async function speakersOf(c: PoolClient, companyId: string, input: RecordingInput, staffDropped: string[]) {
@@ -171,7 +171,7 @@ async function speakersOf(c: PoolClient, companyId: string, input: RecordingInpu
   return { lines, spoke, guests, staffNames };
 }
 
-/** D253: did anyone but the team speak? null when there is no transcript to say. */
+/** D254: did anyone but the team speak? null when there is no transcript to say. */
 export async function clientSpoke(c: PoolClient, companyId: string, input: RecordingInput): Promise<boolean | null> {
   if (!input.transcript?.length) return null;
   const { staffDropped } = await prospectsOnCall(c, companyId, input);
@@ -313,7 +313,7 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
     [companyId, provider, input.externalId, input.title ?? null, input.startedAt, input.endedAt ?? null, input.durationMin ?? null, input.url ?? null, input.shareUrl ?? null, normEmail(input.recordedBy?.email) ?? null, input.recordedBy?.name ?? null,
       JSON.stringify(input.invitees), has ? JSON.stringify(input.transcript) : null, { ...(input.raw ?? {}), transcript_status: has ? "ready" : input.raw?.transcript_status ?? "none" }]);
   if (!inserted) return { outcome: "duplicate", recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider=$2 and external_id=$3", [companyId, provider, input.externalId]))! };
-  await c.query("update recordings set client_spoke=$2 where id=$1", [inserted.id, await clientSpoke(c, companyId, input)]);   // D253
+  await c.query("update recordings set client_spoke=$2 where id=$1", [inserted.id, await clientSpoke(c, companyId, input)]);   // D254
   const { match, reason, internal } = await resolveRecording(c, companyId, input);
   if (match) {
     const { event, appointmentId } = await settle(c, companyId, inserted, match.contactId, match.by, match.appointmentId ?? null, opts.silent, match.placed);

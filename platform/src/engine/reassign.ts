@@ -4,7 +4,7 @@ import { many, one } from "@/db/client";
 import { dispatchEvent, emitEvent } from "./dispatch";
 
 /**
- * D253: a call handed from one closer to another (Tyler: "if Jose essentially assigns one of his calls to Minerva ... it appears
+ * D254: a call handed from one closer to another (Tyler: "if Jose essentially assigns one of his calls to Minerva ... it appears
  * on the correct closer's end of day. It gets reassigned in the backend"). The doors only ask: the end of day's "Taken by another
  * closer", `/reassign` in Slack and the different-closer alert's ✅ each emit `appointment.reassign_requested` with who from, who
  * to, who asked and through which door. What a reassignment does (the booking, the Sales Call, the owner, the card, the new

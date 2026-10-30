@@ -635,7 +635,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const a = await one<{ external_id: string; source: string; status: string; starts_at: Date; self_booked: boolean | null; term: { name: string; category: string } | null }>(d.c,
         "select a.external_id, a.source, a.status, a.starts_at, a.self_booked, json_build_object('name', t.name, 'category', t.category) as term from appointments a left join company_terms t on t.id=a.appointment_term where a.id=$1", [d.run.appointment_id]);
       const patch = Object.fromEntries(Object.entries(node.set).filter(([k]) => k !== "pending_read" && k !== "closer" && k !== "reassigned_by").map(([k, v]) => [k, typeof v === "string" ? render(v, d.ctx, env(d)) : v]));
-      // D253: who has the call is OURS too (the calendar's host cannot be changed at the source): the team member by email, kept
+      // D254: who has the call is OURS too (the calendar's host cannot be changed at the source): the team member by email, kept
       // through reschedules; a ghost run records who it would hand it to. Emits appointment.reassigned once per run and step.
       if ("closer" in node.set) {
         const email = render(String(node.set.closer ?? ""), d.ctx, env(d)).trim().toLowerCase();

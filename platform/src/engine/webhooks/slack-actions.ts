@@ -28,7 +28,7 @@ export function parseSlackInteraction(raw: string): SlackPress | SlackSubmit | {
     const user = (p.user ?? {}) as Record<string, unknown>;
     if (typeof view.callback_id !== "string" || typeof user.id !== "string") return { kind: "ignored", type: "view_submission" };
     // a text box answers `value`, a dropdown `selected_option.value` (D202)
-    // D253: checkboxes answer `selected_options` (their values joined by commas), a date picker `selected_date`
+    // D254: checkboxes answer `selected_options` (their values joined by commas), a date picker `selected_date`
     const values = Object.fromEntries(Object.entries(view.state?.values ?? {}).map(([block, inputs]) => { const i = Object.values(inputs)[0]; return [block, String(i?.value ?? i?.selected_option?.value ?? i?.selected_date ?? (i?.selected_options ? i.selected_options.map((o) => o.value ?? "").filter(Boolean).join(",") : ""))]; }));
     return { kind: "submit", teamId: typeof (p.team as { id?: unknown } | undefined)?.id === "string" ? (p.team as { id: string }).id : undefined, user: user.id, callbackId: view.callback_id, meta: view.private_metadata, values };
   }

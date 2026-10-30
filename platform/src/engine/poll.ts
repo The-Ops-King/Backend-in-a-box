@@ -263,7 +263,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (Math.abs(existing.starts_at.getTime() - new Date(s.startTime).getTime()) > 60e3) changes.starts_at = { from: existing.starts_at.toISOString(), to: s.startTime };
   if (!Object.keys(changes).length) return;
   if (baseline) { await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, source_updated_at=$5 where id=$1", [existing.id, s.status, s.startTime, s.endTime, s.dateUpdated ?? new Date()]); if (rep) rep.baselined++; return; }
-  // D253: a call a person handed to another closer stays theirs; the calendar's host decides only a call nobody reassigned
+  // D254: a call a person handed to another closer stays theirs; the calendar's host decides only a call nobody reassigned
   await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, assigned_user_id=case when reassigned_at is null then coalesce($5,assigned_user_id) else assigned_user_id end, source_updated_at=$6, cancelled_by=coalesce($7,cancelled_by), cancel_reason=coalesce($8,cancel_reason) where id=$1",
     [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date(), s.cancellation?.by ?? null, s.cancellation?.reason ?? null]);
   const type = changes.starts_at ? "appointment.rescheduled" : "appointment.status_changed";

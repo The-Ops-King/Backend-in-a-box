@@ -250,7 +250,7 @@ export function describeNode(n: Node): NodeText {
       return { title: "Update the contact in the CRM", detail: bits.join("; ") || undefined };
     }
     case "note": return { title: "Leave an internal note", quote: templateWords(n.template) };
-    case "update_appointment": if ("closer" in n.set) return { title: `Hand the call to ${value(n.set.closer)}`, detail: "Who has the call in the engine: their end of day, their name in the reminders, kept through reschedules (D253)" };
+    case "update_appointment": if ("closer" in n.set) return { title: `Hand the call to ${value(n.set.closer)}`, detail: "Who has the call in the engine: their end of day, their name in the reminders, kept through reschedules (D254)" };
       return "pending_read" in n.set && Object.keys(n.set).length === 1
       ? { title: n.set.pending_read === null ? "Clear the pending read on the appointment" : "Note Jev's pending read on the appointment", detail: n.set.pending_read === null ? "A person decided; the appointment no longer carries an open question" : "What Jev read, how sure it was and when, kept until a person decides; a no-show after it is a possible cancel" }
       : { title: `Mark appointment ${Object.entries(n.set).filter(([k]) => k !== "pending_read").map(([k, v]) => `${humanWords(k)} → ${value(v)}`).join(", ")}` };

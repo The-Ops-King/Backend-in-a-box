@@ -278,7 +278,7 @@ export async function callCloser(c: PoolClient, adapters: Adapters, a: { company
   }
   if (a.dryRun !== false) return { ok: true, dryRun: true, closer: to.name, calls };
   for (const k of calls) {
-    // D253: who has the call now is a person's word, so a reschedule at the calendar never hands it back to the host
+    // D254: who has the call now is a person's word, so a reschedule at the calendar never hands it back to the host
     await c.query("update appointments set assigned_user_id=$2, reassigned_at=now(), reassigned_by=$3 where id=$1", [k.id, to.id, `operator: ${a.why.trim()}`]);
     if (k.sales_call && object) {
       await adapters.write.updateRecord(ac, object, k.sales_call, { closer: key });

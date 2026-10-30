@@ -1,5 +1,5 @@
 /**
- * D253, the shipped workflows end to end: Reassign request hands the call over, Call reassigned moves the CRM and tells the new
+ * D254, the shipped workflows end to end: Reassign request hands the call over, Call reassigned moves the CRM and tells the new
  * closer (or the team, when they are not set up), and Another closer took the call asks before anything moves.
  */
 import { describe, it, expect, beforeAll } from "vitest";
@@ -42,15 +42,15 @@ const ticks = async (n = 3) => { for (let i = 0; i < n; i++) await tickNow(); };
 const runs = (appt: string) => asOperator((c) => many<{ name: string; status: string; exit_reason: string | null }>(c, "select w.name, r.status, r.exit_reason from runs r join workflows w on w.id=r.workflow_id where r.appointment_id=$1 order by r.started_at, w.name", [appt]));
 const closerOf = async (appt: string) => (await asOperator((c) => one<{ name: string }>(c, "select u.name from appointments a join users u on u.id=a.assigned_user_id where a.id=$1", [appt])))!.name;
 
-describe.skipIf(!HAS_DB)("D253: reassigning a call, the shipped workflows", () => {
+describe.skipIf(!HAS_DB)("D254: reassigning a call, the shipped workflows", () => {
   let call = "", past = "";
   beforeAll(async () => {
     await migrate();
-    co = (await installCompany({ name: "D253S", slug: SLUG, timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: {}, enable: true, templates: ["reassign-request", "call-reassigned", "different-closer"],
+    co = (await installCompany({ name: "D254S", slug: SLUG, timezone: TZ, locationId: "LOC", pit: "pit-fake", calendars: {}, enable: true, templates: ["reassign-request", "call-reassigned", "different-closer"],
       crm: { pipeline_closer: "PIPE-CLOSER" } }, fake)).companyId;
     await asOperator(async (c) => {
       await c.query("update companies set mode='live' where id=$1", [co]);
-      await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'TD253',$2,'{}')", [co, encrypt("xoxb-fake")]);
+      await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'TD254',$2,'{}')", [co, encrypt("xoxb-fake")]);
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2),($1,'slack.channel.attention','channel',$3) on conflict (company_id,key) do update set value=excluded.value", [co, Buffer.from("CBOOK"), Buffer.from("CATT")]);
       jp = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id, slack_user_id) values ($1,'jp@x.com','Jose P','closer','U-JP','S-JP') returning id", [co]))!.id;
       min = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, ghl_user_id, slack_user_id, booking_url) values ($1,'min@x.com','Minerva Rostro','closer','U-MIN','S-MIN','https://cal.example/minerva') returning id", [co]))!.id;

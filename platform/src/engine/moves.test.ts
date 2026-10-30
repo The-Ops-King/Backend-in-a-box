@@ -22,12 +22,13 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 process.env.PUBLIC_URL = "https://engine.test";
 export const posts: { channel: string; text: string; as?: SlackPersona; threadTs?: string }[] = [];
 export const reactions: { channel: string; ts: string; emoji: string }[] = [];
+let recordingKind = "sales_call";   // what Jev says an unmatched recording is (D237)
 const fake: Adapters = {
   read: { contactsChangedSince: async () => [], openCards: async () => [], inboundSince: async () => [], messageBodies: async () => new Map(), callMedia: async () => null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [], getContact: async (c, id) => replicaSnapshot(c.id, id), listUsers: async () => [] },
   booking: (() => { const b: BookingRead = { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }; return { ghl: b, calendly: b }; })(),
   write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "d" }) },
   sender: { sendSms: async () => ({ externalId: "s", accepted: true }), sendEmail: async () => ({ externalId: "e", accepted: true }), deliveryStatus: async () => ({ status: "sent" }), sendEmailTemplate: async () => ({ externalId: "t", accepted: true }), smsTemplateBody: async () => null },
-  classifier: { choice: async () => ({ value: "confirmed", confidence: 1, distribution: {}, unclear: false }) },
+  classifier: { choice: async (_s: unknown, _i: unknown, options: string[]) => ({ value: options.includes("sales_call") ? recordingKind : "confirmed", confidence: 1, distribution: {}, unclear: false }) },
   notifier: { post: async (_t, channel, text, as, threadTs) => { posts.push({ channel, text, as, threadTs }); return { ts: `ts${posts.length}` }; }, lookupUserByEmail: async () => null, react: async (_t, channel, ts, emoji) => { reactions.push({ channel, ts, emoji }); return true; }, unreact: async () => true, authTest: async () => ({ ok: true }), channelInfo: async () => ({ ok: true, member: true }), update: async () => {} },
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
@@ -68,6 +69,12 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: unlinked payments and recording
     await run();
     expect(posts).toHaveLength(1);
     expect(posts[0].text).toMatch(/^\*Unmatched recording\* · Strategy call · 32 min\n.+\n\*Attendees:\* ann@x\.test, Bo · \*Recorded by:\* closer@co\.test\nhttps:\/\/fathom\.test\/share\/1\nLink it: https:\/\/engine\.test\/c\/mvs-a2\/recordings$/);
+    // D237: a recording Jev clearly reads as not a sales call with a prospect (a client's session, a personal call) posts nothing; with no transcript (above) it posts
+    recordingKind = "other";
+    await asOperator(async (c) => { const { row, bindings } = await loadCompany(c, companyId); await ingestRecording(c, row, bindings, { provider: "fathom", externalId: "rec-x2", title: "Impromptu Google Meet Meeting", startedAt: new Date(), endedAt: new Date(), durationMin: 12, recordedBy: { email: "closer@co.test" }, invitees: [], transcript: [{ speaker: "Closer", text: "how was your week" }, { speaker: "Stranger Name", text: "good" }] }); });
+    await run();
+    expect(posts).toHaveLength(1);
+    recordingKind = "sales_call";
     // the company's own words: its copy of the step changes what goes out
     await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
     await install("payment-unlinked", (d) => { const n = d.nodes.find((x) => x.id === "n1")!; if (n.type === "slack_post") { n.template = "💸 Nobody matched {{event.customer_email}} (${{event.amount | money}})"; n.channel = "{{slack.channel.bookings}}"; } });

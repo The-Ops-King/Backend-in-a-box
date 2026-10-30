@@ -129,7 +129,7 @@ export async function commandsDoor(req: Request, key: DoorKey): Promise<Response
       if (a.send) return { companyId, agreement: { ...a.send, user: cmd.userId, url: f.get("response_url") ?? "", say: a.say } };
       return NextResponse.json(a.say);
     }
-    // D253: /reassign opens its form here too (inside the three seconds)
+    // D254: /reassign opens its form here too (inside the three seconds)
     if (name === REASSIGN_COMMAND) {
       const a = await reassignStart(c, companyId, cmd.userId, row.timezone, cmd.channelId);
       if ("say" in a) return NextResponse.json({ response_type: "ephemeral", text: a.say });
@@ -209,7 +209,7 @@ export async function interactionsDoor(req: Request, key: DoorKey): Promise<Resp
       if ("errors" in a) return NextResponse.json({ response_action: "errors", errors: a.errors });
       return { companyId, kind: "agreement", user: p.user, ...a };
     }
-    // D253: /reassign's two forms: the first is answered with the second in its place; the second hands the calls over now
+    // D254: /reassign's two forms: the first is answered with the second in its place; the second hands the calls over now
     if (p.kind === "submit" && (p.callbackId === REASSIGN_PICK || p.callbackId === REASSIGN_CALLS)) {
       const { row } = await loadCompany(c, companyId);
       if (p.callbackId === REASSIGN_PICK) {

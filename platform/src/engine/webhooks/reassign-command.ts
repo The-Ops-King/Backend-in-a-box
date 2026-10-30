@@ -4,7 +4,7 @@ import { many, one } from "@/db/client";
 import { callsOf, requestReassign } from "../reassign";
 
 /**
- * D253 (Tyler: "/reassign ... select who you're assigning it from, select what day, select which calls you're assigning and to whom";
+ * D254 (Tyler: "/reassign ... select who you're assigning it from, select what day, select which calls you're assigning and to whom";
  * "If a closer is sick or something, they can say /reassign all my calls today to Minerva"). Two forms: whose calls and which day
  * (you and today unless you change them), then that day's calls to tick (all ticked to start) and who takes them. A closer hands
  * over their own calls; an owner, a manager or the operator anyone's. Only calls still ahead are offered: a call already taken is
