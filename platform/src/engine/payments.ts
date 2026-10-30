@@ -24,7 +24,8 @@ export type PaymentRow = { id: string; company_id: string; contact_id: string | 
 export type RecordResult =
   | { outcome: "duplicate"; payment: PaymentRow }
   | { outcome: "linked"; payment: PaymentRow; event: EventRow; contactId: string; healed: number }
-  | { outcome: "unlinked"; payment: PaymentRow; event: EventRow };
+  | { outcome: "unlinked"; payment: PaymentRow; event: EventRow }
+  | { outcome: "skipped"; why: string };
 
 import { normEmail } from "./identity";
 export const phoneKey = (p?: string | null) => { const d = (p ?? "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : undefined; };
@@ -41,12 +42,13 @@ export function deriveKind(amount: number, priorTotal: number, contractValue: nu
   if (status === "failed") return "failed";
   if (amount < 0 || status === "refunded") return "refund";
   if (deposit) return "deposit";
-  if (rules) {
-    // D268 (Tyler, 2026-10-30): a deposit is named so or under $500; paid in full is one payment of a full price (within $3 under it),
-    // bought once or as a subscription's first charge; the payment that brings the total to the deal's price is its balance
-    if (amount > 0 && amount < rules.depositUnder) return "deposit";
-    if (fullPriceOf(amount, rules) !== null && fullReason(rules.reason)) return "paid_in_full";
-    if (clearedBy(money(priorTotal + amount), contractValue ?? rules.fullPrices[0] ?? null)) return "balance";
+  if (rules?.fullPrices.length) {
+    // D268 (Tyler, 2026-10-30), every number and word the offer's own setting: under its deposit threshold is a deposit; one payment
+    // of a full price (or up to its slack under it), for a billing reason it counts, is paid in full; the payment that brings the
+    // total to the deal's price is its balance
+    if (rules.depositUnder !== null && amount > 0 && amount < rules.depositUnder) return "deposit";
+    if (fullPriceOf(amount, rules) !== null && fullReason(rules.reason, rules)) return "paid_in_full";
+    if (clearedBy(money(priorTotal + amount), contractValue ?? rules.fullPrices[0] ?? null, rules.slack)) return "balance";
     return "installment";
   }
   if (priorTotal <= 0 && cleared(amount, contractValue)) return "paid_in_full";
@@ -55,32 +57,41 @@ export function deriveKind(amount: number, priorTotal: number, contractValue: nu
 }
 
 /**
- * D268: the payment rules every offer goes by. `payments.full_prices`: the offer's full prices (a list: PMU's $10,000 and $12,000);
- * unset, the offer's program price. A payment within `PRICE_SLACK` under one is that price (Whop charges $9,997). Under
- * `depositUnder` is a deposit. Paid in full needs Whop's reason to be a one-time purchase or a subscription's first charge.
+ * D268: what a payment is, by the offer's own settings (Tyler: "don't hard code ... settings in the offer. this should be fully
+ * configurable"). Nothing here has a value of the engine's: an offer that has not set `payments.full_prices` goes by the rules it had
+ * before (D119), and each other setting it leaves unset is a rule it does not apply.
+ * - `payments.full_prices`: its full prices (a list; PMU: 10000, 12000)
+ * - `payments.price_slack`: how far under a full price still counts as it (PMU: 3, for Whop's $9,997)
+ * - `payments.deposit_under`: a payment under this is a deposit (PMU: 500)
+ * - `payments.deposit_words`: words in a product or plan name that make it a deposit (PMU: deposit)
+ * - `payments.full_reasons`: Whop billing reasons a paid-in-full payment can have (PMU: one_time, subscription_create)
  */
-export type PayRules = { fullPrices: number[]; depositUnder: number };
-export const FULL_PRICES_KEY = "payments.full_prices";
-export const PRICE_SLACK = 3, DEPOSIT_UNDER = 500;
-const FULL_REASONS = new Set(["one_time", "subscription_create", "subscription_start"]);
-/** Whop's billing_reason, when a payment says one; a payment that says none (a Zap's, an old row's) is not held to it. */
-export const fullReason = (reason: string | null | undefined) => !reason || FULL_REASONS.has(String(reason).trim().toLowerCase());
-export function fullPriceOf(amount: number, rules: Pick<PayRules, "fullPrices">): number | null {
-  const hit = rules.fullPrices.filter((p) => amount <= p + 0.01 && amount >= p - PRICE_SLACK - 0.01).sort((a, b) => a - b)[0];
-  return hit ?? null;
+export type PayRules = { fullPrices: number[]; slack: number; depositUnder: number | null; depositWords: string[]; fullReasons: string[] };
+export const PAY_SETTINGS = { fullPrices: "payments.full_prices", slack: "payments.price_slack", depositUnder: "payments.deposit_under", depositWords: "payments.deposit_words", fullReasons: "payments.full_reasons" } as const;
+/** A list setting, written as JSON or as words separated by commas. */
+export function listSetting(value: string | undefined | null): string[] {
+  const v = (value ?? "").trim(); if (!v) return [];
+  let list: unknown; try { list = JSON.parse(v); } catch { list = v.split(","); }
+  return (Array.isArray(list) ? list : [list]).map((x) => String(x).trim()).filter(Boolean);
 }
-const clearedBy = (total: number, price: number | null) => price != null && total >= price - PRICE_SLACK - 0.01;
-export function parseFullPrices(value: string | undefined | null): number[] {
-  let list: unknown = [];
-  try { list = JSON.parse(value ?? "[]"); } catch { list = String(value ?? "").split(","); }
-  return (Array.isArray(list) ? list : []).map((x) => Number(String(x).replace(/[$,\s]/g, ""))).filter((n) => Number.isFinite(n) && n > 0);
+const numberSetting = (value: string | undefined | null) => { const n = Number(String(value ?? "").replace(/[$,\s]/g, "")); return (value ?? "").trim() && Number.isFinite(n) ? n : null; };
+export function payRulesOf(bindings: Record<string, string>): PayRules {
+  return { fullPrices: listSetting(bindings[PAY_SETTINGS.fullPrices]).map((x) => numberSetting(x)).filter((n): n is number => n !== null && n > 0),
+    slack: numberSetting(bindings[PAY_SETTINGS.slack]) ?? 0, depositUnder: numberSetting(bindings[PAY_SETTINGS.depositUnder]),
+    depositWords: listSetting(bindings[PAY_SETTINGS.depositWords]).map((w) => w.toLowerCase()), fullReasons: listSetting(bindings[PAY_SETTINGS.fullReasons]).map((r) => r.toLowerCase()) };
 }
 export async function payRules(c: PoolClient, companyId: string): Promise<PayRules> {
-  const b = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, FULL_PRICES_KEY]);
-  let fullPrices = parseFullPrices(b?.value.toString("utf8"));
-  if (!fullPrices.length) { const d = await one<{ v: string | null }>(c, "select contract_value_default::text as v from companies where id=$1", [companyId]); if (d?.v != null && Number(d.v) > 0) fullPrices = [Number(d.v)]; }
-  return { fullPrices, depositUnder: DEPOSIT_UNDER };
+  const rows = await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key like 'payments.%'", [companyId]);
+  return payRulesOf(Object.fromEntries(rows.map((r) => [r.key, r.value.toString("utf8")])));
 }
+/** Whop's billing reason against the offer's list; no list set, or a payment that names no reason (a Zap's, an old row's), is not held to it. */
+export const fullReason = (reason: string | null | undefined, rules: Pick<PayRules, "fullReasons">) => !rules.fullReasons.length || !reason || rules.fullReasons.includes(String(reason).trim().toLowerCase());
+export function fullPriceOf(amount: number, rules: Pick<PayRules, "fullPrices" | "slack">): number | null {
+  return rules.fullPrices.filter((p) => amount <= p + 0.01 && amount >= p - rules.slack - 0.01).sort((a, b) => a - b)[0] ?? null;
+}
+const clearedBy = (total: number, price: number | null, slack: number) => price != null && total >= price - slack - 0.01;
+/** A product or plan name with one of the offer's deposit words. */
+export const namedDeposit = (raw: Record<string, unknown> | null | undefined, words: string[]) => !!raw && words.some((w) => [raw.product_name, raw.plan_name].some((n) => typeof n === "string" && n.toLowerCase().includes(w)));
 /** The full price a payment beyond a deposit stands for: the one it is, else the deal's when that is one, else the offer's first (D268: the deal is worth it from its first real payment). */
 export function fullPriceFor(amount: number, dealValue: number | null, rules: PayRules): number | null {
   return fullPriceOf(amount, rules) ?? (dealValue != null && rules.fullPrices.includes(dealValue) ? dealValue : rules.fullPrices[0] ?? dealValue);
@@ -163,6 +174,10 @@ async function priorNonDeposit(c: PoolClient, opportunityId: string, excludePaym
 async function settle(c: PoolClient, companyId: string, contactId: string, payment: PaymentRow, linkedBy: string, dispatch = true): Promise<{ event: EventRow; healed: number }> {
   const opp = await opportunityFor(c, companyId, contactId, payment);
   const products = await companyDepositProducts(c, companyId);
+  // D268: the offer's own payment settings; an offer with no full prices set goes by D119 as before
+  const rules = await payRules(c, companyId), ruled = rules.fullPrices.length > 0;
+  const depositOf = (raw: Record<string, unknown> | null | undefined) => isDeposit(raw, products) || (ruled && namedDeposit(raw, rules.depositWords));
+  const reasonOf = (raw: Record<string, unknown> | null | undefined) => (typeof raw?.billing_reason === "string" ? raw.billing_reason : null);
   // heal: earlier unlinked rows with the same member id or email now belong to this person and this pursuit
   const healed = await many<PaymentRow>(c, `update payments set contact_id=$2, opportunity_id=$3, link_status='linked', linked_by='heal'
     where company_id=$1 and link_status='unlinked' and id<>$4 and ((whop_member_id is not null and whop_member_id=$5) or (customer_email is not null and customer_email=$6)) returning *`,
@@ -174,7 +189,7 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
     if (already) continue;
     const hPrior = money(Number((await one<{ t: string }>(c, "select coalesce(sum(amount),0) as t from payments where opportunity_id=$1 and status in ('succeeded','refunded') and id<>$2 and paid_at < $3", [opp.id, h.id, h.paid_at]))!.t));
     const hAmount = Number(h.amount), hStatus = h.status as PaymentInput["status"];
-    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus, isDeposit(h.raw, products));
+    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus, depositOf(h.raw), ruled ? { ...rules, reason: reasonOf(h.raw) } : undefined);
     await c.query("update payments set kind=$2 where id=$1", [h.id, hKind]);
     const hPriorPaid = await priorNonDeposit(c, opp.id, h.id, h.paid_at);
     const hRunning = hStatus === "failed" ? hPrior : money(hPrior + hAmount);
@@ -184,14 +199,18 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
   }
   const prior = await priorTotal(c, opp.id, payment.id);
   const amount = Number(payment.amount);
-  const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"], isDeposit(payment.raw, products));
+  const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"], depositOf(payment.raw), ruled ? { ...rules, reason: reasonOf(payment.raw) } : undefined);
+  // D268: a payment beyond a deposit makes the deal worth its full price (the one it is, else the deal's, else the offer's first)
+  const fullPrice = ruled && payment.status === "succeeded" && !["deposit", "refund", "failed"].includes(kind) ? fullPriceFor(amount, opp.contract_value, rules) : null;
+  if (fullPrice !== null && opp.contract_value !== fullPrice) { await c.query("update opportunities set contract_value=$2 where id=$1", [opp.id, fullPrice]); opp.contract_value = fullPrice; }
   const priorPaid = await priorNonDeposit(c, opp.id, payment.id);
   await c.query("update payments set contact_id=$2, opportunity_id=$3, kind=$4, link_status='linked', linked_by=$5 where id=$1", [payment.id, contactId, opp.id, kind, linkedBy]);
   const running = payment.status === "failed" ? prior : money(prior + amount);
-  const isCleared = cleared(running, opp.contract_value);
+  const isCleared = ruled ? clearedBy(running, opp.contract_value, rules.slack) : cleared(running, opp.contract_value);
   const type = payment.status === "succeeded" ? "payment.received" : payment.status === "refunded" ? "payment.refunded" : "payment.failed";
   const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: type, source: "whop", occurred_at: payment.paid_at,
-    data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, prior_non_deposit_total: priorPaid, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id } });
+    data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, prior_non_deposit_total: priorPaid, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id,
+      customer_phone: payment.customer_phone ?? null, billing_reason: reasonOf(payment.raw), full_price: fullPrice } });
   if (payment.status === "succeeded") {
     // D88 (A9): the opportunity is won by Payment recorded's update_opportunity step, where the company decides on which payment
     if (isCleared) {
@@ -231,6 +250,8 @@ export async function dropUnmatchedFailure(c: PoolClient, companyId: string, inp
  * `dispatch: false` (history backfill) records and emits but starts no workflow, the healed rows' and paid-in-full's included.
  */
 export async function recordPayment(c: PoolClient, companyId: string, input: PaymentInput, forceContactId?: string, opts: { dispatch?: boolean } = {}): Promise<RecordResult> {
+  // D268 (Tyler: "skip it. we don't need to record it"): a $0 charge is no payment: nothing is recorded, nothing runs
+  if (input.status === "succeeded" && Number(input.amount) === 0) return { outcome: "skipped", why: "a $0 payment" };
   const provider = input.provider ?? "whop";
   const email = normEmail(input.email), phone = input.phone?.trim() || null;
   const inserted = await one<PaymentRow>(c, `insert into payments (company_id, provider, whop_payment_id, amount, currency, installment_no, status, customer_email, customer_phone, whop_member_id, link_status, paid_at, raw)
