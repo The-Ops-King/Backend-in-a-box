@@ -44,7 +44,7 @@ export type HealthConfig = { checks: Record<string, boolean>; min_slots: number;
 export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_token", label: "GoHighLevel token", about: "the private integration token still opens the location" },
   { id: "ghl_calendars", label: "GHL calendars bookable", about: "every mapped calendar returns free slots over the next days; a closer's calendar sync dropping shows up here as no slots" },
-  { id: "availability", label: "Low availability", about: "a calendar with fewer bookable slots than the threshold over the next days is an alert, before leads find a full calendar" },
+  { id: "availability", label: "Low availability", about: "a calendar with fewer bookable calls than the threshold over the next days (calls that fit without overlapping, not start times) is an alert, before leads find a full calendar" },
   { id: "ghl_pipelines", label: "Pipelines and stages", about: "every bound pipeline and stage still exists in the CRM" },
   { id: "ghl_fields", label: "Custom fields", about: "every bound contact and opportunity field still exists" },
   { id: "ghl_users", label: "Team", about: "closers on calendars and cards are still users in the location" },
@@ -539,7 +539,8 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       if (r.ok) known.set(cal.external_id, r.times);
       if (!r.ok) bad("ghl_calendars", "error", `Calendar "${cal.name}" cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
       else if (r.slots === 0) bad("ghl_calendars", "warning", `Calendar "${cal.name}" has no bookable slot in the next ${days} days. A closer's connected calendar may have dropped, or availability is off.`, cal.external_id, { repeat: false }, link(cal));   // D142: said once, closed with a ✅, never hourly
-      else { ok("ghl_calendars", `"${cal.name}": ${r.slots} bookable slots in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal), times: r.times }); }
+      else { const n = bookable([...new Set(r.times.map(ms))].map((start) => ({ start, minutes: DEFAULT_CALL_MINUTES }))).length;   // D267: calls that fit, not start times
+        ok("ghl_calendars", `"${cal.name}": ${n} bookable calls in the next ${days} days.`, cal.external_id, { slots: n, start_times: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: n, href: link(cal), times: r.times }); }
     }
     if (!cals.length && !only) ok("ghl_calendars", "No GHL calendars mapped.");
   }
@@ -556,7 +557,9 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       if (r.ok) known.set(cal.external_id, r.times);
       if (!r.ok) bad("calendly_calendars", "error", `Event type "${cal.name}": availability cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
       else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id, { repeat: false }, link(cal));
-      else { ok("calendly_calendars", `"${cal.name}": ${r.slots} available times in the next ${days} days.`, cal.external_id, { slots: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: r.slots, href: link(cal), times: r.times }); }
+      else { const len = await probes.calendlyEventTypeHosts(token, `https://api.calendly.com/event_types/${cal.external_id}`, ac.booking.source === "calendly" ? ac.booking.organization || undefined : undefined);
+        const n = bookable([...new Set(r.times.map(ms))].map((start) => ({ start, minutes: (len.ok && len.duration) || DEFAULT_CALL_MINUTES }))).length;   // D267: calls that fit, not start times
+        ok("calendly_calendars", `"${cal.name}": ${n} bookable calls in the next ${days} days.`, cal.external_id, { slots: n, start_times: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: n, href: link(cal), times: r.times }); }
     }
     if (live && !cals.length && !only) ok("calendly_calendars", "No Calendly event types mapped.");
   }
@@ -564,12 +567,12 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
   // The thread under it is the same per-closer table /availability answers with (D72), so the two never disagree.
   if (on("availability") && slotReads.length) {
     const low = slotReads.filter((s) => s.slots < row.min_slots);
-    for (const s of low) bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "slot" : "slots"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots, repeat: false }, s.href);
-    if (!low.length && !only) ok("availability", `${slotReads.length} calendar${slotReads.length === 1 ? "" : "s"} at or above ${row.min_slots} bookable slots over ${days} days.`);
-    for (const s of slotReads) if (s.slots >= row.min_slots && only) ok("availability", `"${s.name}": ${s.slots} bookable slots, at or above ${row.min_slots}.`, s.id, { slots: s.slots }, s.href);
+    for (const s of low) bad("availability", "warning", `"${s.name}" has only ${s.slots} bookable ${s.slots === 1 ? "call" : "calls"} in the next ${days} days (alert below ${row.min_slots}).`, s.id, { slots: s.slots, min: row.min_slots, repeat: false }, s.href);
+    if (!low.length && !only) ok("availability", `${slotReads.length} calendar${slotReads.length === 1 ? "" : "s"} at or above ${row.min_slots} bookable calls over ${days} days.`);
+    for (const s of slotReads) if (s.slots >= row.min_slots && only) ok("availability", `"${s.name}": ${s.slots} bookable calls, at or above ${row.min_slots}.`, s.id, { slots: s.slots }, s.href);
     const items = out.filter((x) => x.check === "availability" && x.item);
     if (items.length) {
-      const thread = await readAvailability(c, company.id, probes, days, now, known).then(formatAvailability, (e) => `_Open slots by closer could not be read: ${String((e as Error).message).slice(0, 200)}_`);
+      const thread = await readAvailability(c, company.id, probes, days, now, known).then(formatAvailability, (e) => `_Bookable calls by closer could not be read: ${String((e as Error).message).slice(0, 200)}_`);
       for (const f of items) f.thread = thread;
     }
   }
@@ -597,6 +600,20 @@ export type Availability = {
 export class AvailabilityUnreadable extends Error {}
 
 /** Is the host free for the whole call from `start`: inside the schedule the event type uses for them (date overrides first), clear of every busy time. */
+/**
+ * D267 (Tyler: "are those starting times or hour long slots? ... they should be hour slots ... basically how many people can book this
+ * day"): a booking tool offers every time a call could start (every 15 or 30 minutes), so counting those counts the same hour two to
+ * four times. What can be booked is the most calls that fit without overlapping: earliest first, each taking its own length.
+ */
+export function bookable(slots: { start: number; minutes: number }[]): number[] {
+  const out: number[] = [];
+  let free = -Infinity;
+  for (const x of [...slots].sort((a, b) => a.start - b.start)) if (x.start >= free) { out.push(x.start); free = x.start + x.minutes * 60_000; }
+  return out;
+}
+/** A call's length when the booking tool does not say (a GHL calendar): an hour. */
+export const DEFAULT_CALL_MINUTES = 60;
+
 export function hostFree(start: number, minutes: number, schedule: CalendlySchedule | undefined, busy: { start: number; end: number }[]): boolean {
   if (!schedule) return false;
   const end = start + minutes * 60_000, zone = schedule.timezone;
@@ -639,8 +656,9 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
   // a live read that failed everywhere is not "zero slots": say the source failed rather than fill the gap
   if (!reads.length) throw new AvailabilityUnreadable(`${vendor} did not answer for any calendar: ${unreadable.map((u) => `${u.calendar}: ${u.error}`).join("; ")}`);
 
-  const people = new Map<string, { name: string; times: Set<number> }>();
-  const person = (key: string, name: string) => { if (!people.has(key)) people.set(key, { name, times: new Set() }); return people.get(key)!; };
+  const people = new Map<string, { name: string; times: Map<number, number> }>();   // D267: each start a person is free for, with the call's length
+  const person = (key: string, name: string) => { if (!people.has(key)) people.set(key, { name, times: new Map() }); return people.get(key)!; };
+  const length = new Map<string, number>();   // each calendar's call length in minutes
   let unmatched = 0, why: string | undefined;
   if (ghl) {
     let names: Map<string, string> | undefined;
@@ -654,7 +672,8 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
       const team = await probes.ghlCalendarTeam(ac.pit, cal.external_id);
       if (!team.ok) { why ??= `the team on "${cal.name}" could not be read (${team.error})`; continue; }
       const owner = !team.userIds.length && cal.default_user_id ? roster.find((x) => x.id === cal.default_user_id) : undefined;
-      if (owner || team.userIds.length === 1) { const p = owner ? person(owner.id, owner.name) : await ghlPerson(team.userIds[0]); for (const t of times) p.times.add(ms(t)); continue; }
+      length.set(cal.external_id, DEFAULT_CALL_MINUTES);
+      if (owner || team.userIds.length === 1) { const p = owner ? person(owner.id, owner.name) : await ghlPerson(team.userIds[0]); for (const t of times) p.times.set(ms(t), DEFAULT_CALL_MINUTES); continue; }
       const hit = new Set<number>();
       for (const gid of team.userIds) {
         const p = await ghlPerson(gid);
@@ -662,7 +681,7 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
         const r = await probes.ghlFreeSlots(ac.pit, cal.external_id, wFrom, wTo, tz, gid);
         if (!r.ok) { why ??= `${p.name}'s slots on "${cal.name}" could not be read (${r.error})`; continue; }
         const mine = new Set(r.times.map(ms));
-        for (const t of times.map(ms)) if (mine.has(t)) { p.times.add(t); hit.add(t); }
+        for (const t of times.map(ms)) if (mine.has(t)) { p.times.set(t, DEFAULT_CALL_MINUTES); hit.add(t); }
       }
       unmatched += new Set(times.map(ms)).size - hit.size;
     }
@@ -674,13 +693,14 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
       const uri = `https://api.calendly.com/event_types/${cal.external_id}`;
       const h = await probes.calendlyEventTypeHosts(token, uri, ac.booking.source === "calendly" ? ac.booking.organization || undefined : undefined);
       if (!h.ok) { why ??= `the hosts of "${cal.name}" could not be read (${h.error})`; continue; }
+      length.set(cal.external_id, h.duration || DEFAULT_CALL_MINUTES);
       const hosts = h.hosts.map((x) => ({ host: x, p: calendlyPerson(x) }));
-      if (hosts.length === 1) { for (const t of times) hosts[0].p.times.add(ms(t)); continue; }
+      if (hosts.length === 1) { for (const t of times) hosts[0].p.times.set(ms(t), h.duration || DEFAULT_CALL_MINUTES); continue; }
       if (!times.length) continue;
       const sch = await probes.calendlyEventTypeSchedules(token, uri);
       if (!sch.ok) { why ??= `the schedule of "${cal.name}" could not be read (${sch.error})`; continue; }
       const shared = sch.schedules.find((x) => !x.user);
-      const ready: { p: { times: Set<number> }; schedule?: CalendlySchedule; busy: { start: number; end: number }[] }[] = [];
+      const ready: { p: { times: Map<number, number> }; schedule?: CalendlySchedule; busy: { start: number; end: number }[] }[] = [];
       for (const { host, p } of hosts) {
         if (!busyOf.has(host.uri)) busyOf.set(host.uri, await probes.calendlyBusyTimes(token, host.uri, wFrom, busyTo));
         const b = busyOf.get(host.uri)!;
@@ -689,7 +709,7 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
       }
       for (const t of new Set(times.map(ms))) {
         let any = false;
-        for (const r of ready) if (hostFree(t, h.duration, r.schedule, r.busy)) { r.p.times.add(t); any = true; }
+        for (const r of ready) if (hostFree(t, h.duration, r.schedule, r.busy)) { r.p.times.set(t, h.duration || DEFAULT_CALL_MINUTES); any = true; }
         if (!any) unmatched++;
       }
     }
@@ -698,18 +718,21 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
 
   const start = now.setZone(tz).startOf("day");
   const dates = Array.from({ length: n }, (_, i) => start.plus({ days: i })), keys = dates.map((d) => d.toISODate()!);
-  const perDay = (set: Iterable<number>) => { const r = keys.map(() => 0); for (const t of set) { const i = keys.indexOf(DateTime.fromMillis(t, { zone: tz }).toISODate()!); if (i >= 0) r[i]++; } return r; };
+  // D267: per day, how many calls can be booked: the starts offered that day that fit without overlapping, each its call's length
+  const perDay = (slots: { start: number; minutes: number }[]) => keys.map((k) => bookable(slots.filter((x) => DateTime.fromMillis(x.start, { zone: tz }).toISODate() === k)).length);
   const first = (name: string) => name.trim().split(/\s+/)[0].toLowerCase();
   const everyone = [...roster.filter((u) => u.active).map((u) => u.name), ...[...people.entries()].filter(([k]) => !roster.some((u) => u.active && u.id === k)).map(([, p]) => p.name)];
   const closers = why ? [] : [...people.values()].map((p) => {
-    const per_day = perDay(p.times);
+    const per_day = perDay([...p.times].map(([start, minutes]) => ({ start, minutes })));
     return { name: p.name, short: everyone.filter((x) => first(x) === first(p.name)).length === 1 ? p.name.trim().split(/\s+/)[0] : p.name, per_day, total: per_day.reduce((a, b) => a + b, 0) };
   }).sort((a, b) => a.name.localeCompare(b.name));
-  const calendars = reads.map(({ cal, times }) => { const per_day = perDay(new Set(times.map(ms))); return { name: cal.name, type: cal.type, per_day, total: per_day.reduce((a, b) => a + b, 0) }; });
-  const totals = why ? perDay(new Set(reads.flatMap((r) => r.times.map(ms)))) : keys.map((_, i) => closers.reduce((sum, x) => sum + x.per_day[i], 0));
+  const calendars = reads.map(({ cal, times }) => { const per_day = perDay([...new Set(times.map(ms))].map((start) => ({ start, minutes: length.get(cal.external_id) ?? DEFAULT_CALL_MINUTES }))); return { name: cal.name, type: cal.type, per_day, total: per_day.reduce((a, b) => a + b, 0) }; });
+  // without the split, every calendar's offered times together, a time two calendars offer once (as before D267), fitted the same way
+  const pooled = new Map<number, number>(); for (const { cal, times } of reads) for (const t of times) { const m = length.get(cal.external_id) ?? DEFAULT_CALL_MINUTES; pooled.set(ms(t), Math.min(pooled.get(ms(t)) ?? m, m)); }
+  const totals = why ? perDay([...pooled].map(([start, minutes]) => ({ start, minutes }))) : keys.map((_, i) => closers.reduce((sum, x) => sum + x.per_day[i], 0));
   return {
     metric: "availability", label: "Calendar availability", timezone: tz, source: `${vendor}, read just now`, read_at: now.toISO()!,
-    definition: "open bookable start times on every calendar the engine watches, read live from the booking source, per calendar (each time it offers, once) and per person: a time the calendar offers counts once for each closer free for the whole call then (two closers free at 2pm = 2 open), and once per closer however many calendars offer it",
+    definition: "how many calls can still be booked, per day, on every calendar the engine watches, read live from the booking source: of the times a calendar offers, the most that fit without overlapping (each its call's length; an hour when the tool does not say), per calendar and per person (two closers free for the 2pm hour = 2), a person's calls on several calendars fitted together",
     days: dates.map((d, i) => ({ date: keys[i], label: d.toFormat("ccc LLL d"), total: totals[i] })), calendars, closers, total: totals.reduce((a, b) => a + b, 0), unreadable,
     ...(why ? { split_error: `Could not split by closer: ${why}` } : {}),
   };

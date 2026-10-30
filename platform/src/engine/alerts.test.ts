@@ -160,19 +160,19 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     await asOperator((c) => c.query("update alerts set announced_at = now() - interval '61 minutes' where company_id=$1 and resolved_at is null", [companyId]));
     const r2 = await sweep();
     expect(r2.resolved).toBe(2); expect(r2.findings.filter((f) => !f.ok).map((f) => `${f.check}:${f.item}`).sort()).toEqual(["availability:CAL2", "slack:CNOTIN"]);   // 9 slots is bookable, but under the company's threshold of 10
-    expect(r2.findings.find((f) => f.check === "availability")!.text).toMatch(/"Closer B" has only 9 bookable slots in the next 7 days \(alert below 10\)/);
+    expect(r2.findings.find((f) => f.check === "availability")!.text).toMatch(/"Closer B" has only 9 bookable calls in the next 7 days \(alert below 10\)/);
     const ann2 = await asOperator((c) => announceDue(c, fake, new Date(), companyId));
     await tick(fake, undefined, companyId, probes);
     expect(ann2, JSON.stringify({ ann2, posts })).toMatchObject({ resolved: 2, repeated: 1, posted: 1 });   // the low-availability warning is new
     expect(reactions).toHaveLength(2);
     expect((await asOperator((c) => one<{ last_result: unknown[] }>(c, "select last_result from health_checks where company_id=$1", [companyId])))!.last_result.length).toBeGreaterThan(5);
     // the low-availability alert carries a link to the calendar
-    const lowPost = posts.find((p) => /has only 9 bookable slots/.test(p.text))!;
+    const lowPost = posts.find((p) => /has only 9 bookable calls/.test(p.text))!;
     expect(lowPost.text).toMatch(/<https:\/\/api\.leadconnectorhq\.com\/widget\/booking\/CAL2\|Open the calendar>/);
     // and under it, in the thread, the same per-closer table /availability answers with (D72): a day per row, a column per closer, a total row
     const breakdown = posts.find((p) => p.threadTs === `ts${posts.indexOf(lowPost) + 1}` && /next 7 days/.test(p.text))!;
     const bl = breakdown.text.split("\n");
-    expect(bl[0]).toMatch(/^\*Open slots, next 7 days: \d+\*$/);
+    expect(bl[0]).toMatch(/^\*Calls that can still be booked, next 7 days: \d+\*$/);
     // D215: each calendar first, then the per-person table
     expect(bl[1]).toBe("*By calendar*"); const t = bl.indexOf("*By person*"); expect(bl.slice(2, t).filter((l) => l.startsWith("*Closer ")).length).toBe(2);
     expect(bl[t + 2]).toMatch(/^Day +Ann +Ben +All$/); expect(bl.slice(t + 3, t + 10).every((l) => /^\w{3} \w{3} \d{1,2} +\d+ +\d+ +\d+$/.test(l))).toBe(true);

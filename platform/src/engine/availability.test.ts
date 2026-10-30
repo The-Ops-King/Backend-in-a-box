@@ -5,7 +5,7 @@ import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "./crypto";
 import { fakeProbes } from "./test-install";
-import { hostFree, type HealthProbes } from "./health";
+import { bookable, hostFree, type HealthProbes } from "./health";
 import { getAvailability } from "./metric-registry";
 import { formatAvailability } from "./bot-format";
 import type { CalendlySchedule } from "@/adapters/calendly/health";
@@ -26,6 +26,14 @@ describe("hostFree: the host's own schedule on the event type, for the whole cal
     expect(hostFree(t("2026-10-12T09:30"), 45, sched, [])).toBe(false);   // 8:30 Chicago
     expect(hostFree(t("2026-10-12T14:00"), 60, sched, [])).toBe(true);    // 13:00–14:00 Chicago, to the minute
     expect(hostFree(t("2026-10-12T14:30"), 45, sched, [])).toBe(false);   // runs past 14:00 Chicago
+  });
+  it("D267: how many can book, not how many start times: times offered every 30 minutes for an hour-long call are one call an hour; each call its own length; a gap fits what fits", () => {
+    const at = (hhmm: string) => t(`2026-10-12T${hhmm}`);
+    const half = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30"].map((x) => ({ start: at(x), minutes: 60 }));
+    expect(bookable(half)).toEqual([at("09:00"), at("10:00"), at("11:00")]);
+    expect(bookable(half.map((x) => ({ ...x, minutes: 30 })))).toHaveLength(6);
+    expect(bookable([{ start: at("13:00"), minutes: 60 }, { start: at("13:15"), minutes: 15 }, { start: at("14:00"), minutes: 45 }])).toEqual([at("13:00"), at("14:00")]);
+    expect(bookable([])).toEqual([]);
   });
   it("contiguous intervals are one stretch; a date override replaces the weekday", () => {
     expect(hostFree(t("2026-10-12T12:45"), 45, sched, [])).toBe(true);   // 11:45–12:30 Chicago spans the 12:00 seam
@@ -99,7 +107,7 @@ describe.skipIf(!process.env.DATABASE_URL)("availability per closer on Calendly 
     expect(a.days.map((d) => d.total)).toEqual([1, 1, 7]); expect(a.total).toBe(9);
     expect(reads.sort()).toEqual([JOSH.uri, JAMES.uri].sort());   // one busy read per host, shared by both event types
     expect(formatAvailability(a, { now: NOW })).toBe([
-      "*Open slots, next 3 days: 9*",
+      "*Calls that can still be booked, next 3 days: 9*",
       "*By calendar*", "*45 Min Strategy Call* (Closing): 6", "> Sat 1 · Sun 1 · Mon 4", "*45 Min Strategy Call - S* (Closing): 3", "> Sat 0 · Sun 0 · Mon 3", "", "*By person*",
       "```", "Day         James  Josh  All", "Sat Oct 10      0     1    1", "Sun Oct 11      0     1    1", "Mon Oct 12      4     3    7", "Total           4     5    9", "```",
       `_Sat Oct 10 to Mon Oct 12 · From Calendly, read ${NOW.setZone("America/New_York").toFormat("h:mm a ZZZZ")}_`].join("\n"));
