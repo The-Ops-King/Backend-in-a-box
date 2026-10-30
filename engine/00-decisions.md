@@ -6798,3 +6798,21 @@ backfill). D266 makes the setter whose link booked the call a follower; a person
 - Dating Nelly's Closing call booked (her playbook copy): the contact step every booking runs (n1, which makes the closer the owner)
   follows `appointment.triager`. D266's rules hold: each id once, and an owner is never also a follower (a closer who triaged
   them owns them; Tyler: that is fine). Other offers get it only when Tyler asks, one at a time.
+
+## D270. Payments: the offer's own settings decide what a payment is, and GHL decides who paid and what came before (2026-10-30)
+
+Tyler, on the Whop payment going live: "don't hard code shit. settings in the offer. this should be fully configurable", "Engine
+should be checking GHL in all cases", "DUPLICATES ARE STORED IN AND CHECKED AGAINST GHL", "skip it" (a $0 charge).
+
+- Settings, per offer, none with a value of the engine's (PMU's in brackets): `payments.full_prices` [10000, 12000],
+  `payments.price_slack` [3], `payments.deposit_under` [500], `payments.deposit_words` [deposit], `payments.full_reasons`
+  [one_time, subscription_create]. An offer that has not set its full prices goes by D119 as before; any other one left unset is a
+  rule it does not apply.
+- Rules, every offer: a deposit is under the threshold or named with a word; paid in full is one payment of a full price (up to the
+  slack under it) for a counted billing reason; the payment that brings the total to the deal's price is its balance; a payment
+  beyond a deposit makes the deal worth its full price (`event.full_price`, the opportunity's value); a $0 charge is not recorded.
+- With the offer's GHL (the Whop webhook), the buyer is found there (a Whop user an earlier payment record linked, then the contact
+  with exactly this email, then this phone) and what they paid before is the offer's payment records in GHL, as the Zap read them.
+  GHL unread is a retry, never a guess.
+- A payment record is checked against GHL before it is made: `crm_record` `match_on: transaction_id` updates the record GHL already
+  has for the transaction (the Zap's) instead of making a second.

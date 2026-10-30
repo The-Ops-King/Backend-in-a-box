@@ -3,6 +3,8 @@ import { many, one } from "@/db/client";
 import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 import { companyScopeTag, inScope } from "./scope";
 import { nameThePayment, saysDeposit } from "./deposit-names";
+import type { Adapters, Company, ObjectRecord } from "@/adapters/types";
+import { SETTING_DEFAULTS } from "./setting-defaults";
 
 /**
  * The ledger (D21). Every payment the provider reports is recorded, linked to a person or not. Linking is a ladder,
@@ -24,7 +26,8 @@ export type PaymentRow = { id: string; company_id: string; contact_id: string | 
 export type RecordResult =
   | { outcome: "duplicate"; payment: PaymentRow }
   | { outcome: "linked"; payment: PaymentRow; event: EventRow; contactId: string; healed: number }
-  | { outcome: "unlinked"; payment: PaymentRow; event: EventRow };
+  | { outcome: "unlinked"; payment: PaymentRow; event: EventRow }
+  | { outcome: "skipped"; why: string };
 
 import { normEmail } from "./identity";
 export const phoneKey = (p?: string | null) => { const d = (p ?? "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : undefined; };
@@ -37,13 +40,63 @@ export const cleared = (total: number, contractValue: number | null) => contract
  * company's declared deposit products, or (addendum) for a product or plan named with the word "deposit" (`isDeposit`), never a
  * guess from the amount: a first payment short of the price is the first installment. A deposit counts toward the price, so the payment that clears it after a deposit is the balance.
  */
-export function deriveKind(amount: number, priorTotal: number, contractValue: number | null, status: PaymentInput["status"], deposit = false): string {
+export function deriveKind(amount: number, priorTotal: number, contractValue: number | null, status: PaymentInput["status"], deposit = false, rules?: PayRules & { reason?: string | null }): string {
   if (status === "failed") return "failed";
   if (amount < 0 || status === "refunded") return "refund";
   if (deposit) return "deposit";
+  if (rules?.fullPrices.length) {
+    // D270 (Tyler, 2026-10-30), every number and word the offer's own setting: under its deposit threshold is a deposit; one payment
+    // of a full price (or up to its slack under it), for a billing reason it counts, is paid in full; the payment that brings the
+    // total to the deal's price is its balance
+    if (rules.depositUnder !== null && amount > 0 && amount < rules.depositUnder) return "deposit";
+    if (fullPriceOf(amount, rules) !== null && fullReason(rules.reason, rules)) return "paid_in_full";
+    if (clearedBy(money(priorTotal + amount), contractValue ?? rules.fullPrices[0] ?? null, rules.slack)) return "balance";
+    return "installment";
+  }
   if (priorTotal <= 0 && cleared(amount, contractValue)) return "paid_in_full";
   if (cleared(money(priorTotal + amount), contractValue)) return "balance";
   return "installment";
+}
+
+/**
+ * D270: what a payment is, by the offer's own settings (Tyler: "don't hard code ... settings in the offer. this should be fully
+ * configurable"). Nothing here has a value of the engine's: an offer that has not set `payments.full_prices` goes by the rules it had
+ * before (D119), and each other setting it leaves unset is a rule it does not apply.
+ * - `payments.full_prices`: its full prices (a list; PMU: 10000, 12000)
+ * - `payments.price_slack`: how far under a full price still counts as it (PMU: 3, for Whop's $9,997)
+ * - `payments.deposit_under`: a payment under this is a deposit (PMU: 500)
+ * - `payments.deposit_words`: words in a product or plan name that make it a deposit (PMU: deposit)
+ * - `payments.full_reasons`: Whop billing reasons a paid-in-full payment can have (PMU: one_time, subscription_create)
+ */
+export type PayRules = { fullPrices: number[]; slack: number; depositUnder: number | null; depositWords: string[]; fullReasons: string[] };
+export const PAY_SETTINGS = { fullPrices: "payments.full_prices", slack: "payments.price_slack", depositUnder: "payments.deposit_under", depositWords: "payments.deposit_words", fullReasons: "payments.full_reasons" } as const;
+/** A list setting, written as JSON or as words separated by commas. */
+export function listSetting(value: string | undefined | null): string[] {
+  const v = (value ?? "").trim(); if (!v) return [];
+  let list: unknown; try { list = JSON.parse(v); } catch { list = v.split(","); }
+  return (Array.isArray(list) ? list : [list]).map((x) => String(x).trim()).filter(Boolean);
+}
+const numberSetting = (value: string | undefined | null) => { const n = Number(String(value ?? "").replace(/[$,\s]/g, "")); return (value ?? "").trim() && Number.isFinite(n) ? n : null; };
+export function payRulesOf(bindings: Record<string, string>): PayRules {
+  return { fullPrices: listSetting(bindings[PAY_SETTINGS.fullPrices]).map((x) => numberSetting(x)).filter((n): n is number => n !== null && n > 0),
+    slack: numberSetting(bindings[PAY_SETTINGS.slack]) ?? 0, depositUnder: numberSetting(bindings[PAY_SETTINGS.depositUnder]),
+    depositWords: listSetting(bindings[PAY_SETTINGS.depositWords]).map((w) => w.toLowerCase()), fullReasons: listSetting(bindings[PAY_SETTINGS.fullReasons]).map((r) => r.toLowerCase()) };
+}
+export async function payRules(c: PoolClient, companyId: string): Promise<PayRules> {
+  const rows = await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key like 'payments.%'", [companyId]);
+  return payRulesOf(Object.fromEntries(rows.map((r) => [r.key, r.value.toString("utf8")])));
+}
+/** Whop's billing reason against the offer's list; no list set, or a payment that names no reason (a Zap's, an old row's), is not held to it. */
+export const fullReason = (reason: string | null | undefined, rules: Pick<PayRules, "fullReasons">) => !rules.fullReasons.length || !reason || rules.fullReasons.includes(String(reason).trim().toLowerCase());
+export function fullPriceOf(amount: number, rules: Pick<PayRules, "fullPrices" | "slack">): number | null {
+  return rules.fullPrices.filter((p) => amount <= p + 0.01 && amount >= p - rules.slack - 0.01).sort((a, b) => a - b)[0] ?? null;
+}
+const clearedBy = (total: number, price: number | null, slack: number) => price != null && total >= price - slack - 0.01;
+/** A product or plan name with one of the offer's deposit words. */
+export const namedDeposit = (raw: Record<string, unknown> | null | undefined, words: string[]) => !!raw && words.some((w) => [raw.product_name, raw.plan_name].some((n) => typeof n === "string" && n.toLowerCase().includes(w)));
+/** The full price a payment beyond a deposit stands for: the one it is, else the deal's when that is one, else the offer's first (D270: the deal is worth it from its first real payment). */
+export function fullPriceFor(amount: number, dealValue: number | null, rules: PayRules): number | null {
+  return fullPriceOf(amount, rules) ?? (dealValue != null && rules.fullPrices.includes(dealValue) ? dealValue : rules.fullPrices[0] ?? dealValue);
 }
 
 /** D119: the company's deposit products (`payments.deposit_products`, set at install from `depositProducts`): Whop product or plan ids. */
@@ -107,6 +160,48 @@ async function opportunityFor(c: PoolClient, companyId: string, contactId: strin
   return { id: opp!.id, contract_value: opp!.contract_value == null ? null : Number(opp!.contract_value), status: opp!.status };
 }
 
+/**
+ * D270 (Tyler: "Engine should be checking GHL in all cases"): the buyer and what they paid before are read live from GHL, as the Zap
+ * read them. `GhlPay` is the offer's GHL; without it (tests, history) the ledger answers as before.
+ */
+export type GhlPay = { ac: Company; adapters: Adapters; bindings: Record<string, string>; tz: string };
+/** Every record on the offer's payment object (Cash at PMU). */
+export const cashRecords = (g: GhlPay): Promise<ObjectRecord[]> => g.adapters.read.objectRecords(g.ac, g.bindings["crm.object_payment"] || SETTING_DEFAULTS["crm.object_payment"].default);
+const prop = (r: ObjectRecord, k: string) => String(r.properties[k] ?? "").trim();
+/**
+ * The buyer in GHL, one or nothing, the Zap's ladder: a Whop user an earlier payment record linked to one contact, then the contact
+ * whose email is exactly this one, then the one whose phone ends in the same ten digits. Then the engine's own person for them
+ * (made from GHL when it has none), in the offer's scope.
+ */
+export async function resolvePayerGhl(c: PoolClient, companyId: string, g: GhlPay, p: Pick<PaymentInput, "email" | "phone" | "memberId">, cash: ObjectRecord[]): Promise<{ contactId: string; ghlId: string; by: string } | null> {
+  let ghlId: string | null = null, by = "";
+  if (p.memberId) {
+    const ids = [...new Set(cash.filter((r) => prop(r, "whop_user_id") === p.memberId && prop(r, "contact_id")).map((r) => prop(r, "contact_id")))];
+    if (ids.length === 1) { ghlId = ids[0]; by = "member_id"; }
+  }
+  const email = normEmail(p.email), dup = g.adapters.read.findDuplicate;
+  if (!ghlId && email && dup) { const s = await dup(g.ac, { email }); if (s && normEmail(s.email) === email) { ghlId = s.id; by = "email"; } }
+  const key = phoneKey(p.phone);
+  if (!ghlId && key && dup) { const s = await dup(g.ac, { phone: p.phone! }); if (s && phoneKey(s.phone) === key) { ghlId = s.id; by = "phone"; } }
+  if (!ghlId) return null;
+  const known = await one<{ id: string }>(c, `select ct.id from contacts ct where ct.company_id=$1 and ct.merged_into is null and (ct.ghl_contact_id=$2
+    or ct.id in (select contact_id from contact_identifiers where company_id=$1 and kind='ghl_contact' and value=$2 and retired_at is null)) limit 1`, [companyId, ghlId]);
+  let contactId = known?.id;
+  if (!contactId) {
+    const snap = await g.adapters.read.getContact(g.ac, ghlId); if (!snap) return null;
+    const { upsertContact, boundFieldIds } = await import("./poll");
+    contactId = (await upsertContact(c, companyId, g.tz, snap, boundFieldIds(g.bindings))).id;
+  }
+  return (await inScope(c, contactId, await companyScopeTag(c, companyId))) ? { contactId, ghlId, by } : null;
+}
+/** What this person paid before, from the offer's payment records in GHL (theirs by contact, Whop user or email), this transaction left out; refunds are negative rows. */
+export function priorFromCash(cash: ObjectRecord[], who: { ghlId: string; memberId?: string | null; email?: string | null }, transactionId: string): { total: number; nonDeposit: number } {
+  const email = normEmail(who.email ?? undefined);
+  const mine = cash.filter((r) => prop(r, "transaction_id") !== transactionId && (prop(r, "contact_id") === who.ghlId || (!!who.memberId && prop(r, "whop_user_id") === who.memberId) || (!!email && normEmail(prop(r, "customer_email")) === email)));
+  const amt = (r: ObjectRecord) => { const v = r.properties.amount as unknown; const n = typeof v === "object" && v !== null ? Number((v as { value?: unknown }).value) : Number(v); return Number.isFinite(n) ? n : 0; };
+  return { total: money(mine.reduce((s, r) => s + amt(r), 0)), nonDeposit: money(mine.filter((r) => prop(r, "type") !== "deposit").reduce((s, r) => s + amt(r), 0)) };
+}
+
 /** Totals for a pursuit: succeeded charges plus negative refunds, this payment excluded. */
 async function priorTotal(c: PoolClient, opportunityId: string, excludePaymentId: string): Promise<number> {
   const r = await one<{ t: string }>(c, "select coalesce(sum(amount),0) as t from payments where opportunity_id=$1 and status in ('succeeded','refunded') and id<>$2", [opportunityId, excludePaymentId]);
@@ -120,9 +215,13 @@ async function priorNonDeposit(c: PoolClient, opportunityId: string, excludePaym
 }
 
 /** Link + settle: attach the person and pursuit, derive the kind, heal earlier orphans of the same identity, emit the event. */
-async function settle(c: PoolClient, companyId: string, contactId: string, payment: PaymentRow, linkedBy: string, dispatch = true): Promise<{ event: EventRow; healed: number }> {
+async function settle(c: PoolClient, companyId: string, contactId: string, payment: PaymentRow, linkedBy: string, dispatch = true, ghlPrior?: { total: number; nonDeposit: number }): Promise<{ event: EventRow; healed: number }> {
   const opp = await opportunityFor(c, companyId, contactId, payment);
   const products = await companyDepositProducts(c, companyId);
+  // D270: the offer's own payment settings; an offer with no full prices set goes by D119 as before
+  const rules = await payRules(c, companyId), ruled = rules.fullPrices.length > 0;
+  const depositOf = (raw: Record<string, unknown> | null | undefined) => isDeposit(raw, products) || (ruled && namedDeposit(raw, rules.depositWords));
+  const reasonOf = (raw: Record<string, unknown> | null | undefined) => (typeof raw?.billing_reason === "string" ? raw.billing_reason : null);
   // heal: earlier unlinked rows with the same member id or email now belong to this person and this pursuit
   const healed = await many<PaymentRow>(c, `update payments set contact_id=$2, opportunity_id=$3, link_status='linked', linked_by='heal'
     where company_id=$1 and link_status='unlinked' and id<>$4 and ((whop_member_id is not null and whop_member_id=$5) or (customer_email is not null and customer_email=$6)) returning *`,
@@ -134,7 +233,7 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
     if (already) continue;
     const hPrior = money(Number((await one<{ t: string }>(c, "select coalesce(sum(amount),0) as t from payments where opportunity_id=$1 and status in ('succeeded','refunded') and id<>$2 and paid_at < $3", [opp.id, h.id, h.paid_at]))!.t));
     const hAmount = Number(h.amount), hStatus = h.status as PaymentInput["status"];
-    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus, isDeposit(h.raw, products));
+    const hKind = deriveKind(hAmount, hPrior, opp.contract_value, hStatus, depositOf(h.raw), ruled ? { ...rules, reason: reasonOf(h.raw) } : undefined);
     await c.query("update payments set kind=$2 where id=$1", [h.id, hKind]);
     const hPriorPaid = await priorNonDeposit(c, opp.id, h.id, h.paid_at);
     const hRunning = hStatus === "failed" ? hPrior : money(hPrior + hAmount);
@@ -142,16 +241,21 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
       data: { payment_id: h.id, provider_payment_id: h.whop_payment_id, amount: hAmount, currency: h.currency, kind: hKind, paid_at: h.paid_at.toISOString(), prior_total: hPrior, prior_non_deposit_total: hPriorPaid, running_total: hRunning, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - hRunning, 0)), cleared: cleared(hRunning, opp.contract_value), linked_by: "heal", healed_via: payment.id, customer_email: h.customer_email, whop_member_id: h.whop_member_id } });
     if (dispatch) await dispatchEvent(c, hev, { contact: { id: contactId } });
   }
-  const prior = await priorTotal(c, opp.id, payment.id);
+  // D270: what they paid before is GHL's payment records when the offer's GHL was read, else the ledger's
+  const prior = ghlPrior?.total ?? await priorTotal(c, opp.id, payment.id);
   const amount = Number(payment.amount);
-  const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"], isDeposit(payment.raw, products));
-  const priorPaid = await priorNonDeposit(c, opp.id, payment.id);
+  const kind = deriveKind(amount, prior, opp.contract_value, payment.status as PaymentInput["status"], depositOf(payment.raw), ruled ? { ...rules, reason: reasonOf(payment.raw) } : undefined);
+  // D270: a payment beyond a deposit makes the deal worth its full price (the one it is, else the deal's, else the offer's first)
+  const fullPrice = ruled && payment.status === "succeeded" && !["deposit", "refund", "failed"].includes(kind) ? fullPriceFor(amount, opp.contract_value, rules) : null;
+  if (fullPrice !== null && opp.contract_value !== fullPrice) { await c.query("update opportunities set contract_value=$2 where id=$1", [opp.id, fullPrice]); opp.contract_value = fullPrice; }
+  const priorPaid = ghlPrior?.nonDeposit ?? await priorNonDeposit(c, opp.id, payment.id);
   await c.query("update payments set contact_id=$2, opportunity_id=$3, kind=$4, link_status='linked', linked_by=$5 where id=$1", [payment.id, contactId, opp.id, kind, linkedBy]);
   const running = payment.status === "failed" ? prior : money(prior + amount);
-  const isCleared = cleared(running, opp.contract_value);
+  const isCleared = ruled ? clearedBy(running, opp.contract_value, rules.slack) : cleared(running, opp.contract_value);
   const type = payment.status === "succeeded" ? "payment.received" : payment.status === "refunded" ? "payment.refunded" : "payment.failed";
   const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: type, source: "whop", occurred_at: payment.paid_at,
-    data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, prior_non_deposit_total: priorPaid, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id } });
+    data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, prior_non_deposit_total: priorPaid, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id,
+      customer_phone: payment.customer_phone ?? null, billing_reason: reasonOf(payment.raw), full_price: fullPrice } });
   if (payment.status === "succeeded") {
     // D88 (A9): the opportunity is won by Payment recorded's update_opportunity step, where the company decides on which payment
     if (isCleared) {
@@ -190,7 +294,9 @@ export async function dropUnmatchedFailure(c: PoolClient, companyId: string, inp
  * Records a provider payment. Idempotent on (provider, payment id). `forceContactId` is for callers that already know the person (tests, manual entry).
  * `dispatch: false` (history backfill) records and emits but starts no workflow, the healed rows' and paid-in-full's included.
  */
-export async function recordPayment(c: PoolClient, companyId: string, input: PaymentInput, forceContactId?: string, opts: { dispatch?: boolean } = {}): Promise<RecordResult> {
+export async function recordPayment(c: PoolClient, companyId: string, input: PaymentInput, forceContactId?: string, opts: { dispatch?: boolean; ghl?: GhlPay } = {}): Promise<RecordResult> {
+  // D270 (Tyler: "skip it. we don't need to record it"): a $0 charge is no payment: nothing is recorded, nothing runs
+  if (input.status === "succeeded" && Number(input.amount) === 0) return { outcome: "skipped", why: "a $0 payment" };
   const provider = input.provider ?? "whop";
   const email = normEmail(input.email), phone = input.phone?.trim() || null;
   const inserted = await one<PaymentRow>(c, `insert into payments (company_id, provider, whop_payment_id, amount, currency, installment_no, status, customer_email, customer_phone, whop_member_id, link_status, paid_at, raw)
@@ -203,9 +309,14 @@ export async function recordPayment(c: PoolClient, companyId: string, input: Pay
   // D119 addendum: a new payment without its product's or plan's name gets them from Whop (flagged and alerted when it cannot), so its kind can be told by the name
   const named = await nameThePayment(c, companyId, inserted, await companyDepositProducts(c, companyId));
   if (named) { await c.query("update payments set raw=$2 where id=$1", [inserted.id, named]); inserted.raw = named; }
-  const match = forceContactId ? { contactId: forceContactId, by: "known" } : (await refundedPayer(c, companyId, provider, input)) ?? await resolvePayer(c, companyId, input);
+  // D270: with the offer's GHL, the buyer is found there (a GHL that cannot be read throws: the provider retries, nothing is guessed)
+  const cash = opts.ghl && !forceContactId ? await cashRecords(opts.ghl) : null;
+  const viaGhl = cash ? await resolvePayerGhl(c, companyId, opts.ghl!, input, cash) : null;
+  const match = forceContactId ? { contactId: forceContactId, by: "known" } : (await refundedPayer(c, companyId, provider, input)) ?? (cash ? viaGhl : await resolvePayer(c, companyId, input));
   if (match) {
-    const { event, healed } = await settle(c, companyId, match.contactId, inserted, match.by, opts.dispatch ?? true);
+    const ghlId = viaGhl?.contactId === match.contactId ? viaGhl.ghlId : (await one<{ g: string | null }>(c, "select ghl_contact_id as g from contacts where id=$1", [match.contactId]))?.g;
+    const ghlPrior = cash && ghlId ? priorFromCash(cash, { ghlId, memberId: input.memberId, email: input.email }, input.providerPaymentId) : undefined;
+    const { event, healed } = await settle(c, companyId, match.contactId, inserted, match.by, opts.dispatch ?? true, ghlPrior);
     return { outcome: "linked", payment: (await one<PaymentRow>(c, "select * from payments where id=$1", [inserted.id]))!, event, contactId: match.contactId, healed };
   }
   const ev = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "payment.unlinked", source: "whop", occurred_at: input.paidAt,

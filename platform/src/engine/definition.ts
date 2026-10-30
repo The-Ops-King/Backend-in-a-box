@@ -171,7 +171,7 @@ export const Node = z.discriminatedUnion("type", [
   // `clear` (D77): properties an update writes as null, so the CRM empties them (an empty string is ignored for some field types), unless `properties` gives
   // them a value this time; entries are templates and one that renders empty is dropped. A changed answer takes off what the earlier one set.
   // `record_id` (D85): the CRM's own id of a record the engine did not make (templated); the step updates that record and never creates one. `key`, when given too, names it on our ledger.
-  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string().optional(), record_id: z.string().optional(), properties: z.record(z.string()), owner: z.string().optional(), if_missing: z.enum(["create", "skip", "match"]).default("create"),
+  z.object({ ...base, type: z.literal("crm_record"), object: z.string(), key: z.string().optional(), record_id: z.string().optional(), match_on: z.string().optional(), properties: z.record(z.string()), owner: z.string().optional(), if_missing: z.enum(["create", "skip", "match"]).default("create"),
     relate: z.array(z.object({ association: z.string(), first: z.string(), second: z.string() })).default([]), clear: z.array(z.string()).default([]) }),
   // with `when`: value if it holds, else_value otherwise. With `pick`: value is rendered and looked up in it ("{{reply.intent}}" → pick.cancelled), else_value when no key matches.
   z.object({ ...base, type: z.literal("set_var"), key: z.string(), value: z.unknown(), when: Predicate.optional(), pick: z.record(z.unknown()).optional(), else_value: z.unknown().optional() }),
