@@ -6762,3 +6762,12 @@ moved to follower)".
   why, and a warning alert is raised.
 
 Existing offers change only when their Call booked is updated, one at a time, through the definition route with a dry run.
+
+## D267. Availability counts the calls that can be booked, not the start times offered (2026-10-30)
+
+Tyler: "are those starting times or hour long slots? ... they should be hour slots when we do /availability ... basically how many
+people can book this day." A booking tool offers every time a call could start (Calendly every 15 or 30 minutes), so counting them
+counted the same hour two to four times (Minerva's "20 slots"). Now each count is the most calls that fit without overlapping
+(`bookable`): earliest first, each its calendar's own length (Calendly says it; a GHL calendar is an hour). `/availability` per
+calendar, per person (a person's calls on several calendars fitted together), and the day totals; and the low-availability alert,
+whose threshold now means bookable calls. Without the per-person split, a time two calendars offer counts once, as before.

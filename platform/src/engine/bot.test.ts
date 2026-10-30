@@ -370,7 +370,7 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
     it("availability: each calendar's times per day (D215), then one table, a day per row, a column per closer (first names), the day's total, a total row, then the footer", async () => {
       const text = formatAvailability(await asOperator((c) => getAvailability(c, companyId, probes, 3, NOW)), { now: NOW });
       expect(text).toBe([
-        "*Open slots, next 3 days: 10*",
+        "*Calls that can still be booked, next 3 days: 10*",
         "*By calendar*", "*Calendar CAL-CARA* (Closing): 4", "> Sat 3 · Sun 1 · Mon 0", "*Calendar CAL-DAN* (Closing): 6", "> Sat 2 · Sun 0 · Mon 4", "", "*By person*",
         "```", "Day         Cara  Dan  All", "Sat Oct 10     3    2    5", "Sun Oct 11     1    0    1", "Mon Oct 12     0    4    4", "Total          4    6   10", "```",
         "_Sat Oct 10 to Mon Oct 12 · From GHL, read 12:00 PM MST_"].join("\n"));
