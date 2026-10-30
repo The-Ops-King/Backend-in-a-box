@@ -68,7 +68,7 @@
         { "key": "scheduled_at", "name": "Scheduled At", "type": "TEXT" },
         { "key": "call_date", "name": "Call Date", "type": "DATE" },
         { "key": "closer", "name": "Closer", "type": "SINGLE_OPTIONS", "options": [
-          { "key": "nelly", "label": "Nelly" }, { "key": "mitch", "label": "Mitch" } ] },
+          { "key": "nelly", "label": "Nelly" }, { "key": "mitch", "label": "Mitch" }, { "key": "taylor", "label": "Taylor" }, { "key": "jassie", "label": "Jassie" } ] },
         { "key": "setter", "name": "Setter", "type": "TEXT" },
         { "key": "outcome", "name": "Outcome", "type": "SINGLE_OPTIONS", "options": [
           { "key": "scheduled", "label": "Scheduled" }, { "key": "showed", "label": "Showed" }, { "key": "no_show", "label": "No Show" },
