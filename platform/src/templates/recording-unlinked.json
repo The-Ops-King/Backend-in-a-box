@@ -40,16 +40,57 @@
         "id": "x1",
         "type": "exit",
         "reason": "told"
+      },
+      {
+        "id": "a1",
+        "type": "classify",
+        "title": "Jev: a sales call with a prospect? (D237: only those are posted)",
+        "input": "{{recording.transcript_text}}",
+        "domain": "recording_kind",
+        "question": "What kind of recording is this?",
+        "into": "vars.classify.kind",
+        "threshold": 0.8,
+        "ambiguity_max": 0.8,
+        "criteria": {
+          "sales_call": "A sales conversation with a prospect: someone who is not yet a client, talking with the team about buying or starting the program.",
+          "internal": "Team members talking to each other: a standup, training, role-play, a vendor call.",
+          "other": "Anything else: a session with someone who is already a client (coaching, onboarding, a check-in), a voicemail, a wrong number, a personal call, an unrelated meeting."
+        }
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "title": "Posted unless clearly not a sales call (a client's session, the team, anything else)",
+        "when": {
+          "not": {
+            "in": [
+              "{{vars.classify.kind | default:}}",
+              [
+                "internal",
+                "other"
+              ]
+            ]
+          }
+        },
+        "else_exit": "not_a_sales_call"
       }
     ],
     "edges": [
       {
         "from": "t1",
-        "to": "n1"
+        "to": "a1"
       },
       {
         "from": "n1",
         "to": "x1"
+      },
+      {
+        "from": "a1",
+        "to": "c1"
+      },
+      {
+        "from": "c1",
+        "to": "n1"
       }
     ]
   }
