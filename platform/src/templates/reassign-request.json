@@ -1,0 +1,20 @@
+{
+  "slug": "reassign-request",
+  "name": "Reassign request",
+  "category": "booking",
+  "stage": "booking",
+  "sort": 30,
+  "origin": "spec",
+  "description": "Someone asked to hand a call to another closer (the end of day's \"Taken by another closer\", /reassign in Slack, or ✅ on the different-closer alert): the call is theirs now in the engine, so it is on their end of day and their name is in the reminders, and it stays theirs if the calendar moves it. Call reassigned then does the CRM and tells them.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": { "check": "contact_exists" },
+    "nodes": [
+      { "id": "t1", "type": "trigger", "event": "appointment.reassign_requested" },
+      { "id": "r1", "type": "update_appointment", "set": { "closer": "{{event.to.email}}", "reassigned_by": "{{event.via}}: {{event.by}}" }, "title": "Hand the call to the closer they named" },
+      { "id": "x1", "type": "exit", "reason": "handed_over" }
+    ],
+    "edges": [ { "from": "t1", "to": "r1" }, { "from": "r1", "to": "x1" } ]
+  }
+}

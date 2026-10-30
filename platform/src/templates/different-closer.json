@@ -1,0 +1,50 @@
+{
+  "slug": "different-closer",
+  "name": "Another closer took the call",
+  "category": "calls",
+  "stage": "call",
+  "sort": 12,
+  "origin": "spec",
+  "description": "A recorded call with a client links to a booking, but someone on the team other than the booking's closer recorded it (Minerva took Jose's call on her own link): the team is asked in Slack whether to hand the call to the person who took it. ✅ hands it over (Call reassigned then moves the CRM), ❌ keeps it; nothing changes on its own. Asked once more the next morning, then left as it is.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_appointment",
+    "premise": { "check": "contact_exists" },
+    "nodes": [
+      { "id": "t1", "type": "trigger", "event": "recording.received" },
+      { "id": "k1", "type": "check", "title": "A client spoke, on a booked call, and a different team member recorded it",
+        "when": { "and": [
+          { "exists": "appointment.id" }, { "exists": "recording.closer.name" }, { "eq": ["{{recording.kind}}", "meeting"] },
+          { "eq": ["{{recording.client_spoke}}", true] },
+          { "neq": ["{{recording.recorder_email | lower}}", "{{appointment.closer.email | default: | lower}}"] } ] },
+        "else_exit": "same_closer" },
+      { "id": "p1", "type": "slack_post", "channel": "{{slack.channel.attention}}", "fallback_channel": "{{slack.channel.bookings}}", "tag": "reassign:{{appointment.id}}", "offer": ["white_check_mark", "x"],
+        "as": { "name": "Who took this call?", "icon": ":twisted_rightwards_arrows:" },
+        "template": "🔀 <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name}}>'s call {{appointment.starts_at | date_company}} is booked with {{appointment.closer.mention | default:nobody}}, but {{recording.closer.name}} recorded it ({{recording.duration_min}} min, and the client spoke).{{recording.share_url | link:Recording}}\n✅ hand it to {{recording.closer.first_name}} · ❌ keep it with {{appointment.closer.first_name | default:the booking}}" },
+      { "id": "w1", "type": "wait_for_reaction", "of": "tag:reassign:{{appointment.id}}", "emojis": ["white_check_mark", "x"], "blocking": false, "until": { "anchor": "now", "offset": "+3d", "tz": "company" }, "title": "Listen for the tap" },
+      { "id": "m1", "type": "wait", "rule": { "anchor": "now", "offset": "day_after@09:00", "tz": "company" }, "title": "Until the next morning" },
+      { "id": "p2", "type": "slack_post", "channel": "{{slack.channel.attention}}", "fallback_channel": "{{slack.channel.bookings}}", "thread_of": "tag:reassign:{{appointment.id}}", "thread_only": true, "as": { "name": "Who took this call?", "icon": ":twisted_rightwards_arrows:" },
+        "template": "Still open: who has {{contact.first_name}}'s call? ✅ {{recording.closer.first_name}} · ❌ {{appointment.closer.first_name | default:the booking}}" },
+      { "id": "m2", "type": "wait", "rule": { "anchor": "now", "offset": "+2d", "tz": "company" }, "title": "Then leave it" },
+      { "id": "xu", "type": "exit", "reason": "unanswered" },
+      { "id": "b1", "type": "branch", "title": "Hand it over or keep it?" },
+      { "id": "h1", "type": "update_appointment", "set": { "closer": "{{recording.recorder_email}}", "reassigned_by": "alert: {{reaction.user_name | default:the team}}" }, "title": "Hand the call to the person who took it" },
+      { "id": "y1", "type": "slack_post", "channel": "{{slack.channel.attention}}", "fallback_channel": "{{slack.channel.bookings}}", "thread_of": "tag:reassign:{{appointment.id}}", "thread_only": true, "react": "white_check_mark", "as": { "name": "Who took this call?", "icon": ":twisted_rightwards_arrows:" },
+        "template": "✅ {{recording.closer.first_name}} has the call now, per {{reaction.user_name | default:the team}}." },
+      { "id": "n1", "type": "slack_post", "channel": "{{slack.channel.attention}}", "fallback_channel": "{{slack.channel.bookings}}", "thread_of": "tag:reassign:{{appointment.id}}", "thread_only": true, "react": "x", "as": { "name": "Who took this call?", "icon": ":twisted_rightwards_arrows:" },
+        "template": "❌ It stays with {{appointment.closer.first_name | default:the booking}}, per {{reaction.user_name | default:the team}}." },
+      { "id": "xh", "type": "exit", "reason": "handed_over" },
+      { "id": "xk", "type": "exit", "reason": "kept" }
+    ],
+    "edges": [
+      { "from": "t1", "to": "k1" }, { "from": "k1", "to": "p1" }, { "from": "p1", "to": "w1" },
+      { "from": "w1", "to": "m1", "label": "nobody yet" },
+      { "from": "w1", "to": "b1", "label": "tap" },
+      { "from": "w1", "to": "xu", "label": "until" },
+      { "from": "m1", "to": "p2" }, { "from": "p2", "to": "m2" }, { "from": "m2", "to": "xu" },
+      { "from": "b1", "to": "h1", "when": { "eq": ["{{reaction.reaction}}", "white_check_mark"] }, "label": "✅ hand it over" },
+      { "from": "b1", "to": "n1", "else": true, "label": "❌ keep it" },
+      { "from": "h1", "to": "y1" }, { "from": "y1", "to": "xh" }, { "from": "n1", "to": "xk" }
+    ]
+  }
+}
