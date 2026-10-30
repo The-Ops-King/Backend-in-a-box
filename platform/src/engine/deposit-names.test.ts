@@ -9,7 +9,7 @@ import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "./crypto";
 import { recordPayment as recordAny, isDeposit, type PaymentInput } from "./payments";
-/** Every payment here is real money: never the skipped $0 kind (D268). */
+/** Every payment here is real money: never the skipped $0 kind (D270). */
 const recordPayment = async (...a: Parameters<typeof recordAny>) => { const r = await recordAny(...a); if (r.outcome === "skipped") throw new Error(r.why); return r; };
 import { saysDeposit, uncheckedAlertKey } from "./deposit-names";
 import { parseWhopEvent } from "./webhooks/whop";

@@ -23,7 +23,7 @@ export async function ensureOpportunityForBooking(c: PoolClient, companyId: stri
 /** Known-contact entry point (tests, manual entry). Returns the payment event, or id -1 for a redelivered payment (nothing to dispatch). */
 export async function applyPayment(c: PoolClient, companyId: string, contactId: string, p: { whopPaymentId: string; amount: number; currency: string; installmentNo?: number; status: "succeeded" | "failed" | "refunded"; paidAt: Date; raw: Record<string, unknown> }): Promise<EventRow> {
   const r = await recordPayment(c, companyId, { providerPaymentId: p.whopPaymentId, amount: p.status === "refunded" ? -Math.abs(p.amount) : p.amount, currency: p.currency, installmentNo: p.installmentNo, status: p.status, paidAt: p.paidAt, raw: p.raw }, contactId);
-  if (r.outcome === "skipped") throw new Error(`applyPayment: ${r.why} is not recorded (D268)`);
+  if (r.outcome === "skipped") throw new Error(`applyPayment: ${r.why} is not recorded (D270)`);
   if (r.outcome === "duplicate") {
     const prior = await one<EventRow>(c, "select * from events where company_id=$1 and event_type in ('payment.received','payment.failed','payment.refunded') and data->>'provider_payment_id'=$2 order by id desc limit 1", [companyId, p.whopPaymentId]);
     return prior ? { ...prior, id: -1 } : { id: -1, company_id: companyId, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "payment.received", occurred_at: p.paidAt, source: "whop", data: {} };

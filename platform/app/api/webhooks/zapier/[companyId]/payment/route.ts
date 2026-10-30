@@ -24,7 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     if (dropped) return respondAndRun(companyId, { ok: true, ignored: dropped });
     const r = await recordPayment(c, companyId, parsed.input);
     if (r.outcome === "duplicate") return respondAndRun(companyId, { ok: true, duplicate: true, payment: r.payment.id });
-    if (r.outcome === "skipped") return respondAndRun(companyId, { ok: true, ignored: r.why });   // D268
+    if (r.outcome === "skipped") return respondAndRun(companyId, { ok: true, ignored: r.why });   // D270
     if (r.outcome === "unlinked") {
       await dispatchEvent(c, r.event, {});   // D88: the Unlinked payment workflow tells the team
       return respondAndRun(companyId, { ok: true, unlinked: true, payment: r.payment.id });

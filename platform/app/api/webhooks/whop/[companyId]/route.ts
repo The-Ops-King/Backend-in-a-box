@@ -1,4 +1,5 @@
 import { asOperator, one } from "@/db/client";
+import { liveAdapters } from "@/adapters";
 import { loadCompany } from "@/engine/context";
 import { dropUnmatchedFailure, recordPayment } from "@/engine/payments";
 import { dispatchEvent } from "@/engine/dispatch";
@@ -14,7 +15,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
   const { companyId } = await params;
   const raw = await req.text();
   return asOperator(async (c) => {
-    const { bindings } = await loadCompany(c, companyId);
+    const { bindings, row, adapterCompany } = await loadCompany(c, companyId);
     const secret = bindings["secret.whop_webhook"];
     if (!secret) return respondAndRun(companyId, { error: "webhook secret not bound for this company" }, { status: 401 });
     const v = verifyWhopSignature(secret, { id: req.headers.get("webhook-id"), timestamp: req.headers.get("webhook-timestamp"), signature: req.headers.get("webhook-signature") }, raw);
@@ -28,9 +29,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     const p = await fillWhopBuyer(parsed, bindings["secret.whop_api_key"]);   // D229: a webhook with no buyer is read back from Whop's API
     const dropped = await dropUnmatchedFailure(c, companyId, p);   // D229
     if (dropped) return respondAndRun(companyId, { ok: true, ignored: dropped });
-    const r = await recordPayment(c, companyId, p);
+    const r = await recordPayment(c, companyId, p, undefined, { ghl: { ac: adapterCompany, adapters: liveAdapters, bindings, tz: row.timezone } });   // D270: GHL decides the buyer and what they paid
     if (r.outcome === "duplicate") return respondAndRun(companyId, { ok: true, duplicate: true, payment: r.payment.id });
-    if (r.outcome === "skipped") return respondAndRun(companyId, { ok: true, ignored: r.why });   // D268
+    if (r.outcome === "skipped") return respondAndRun(companyId, { ok: true, ignored: r.why });   // D270
     if (r.outcome === "unlinked") {
       await dispatchEvent(c, r.event, {});   // D88: the Unlinked payment workflow tells the team
       return respondAndRun(companyId, { ok: true, unlinked: true, payment: r.payment.id });

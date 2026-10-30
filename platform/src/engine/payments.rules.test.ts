@@ -1,4 +1,4 @@
-/** D268: what a payment is, by the offer's own settings; nothing is the engine's own number or word. */
+/** D270: what a payment is, by the offer's own settings; nothing is the engine's own number or word. */
 import { describe, it, expect } from "vitest";
 import { deriveKind, fullPriceFor, fullPriceOf, namedDeposit, payRulesOf, listSetting } from "./payments";
 
@@ -6,7 +6,7 @@ import { deriveKind, fullPriceFor, fullPriceOf, namedDeposit, payRulesOf, listSe
 const PMU = payRulesOf({ "payments.full_prices": "[10000, 12000]", "payments.price_slack": "3", "payments.deposit_under": "500", "payments.deposit_words": "deposit", "payments.full_reasons": "one_time, subscription_create" });
 const kind = (amount: number, prior = 0, deal: number | null = null, reason: string | null = "one_time", deposit = false) => deriveKind(amount, prior, deal, "succeeded", deposit, { ...PMU, reason });
 
-describe("D268: payment rules are the offer's settings", () => {
+describe("D270: payment rules are the offer's settings", () => {
   it("reads the settings, as JSON or words with commas; an unset one is no rule", () => {
     expect(PMU).toEqual({ fullPrices: [10000, 12000], slack: 3, depositUnder: 500, depositWords: ["deposit"], fullReasons: ["one_time", "subscription_create"] });
     expect(payRulesOf({})).toEqual({ fullPrices: [], slack: 0, depositUnder: null, depositWords: [], fullReasons: [] });

@@ -721,6 +721,18 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         if ("why" in found) return { status: "skipped", next, result: { kind: "noop", why: `no ${objectKey} record in the CRM to update: ${found.why}` } };
         ghlId = matched = found.id;
       }
+      // D270 (Tyler: "duplicates are stored in and checked against GHL"): before making a record, the CRM is asked for one whose
+      // `match_on` field already holds this value (a payment's transaction id, written by the Zap or a person): one is that record,
+      // updated, never a second; several is a person's call; the CRM unread is a retry, never a guess
+      if (!ghlId && node.match_on && node.if_missing === "create") {
+        const want = String(properties[node.match_on] ?? "").trim();
+        if (want) {
+          const recs = await d.adapters.read.objectRecords(d.adapterCompany, objectKey);
+          const hits = recs.filter((r) => String(r.properties[node.match_on!] ?? "").trim() === want);
+          if (hits.length > 1) return { status: "skipped", next, result: { kind: "blocked", why: `${hits.length} ${objectKey} records in the CRM already have ${node.match_on} ${want} (${hits.map((h) => h.id).join(", ")}): which is it is a person's call` } };
+          if (hits.length === 1) ghlId = matched = hits[0].id;
+        }
+      }
       let recoveredHow: string | undefined;
       if (!ghost(d)) {
         // D66: a create the CRM answered but our row never recorded becomes an update of that record; one it never answered is not asked twice
