@@ -242,6 +242,10 @@ function triageBooked(): Def {
       relate: [{ association: "{{crm.assoc_discovery_call_contact}}", first: "{{contact.ghl_contact_id | default:}}", second: "{{record.id}}" }] });
   d.edges = edges.filter((e) => !gone.includes(e.from) && !gone.includes(e.to));
   (d.edges as Edge[]).push({ from: "s5", to: "d_rs" }, { from: "b6", to: "d_rs" }, { from: "d_rs", to: "d1" }, { from: "d1", to: "v4" });
+  // D261 (Tyler: "if something books with her, you should tag her in Slack"): the post tags whoever the triage call is booked with
+  const post = node(d, "n4");
+  if (typeof post.template !== "string" || !post.template.includes("*Booked with:* {{appointment.closer.name | default:unassigned}}")) throw new Error("Call booked's post no longer names who it is booked with");
+  post.template = post.template.replace("*Booked with:* {{appointment.closer.name | default:unassigned}}", "*Booked with:* {{appointment.closer.mention | default:unassigned}}");
   return d;
 }
 
