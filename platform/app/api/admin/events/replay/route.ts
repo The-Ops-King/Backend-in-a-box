@@ -13,11 +13,14 @@ export const dynamic = "force-dynamic"; export const maxDuration = 120;
  * just happened, in the workflow's own mode. The dry run says, for each, whether that workflow takes it and whether it already
  * ran for it; an event it already ran for is never run again. Audited. D256: each is matched with what it was first dispatched with
  * (its booking and the booking's call type, its recording), and "takes" is the trigger's own answer, its match included.
+ * D257: `again: true` with `why` runs an event the workflow already ran for once more (a step added since); still audited.
  */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await req.json()) as { company?: string; workflow?: string; events?: number[]; dryRun?: boolean };
+  const body = (await req.json()) as { company?: string; workflow?: string; events?: number[]; dryRun?: boolean; again?: boolean; why?: string };
   if (!body.company || !body.workflow || !body.events?.length) return NextResponse.json({ error: "company, workflow and events are required" }, { status: 400 });
+  // D257: an event the workflow already ran for is run again only when the operator says so, with why (a step added since, e.g. a closer card)
+  if (body.again && !body.why?.trim()) return NextResponse.json({ error: "again needs why" }, { status: 400 });
   const dryRun = body.dryRun !== false;
   try {
     const r = await asOperator(async (c) => {
@@ -31,10 +34,11 @@ export async function POST(req: Request) {
         const takes = await workflowTakes(c, e, ctx, w.id);
         const ran = await one(c, "select 1 from runs where workflow_id=$1 and triggered_by_event=$2", [w.id, e.id]);
         const row: Record<string, unknown> = { event: e.id, type: e.event_type, occurred_at: e.occurred_at, data: e.data, takes, already_ran: !!ran };
-        if (!dryRun && takes && !ran) row.runs = await dispatchEvent(c, e, ctx, { workflowId: w.id });
+        if (ran && body.again) row.again = true;
+        if (!dryRun && takes && (!ran || body.again)) row.runs = await dispatchEvent(c, e, ctx, { workflowId: w.id });
         rows.push(row);
       }
-      if (!dryRun) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'events.replayed','workflow',$2,$3)", [co.id, w.id, { events: body.events, rows: rows.map((x) => ({ event: x.event, runs: x.runs ?? [] })) }]);
+      if (!dryRun) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'events.replayed','workflow',$2,$3)", [co.id, w.id, { events: body.events, ...(body.again ? { again: true, why: body.why } : {}), rows: rows.map((x) => ({ event: x.event, runs: x.runs ?? [] })) }]);
       return { companyId: co.id, workflow: w.id, rows };
     });
     if (!dryRun) after(() => runCompanyNow(r.companyId));

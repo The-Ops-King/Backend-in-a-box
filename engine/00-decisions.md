@@ -6595,8 +6595,8 @@ Nelly's Fathom records her own short Meets with people who are not the offer's p
 Calendly), and each was posted to Slack as an Unmatched recording. Tyler: "We need them to be better so it only posts sales calls and
 doesn't post calls that aren't sales calls or prospects." Unmatched recording now asks Jev first what the call is (the recording's own
 transcript: an unmatched recording has no contact for the whole-call lookup), with "sales call" meaning a prospect, someone not yet a
-client, about buying or starting the program; a client's session is "other". It stays silent only when Jev clearly says internal or
-other; a sales call, an unsure read, or no transcript to read is still posted, so what the engine cannot tell still reaches a person.
+client, about buying or starting the program; a client's session is "other". Only what Jev reads as a sales call is posted (2026-10-30, Tyler,
+after an unsure read of Nelly's own Meet posted: "i told you to have these stop"): an unsure read or no transcript posts nothing.
 A Slack change, so every offer in one pass (D: Slack works the same on every offer), each saved with a dry run.
 
 ## D254. A call handed from one closer to another (2026-10-30)
@@ -6648,3 +6648,13 @@ looked only at the event's type. `eventMatchContext` rebuilds what an event was 
 call type, its recording) and `workflowTakes` gives the trigger's own answer, its match included; the operator's replay
 (`/api/admin/events/replay`) uses both, so its dry run says what the run will do. Engine code for every offer: a replay only.
 Tests: `dating-copies.test.ts`.
+
+## D257. A sales call whose person has no closer card makes one (2026-10-30)
+
+Isabel Vega was closed on her triage call (D255: Jev read it as a closing call), so her Sales Call had no closer card to link to: a
+closer card is made when a consultation is booked, and she never booked one. Tyler: "yes, create the closer card automatically."
+Dating Nelly's Sales call recorded: before the Sales Call is written, a person with no open closer card gets one (`c_card`), as
+Closing call booked makes it: "<name> -- Direct" at Scheduled, assigned to the closer on the call; the end of day moves it from there,
+and the Sales Call links to it in the same run. A person who has a closer card (every booked consultation) is untouched.
+Operator doors for the one already made: `/api/admin/events/replay` takes `again: true` with `why` to run an event a workflow already
+ran for once more (audited), and `/api/admin/contact/notes` lists a contact's notes and deletes one (dry run first, audited).

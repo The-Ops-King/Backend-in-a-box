@@ -65,16 +65,23 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: unlinked payments and recording
 
   it("an unmatched recording starts Unmatched recording, word for word; an edited copy says what the company wrote", async () => {
     await install("recording-unlinked");
-    await asOperator(async (c) => { const { row, bindings } = await loadCompany(c, companyId); await ingestRecording(c, row, bindings, { provider: "fathom", externalId: "rec-x1", title: "Strategy call", startedAt: new Date(), endedAt: new Date(), durationMin: 32, shareUrl: "https://fathom.test/share/1", recordedBy: { email: "closer@co.test", name: "Closer" }, invitees: [{ name: "Ann", email: "ann@x.test" }, { name: "Bo" }], raw: {} }); });
+    await asOperator(async (c) => { const { row, bindings } = await loadCompany(c, companyId); await ingestRecording(c, row, bindings, { provider: "fathom", externalId: "rec-x1", title: "Strategy call", startedAt: new Date(), endedAt: new Date(), durationMin: 32, shareUrl: "https://fathom.test/share/1", recordedBy: { email: "closer@co.test", name: "Closer" }, invitees: [{ name: "Ann", email: "ann@x.test" }, { name: "Bo" }], transcript: [{ speaker: "Closer", text: "ready to start the program?" }, { speaker: "Stranger Name", text: "yes" }], raw: {} }); });
     await run();
     expect(posts).toHaveLength(1);
     expect(posts[0].text).toMatch(/^\*Unmatched recording\* · Strategy call · 32 min\n.+\n\*Attendees:\* ann@x\.test, Bo · \*Recorded by:\* closer@co\.test\nhttps:\/\/fathom\.test\/share\/1\nLink it: https:\/\/engine\.test\/c\/mvs-a2\/recordings$/);
-    // D237: a recording Jev clearly reads as not a sales call with a prospect (a client's session, a personal call) posts nothing; with no transcript (above) it posts
+    // D253: only a recording Jev reads as a sales call with a prospect posts; anything else (a client's session, a personal call, an unsure read, no transcript) posts nothing
     recordingKind = "other";
     await asOperator(async (c) => { const { row, bindings } = await loadCompany(c, companyId); await ingestRecording(c, row, bindings, { provider: "fathom", externalId: "rec-x2", title: "Impromptu Google Meet Meeting", startedAt: new Date(), endedAt: new Date(), durationMin: 12, recordedBy: { email: "closer@co.test" }, invitees: [], transcript: [{ speaker: "Closer", text: "how was your week" }, { speaker: "Stranger Name", text: "good" }] }); });
     await run();
     expect(posts).toHaveLength(1);
+    recordingKind = "unclear";
+    await asOperator(async (c) => { const { row, bindings } = await loadCompany(c, companyId); await ingestRecording(c, row, bindings, { provider: "fathom", externalId: "rec-x3", title: "Impromptu Google Meet Meeting", startedAt: new Date(), endedAt: new Date(), durationMin: 12, recordedBy: { email: "closer@co.test" }, invitees: [], transcript: [{ speaker: "Closer", text: "hi" }, { speaker: "Minnie Cooper", text: "hi" }] }); });
+    await run();
+    expect(posts).toHaveLength(1);
     recordingKind = "sales_call";
+    await asOperator(async (c) => { const { row, bindings } = await loadCompany(c, companyId); await ingestRecording(c, row, bindings, { provider: "fathom", externalId: "rec-x4", title: "No transcript", startedAt: new Date(), endedAt: new Date(), durationMin: 9, recordedBy: { email: "closer@co.test" }, invitees: [{ name: "Cy", email: "cy@x.test" }] }); });
+    await run();
+    expect(posts).toHaveLength(1);
     // the company's own words: its copy of the step changes what goes out
     await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
     await install("payment-unlinked", (d) => { const n = d.nodes.find((x) => x.id === "n1")!; if (n.type === "slack_post") { n.template = "💸 Nobody matched {{event.customer_email}} (${{event.amount | money}})"; n.channel = "{{slack.channel.bookings}}"; } });
