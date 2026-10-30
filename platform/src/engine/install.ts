@@ -451,7 +451,7 @@ export async function watchCalendar(c: import("pg").PoolClient, companyId: strin
   // D142: a calendar's bookings are its call type and its owner's, the ones already held too (an upcoming one, for the owner: a past call was whoever took it)
   const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and source=$2 and external_id=$3", [companyId, source, k.id]))!;
   await c.query("update appointments set appointment_term=$2 where calendar_id=$1 and appointment_term<>$2", [cal.id, term]);
-  if (owner) await c.query("update appointments set assigned_user_id=$2 where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]);
+  if (owner) await c.query("update appointments set assigned_user_id=$2 where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2 and reassigned_at is null", [cal.id, owner.id]);
   const how = m.booking === "question" ? " (setter decided by the booking question)" : m.booking === "utm" ? " (setter-booked through a setter's link: utm_medium=setter, utm_content=<their name>)" : selfBooked === null ? "" : selfBooked ? " (self-booked)" : " (setter-booked)";
   return `"${k.name}" → ${m.name?.trim() ? `${m.name.trim()} (${m.term})` : m.term}${how}${m.questions ? `; questions: ${Object.keys(m.questions).join(", ")}` : ""}`;
 }

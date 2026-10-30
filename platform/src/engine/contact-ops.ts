@@ -157,7 +157,7 @@ export async function calendarOwner(c: PoolClient, a: { company: string; calenda
   const upcoming = Number((await one<{ n: string }>(c, "select count(*) as n from appointments where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]))?.n ?? 0);
   if (a.dryRun !== false) return { ok: true, dryRun: true, calendar: cal.name, was, owner: owner.name, upcoming };
   await c.query("update calendars set config = config || jsonb_build_object('owner', $2::text) where id=$1", [cal.id, owner.id]);
-  await c.query("update appointments set assigned_user_id=$2 where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]);
+  await c.query("update appointments set assigned_user_id=$2 where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2 and reassigned_at is null", [cal.id, owner.id]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'calendar.owner','calendar',$2,$3,$4)", [co.id, cal.id, { owner: cal.config.owner ?? null }, { owner: owner.id, why: a.why, upcoming }]);
   return { ok: true, dryRun: false, calendar: cal.name, was, owner: owner.name, upcoming };
 }
@@ -278,7 +278,8 @@ export async function callCloser(c: PoolClient, adapters: Adapters, a: { company
   }
   if (a.dryRun !== false) return { ok: true, dryRun: true, closer: to.name, calls };
   for (const k of calls) {
-    await c.query("update appointments set assigned_user_id=$2 where id=$1", [k.id, to.id]);
+    // D253: who has the call now is a person's word, so a reschedule at the calendar never hands it back to the host
+    await c.query("update appointments set assigned_user_id=$2, reassigned_at=now(), reassigned_by=$3 where id=$1", [k.id, to.id, `operator: ${a.why.trim()}`]);
     if (k.sales_call && object) {
       await adapters.write.updateRecord(ac, object, k.sales_call, { closer: key });
       await c.query("update crm_records set properties = properties || jsonb_build_object('closer', $3::text), updated_at=now() where company_id=$1 and ghl_record_id=$2", [co.id, k.sales_call, key]);

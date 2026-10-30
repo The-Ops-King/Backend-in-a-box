@@ -634,7 +634,26 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (!d.run.appointment_id) return { status: "failed", error: "update_appointment with no appointment on run" };
       const a = await one<{ external_id: string; source: string; status: string; starts_at: Date; self_booked: boolean | null; term: { name: string; category: string } | null }>(d.c,
         "select a.external_id, a.source, a.status, a.starts_at, a.self_booked, json_build_object('name', t.name, 'category', t.category) as term from appointments a left join company_terms t on t.id=a.appointment_term where a.id=$1", [d.run.appointment_id]);
-      const patch = Object.fromEntries(Object.entries(node.set).filter(([k]) => k !== "pending_read").map(([k, v]) => [k, typeof v === "string" ? render(v, d.ctx, env(d)) : v]));
+      const patch = Object.fromEntries(Object.entries(node.set).filter(([k]) => k !== "pending_read" && k !== "closer" && k !== "reassigned_by").map(([k, v]) => [k, typeof v === "string" ? render(v, d.ctx, env(d)) : v]));
+      // D253: who has the call is OURS too (the calendar's host cannot be changed at the source): the team member by email, kept
+      // through reschedules; a ghost run records who it would hand it to. Emits appointment.reassigned once per run and step.
+      if ("closer" in node.set) {
+        const email = render(String(node.set.closer ?? ""), d.ctx, env(d)).trim().toLowerCase();
+        const by = typeof node.set.reassigned_by === "string" ? render(node.set.reassigned_by, d.ctx, env(d)) : `workflow:${node.id}`;
+        const was = await one<{ id: string | null; name: string | null; email: string | null }>(d.c, "select u.id, u.name, u.email from appointments a left join users u on u.id=a.assigned_user_id where a.id=$1", [d.run.appointment_id]);
+        const to = email ? await one<{ id: string; name: string; email: string }>(d.c, "select id, name, email from users where company_id=$1 and lower(email)=$2 and active", [d.company.id, email]) : null;
+        if (!to) return { status: "failed", error: `update_appointment ${node.id}: ${email || "no closer"} is not a team member of this offer` };
+        const moved = { from: was?.id ? { name: was.name, email: was.email } : null, to: { name: to.name, email: to.email } };
+        if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_reassign: moved } };
+        if (was?.id !== to.id) await d.c.query("update appointments set assigned_user_id=$2, reassigned_at=now(), reassigned_by=$3 where id=$1", [d.run.appointment_id, to.id, by]);
+        const emitted = await one(d.c, "select 1 from events where run_id=$1 and event_type='appointment.reassigned' and data->>'node'=$2 limit 1", [d.run.id, node.id]);
+        if (!emitted && was?.id !== to.id) {
+          const ev = await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "appointment.reassigned", source: "engine", data: { ...moved, by, node: node.id } });
+          await dispatchEvent(d.c, ev, { contact: { id: d.run.contact_id }, appointment: { id: d.run.appointment_id } });
+        }
+        if (d.ctx.appointment) (d.ctx.appointment as Record<string, unknown>).closer = { ...((d.ctx.appointment as Record<string, unknown>).closer as object ?? {}), name: to.name, first_name: to.name.split(" ")[0], email: to.email };
+        if (!Object.keys(patch).length && !("pending_read" in node.set)) return { status: "ok", next, result: { reassigned: moved, unchanged: was?.id === to.id } };
+      }
       // pending_read is OUR column (D58), never the CRM's: written whatever the source and the mode, like `record`
       let pending: unknown;
       if ("pending_read" in node.set) {

@@ -109,4 +109,14 @@ export const MIGRATIONS: Migration[] = [
     await c.query("alter table slack_connections add column if not exists app text not null default 'own' check (app in ('own','shared'))");
     await c.query("create index if not exists slack_connections_team on slack_connections (team_id)");
   } },
+  // D253: a call one closer hands another (Tyler: "if Jose wants to assign some of his calls to Minerva"). The booking keeps who has
+  // it now, and since when, so the calendar's host never takes it back on a reschedule; a team member's own booking link for the
+  // new closer's reschedule; the two events the doors and the workflows speak in
+  { id: "0012-call-reassign", run: async (c) => {
+    await c.query("alter table appointments add column if not exists reassigned_at timestamptz");
+    await c.query("alter table appointments add column if not exists reassigned_by text");
+    await c.query("alter table users add column if not exists booking_url text");
+    await c.query("alter table recordings add column if not exists client_spoke boolean");   // null: no transcript said
+    await c.query("insert into event_types values ('appointment.reassign_requested','appointment'), ('appointment.reassigned','appointment') on conflict do nothing");
+  } },
 ];

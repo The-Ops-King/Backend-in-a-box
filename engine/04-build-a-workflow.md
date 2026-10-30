@@ -35,7 +35,7 @@ A workflow may have several triggers (deal-closed starts on a payment or a signa
 
 Events the engine emits (`event_types`): `lead.created` `intake.recorded` `contact.merged` `opportunity.opened`
 `opportunity.won` `opportunity.lost` `appointment.booked` `appointment.rescheduled` `appointment.status_changed`
-`appointment.outcome` `call.held` `message.sent` `message.received` `reply.classified` `payment.received`
+`appointment.outcome` `appointment.reassign_requested` (D253: the end of day's "Taken by another closer", `/reassign` or the different-closer alert asked to hand a call over: `event.from.{name,email}`, `event.to.{name,first_name,email}`, `event.via` eod|slack|alert|operator, `event.by`, `event.why`, `event.past`) `appointment.reassigned` (a step handed it over: `event.from`, `event.to`, `event.by`) `call.held` `message.sent` `message.received` `reply.classified` `payment.received`
 `payment.failed` `payment.paid_in_full` `payment.refunded` `payment.unlinked` `payment.linked` `recording.received`
 `recording.unlinked` `recording.linked` `call.analyzed` `call.logged` `agreement.sent` `agreement.signed` `tag.added`
 `tag.removed` `stage.changed` `card.moved` (a pipeline card moved by a hand in the CRM: `event.pipeline`, `event.from_name`, `event.to_name`, `event.mover`, D61) `run.started` `run.exited` `send.suppressed` `eod.filed` (a closer filed their day: the whole
@@ -78,7 +78,7 @@ settings; the workflow page's trigger popover lists the calendars that match.
 | `record_outcome` | `outcome`, `call_outcome?`, `notes?` | the appointment's outcome on our row (showed / noshow / …); `call.held` follows a show. |
 | `create_task` | `title`, `body?`, `due`, `assign_to?` | a CRM to-do on the contact. |
 | `note` | `template` | an internal note on the contact. |
-| `update_appointment` / `update_opportunity` | `set` | status or fields. `update_appointment` `set.pending_read` is ours, never the CRM's: an object (rendered) or `null` written to `appointments.pending_read` whatever the booking source or the mode — Jev's read the team was asked about and has not answered (D58); `{{appointment.pending_read.intent}}` reads it back. |
+| `update_appointment` / `update_opportunity` | `set` | status or fields. `update_appointment` `set.closer` (D253) is ours: the team member (by email) who has the call now, with `set.reassigned_by` saying who chose; kept through the calendar's reschedules (the host no longer decides), recorded as would-have in ghost, and `appointment.reassigned` follows once. `set.pending_read` is ours, never the CRM's: an object (rendered) or `null` written to `appointments.pending_read` whatever the booking source or the mode — Jev's read the team was asked about and has not answered (D58); `{{appointment.pending_read.intent}}` reads it back. |
 | `send_document` | `template`, `sender?`, `name?` | Documents & Contracts (needs the write scope). |
 | `webhook` | `url`, `method` (POST), `headers`, `body` (string or JSON, every string a template), `into?`, `on_error: fail|skip` | an HTTP call out: Airtable, a Zap or Make scenario, Apps Script, anything with a URL. `{{secret.<key>}}` resolves in url, headers and body here and nowhere else, never written to the ledger. The reply (JSON when it is) lands in `vars.<into>`. Shadow: recorded as "would call". A non-2xx fails the run (an alert) unless `on_error: skip`. |
 | `health_check` | `checks: { "<id>": false }`, `channel?`, `as?` | the hourly sweep as a step (D35): every check on, minus the ones turned off; failures are alerts that clear themselves. Belongs after a `schedule` trigger. |
@@ -112,7 +112,7 @@ Paths worth knowing (full list: `context.ts`, `describe.ts` PATHS):
   `.fetched_at` (when the CRM was read for this person before the run acted, D68: every `contact.*` value is the CRM's
   as of then) and `.stale` (why the engine's copy stood in instead — the CRM did not answer; absent when it did, so
   `{{contact.stale | line:Note}}` says nothing on a normal run).
-- `appointment.starts_at` `.ends_at` `.status` `.term.category` `.term.name` `.closer.{name,first_name,email,mention}`
+- `appointment.starts_at` `.ends_at` `.status` `.term.category` `.term.name` `.closer.{name,first_name,email,mention,ghl_user_id,slack_user_id,booking_url}` (`booking_url`: their own booking link, a team member's setting, D253) `.reassigned_at` `.reassigned_by`
   (`.mention` is `<@U…>` when the closer is known in Slack, else the name) `.self_booked` `.set_by`
   `.answers.<question name>` `.reschedule_url` `.cancel_url` `.cancelled_by` `.pending_read.{intent,confidence,at}` (D58:
   the read the team was asked about and has not answered; null otherwise).
@@ -120,7 +120,7 @@ Paths worth knowing (full list: `context.ts`, `describe.ts` PATHS):
   `.top_guesses` ("cancelled 55%, unclear 30%"), `.inbound_since_send`, `.last_inbound.body`, `.last_outbound.body`;
   `reaction.{reaction,user,user_name,ts}` after a tap (null when nobody tapped).
 - `event.*`: what the trigger carried (`event.amount`, `event.kind`, `event.status.to`, `event.tag`, …).
-- `recording.*`: title, duration_min, share_url, transcript_text, closer, kind (phone|meeting), connected, led_to_booking.
+- `recording.*`: title, duration_min, share_url, transcript_text, closer, kind (phone|meeting), connected, led_to_booking, `client_spoke` (D253: anyone but the team spoke; null with no transcript), `recorder_email`.
 - `vars.<name>`: anything `set_var`, `classify` or `analyze` stored (`vars.notes.summary`, `vars.rubric.overall_score`).
 - `cards.<pipeline>.{id,stage,name,owner}`; `calendar.<role>.url`; `slack.channel.<name>`; `crm.<binding>`;
   `agreement.{name,signed_at,sent_at}`; `records.<object>.key`.

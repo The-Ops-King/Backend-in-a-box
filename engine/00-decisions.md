@@ -6588,3 +6588,23 @@ after. Nothing read it before, so no saved workflow changes with it. PMU's workf
 
 GHL was cleaned the same day: the six who had showed and still carried one of these (each from a later call cancelled or
 no-showed) lost it. Outbound dialer calls that connected are not a show. No buyer carried one.
+
+## D253. A call handed from one closer to another (2026-10-30)
+
+Tyler: "if Jose essentially assigns one of his calls to Minerva ... it appears on the correct closer's end of day. It gets
+reassigned in the backend", "/reassign all my calls today to Minerva", and "Rather than an auto-reassign, just have it ... be an
+engine alert". Remember "this should all be a workflow not hard coded".
+
+- Three doors ask, none acts: the end of day's "Taken by another closer", `/reassign` in Slack (a closer their own calls, an
+  admin anyone's; today and later), and the different-closer alert's ✅. Each emits `appointment.reassign_requested` (who from,
+  who to, which door, who asked).
+- What a reassignment does is a workflow on that event (Call reassigned): `update_appointment` `set.closer` hands the call over
+  in the engine, then the Sales Call's closer, the contact's owner and the closer card move in the CRM, and the new closer is told
+  to reach the prospect with their own meeting link (the calendar's host and link cannot be changed at the source).
+- A call a person handed over keeps its closer when the calendar moves it (`appointments.reassigned_at`): the host decides only a
+  call nobody reassigned. Its end of day, its reminders' closer name and its credit follow whoever has it.
+- Whether the client spoke is kept on the recording (`client_spoke`), decided when it arrives, because the transcript is not kept.
+- A team member has their own booking link (`users.booking_url`, `appointment.closer.booking_url`) for a reassigned call's
+  reschedule.
+
+Nothing an existing offer runs changes: no booking is reassigned yet, and no saved workflow reads the new paths or events.
