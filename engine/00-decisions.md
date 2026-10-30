@@ -6691,3 +6691,10 @@ Slack". Her install: both round robins lose the owner D212 set when Mitch was th
 Jassie's and Taylor's consultations are closing calls (booking by link, D159); Shawnee's is a triage call; Nelly's is ignored (D148);
 closers Taylor and Jassie, setter Shawnee. Triage call booked's post tags whoever it is booked with (`appointment.closer.mention`,
 their name when they have no Slack).
+
+## D262. A calendar's owner can be taken off, and a calendar unwatched, by the operator (2026-10-30)
+
+Applying D261 live: the round robins kept the owner D212 set (Mitch) and Nelly's consultation stayed watched, because the calendar
+doors only set an owner and only watch a new calendar. `/api/admin/calendars/owner` with `owner: "host"` takes the owner off (each
+booking is its host's again; bookings already held keep theirs); `/api/admin/calendars/watch` with `term: "ignore"` stops watching a
+calendar as install's "ignore" does (D148). Both dry run first, audited.
