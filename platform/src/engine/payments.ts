@@ -37,13 +37,53 @@ export const cleared = (total: number, contractValue: number | null) => contract
  * company's declared deposit products, or (addendum) for a product or plan named with the word "deposit" (`isDeposit`), never a
  * guess from the amount: a first payment short of the price is the first installment. A deposit counts toward the price, so the payment that clears it after a deposit is the balance.
  */
-export function deriveKind(amount: number, priorTotal: number, contractValue: number | null, status: PaymentInput["status"], deposit = false): string {
+export function deriveKind(amount: number, priorTotal: number, contractValue: number | null, status: PaymentInput["status"], deposit = false, rules?: PayRules & { reason?: string | null }): string {
   if (status === "failed") return "failed";
   if (amount < 0 || status === "refunded") return "refund";
   if (deposit) return "deposit";
+  if (rules) {
+    // D268 (Tyler, 2026-10-30): a deposit is named so or under $500; paid in full is one payment of a full price (within $3 under it),
+    // bought once or as a subscription's first charge; the payment that brings the total to the deal's price is its balance
+    if (amount > 0 && amount < rules.depositUnder) return "deposit";
+    if (fullPriceOf(amount, rules) !== null && fullReason(rules.reason)) return "paid_in_full";
+    if (clearedBy(money(priorTotal + amount), contractValue ?? rules.fullPrices[0] ?? null)) return "balance";
+    return "installment";
+  }
   if (priorTotal <= 0 && cleared(amount, contractValue)) return "paid_in_full";
   if (cleared(money(priorTotal + amount), contractValue)) return "balance";
   return "installment";
+}
+
+/**
+ * D268: the payment rules every offer goes by. `payments.full_prices`: the offer's full prices (a list: PMU's $10,000 and $12,000);
+ * unset, the offer's program price. A payment within `PRICE_SLACK` under one is that price (Whop charges $9,997). Under
+ * `depositUnder` is a deposit. Paid in full needs Whop's reason to be a one-time purchase or a subscription's first charge.
+ */
+export type PayRules = { fullPrices: number[]; depositUnder: number };
+export const FULL_PRICES_KEY = "payments.full_prices";
+export const PRICE_SLACK = 3, DEPOSIT_UNDER = 500;
+const FULL_REASONS = new Set(["one_time", "subscription_create", "subscription_start"]);
+/** Whop's billing_reason, when a payment says one; a payment that says none (a Zap's, an old row's) is not held to it. */
+export const fullReason = (reason: string | null | undefined) => !reason || FULL_REASONS.has(String(reason).trim().toLowerCase());
+export function fullPriceOf(amount: number, rules: Pick<PayRules, "fullPrices">): number | null {
+  const hit = rules.fullPrices.filter((p) => amount <= p + 0.01 && amount >= p - PRICE_SLACK - 0.01).sort((a, b) => a - b)[0];
+  return hit ?? null;
+}
+const clearedBy = (total: number, price: number | null) => price != null && total >= price - PRICE_SLACK - 0.01;
+export function parseFullPrices(value: string | undefined | null): number[] {
+  let list: unknown = [];
+  try { list = JSON.parse(value ?? "[]"); } catch { list = String(value ?? "").split(","); }
+  return (Array.isArray(list) ? list : []).map((x) => Number(String(x).replace(/[$,\s]/g, ""))).filter((n) => Number.isFinite(n) && n > 0);
+}
+export async function payRules(c: PoolClient, companyId: string): Promise<PayRules> {
+  const b = await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, FULL_PRICES_KEY]);
+  let fullPrices = parseFullPrices(b?.value.toString("utf8"));
+  if (!fullPrices.length) { const d = await one<{ v: string | null }>(c, "select contract_value_default::text as v from companies where id=$1", [companyId]); if (d?.v != null && Number(d.v) > 0) fullPrices = [Number(d.v)]; }
+  return { fullPrices, depositUnder: DEPOSIT_UNDER };
+}
+/** The full price a payment beyond a deposit stands for: the one it is, else the deal's when that is one, else the offer's first (D268: the deal is worth it from its first real payment). */
+export function fullPriceFor(amount: number, dealValue: number | null, rules: PayRules): number | null {
+  return fullPriceOf(amount, rules) ?? (dealValue != null && rules.fullPrices.includes(dealValue) ? dealValue : rules.fullPrices[0] ?? dealValue);
 }
 
 /** D119: the company's deposit products (`payments.deposit_products`, set at install from `depositProducts`): Whop product or plan ids. */
