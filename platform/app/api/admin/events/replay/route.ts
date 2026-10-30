@@ -34,8 +34,13 @@ export async function POST(req: Request) {
         const takes = await workflowTakes(c, e, ctx, w.id);
         const ran = await one(c, "select 1 from runs where workflow_id=$1 and triggered_by_event=$2", [w.id, e.id]);
         const row: Record<string, unknown> = { event: e.id, type: e.event_type, occurred_at: e.occurred_at, data: e.data, takes, already_ran: !!ran };
-        if (ran && body.again) row.again = true;
-        if (!dryRun && takes && (!ran || body.again)) row.runs = await dispatchEvent(c, e, ctx, { workflowId: w.id });
+        // D257: again only after the earlier run is over (a run still going is never doubled); its re-entry key is retired, as D210's restart does
+        const going = ran && body.again ? await one(c, "select 1 from runs where workflow_id=$1 and triggered_by_event=$2 and status not in ('completed','exited','failed')", [w.id, e.id]) : null;
+        if (ran && body.again) { row.again = !going; if (going) row.why = "its earlier run is still going"; }
+        if (!dryRun && takes && (!ran || (body.again && !going))) {
+          if (ran) await c.query("update runs set reentry_key = reentry_key || ':again:' || id::text where workflow_id=$1 and triggered_by_event=$2 and reentry_key not like '%:again:%'", [w.id, e.id]);
+          row.runs = await dispatchEvent(c, e, ctx, { workflowId: w.id });
+        }
         rows.push(row);
       }
       if (!dryRun) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'events.replayed','workflow',$2,$3)", [co.id, w.id, { events: body.events, ...(body.again ? { again: true, why: body.why } : {}), rows: rows.map((x) => ({ event: x.event, runs: x.runs ?? [] })) }]);
