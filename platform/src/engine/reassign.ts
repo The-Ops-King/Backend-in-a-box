@@ -34,6 +34,10 @@ export async function requestReassign(c: PoolClient, companyId: string, a: { app
   return { ok: true, eventId: ev.id, runs: runs.length, from, to };
 }
 
+/** D254: whether this offer hands calls over at all: a workflow that is on answers `appointment.reassign_requested` (Reassign request). Off, the doors are not shown. */
+export const reassignOn = async (c: PoolClient, companyId: string) => !!(await one(c, `select 1 from workflow_triggers t join workflows w on w.id=t.workflow_id
+  where t.company_id=$1 and t.event_type='appointment.reassign_requested' and t.enabled and w.enabled limit 1`, [companyId]));
+
 /** `/reassign`'s list: one person's calls on a day (company time), cancelled ones left out; `upcoming` keeps only those not started yet. */
 export async function callsOf(c: PoolClient, companyId: string, userId: string, day: string, tz: string, opts: { upcoming?: boolean } = {}) {
   const start = DateTime.fromISO(day, { zone: tz }).startOf("day"), end = start.plus({ days: 1 });

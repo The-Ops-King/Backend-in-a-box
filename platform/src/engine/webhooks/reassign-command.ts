@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { DateTime } from "luxon";
 import { many, one } from "@/db/client";
-import { callsOf, requestReassign } from "../reassign";
+import { callsOf, reassignOn, requestReassign } from "../reassign";
 
 /**
  * D254 (Tyler: "/reassign ... select who you're assigning it from, select what day, select which calls you're assigning and to whom";
@@ -29,6 +29,7 @@ async function asker(c: PoolClient, companyId: string, slackUser: string): Promi
 
 /** The first form, or why there is none (said privately). */
 export async function reassignStart(c: PoolClient, companyId: string, slackUser: string, tz: string, channel: string): Promise<{ view: Record<string, unknown> } | { say: string }> {
+  if (!(await reassignOn(c, companyId))) return { say: "Handing calls to another closer isn't turned on for this offer yet. Ask Tyler." };
   const a = await asker(c, companyId, slackUser);
   if (!a.me && !a.admin) return { say: "You're not on this offer's team in the engine yet, so there are no calls of yours to hand over. Ask Tyler to add you." };
   const people = a.admin ? await team(c, companyId) : [a.me!];

@@ -6626,4 +6626,6 @@ handed over. The shipped workflows: Reassign request (hand it over), Call reassi
 closer card, a line in the booking's thread, a DM to the new closer to send their own link for a call still ahead, and a post to
 the team when the new closer is missing from Slack or the CRM: never a refusal), and Another closer took the call (a booked
 call with a client on it, recorded by someone else on the team: asked in the attention channel, ✅ hands it over, ❌ keeps it,
-asked again the next morning, then left). They install off on every offer; each is turned on by Tyler.
+asked again the next morning, then left). They install off on every offer; each is turned on by Tyler. Until an offer's Reassign request is on, neither door is
+offered there (the end of day has no "Someone else took this call", `/reassign` says it isn't turned on), so a call is never
+left unfiled and unmoved.

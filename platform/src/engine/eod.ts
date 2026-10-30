@@ -7,7 +7,7 @@ import { loadCompany, type CompanyRow } from "./context";
 import { callTime, dispositionMeaning, dispositionValues, filedMeaning, closerNameOf, closerOptions, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { requestReassign } from "./reassign";
+import { reassignOn, requestReassign } from "./reassign";
 import { TAKEN, mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, pitchedOf, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
 import { SETTING_DEFAULTS, switchOn } from "./setting-defaults";
 
@@ -406,6 +406,7 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   // D254: a call someone else took is handed to them (Reassign request) and is not filed here; it is theirs to file
   const team = new Set((await many<{ id: string }>(c, "select id from users where company_id=$1 and active and id<>$2", [company.id, closer.id])).map((u) => u.id));
   const taken = args.answers.calls.filter((x) => x.outcome === TAKEN && BOOKING_ID.test(x.appointment_id) && x.taken_by && team.has(x.taken_by));
+  if (taken.length && !(await reassignOn(c, company.id))) return { ok: false, why: "Handing a call to someone else isn't turned on for this offer yet; pick what happened on the call" };
   if (args.answers.calls.some((x) => x.outcome === TAKEN && !taken.includes(x))) return { ok: false, why: "Check who took each call you marked as someone else's: they must be on the team" };
   for (const x of taken) await requestReassign(c, company.id, { appointmentId: x.appointment_id, toUserId: x.taken_by!, via: "eod", by: closer.name, why: `${closer.name}'s end of day for ${args.day}` });
   let recorded = 0;
