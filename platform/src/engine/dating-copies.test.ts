@@ -58,7 +58,7 @@ describe("D118: Dating Nelly's copies", () => {
     const t = new Map(template("setter-call-logged").nodes.map((n) => [n.id, n as N]));
     const d = file("setter-call-logged").definition as unknown as { nodes: N[]; edges: E[] };
     const ids = d.nodes.map((n) => n.id);
-    expect(ids).toEqual([...t.keys(), "t2", "v_open"]);   // D254: a triage call recorded on a meeting comes in too
+    expect(ids).toEqual([...t.keys(), "t2", "v_open", "v_tri", "r_tri", "n_sum"]);   // D255: a triage call recorded on a meeting comes in too; D259: its summary is written
     expect(d.nodes.filter((n) => t.has(n.id) && JSON.stringify(n) !== JSON.stringify(t.get(n.id))).map((n) => n.id).sort()).toEqual(["a1", "a3", "a4", "r1", "rec_late", "rec_read", "s1", "s_late"]);
     expect(at0(d, "t2")).toMatchObject({ type: "trigger", event: "recording.received", match: { eq: ["{{appointment.term.category}}", "first_call"] } });
     expect(d.edges).toEqual(expect.arrayContaining([{ from: "t2", to: "v1" }, { from: "v1", to: "v_open" }, { from: "v_open", to: "l_conv" }]));
@@ -69,7 +69,12 @@ describe("D118: Dating Nelly's copies", () => {
     expect(Object.keys(at("a4").criteria as object)).toEqual(["budget", "not_ready", "in_relationship", "casual", "bad_contact", "other"]);
     for (const id of ["rec_read", "rec_late"]) expect(at(id).data).toMatchObject({ call_type: "{{vars.classify.call_type}}", dq_domain: "dating_dq_reason", digest: "{{vars.notes.digest | default:}}" });
     // its one CRM write: the call's Discovery Call, blank (no outcome, no result), unless a triage call booked with the caller that day stands for it
-    expect(d.nodes.filter((n) => ["crm_record", "note", "create_task", "pipeline_card", "tags", "set_tag", "wait_for_reaction"].includes(n.type as string)).map((n) => n.id)).toEqual(["r1"]);
+    expect(d.nodes.filter((n) => ["crm_record", "note", "create_task", "pipeline_card", "tags", "set_tag", "wait_for_reaction"].includes(n.type as string)).map((n) => n.id)).toEqual(["r1", "r_tri", "n_sum"]);
+    // D259: the summary on the Discovery Call (the triage booking's own: never made, never its result) and as a note
+    expect(at("r_tri")).toMatchObject({ key: "{{vars.tri_key}}", if_missing: "skip", properties: { call_summary: "{{vars.notes.digest | default:}}" } });
+    expect(Object.keys(at("r_tri").properties as object).sort()).toEqual(["call_summary", "recording_url"]);
+    expect((at("r1").properties as Record<string, string>).call_summary).toBe("{{vars.notes.digest | default:}}");
+    expect(d.edges).toEqual(expect.arrayContaining([{ from: "l_tri", to: "v_tri" }, { from: "v_tri", to: "r_tri" }, { from: "r_tri", to: "r1" }, { from: "r1", to: "n_sum" }, { from: "n_sum", to: "s1" }]));
     expect(Object.keys(at("r1").properties as object)).not.toContain("call_result"); expect(Object.keys(at("r1").properties as object)).not.toContain("outcome");
     // D254: nor when the call is a triage booking's own (a recorded triage call): its Discovery Call already stands
     expect(at("r1").only_if).toEqual({ and: [{ eq: ["{{vars.triage_today.count}}", 0] }, { not: { exists: "appointment.id" } }] });

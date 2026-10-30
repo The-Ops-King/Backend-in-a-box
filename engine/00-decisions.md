@@ -6658,3 +6658,19 @@ Closing call booked makes it: "<name> -- Direct" at Scheduled, assigned to the c
 and the Sales Call links to it in the same run. A person who has a closer card (every booked consultation) is untouched.
 Operator doors for the one already made: `/api/admin/events/replay` takes `again: true` with `why` to run an event a workflow already
 ran for once more, after that run is over (its re-entry key retired, as D210 does; audited), and `/api/admin/contact/notes` lists a contact's notes and deletes one (dry run first, audited).
+
+## D258. A one-host Calendly type is hosted by whom Calendly says (2026-10-30)
+
+The calendar listing showed Tyler as a host of "Dating Consultation with Taylor": a member's own listing carries every type they can see,
+and an admin sees Taylor's. D243 asked Calendly who hosts a round robin; a one-person type listed under more than one member is now
+asked the same (`event_type_memberships`). Engine code, every offer: only the hosts a listing reports change. Tests:
+`list-calendars.test.ts`.
+
+## D259. A setter's call writes its summary to its Discovery Call and as a note (2026-10-30)
+
+Tyler: the AI "only pre-fills the end of day and writes results, but it also does add the notes and the summary to the discovery call
+and the high-level note. Keep the exact result for the end of day." Dating Nelly's Setter call logged: the call's summary (Jev's
+write-up) goes to a new Call Summary field on her Discovery Call (made in GHL by the setup door, `installs/dating/ghl-setup.json`),
+on the call's own Discovery Call when it makes one and on the triage booking's own when the call was one (never created there, never
+its result or outcome), and as a "CALL SUMMARY" note on the contact. Lookups' bookings carry their slot key. The result stays the end
+of day's (D239). Tests: `dating-copies.test.ts`, `eod.setter-calls.test.ts`.
