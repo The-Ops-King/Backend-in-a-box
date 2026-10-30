@@ -919,62 +919,33 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       return { status: "ok", next, result: { calendars: r.findings.length, low: low.length, raised: r.raised, resolved: r.resolved, ...(cal ? { only: cal.external_id } : {}), ...(low.length ? { problems: low.map((f) => f.text) } : {}) } };
     }
     case "eod_due": {
-      // D76: the closer is reminded every day until each of their calls is filed. GHL's Sales Calls of the engine's bookings are the truth:
-      // a call filed there is answered whatever the ledger holds, and a blank one is owed; the ledger fills in the calls GHL has no record of.
-      // A Sales Call with no booking is not counted: the form has no row for it (D110).
+      // D76: the closer is reminded every day until each of their calls is filed; D255: what is filed is GHL's alone (below).
       // D88 (A4): how far back, whether today counts and when the operator hears are the step's; the words are the template's
       const user = d.ctx.user as { id?: string; name?: string; eod?: { day: string; url: string } } | undefined;
       const legacy = node.lookback_days === undefined && node.include_today === undefined && node.overdue_after_days === undefined;
       if (!user?.eod || !user.id) { setPath(d.ctx, `vars.${node.into}`, legacy ? "" : { days: [], count: 0, overdue: [], overdue_count: 0 }); return { status: "ok", next, result: { kind: "noop", why: "the run is not about a closer" } }; }
       const lookback = node.lookback_days ?? 7, withToday = node.include_today ?? node.period === "evening", overdueAfter = node.overdue_after_days === undefined ? (node.period === "evening" ? 2 : null) : node.overdue_after_days;
       const tz = d.company.timezone, today = d.now.setZone(tz).toISODate()!, label = (day: string) => DateTime.fromISO(day, { zone: tz }).toFormat("ccc LLL d");
-      const { closerSalesCalls, eodFacts } = await import("./eod");
+      const { eodFacts } = await import("./eod");
       const eod = await eodFacts(d.c, d.company, user.id, (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, ""), d.now as DateTime<true>, lookback);
-      // ledger: the day's calls with no answer on the ledger; moved: those a card move answered, owed until the day is filed (A1);
-      // blank: every blank Sales Call that day (the operator hears their names); extra: blank ones the ledger does not already count
-      // dials (D156, D191): a setter's logged calls the day has not answered, counted by the form beside its bookings; owed like calls
-      const days = new Map<string, { ledger: Set<string>; moved: Set<string>; blank: string[]; extra: number; dials: number }>();
-      for (const e of eod.earlier) days.set(e.day, { ledger: new Set(e.open), moved: new Set(e.moved), blank: [], extra: 0, dials: Math.max(0, e.calls - e.open.length) });
-      if (withToday && eod.today.calls && !eod.today.filed) days.set(eod.day, { ledger: new Set(eod.today.open), moved: new Set(eod.today.moved), blank: [], extra: 0, dials: Math.max(0, eod.today.calls - eod.today.open.length) });
+      // D255 (Tyler: "the EOD should ONLY pull from the GHL sales calls"): what is owed is GHL's, read live (`owedFromGhl`): their Sales
+      // Calls passed with no outcome and their triage calls' Discovery Calls still scheduled, the same list /missing-eod and /weekly give.
+      // dials (D156, D191, D239): a setter's outbound call has its own Discovery Call record in GHL from the minute it is logged, so it is
+      // in that same list; nothing is counted from what the engine stored
+      const days = new Map<string, { calls: number; blank: string[]; dials: number }>();
       let ghl: string | undefined;
-      if (d.bindings["crm.object_sales_call"] && user.name) {
-        try {
-          const recs = await closerSalesCalls(d.c, d.adapters, d.adapterCompany, d.company.id, d.bindings, user.name, tz, d.now);
-          for (const r of recs) if (r.filed) for (const e of days.values()) if (!e.moved.has(r.appointment_id)) e.ledger.delete(r.appointment_id);
-          for (const r of recs) {
-            if (r.filed || !r.due || (!withToday && r.day >= today)) continue;
-            const e = days.get(r.day) ?? { ledger: new Set<string>(), moved: new Set<string>(), blank: [], extra: 0, dials: 0 }; e.blank.push(r.name);
-            if (!e.ledger.has(r.appointment_id)) e.extra++;
-            days.set(r.day, e);
-          }
-        } catch (e) { ghl = String((e as Error).message).slice(0, 200); }   // GHL unread: the ledger's days still go out
-      }
-      // D207: a setter's triage calls are named to the operator too once overdue, where the company turns it on (`eod.triage_overdue`;
-      // Tyler: "add setters to the ping"). Owed is the ledger's: a triage call the end of day has not answered; one whose Discovery Call
-      // record in GHL already has an outcome other than scheduled was answered there, and is not owed (as a filed Sales Call is not)
-      if (switchOn(d.bindings, "eod.triage_overdue")) {
-        const open = [...new Set([...days.values()].flatMap((e) => [...e.ledger]))];
-        const triage = open.length ? await many<{ id: string; slot_key: string | null; who: string }>(d.c, `select a.id::text as id, a.slot_key, coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), 'someone') as who
-          from appointments a join company_terms t on t.id=a.appointment_term left join contacts ct on ct.id=a.contact_id where a.id = any($1::uuid[]) and t.category='first_call'`, [open]) : [];
-        const answered = new Set<string>();
-        const object = d.bindings["crm.object_discovery_call"];
-        if (object && triage.length) {
-          try {
-            const keys = new Set(triage.map((r) => r.slot_key).filter((k): k is string => !!k));
-            for (const r of await d.adapters.read.objectRecords(d.adapterCompany, object)) {
-              const ext = String(r.properties.external_id ?? "").trim(), outcome = String(r.properties.outcome ?? "").trim().toLowerCase();
-              if (keys.has(ext) && outcome && outcome !== "scheduled") answered.add(ext);
-            }
-          } catch (e) { ghl = ghl ?? String((e as Error).message).slice(0, 200); }
+      try {
+        const { owedFromGhl, readsFrom } = await import("./owed");
+        const named = switchOn(d.bindings, "eod.triage_overdue");
+        for (const o of await owedFromGhl(d.c, d.company, d.now, lookback, readsFrom(d.adapters))) {
+          if (o.user_id !== user.id || (!withToday && o.day >= today)) continue;
+          const e = days.get(o.day) ?? { calls: 0, blank: [], dials: 0 };
+          e.calls++; if (o.kind === "closing" || named) e.blank.push(o.name);
+          days.set(o.day, e);
         }
-        for (const e of days.values()) for (const r of triage) {
-          if (!e.ledger.has(r.id)) continue;
-          if (r.slot_key && answered.has(r.slot_key)) { e.ledger.delete(r.id); continue; }
-          e.blank.push(r.who);
-        }
-      }
-      const owed = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.ledger.size || e.extra || e.dials)
-        .map(([day, e]) => ({ day, label: label(day), when: day === eod.day ? "today" : label(day), url: day === eod.day ? eod.url : `${eod.url}?day=${day}`, today: day === eod.day, calls: e.ledger.size + e.dials, ghl_blank: e.extra, both: e.ledger.size + e.dials > 0 && e.extra > 0 }));
+      } catch (e) { ghl = String((e as Error).message).slice(0, 200); }   // GHL unread: said in the result; nobody is told they owe what cannot be read
+      const owed = [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).filter(([, e]) => e.calls || e.dials)
+        .map(([day, e]) => ({ day, label: label(day), when: day === eod.day ? "today" : label(day), url: day === eod.day ? eod.url : `${eod.url}?day=${day}`, today: day === eod.day, calls: e.calls + e.dials, ghl_blank: 0, both: false }));
       const cutoff = overdueAfter === null ? null : d.now.setZone(tz).minus({ days: overdueAfter }).toISODate()!;
       const overdue = cutoff === null ? [] : [...days.entries()].filter(([day, e]) => e.blank.length && day <= cutoff).sort(([a], [b]) => a.localeCompare(b)).map(([day, e]) => ({ day, label: label(day), names: e.blank, url: day === eod.day ? eod.url : `${eod.url}?day=${day}` }));
       if (legacy) {

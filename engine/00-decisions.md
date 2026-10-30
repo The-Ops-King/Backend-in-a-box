@@ -6698,3 +6698,17 @@ Applying D261 live: the round robins kept the owner D212 set (Mitch) and Nelly's
 doors only set an owner and only watch a new calendar. `/api/admin/calendars/owner` with `owner: "host"` takes the owner off (each
 booking is its host's again; bookings already held keep theirs); `/api/admin/calendars/watch` with `term: "ignore"` stops watching a
 calendar as install's "ignore" does (D148). Both dry run first, audited.
+
+## D255. What a closer owes on their end of day is read from GHL alone (2026-10-30)
+
+Tyler: "the EOD should ONLY pull from the GHL sales calls. as i've said 1000 times. everything pulls from GHL!" `/missing-eod`
+disagreed with `/weekly`'s "No EOD outcome yet" because one read the engine's stored bookings and reports and the other GHL's
+Sales Calls. Now one function (`owedFromGhl`) says what is owed, read live: a Sales Call record whose call has passed with no
+outcome (`salesCallsFor`, the rule /weekly uses), and a Discovery Call record (a setter's triage call or outbound dial) whose call
+has passed still scheduled or blank. `/missing-eod`, the wrap-up's missing lines, the dashboard panel and the EOD reminders (the
+`eod_due` step) all read it. Whose it is: the record's closer or setter by name; someone off the team (Carly) is still listed by
+the name GHL has, without a link. Today's calls are said apart, not as late. A record's name drops its " — date" label suffix
+(the /weekly list showed "Quentin Thomas — 2026-10-27 (Oct 27)"). GHL unread, the wrap-up still posts and says so.
+
+Precondition: a booking is only owed once GHL has its Sales Call. PMU's Call booked is in ghost, so a PMU booking gets no record
+until it is taken live or another process writes one.

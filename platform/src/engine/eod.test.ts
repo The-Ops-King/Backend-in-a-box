@@ -29,6 +29,19 @@ const fake: Adapters = {
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const TZ = "America/Phoenix";
+/** D255: what is owed is GHL's alone; a test puts Sales Calls in GHL and the bindings that point at them, and takes them away after. */
+const OUTCOMES = JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" });
+const salesCall = (id: string, who: string, at: DateTime, outcome: string, props: Record<string, unknown> = {}) => ({ id, createdAt: at.toISO()!, properties: { display_label: `${who} — ${at.toISODate()}`, scheduled_at: at.toUTC().toISO(), call_date: at.toISODate(), outcome, closer: "Allan P", ...props } });
+async function withGhl<T>(companyIdOf: () => string, recs: () => { id: string; createdAt: string; properties: Record<string, unknown> }[], extra: [string, string][], body: () => Promise<T>): Promise<T> {
+  const before = fake.read.objectRecords;
+  fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? recs() : []);
+  const keys = [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", OUTCOMES], ...extra];
+  await asOperator(async (c) => { for (const [k, v] of keys) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyIdOf(), k, Buffer.from(v)]); });
+  try { return await body(); } finally {
+    fake.read.objectRecords = before;
+    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key = any($2::text[])", [companyIdOf(), keys.map(([k]) => k)]));
+  }
+}
 let companyId: string, allan: string, bea: string, sarah: string, leo: string, apptSarah: string, apptMia: string, apptNoah: string, apptTheo: string;
 
 describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
@@ -98,7 +111,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(own.map((f) => f.key).slice(0, 12)).toEqual(def.map((f) => f.key));
   });
 
-  it("the reminder is a workflow: at its evening time, each closer with calls and no filed report gets one DM with the standing link, once; staff never do", async () => {
+  it("the reminder is a workflow: at its evening time, each closer with calls in GHL and no outcome there gets one DM with the standing link, once; staff never do", async () => {
+    const today = DateTime.now().setZone(TZ), h = (n: number) => today.set({ hour: n, minute: 0, second: 0, millisecond: 0 });
+    await withGhl(() => companyId, () => [salesCall("RS", "Sarah Kim", h(10), "", { contact_id: "GS", external_id: "A1" }), salesCall("RL", "Leo Ortiz", h(14), "", { contact_id: "GL", external_id: "A2" })], [], async () => {
     await asOperator((c) => installTemplateForTest(c, companyId, "eod-reminder", { patch: (d) => { for (const n of d.nodes) if (n.type === "trigger" && n.schedule?.at === "18:00") n.schedule.at = "17:00"; } }));
     // D221: switched on yesterday, so today's slots are this test's, not a switch-on catch-up
     await asOperator((c) => c.query("update workflows set enabled_at = now() - interval '1 day' where company_id=$1 and name='EOD: remind closers to file'", [companyId]));
@@ -120,6 +135,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     // the morning trigger lists earlier unfiled days only: today is not due yet at 9am, and nothing earlier is unfiled
     const facts = await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, allan, "https://engine.test", at));
     expect(facts).toMatchObject({ today: { calls: 2, filed: false }, earlier_count: 0, earlier_lines: "" });
+    });
   });
 
   it("filing: required answers checked, outcomes recorded through the disposition path; the filed workflow posts the summary with the corrections and threads a ✅ under the reminder", async () => {
@@ -249,93 +265,61 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK").map((p) => p.text)).toEqual(["✅ Showed, per Allan P: lost."]);
   });
-  it("D76: the reminder goes on every day until each of the closer's calls has an outcome in GHL (GHL is the truth, not only the ledger); blank two days on, the operator is told; D110: a Sales Call the engine has no booking for is not counted", async () => {
-    const day = (n: number) => DateTime.now().setZone(TZ).minus({ days: n });
-    const rec = (id: string, d: DateTime, outcome: string, props: Record<string, unknown> = {}) => ({ id, createdAt: d.toISO()!, properties: { display_label: `${id} Person — ${d.toISODate()}`, scheduled_at: d.set({ hour: 10, minute: 0 }).toUTC().toISO(), call_date: d.toISODate(), outcome, closer: "Allan P", ...props } });
-    // Xena's call three days ago is the engine's booking: the ledger holds her no-show, her Sales Call (the booking's id on it) is still blank
+  it("D76/D255: the reminder goes on every day until each of the closer's calls has an outcome in GHL, and GHL alone says so: a call the engine holds as a no-show but GHL has blank is owed, a Sales Call the engine has no booking for is owed too; blank two days on, the operator is told", async () => {
+    const day = (n: number) => DateTime.now().setZone(TZ).minus({ days: n }).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
+    // Xena's call three days ago is the engine's booking and the ledger holds her no-show, but her Sales Call in GHL is still blank
     const xena = await asOperator(async (c) => {
       const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and external_id='CAL'", [companyId]))!.id;
       const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const noshow = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category='noshow'", [companyId]))!.id;
       const contact = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,'GX','Xena','Person') returning id", [companyId]))!.id;
-      const at = day(3).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
-      const appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id, outcome_term) values ($1,$2,$3,'AX',$4,$5,now(),'confirmed',$6,$7,$8) returning id", [companyId, contact, cal, at.toJSDate(), at.plus({ hours: 1 }).toJSDate(), term, allan, noshow]))!.id;
+      const appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id, outcome_term) values ($1,$2,$3,'AX',$4,$5,now(),'confirmed',$6,$7,$8) returning id", [companyId, contact, cal, day(3).toJSDate(), day(3).plus({ hours: 1 }).toJSDate(), term, allan, noshow]))!.id;
       return { contact, appt };
     });
-    const before = fake.read.objectRecords;
-    // Yuri's Sales Call is blank too, but no booking of the engine's is it (D110): no row on any form, so not owed
-    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [rec("Xena", day(3), "", { external_id: "AX" }), rec("Yuri", day(2), ""), rec("Zoe", day(2), "showed"), rec("Walt", day(3), "", { closer: "Someone Else" })] : []);
     await asOperator(async (c) => {
-      for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })], ["bot.escalate_to", "UOPS"]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
-      // today's reminders already went (above); the clock starts them again as a new day would
       await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]);
       await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]);
       await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='EOD: remind closers to file')", [companyId]);
     });
     try {
-      const at = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
-      await asOperator((c) => dispatchSchedules(c, at, companyId));
-      const n = posts.length; await tick(fake, at, companyId);
-      const token = await asOperator((c) => tokenFor(c, allan));
-      const dm = posts.slice(n).filter((p) => p.channel === "UALLAN").map((p) => p.text);
-      const label = (d: DateTime) => d.toFormat("ccc LLL d");
-      expect(dm.length).toBeGreaterThan(0);
-      for (const t of dm) expect(t).toBe(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: 1 call with no outcome in GHL\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);   // only Xena's day, from either reminder
-      expect(posts.slice(n).filter((p) => p.channel === "UOPS").map((p) => p.text)).toEqual([`Allan P still has calls with no outcome after two days:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: Xena Person\nOpen a day to file it yourself.`]);   // once a day, from the evening reminder; each day links to the form (D207)
-      // the count is what the forms show: Xena's booking on that day's form; Yuri on no form
-      const form = (d: DateTime) => asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, d.toISODate()!));
-      expect((await form(day(3))).calls.map((x) => [x.appointment_id, x.contact, x.outcome])).toEqual([[xena.appt, "Xena Person", "no_show"]]);
-      expect((await form(day(2))).calls).toEqual([]);
-    } finally {
-      fake.read.objectRecords = before;
-      await asOperator(async (c) => {
-        await c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes','bot.escalate_to')", [companyId]);
-        await c.query("delete from appointments where id=$1", [xena.appt]); await c.query("delete from contacts where id=$1", [xena.contact]);
+      // Yuri's Sales Call is blank and no booking of the engine's is it: GHL says it is owed, so it is; Zoe's has an outcome; Walt's is someone else's
+      await withGhl(() => companyId, () => [salesCall("X", "Xena Person", day(3), "", { external_id: "AX", contact_id: "GX" }), salesCall("Y", "Yuri Person", day(2), "", { contact_id: "GY" }), salesCall("Z", "Zoe Person", day(2), "showed", { contact_id: "GZ" }), salesCall("W", "Walt Person", day(3), "", { closer: "Someone Else", contact_id: "GW" })], [["bot.escalate_to", "UOPS"]], async () => {
+        const at = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
+        await asOperator((c) => dispatchSchedules(c, at, companyId));
+        const n = posts.length; await tick(fake, at, companyId);
+        const token = await asOperator((c) => tokenFor(c, allan));
+        const dm = posts.slice(n).filter((p) => p.channel === "UALLAN").map((p) => p.text);
+        const label = (d: DateTime) => d.toFormat("ccc LLL d");
+        expect(dm.length).toBeGreaterThan(0);
+        for (const t of dm) expect(t).toBe(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: 1 call\n• <https://engine.test/eod/${token}?day=${day(2).toISODate()}|${label(day(2))}>: 1 call\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);
+        expect(posts.slice(n).filter((p) => p.channel === "UOPS").map((p) => p.text)).toEqual([`Allan P still has calls with no outcome after two days:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: Xena Person\n• <https://engine.test/eod/${token}?day=${day(2).toISODate()}|${label(day(2))}>: Yuri Person\nOpen a day to file it yourself.`]);
       });
+    } finally {
+      await asOperator(async (c) => { await c.query("delete from appointments where id=$1", [xena.appt]); await c.query("delete from contacts where id=$1", [xena.contact]); });
     }
   });
-  it("a call already answered is not owed: a no-show on the ledger, or a Sales Call filed in GHL before the engine (another booking id, the old label style), matched by person and minute; only the call with no answer anywhere is", async () => {
+  it("D255: what was filed is GHL's: a Sales Call with an outcome there is not owed, whatever the engine holds; one blank there is, until it is filed there", async () => {
     const d4 = DateTime.now().setZone(TZ).minus({ days: 4 }), at = (h: number) => d4.set({ hour: h, minute: 0, second: 0, millisecond: 0 });
-    const ids = await asOperator(async (c) => {
-      const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and external_id='CAL'", [companyId]))!.id;
-      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
-      const outcome = async (cat: string) => (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_outcome' and category=$2", [companyId, cat]))!.id;
-      const person = async (g: string, first: string) => (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,$2,$3,'Old') returning id", [companyId, g, first]))!.id;
-      const book = async (who: string, ext: string, h: number, cat: string) => (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id, outcome_term) values ($1,$2,$3,$4,$5,$6,now(),'confirmed',$7,$8,$9) returning id", [companyId, who, cal, ext, at(h).toJSDate(), at(h + 1).toJSDate(), term, allan, await outcome(cat)]))!.id;
-      return { lyn: await book(await person("GLYN", "Lyn"), "OLD-1", 9, "showed"), jo: await book(await person("GJO", "Jo"), "OLD-2", 11, "noshow"), kim: await book(await person("GKIM", "Kim"), "OLD-3", 13, "showed") };
-    });
-    // Lyn's Sales Call was filed through the old process: its own booking id, a "Name · day · time" label, an ISO time
+    // Lyn's Sales Call was filed through the old process: its own booking id, a "Name · day · time" label; the engine has no booking of hers
     const filed = { id: "LYN", createdAt: at(9).toISO()!, properties: { display_label: `Lyn Old · ${at(9).toFormat("ccc LLL d")} · 9:00 AM`, closer: "Allan P", contact_id: "GLYN", external_id: "zap-uuid", outcome: "showed", disposition: "closed_won", scheduled_at: at(9).toUTC().toISO(), call_date: d4.toISODate() } };
-    const before = fake.read.objectRecords;
-    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [filed] : []);
-    await asOperator(async (c) => {
-      for (const [k, v] of [["crm.object_sales_call", "custom_objects.sales_call"], ["sales_call.outcomes", JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" })]]) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'id',$3) on conflict (company_id,key) do update set value=excluded.value", [companyId, k, Buffer.from(v)]);
+    let store = [filed, salesCall("KIM", "Kim Old", at(13), "", { contact_id: "GKIM" })];
+    const reset = () => asOperator(async (c) => {
       await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]);
       await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]);
       await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='EOD: remind closers to file')", [companyId]);
     });
-    try {
-      // the ledger alone: Jo's no-show is an answer; Lyn's "showed" is not, and Kim has none
-      const facts = await asOperator(async (c) => eodFacts(c, (await loadCompany(c, companyId)).row, allan, "https://engine.test"));
-      expect(facts.earlier.find((e) => e.day === d4.toISODate())).toMatchObject({ calls: 2 });
-      expect(facts.earlier.find((e) => e.day === d4.toISODate())!.open.sort()).toEqual([ids.lyn, ids.kim].sort());
-      // GHL is the truth: Lyn's call is filed there, so only Kim's is owed
+    await withGhl(() => companyId, () => store, [], async () => {
       const when = DateTime.now().setZone(TZ).set({ hour: 17, minute: 1 }) as DateTime<true>;
-      await asOperator((c) => dispatchSchedules(c, when, companyId));
+      await reset(); await asOperator((c) => dispatchSchedules(c, when, companyId));
       const n = posts.length; await tick(fake, when, companyId);
-      const dm = posts.slice(n).filter((p) => p.channel === "UALLAN").map((p) => p.text).join("\n");
-      expect(dm).toContain(`|${d4.toFormat("ccc LLL d")}>: 1 call\n`);
-      // and once Kim's is filed there too, the day is gone
-      fake.read.objectRecords = async (_c, key) => (key === "custom_objects.sales_call" ? [filed, { id: "KIM", createdAt: at(13).toISO()!, properties: { display_label: "Kim Old", closer: "Allan P", contact_id: "GKIM", outcome: "no_show", scheduled_at: at(13).toUTC().toISO(), call_date: d4.toISODate() } }] : []);
-      await asOperator(async (c) => { await c.query("delete from run_steps where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]); await c.query("delete from sends where run_id in (select r.id from runs r join workflows w on w.id=r.workflow_id where r.company_id=$1 and w.name='EOD: remind closers to file')", [companyId]); await c.query("delete from runs where company_id=$1 and workflow_id in (select id from workflows where company_id=$1 and name='EOD: remind closers to file')", [companyId]); });
-      await asOperator((c) => dispatchSchedules(c, when, companyId));
+      expect(posts.slice(n).filter((p) => p.channel === "UALLAN").map((p) => p.text).join("\n")).toContain(`|${d4.toFormat("ccc LLL d")}>: 1 call\n`);   // Kim's, not Lyn's
+      store = [filed, salesCall("KIM", "Kim Old", at(13), "no_show", { contact_id: "GKIM" })];
+      await reset(); await asOperator((c) => dispatchSchedules(c, when, companyId));
       const m = posts.length; await tick(fake, when, companyId);
       expect(posts.slice(m).filter((p) => p.channel === "UALLAN").map((p) => p.text).join("\n")).not.toContain(d4.toFormat("ccc LLL d"));
-    } finally {
-      fake.read.objectRecords = before;
-      await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1 and key in ('crm.object_sales_call','sales_call.outcomes')", [companyId]); await c.query("delete from appointments where id = any($1::uuid[])", [Object.values(ids)]); });
-    }
+    });
   });
+
   it("D110: the form lists only the engine's bookings: a closer's Sales Call blank in GHL with no booking is not a row; a \"ghl:\" row sent by a form opened before is dropped, nothing goes to GHL", async () => {
     const d1 = DateTime.now().setZone(TZ).minus({ days: 1 }), dayStr = d1.toISODate()!;
     const at = (h: number) => d1.set({ hour: h, minute: 0, second: 0, millisecond: 0 }).toUTC().toISO()!;

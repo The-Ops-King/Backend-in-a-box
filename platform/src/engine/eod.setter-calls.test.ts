@@ -154,9 +154,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D154/D156: a setter's calls on the e
     await installCompany({ name: "EOD setter", slug: "eodset", timezone: TZ, locationId: "LOC", templates: ["eod-reminder"], enable: true }, fake);
     const { fireNow } = await import("@/engine/clock");
     const wf = (await asOperator((c) => one<{ id: string }>(c, "select w.id from workflows w join workflow_templates t on t.id=w.template_id where w.company_id=$1 and t.slug='eod-reminder'", [co])))!.id;
-    await asOperator((c) => fireNow(c, co, wf, "t_evening")); await run();
-    const r = (await asOperator((c) => one<{ context: { vars: { due: { days: { today: boolean; calls: number }[] } } } }>(c, "select r.context from runs r where r.workflow_id=$1 and r.user_id=$2 order by r.started_at desc limit 1", [wf, mitch.id])))!;
-    expect(r.context.vars.due.days.filter((x) => x.today)).toEqual([expect.objectContaining({ today: true, calls: 2 })]);
+    // D255: what is owed is GHL's: Pia's triage call and Omar's outbound call each have a blank Discovery Call record of Mitch's
+    const rec = (id: string, who: string, at: DateTime) => ({ id, createdAt: "", properties: { setter: "Mitch Setter", outcome: "", contact_id: id, display_label: `${who} — ${at.setZone(TZ).toISODate()}`, occurred_at: `${at.setZone(TZ).toFormat("ccc LLL d")} · ${at.setZone(TZ).toFormat("h:mm a")}` } });
+    const before = fake.read.objectRecords;
+    fake.read.objectRecords = async (_c, key) => (key === "custom_objects.dating_discovery" ? [rec(pia.ghl, "Pia Test", piaCall.started), rec(omar.ghl, "Omar Test", omarCall.started)] : []);
+    try {
+      await asOperator((c) => fireNow(c, co, wf, "t_evening")); await run();
+      const r = (await asOperator((c) => one<{ context: { vars: { due: { days: { today: boolean; calls: number }[] } } } }>(c, "select r.context from runs r where r.workflow_id=$1 and r.user_id=$2 order by r.started_at desc limit 1", [wf, mitch.id])))!;
+      expect(r.context.vars.due.days.filter((x) => x.today)).toEqual([expect.objectContaining({ today: true, calls: 2 })]);
+    } finally { fake.read.objectRecords = before; }
     await asOperator((c) => c.query("update workflows set enabled=false where id=$1", [wf]));
   });
 
