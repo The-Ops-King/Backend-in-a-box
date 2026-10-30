@@ -6588,3 +6588,13 @@ after. Nothing read it before, so no saved workflow changes with it. PMU's workf
 
 GHL was cleaned the same day: the six who had showed and still carried one of these (each from a later call cancelled or
 no-showed) lost it. Outbound dialer calls that connected are not a show. No buyer carried one.
+
+## D253. An unmatched recording is posted unless it is clearly not a sales call (2026-10-30)
+
+Nelly's Fathom records her own short Meets with people who are not the offer's prospects (about 25 in ten days, none in the CRM or on
+Calendly), and each was posted to Slack as an Unmatched recording. Tyler: "We need them to be better so it only posts sales calls and
+doesn't post calls that aren't sales calls or prospects." Unmatched recording now asks Jev first what the call is (the recording's own
+transcript: an unmatched recording has no contact for the whole-call lookup), with "sales call" meaning a prospect, someone not yet a
+client, about buying or starting the program; a client's session is "other". It stays silent only when Jev clearly says internal or
+other; a sales call, an unsure read, or no transcript to read is still posted, so what the engine cannot tell still reaches a person.
+A Slack change, so every offer in one pass (D: Slack works the same on every offer), each saved with a dry run.
