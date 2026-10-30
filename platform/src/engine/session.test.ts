@@ -14,7 +14,7 @@ describe("operator session", () => {
   it("compares passwords without leaking by length, reads a cookie, knows the open doors", () => {
     expect(passwordMatches("abc", "abc")).toBe(true); expect(passwordMatches("abd", "abc")).toBe(false); expect(passwordMatches("ab", "abc")).toBe(false); expect(passwordMatches("", "")).toBe(false);
     expect(readCookie("a=1; bib_session=x.y; z=3", "bib_session")).toBe("x.y");
-    for (const p of ["/", "/app", "/app/c/hair", "/eod/er_x", "/api/eod/er_x", "/api/tick", "/api/admin/install", "/api/webhooks/whop/1", "/api/slack/events", "/api/slack/oauth", "/api/v1/session"]) expect(openPath(p)).toBe(true);
-    for (const p of ["/api/v1/companies", "/c/hair", "/c/hair/settings"]) expect(openPath(p)).toBe(false);
+    for (const p of ["/", "/app", "/app/c/hair", "/eod/er_x", "/api/eod/er_x", "/api/tick", "/api/admin/install", "/api/webhooks/whop/1", "/api/slack/events", "/api/slack/oauth", "/dating-nelly/onboarding", "/api/v1/session"]) expect(openPath(p)).toBe(true);
+    for (const p of ["/api/v1/companies", "/c/hair", "/c/hair/settings", "/dating-nelly/onboarding/x", "/api/v1/onboarding"]) expect(openPath(p)).toBe(false);
   });
 });

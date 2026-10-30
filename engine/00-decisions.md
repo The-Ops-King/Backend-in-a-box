@@ -6658,3 +6658,17 @@ Closing call booked makes it: "<name> -- Direct" at Scheduled, assigned to the c
 and the Sales Call links to it in the same run. A person who has a closer card (every booked consultation) is untouched.
 Operator doors for the one already made: `/api/admin/events/replay` takes `again: true` with `why` to run an event a workflow already
 ran for once more, after that run is over (its re-entry key retired, as D210 does; audited), and `/api/admin/contact/notes` lists a contact's notes and deletes one (dry run first, audited).
+
+## D260. A team onboarding page per offer (2026-10-30)
+
+Tyler: "when I want to onboard a new closer to the system, I want to be able to give them an 80% onboarding on how to use all
+of the systems", with "a different section for closer, setter, manager", "strictly for onboarding new closers and kind of
+walking them through", "pretty much a static page ... built in React", read-only, edited through chat, Dating first.
+
+- `/<offer>/onboarding` (Dating: `biab.jtylerray.com/dating-nelly/onboarding`). It is open, with no sign-in: Tyler sends the link.
+  `?role=closer|setter|manager` opens it on that role. A manager sees every section; a closer or setter sees theirs.
+- The words live in `platform/src/team-guide/<offer>.ts` and are built into the page at deploy. Nothing is read from the engine
+  or written by the page. An offer without a guide is a 404.
+- Videos are links in the guide: Google Drive, YouTube and Loom play inside the page; anything else is linked; none is "coming
+  soon". Pictures come later.
+- The look is the team's, like the end-of-day page (D220): light, phone first, the offer's accent.
