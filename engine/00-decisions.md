@@ -6784,6 +6784,6 @@ Nelly first.
 - `setsToFollow`: a closing call's setters are the user whose setter link booked it (`set_by`, by name) and whoever ran the
   person's last triage call that started by the time it was booked (one hour's grace); both when they differ. Self-booked with
   no triage: nobody. Test contacts never.
-- New GHL write `addFollowers` (POST /contacts/{id}/followers; adds, never removes).
 - `POST /api/admin/followers/backfill { company, days = 30, skip?, dryRun = true }` lists each contact and who would follow it
-  and why; applied, one write per contact, audited. Booking time onward (a workflow step on Call booked) is the next change.
+  and why; applied, one write per contact through D266's `addFollowers`, audited. From booking time on, D266's Call booked
+  follows the setter whose link booked the call; the triage caller is not added there yet.

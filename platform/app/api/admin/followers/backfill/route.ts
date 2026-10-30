@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     for (const e of byContact.values()) {
       const ids = [...e.followers.keys()];
       try {
-        await liveAdapters.write.addFollowers(adapterCompany, e.ghl_contact_id, ids);
+        await liveAdapters.write.addFollowers(adapterCompany, "contact", e.ghl_contact_id, ids);
         await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.followers_added','contact',$2,$3)", [co.id, e.contact_id, { followers: ids, by: "followers backfill (D268)" }]);
         done.push(e.contact);
       } catch (err) { failed.push({ contact: e.contact, error: String((err as Error).message).slice(0, 200) }); }

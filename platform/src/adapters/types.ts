@@ -115,8 +115,6 @@ export interface CrmWrite {
   addNote(c: Company, contactId: string, body: string): Promise<void>;
   /** D227: one note off a contact (a call summary written on the wrong person). */
   deleteNote?(c: Company, contactId: string, noteId: string): Promise<void>;
-  /** D268: GHL users who follow the contact (a setter, on the people they set), so their own Smart Lists find them. Adds; never removes. */
-  addFollowers?(c: Company, contactId: string, userIds: string[]): Promise<void>;
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;
   updateContact(c: Company, contactId: string, patch: ContactWrite): Promise<void>;
   /** D266: team members (CRM user ids) added as followers of a contact or a card; ones already following stay. Absent: the CRM has no followers. */
