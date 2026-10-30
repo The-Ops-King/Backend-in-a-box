@@ -60,17 +60,12 @@
       {
         "id": "c1",
         "type": "check",
-        "title": "Posted unless clearly not a sales call (a client's session, the team, anything else)",
+        "title": "Only a sales call with a prospect is posted (unsure or no transcript: nothing)",
         "when": {
-          "not": {
-            "in": [
-              "{{vars.classify.kind | default:}}",
-              [
-                "internal",
-                "other"
-              ]
-            ]
-          }
+          "eq": [
+            "{{vars.classify.kind | default:}}",
+            "sales_call"
+          ]
         },
         "else_exit": "not_a_sales_call"
       }
