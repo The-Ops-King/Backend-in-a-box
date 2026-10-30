@@ -6787,3 +6787,14 @@ Nelly first.
 - `POST /api/admin/followers/backfill { company, days = 30, skip?, dryRun = true }` lists each contact and who would follow it
   and why; applied, one write per contact through D266's `addFollowers`, audited. From booking time on, D266's Call booked
   follows the setter whose link booked the call; the triage caller is not added there yet.
+
+## D269. Whoever ran a person's triage call follows them when their closing call is booked (2026-10-30)
+
+Tyler: the setter is "the person who booked or triaged the call", and yes to adding the triage caller going forward (D268 was the
+backfill). D266 makes the setter whose link booked the call a follower; a person who books themselves after a triage call had nobody.
+
+- The run context has `appointment.triager`: the team member on the person's last triage call (`first_call`, not cancelled) that
+  started by an hour after this booking, with their `ghl_user_id`. Additive: nothing read it before.
+- Dating Nelly's Closing call booked (her playbook copy): the contact step every booking runs (n1, which makes the closer the owner)
+  follows `appointment.triager`. D266's rules hold: each id once, and an owner is never also a follower (a closer who triaged
+  them owns them; Tyler: that is fine). Other offers get it only when Tyler asks, one at a time.
