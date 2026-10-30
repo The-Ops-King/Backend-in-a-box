@@ -82,7 +82,7 @@ describe("provision-ghl", () => {
     const stages = f.g.pipelines.find((p) => p.id === "ours")!.stages;
     expect(stages.slice(0, 2)).toMatchObject([{ id: "a", name: "New Lead", position: 0 }, { id: "b", name: "Custom Stage Tyler Added", position: 1 }]);
     expect(stages.map((s) => s.name)).toEqual(["New Lead", "Custom Stage Tyler Added", "Direct Booked", "Appointment Set", "Showed", "Cancelled / No Show", "DQ", "Not Interested"]);
-    expect(f.g.objFields.find((x) => x.id === "f2")!.options!.map((o) => o.key)).toEqual(["mitch", "old", "nelly"]);
+    expect(f.g.objFields.find((x) => x.id === "f2")!.options!.map((o) => o.key)).toEqual(["mitch", "old", "nelly", "taylor", "jassie"]);   // the setup's closers (taylor, jassie: d59bbf9) added after the ones already there
     expect(f.writes().filter((c) => c.path === "/objects/")).toHaveLength(2);   // the other two objects only
     expect(r.after!.every((l) => l.action === "exists")).toBe(true);
     expect((r.install.crm as Record<string, string>).pipeline_setter).toBe("ours");
