@@ -346,8 +346,9 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     const { people } = await leads(x);
     const sourceOf = (p: Person) => p.source;
     const cfg = qualifyConfig(x.bindings);
+    // an offer with no qualifying question has no MQLs to count: said as unavailable, so a report with MQLs in it still answers the rest (PMU's /mtd, 2026-10-30)
     if ((metric === "mqls" || metric === "marketing_dqs") && (!cfg || (!cfg.mql.length && !cfg.dq.length)))
-      throw new MetricError(`${label} come from the answer to the offer's qualifying question, and ${!cfg ? "none is set for this offer (qualify.field)" : "no answers are set (qualify.mql_answers, qualify.dq_answers)"}`);
+      return { rows, unavailable: `${label} come from the answer to the offer's qualifying question, and ${!cfg ? "none is set for this offer (qualify.field)" : "no answers are set (qualify.mql_answers, qualify.dq_answers)"}` };
     const pool = people.filter((p) => !x.filters.source || src(sourceOf(p)) === src(x.filters.source));
     const counts = (p: Person) => metric === "leads" ? true : metric === "marketing_dqs" ? p.q === "dq" : p.q === "mql" || (p.q === "unanswered" && !!cfg?.unansweredIsMql);
     for (const p of pool) if (counts(p)) add(!groupBy ? "" : groupBy === "source" ? sourceOf(p) : timeKey(groupBy, p.at), 1);
