@@ -6639,3 +6639,12 @@ triage call (`t2`), and reads and posts it as it does a dialed call (the call's 
 logged for the end of day; the link says "Open the recording"); the triage booking's own Discovery Call stands for it, so none is
 made (`r1` waits for no booking on the run); her Sales call recorded no longer starts on one (its trigger matches every booking but a
 triage call). The end of day still files the result (D239).
+
+## D256. An event run again is matched as it was the first time (2026-10-30)
+
+Replaying Isabel Vega's triage recording through Setter call logged (D255) started nothing, though the dry run said the workflow took
+it: the replay sent the event with only its contact, so a trigger that asks about the booking's call type never matched, and "takes"
+looked only at the event's type. `eventMatchContext` rebuilds what an event was dispatched with (its contact, its booking with the
+call type, its recording) and `workflowTakes` gives the trigger's own answer, its match included; the operator's replay
+(`/api/admin/events/replay`) uses both, so its dry run says what the run will do. Engine code for every offer: a replay only.
+Tests: `dating-copies.test.ts`.

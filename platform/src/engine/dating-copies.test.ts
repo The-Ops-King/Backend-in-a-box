@@ -15,7 +15,7 @@ import { installCompany } from "./install";
 import { findCompanyWorkflow, saveDefinition, validateDefinition } from "./definitions";
 import { loadCompany } from "./context";
 import { applyPayment } from "./lifecycle";
-import { dispatchEvent, emitEvent } from "./dispatch";
+import { dispatchEvent, emitEvent, eventMatchContext, workflowTakes } from "./dispatch";
 import { simulate } from "./simulate";
 import { tick } from "./runner";
 import { fakeAdapters } from "./test-install";
@@ -200,7 +200,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: Dating Nelly's copies on a com
       const old = await one<{ id: string }>(c, "select id from companies where slug='d118copies'"); if (!old) return;
       await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [old.id]);
       await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [old.id]);
-      for (const t of ["step_effects", "alerts", "slack_posts", "agreements", "sends", "runs", "events", "workflow_triggers", "workflows", "crm_records", "payments", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
+      for (const t of ["step_effects", "alerts", "slack_posts", "agreements", "sends", "runs", "events", "workflow_triggers", "workflows", "crm_records", "payments", "recordings", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"])
         await c.query(`delete from ${t} where company_id=$1`, [old.id]);
       await c.query("delete from companies where id=$1", [old.id]);
     });
@@ -245,16 +245,28 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: Dating Nelly's copies on a com
     expect(await asOperator((c) => many(c, "select 1 from sends where company_id=$1 and channel in ('sms','email')", [co]))).toEqual([]);
   });
 
-  it("D254: a recording of a triage booking starts her Setter call logged; a closing booking's does not", async () => {
+  it("D255, D256: a recording of a triage booking starts her Setter call logged, and so does running its event again (the operator's replay); a closing booking's does not", async () => {
     await asOperator((c) => c.query("update workflows set enabled=true where company_id=$1 and name='Setter call logged'", [co]));
-    const started = (category: string) => asOperator(async (c) => {
+    const scl = (await asOperator((c) => one<{ id: string }>(c, "select id from workflows where company_id=$1 and name='Setter call logged'", [co])))!.id;
+    const recorded = (category: string) => asOperator(async (c) => {
       const ct = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,$2,'Tri','Age') returning id", [co, `G-TRI-${category}`]))!.id;
-      const rec = (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, provider, external_id, title, started_at, invitees, link_status, linked_by) values ($1,$2,'fathom',$3,'Tri and Nelly',now(),'[]','linked','speaker') returning id", [co, ct, `F-${category}`]))!.id;
-      const ev = await emitEvent(c, { company_id: co, contact_id: ct, opportunity_id: null, appointment_id: null, event_type: "recording.received", source: "fathom", data: { recording_id: rec } });
-      const runs = await dispatchEvent(c, ev, { contact: { id: ct }, appointment: { id: "00000000-0000-0000-0000-000000000000", term: { category } }, recording: { id: rec } });
-      return many<{ name: string }>(c, "select w.name from runs r join workflows w on w.id=r.workflow_id where r.id = any($1::uuid[])", [runs]);
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category=$2 order by is_default desc limit 1", [co, category]))!.id;
+      const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 limit 1", [co]))!.id;
+      const appt = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, calendar_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'ghl',$3,$4,$5,now(),now()+interval '15 minutes',now(),'confirmed') returning id", [co, ct, `A-TRI-${category}`, cal, term]))!.id;
+      const rec = (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, appointment_id, provider, external_id, title, started_at, invitees, link_status, linked_by) values ($1,$2,$3,'fathom',$4,'Tri and Nelly',now(),'[]','linked','speaker') returning id", [co, ct, appt, `F-${category}`]))!.id;
+      return emitEvent(c, { company_id: co, contact_id: ct, opportunity_id: null, appointment_id: appt, event_type: "recording.received", source: "fathom", data: { recording_id: rec } });
     });
-    expect((await started("first_call")).map((r) => r.name)).toContain("Setter call logged");
-    expect((await started("closing")).map((r) => r.name)).not.toContain("Setter call logged");
+    const names = (runs: string[]) => asOperator((c) => many<{ name: string }>(c, "select w.name from runs r join workflows w on w.id=r.workflow_id where r.id = any($1::uuid[])", [runs])).then((r) => r.map((x) => x.name));
+    // as it arrives: the inbound door's own context (the booking with its call type, the recording)
+    for (const [category, starts] of [["first_call", true], ["closing", false]] as const) {
+      const ev = await recorded(category);
+      const ctx = await asOperator((c) => eventMatchContext(c, ev));
+      expect(ctx).toMatchObject({ contact: { id: ev.contact_id }, appointment: { id: ev.appointment_id, term: { category } }, recording: { id: ev.data.recording_id } });
+      expect(await asOperator((c) => workflowTakes(c, ev, ctx, scl)), category).toBe(starts);
+      // a replay: only the event is kept; what it was matched with is rebuilt, so the trigger's own answer is the same
+      expect(await asOperator((c) => workflowTakes(c, ev, {}, scl)), `${category}, no context`).toBe(false);
+      const runs = await asOperator(async (c) => dispatchEvent(c, ev, await eventMatchContext(c, ev), { workflowId: scl }));
+      expect((await names(runs)).includes("Setter call logged"), category).toBe(starts);
+    }
   });
 });
