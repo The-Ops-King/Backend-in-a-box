@@ -29,7 +29,7 @@ const fake: Adapters = {
   analyst: { analyze: async () => ({ text: "{}", parsed: {}, model: "fake", usage: { input: 0, output: 0, cacheRead: 0 } }) },
 };
 const TZ = "America/Phoenix";
-/** D255: what is owed is GHL's alone; a test puts Sales Calls in GHL and the bindings that point at them, and takes them away after. */
+/** D264: what is owed is GHL's alone; a test puts Sales Calls in GHL and the bindings that point at them, and takes them away after. */
 const OUTCOMES = JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" });
 const salesCall = (id: string, who: string, at: DateTime, outcome: string, props: Record<string, unknown> = {}) => ({ id, createdAt: at.toISO()!, properties: { display_label: `${who} — ${at.toISODate()}`, scheduled_at: at.toUTC().toISO(), call_date: at.toISODate(), outcome, closer: "Allan P", ...props } });
 async function withGhl<T>(companyIdOf: () => string, recs: () => { id: string; createdAt: string; properties: Record<string, unknown> }[], extra: [string, string][], body: () => Promise<T>): Promise<T> {
@@ -265,7 +265,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     await tick(fake, DateTime.now(), companyId);
     expect(posts.slice(n).filter((p) => p.channel === "CBOOK").map((p) => p.text)).toEqual(["✅ Showed, per Allan P: lost."]);
   });
-  it("D76/D255: the reminder goes on every day until each of the closer's calls has an outcome in GHL, and GHL alone says so: a call the engine holds as a no-show but GHL has blank is owed, a Sales Call the engine has no booking for is owed too; blank two days on, the operator is told", async () => {
+  it("D76/D264: the reminder goes on every day until each of the closer's calls has an outcome in GHL, and GHL alone says so: a call the engine holds as a no-show but GHL has blank is owed, a Sales Call the engine has no booking for is owed too; blank two days on, the operator is told", async () => {
     const day = (n: number) => DateTime.now().setZone(TZ).minus({ days: n }).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
     // Xena's call three days ago is the engine's booking and the ledger holds her no-show, but her Sales Call in GHL is still blank
     const xena = await asOperator(async (c) => {
@@ -298,7 +298,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       await asOperator(async (c) => { await c.query("delete from appointments where id=$1", [xena.appt]); await c.query("delete from contacts where id=$1", [xena.contact]); });
     }
   });
-  it("D255: what was filed is GHL's: a Sales Call with an outcome there is not owed, whatever the engine holds; one blank there is, until it is filed there", async () => {
+  it("D264: what was filed is GHL's: a Sales Call with an outcome there is not owed, whatever the engine holds; one blank there is, until it is filed there", async () => {
     const d4 = DateTime.now().setZone(TZ).minus({ days: 4 }), at = (h: number) => d4.set({ hour: h, minute: 0, second: 0, millisecond: 0 });
     // Lyn's Sales Call was filed through the old process: its own booking id, a "Name · day · time" label; the engine has no booking of hers
     const filed = { id: "LYN", createdAt: at(9).toISO()!, properties: { display_label: `Lyn Old · ${at(9).toFormat("ccc LLL d")} · 9:00 AM`, closer: "Allan P", contact_id: "GLYN", external_id: "zap-uuid", outcome: "showed", disposition: "closed_won", scheduled_at: at(9).toUTC().toISO(), call_date: d4.toISODate() } };

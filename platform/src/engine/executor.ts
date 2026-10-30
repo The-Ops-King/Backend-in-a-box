@@ -919,7 +919,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       return { status: "ok", next, result: { calendars: r.findings.length, low: low.length, raised: r.raised, resolved: r.resolved, ...(cal ? { only: cal.external_id } : {}), ...(low.length ? { problems: low.map((f) => f.text) } : {}) } };
     }
     case "eod_due": {
-      // D76: the closer is reminded every day until each of their calls is filed; D255: what is filed is GHL's alone (below).
+      // D76: the closer is reminded every day until each of their calls is filed; D264: what is filed is GHL's alone (below).
       // D88 (A4): how far back, whether today counts and when the operator hears are the step's; the words are the template's
       const user = d.ctx.user as { id?: string; name?: string; eod?: { day: string; url: string } } | undefined;
       const legacy = node.lookback_days === undefined && node.include_today === undefined && node.overdue_after_days === undefined;
@@ -928,7 +928,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const tz = d.company.timezone, today = d.now.setZone(tz).toISODate()!, label = (day: string) => DateTime.fromISO(day, { zone: tz }).toFormat("ccc LLL d");
       const { eodFacts } = await import("./eod");
       const eod = await eodFacts(d.c, d.company, user.id, (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, ""), d.now as DateTime<true>, lookback);
-      // D255 (Tyler: "the EOD should ONLY pull from the GHL sales calls"): what is owed is GHL's, read live (`owedFromGhl`): their Sales
+      // D264 (Tyler: "the EOD should ONLY pull from the GHL sales calls"): what is owed is GHL's, read live (`owedFromGhl`): their Sales
       // Calls passed with no outcome and their triage calls' Discovery Calls still scheduled, the same list /missing-eod and /weekly give.
       // dials (D156, D191, D239): a setter's outbound call has its own Discovery Call record in GHL from the minute it is logged, so it is
       // in that same list; nothing is counted from what the engine stored

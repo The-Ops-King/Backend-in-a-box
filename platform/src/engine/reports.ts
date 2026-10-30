@@ -146,7 +146,7 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   // D246: who owes an end of day, as the wrap-up is read (a layout that does not word it says nothing about it)
   const { missingEods, missingLines } = await import("./missing-eods");
   const goBase = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
-  // D255: read from GHL; GHL unread, the wrap-up still posts and says the missing EODs could not be read rather than that nobody owes one
+  // D264: read from GHL; GHL unread, the wrap-up still posts and says the missing EODs could not be read rather than that nobody owes one
   const missing = await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>, 14, opts.reads)
     .then((l) => missingLines(l, goBase ? `${goBase}/go/eod/${company.slug}` : undefined))
     .catch((e: Error) => [`Missing EODs couldn't be read from GHL (${String(e.message).slice(0, 120)})`]);

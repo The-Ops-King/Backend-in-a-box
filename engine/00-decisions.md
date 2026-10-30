@@ -6699,7 +6699,21 @@ doors only set an owner and only watch a new calendar. `/api/admin/calendars/own
 booking is its host's again; bookings already held keep theirs); `/api/admin/calendars/watch` with `term: "ignore"` stops watching a
 calendar as install's "ignore" does (D148). Both dry run first, audited.
 
-## D255. What a closer owes on their end of day is read from GHL alone (2026-10-30)
+## D263. A team onboarding page per offer (2026-10-30)
+
+Tyler: "when I want to onboard a new closer to the system, I want to be able to give them an 80% onboarding on how to use all
+of the systems", with "a different section for closer, setter, manager", "strictly for onboarding new closers and kind of
+walking them through", "pretty much a static page ... built in React", read-only, edited through chat, Dating first.
+
+- `/<offer>/onboarding` (Dating: `biab.jtylerray.com/dating-nelly/onboarding`). It is open, with no sign-in: Tyler sends the link.
+  `?role=closer|setter|manager` opens it on that role. A manager sees every section; a closer or setter sees theirs.
+- The words live in `platform/src/team-guide/<offer>.ts` and are built into the page at deploy. Nothing is read from the engine
+  or written by the page. An offer without a guide is a 404.
+- Videos are links in the guide: Google Drive, YouTube and Loom play inside the page; anything else is linked; none is "coming
+  soon". Pictures come later.
+- The look is the team's, like the end-of-day page (D220): light, phone first, the offer's accent.
+
+## D264. What a closer owes on their end of day is read from GHL alone (2026-10-30)
 
 Tyler: "the EOD should ONLY pull from the GHL sales calls. as i've said 1000 times. everything pulls from GHL!" `/missing-eod`
 disagreed with `/weekly`'s "No EOD outcome yet" because one read the engine's stored bookings and reports and the other GHL's

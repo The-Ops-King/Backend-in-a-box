@@ -1,0 +1,60 @@
+/* D263: the team onboarding page. Team facing like the end-of-day page (D220): light, phone first, the offer's accent (--brand). */
+.page{--brand:#1f6feb;--brand-ink:color-mix(in srgb,var(--brand) 70%,#000);--brand-soft:color-mix(in srgb,var(--brand) 9%,#fff);
+  --ink:#14161a;--ink-2:#4a505a;--ink-3:#7a808a;--line:#e3e6ea;--card:#fff;--soft:#f6f7f9;
+  position:relative;min-height:100vh;background:var(--soft);color:var(--ink);font-size:16px;line-height:1.55;color-scheme:light}
+.top{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.topIn{max-width:760px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.logo{max-height:32px;max-width:60%;object-fit:contain}
+.mark{font-weight:800;font-size:16px;letter-spacing:.02em;text-transform:uppercase;color:var(--brand)}
+.kicker{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.wrap{max-width:760px;margin:0 auto;padding:28px 16px 96px}
+.h1{font-size:32px;line-height:1.15;margin:0 0 10px;font-weight:800;letter-spacing:-.015em;color:var(--ink)}
+.intro{color:var(--ink-2);margin:0 0 22px;font-size:17px}
+
+.roles{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px;width:max-content;max-width:100%}
+.role{all:unset;cursor:pointer;padding:9px 18px;border-radius:999px;font-weight:700;font-size:15px;color:var(--ink-2)}
+.role:hover{background:var(--soft)}
+.role:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.on,.on:hover{background:var(--brand);color:#fff}
+.roleAbout{color:var(--ink-3);font-size:14px;margin:10px 4px 22px}
+
+.toc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 20px;margin-bottom:30px;display:grid;gap:12px}
+.toc ol{margin:6px 0 0;padding-left:20px;color:var(--ink-3);font-size:14.5px}
+.toc li{margin:3px 0}
+.toc a{color:var(--ink-2);text-decoration:none}.toc a:hover{color:var(--brand-ink);text-decoration:underline}
+.toc .tocPart{font-weight:700;color:var(--ink)}
+
+.part{margin:0 0 34px;scroll-margin-top:72px}
+.h2{display:flex;align-items:center;gap:12px;font-size:22px;font-weight:800;letter-spacing:-.01em;margin:0 0 14px;color:var(--ink)}
+.h2 span{flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--brand);color:#fff;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:12px;box-shadow:0 1px 2px rgba(20,22,26,.04);scroll-margin-top:72px}
+.cardHd{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.h3{font-size:18px;font-weight:800;margin:0}
+.tags{display:flex;gap:6px}
+.tag{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--brand-soft);color:var(--brand-ink)}
+.summary{color:var(--ink-2);margin:6px 0 12px}
+.p{margin:0 0 12px}
+.list{margin:0 0 12px;padding-left:22px}.list li{margin:4px 0}
+.steps{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:8px}
+.steps li{display:flex;gap:12px;align-items:flex-start}
+.steps li>span{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;background:var(--soft);border:1px solid var(--line);color:var(--ink-2);margin-top:1px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin:0 0 12px}
+.tbl table{width:100%;min-width:0;border-collapse:collapse;font-size:15px}
+.tbl th{text-align:left;font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);background:var(--soft);padding:9px 12px;border-bottom:1px solid var(--line)}
+.tbl td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl td:first-child{font-weight:700;white-space:nowrap}
+.note{margin:0 0 12px;background:var(--brand-soft);border-left:4px solid var(--brand);border-radius:10px;padding:10px 14px;font-size:15px}
+.important{background:#fff7ed;border-left-color:#c2410c;color:#7c2d12}
+.video{margin:0 0 12px}
+.video iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:12px;background:#000;display:block}
+.video figcaption{font-size:13px;color:var(--ink-3);margin-top:6px}
+.videoSoon{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border:1px dashed var(--line);border-radius:12px;padding:14px 16px;margin:0 0 12px;color:var(--ink-3);font-size:14px;background:var(--soft)}
+.videoSoon b{color:var(--ink-2)}
+.foot{color:var(--ink-3);font-size:14px;text-align:center;margin-top:40px}
+.page code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+.page a{color:var(--brand-ink)}
+
+@media (max-width:520px){.h1{font-size:26px}.card{padding:16px}.role{padding:8px 13px;font-size:14px}
+  .tbl thead{display:none}.tbl tr{display:block;padding:10px 12px;border-bottom:1px solid var(--line)}.tbl tr:last-child{border-bottom:0}
+  .tbl td{display:block;padding:0;border:0}.tbl td:first-child{margin-bottom:2px}}
