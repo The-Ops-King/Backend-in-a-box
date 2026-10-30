@@ -151,9 +151,16 @@ export async function calendarOwner(c: PoolClient, a: { company: string; calenda
   const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
   const cal = await one<{ id: string; name: string; config: Record<string, unknown> }>(c, "select id, name, config from calendars where company_id=$1 and active and (external_id=$2 or lower(name)=lower($2))", [co.id, a.calendar.trim()]);
   if (!cal) return { ok: false, status: 404, error: `no watched calendar is ${a.calendar}` };
+  const was = typeof cal.config.owner === "string" ? (await one<{ name: string }>(c, "select name from users where id=$1", [cal.config.owner]))?.name ?? null : null;
+  // D262: "host" takes the owner off: each booking is its host's again (a round robin with more than one closer); bookings already held keep theirs
+  if (a.owner.trim().toLowerCase() === "host") {
+    if (a.dryRun !== false) return { ok: true, dryRun: true, calendar: cal.name, was, owner: "each booking's host", upcoming: 0 };
+    await c.query("update calendars set config = config - 'owner' where id=$1", [cal.id]);
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'calendar.owner','calendar',$2,$3,$4)", [co.id, cal.id, { owner: cal.config.owner ?? null }, { owner: null, why: a.why }]);
+    return { ok: true, dryRun: false, calendar: cal.name, was, owner: "each booking's host", upcoming: 0 };
+  }
   const owner = await one<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, a.owner.trim()]);
   if (!owner) return { ok: false, status: 404, error: `${a.owner} is not on this offer's roster` };
-  const was = typeof cal.config.owner === "string" ? (await one<{ name: string }>(c, "select name from users where id=$1", [cal.config.owner]))?.name ?? null : null;
   const upcoming = Number((await one<{ n: string }>(c, "select count(*) as n from appointments where calendar_id=$1 and starts_at > now() and assigned_user_id is distinct from $2", [cal.id, owner.id]))?.n ?? 0);
   if (a.dryRun !== false) return { ok: true, dryRun: true, calendar: cal.name, was, owner: owner.name, upcoming };
   await c.query("update calendars set config = config || jsonb_build_object('owner', $2::text) where id=$1", [cal.id, owner.id]);
@@ -237,6 +244,15 @@ export async function calendarWatch(c: PoolClient, adapters: Adapters, a: { comp
   Promise<{ ok: true; dryRun: boolean; calendar: string; id: string; was: "watched" | "not watched"; maps: string } | Fail> {
   if (!a.calendar || !a.term || !a.why?.trim()) return { ok: false, status: 400, error: "calendar, term and why are required" };
   const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  // D262: term "ignore" stops watching a calendar, as install's "ignore" does (D148): inactive, neither polled nor health-checked; its bookings stay
+  if (a.term === "ignore") {
+    const cal = await one<{ id: string; name: string; external_id: string }>(c, "select id, name, external_id from calendars where company_id=$1 and active and (external_id=$2 or lower(name)=lower($2))", [co.id, a.calendar.trim()]);
+    if (!cal) return { ok: false, status: 404, error: `no watched calendar is ${a.calendar}` };
+    if (a.dryRun !== false) return { ok: true, dryRun: true, calendar: cal.name, id: cal.external_id, was: "watched", maps: "ignore: no longer watched" };
+    await c.query("update calendars set active=false where id=$1", [cal.id]);
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calendar.ignored','calendar',$2,$3)", [co.id, cal.external_id, { why: a.why }]);
+    return { ok: true, dryRun: false, calendar: cal.name, id: cal.external_id, was: "watched", maps: "ignore: no longer watched" };
+  }
   const { adapterCompany: ac } = await loadCompany(c, co.id);
   const want = a.calendar.trim().toLowerCase();
   const k = (await bookingFor(adapters, ac).listCalendars(ac)).find((x) => x.id.toLowerCase() === want || x.name.trim().toLowerCase() === want);
