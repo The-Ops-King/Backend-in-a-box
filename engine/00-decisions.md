@@ -6674,3 +6674,10 @@ write-up) goes to a new Call Summary field on her Discovery Call (made in GHL by
 on the call's own Discovery Call when it makes one and on the triage booking's own when the call was one (never created there, never
 its result or outcome), and as a "CALL SUMMARY" note on the contact. Lookups' bookings carry their slot key. The result stays the end
 of day's (D239). Tests: `dating-copies.test.ts`, `eod.setter-calls.test.ts`.
+
+## D260. Open cards follow a person to their new GHL user (2026-10-30)
+
+Jassie's AOL GHL user was removed for her nellysudri one, and five open cards were still on the old user. Tyler: "Add her proper
+contact to all of those open cards." `POST /api/admin/cards/reassign { company, from: <GHL user id or email>, to: <roster email>, why,
+dryRun = true }`: every open card the replica has on `from`, each read live in GHL first and moved only if GHL still has it open on
+`from` (the rest are said); the owner alone is written. Audited.
