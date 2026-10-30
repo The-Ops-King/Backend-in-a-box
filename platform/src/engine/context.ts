@@ -131,6 +131,11 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
              -- D266: the setter the booking names (set_by is a roster name), as a team member, so a step can make them a follower
              (select json_build_object('id', su.id, 'first_name', split_part(su.name,' ',1), 'name', su.name, 'email', su.email, 'ghl_user_id', su.ghl_user_id, 'slack_user_id', su.slack_user_id, 'mention', coalesce('<@' || su.slack_user_id || '>', su.name))
                 from users su where su.company_id=a.company_id and su.active and lower(su.name)=lower(trim(a.set_by)) order by su.created_at limit 1) as setter,
+             -- D269: whoever ran their triage call before this call was booked (its last one, not cancelled, started by an hour after booking), so a step can make them a follower too
+             (select json_build_object('id', tu.id, 'first_name', split_part(tu.name,' ',1), 'name', tu.name, 'email', tu.email, 'ghl_user_id', tu.ghl_user_id, 'slack_user_id', tu.slack_user_id, 'mention', coalesce('<@' || tu.slack_user_id || '>', tu.name))
+                from appointments tb join company_terms tbt on tbt.id=tb.appointment_term join users tu on tu.id=tb.assigned_user_id
+                where tb.company_id=a.company_id and tb.contact_id=a.contact_id and tb.id<>a.id and tbt.category='first_call' and tb.status<>'cancelled' and tb.starts_at <= coalesce(a.booked_at, a.starts_at) + interval '1 hour' and tu.active
+                order by tb.starts_at desc limit 1) as triager,
              ot.category as outcome, cot.category as call_outcome
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term

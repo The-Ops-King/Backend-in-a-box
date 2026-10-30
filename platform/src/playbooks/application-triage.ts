@@ -326,6 +326,8 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
     Object.assign(node(d, "t1"), { match: isType, title: `Only a ${b.callType} booking (its calendar's call type)` });
     Object.assign(node(d, "t2"), { match: isType, title: `Only a ${b.callType} moved` });
     if (b.record !== "discovery") { if (!b.salesCallType) throw new Error(`copies.json: ${b.workflow} writes a Sales Call and needs its salesCallType`); (node(d, "k4").properties as Record<string, string>).call_type = b.salesCallType; }
+    // D269: whoever ran their triage call follows them too, on the contact step every booking runs (the setter whose link booked it already does, D266)
+    if (b.record !== "discovery") node(d, "n1").followers = ["{{appointment.triager.ghl_user_id | default:}}"];
     if (b.card) { const v4 = node(d, "v4"); (v4.value as Record<string, unknown>).name = `${cap(b.card)} rescheduled`; (v4.else_value as Record<string, unknown>).name = `New ${b.card} booked`; }
     if (b.tags?.length) for (const id of ["s5", "b6"]) { const n = node(d, id); n.add = [...(n.add as string[]), ...b.tags]; }
     rechannel(d, b.channel);

@@ -90,6 +90,9 @@
       "id": "{{crm.field_contact_appointment_date}}",
       "value": "{{appointment.starts_at | date_company:yyyy-MM-dd}}"
      }
+    ],
+    "followers": [
+     "{{appointment.triager.ghl_user_id | default:}}"
     ]
    },
    {

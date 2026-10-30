@@ -8,6 +8,7 @@ import { applyAppointment } from "@/engine/poll";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
 import { fakeAdapters, fakeProbes } from "@/engine/test-install";
+import { findCompanyWorkflow, saveDefinition } from "@/engine/definitions";
 import type { Adapters, AppointmentSnapshot } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -84,5 +85,33 @@ describe.skipIf(!process.env.DATABASE_URL)("D266: the setter follows the person 
     const b3 = (await bookingSteps(ct)).find((s) => s.node_id === "b3")!;
     expect(b3).toMatchObject({ status: "ok", result: { followers_failed: expect.stringContaining("user not found") } });
     expect(await asOperator((c) => one(c, "select level from alerts where company_id=$1 and key like 'followers:%' and resolved_at is null", [co]))).toMatchObject({ level: "warning" });
+  });
+
+  it("D269: whoever ran their triage call follows them too, with or without a setter; the closer who triaged them owns them, so is not also a follower", async () => {
+    // the offer's own Call booked adds the triage caller on the contact step that runs on every booking (as Dating Nelly's does)
+    await asOperator(async (c) => {
+      const w = await findCompanyWorkflow(c, co, "call-booked"); if (!w.ok) throw new Error(w.why);
+      const def = (await one<{ definition: { nodes: { id: string; followers?: string[] }[] } }>(c, "select v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.id=$1", [w.id]))!.definition;
+      def.nodes.find((n) => n.id === "n1")!.followers = ["{{appointment.triager.ghl_user_id | default:}}"];
+      expect(await saveDefinition(c, { workflowId: w.id, definition: def, note: "D269 test: the triage caller follows" })).toMatchObject({ ok: true });
+      await c.query("insert into users (company_id, email, name, role, ghl_user_id) values ($1,'mo@x.com','Mo Triage','setter','U-MO')", [co]);
+    });
+    const triage = async (contactId: string, userGhl: string, hoursAgo: number, status = "confirmed") => asOperator(async (c) => {
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='first_call' order by sort limit 1", [co]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, source, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) select $1,$2,'ghl',$3,now() - make_interval(hours => $4),now() - make_interval(hours => $4) + interval '15 minutes',now() - interval '3 days',$5,$6,u.id from users u where u.company_id=$1 and u.ghl_user_id=$7",
+        [co, contactId, `TRI-${contactId}-${hoursAgo}`, hoursAgo, status, term, userGhl]);
+    });
+    let n = follows.length;
+    const eve = await person("G-EVE", "Eve"); await triage(eve, "U-MO", 2);
+    await book("A-EVE", "G-EVE");                                 // self-booked after Mo's triage
+    expect(follows.slice(n).filter((f) => f.on === "contact")).toEqual([{ on: "contact", id: "G-EVE", ids: ["U-MO"] }]);
+    n = follows.length;
+    const fay = await person("G-FAY", "Fay"); await triage(fay, "U-MO", 2);
+    await book("A-FAY", "G-FAY", "Luis Setter");                  // Luis booked, Mo triaged: both
+    expect(follows.slice(n).filter((f) => f.on === "contact").map((f) => f.ids).flat().sort()).toEqual(["U-LUIS", "U-MO"]);
+    n = follows.length;
+    const gus = await person("G-GUS", "Gus"); await triage(gus, "U1", 2); await triage(gus, "U-MO", 30, "cancelled");
+    await book("A-GUS", "G-GUS");                                 // Sam triaged and closes: the owner; Mo's triage was cancelled
+    expect(follows.slice(n)).toEqual([]);
   });
 });

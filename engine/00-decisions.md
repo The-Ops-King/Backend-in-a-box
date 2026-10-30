@@ -6771,3 +6771,30 @@ counted the same hour two to four times (Minerva's "20 slots"). Now each count i
 (`bookable`): earliest first, each its calendar's own length (Calendly says it; a GHL calendar is an hour). `/availability` per
 calendar, per person (a person's calls on several calendars fitted together), and the day totals; and the low-availability alert,
 whose threshold now means bookable calls. Without the per-person split, a time two calendars offer counts once, as before.
+
+## D268. Setters follow the people they set, so their own Smart Lists find them (2026-10-30)
+
+Tyler: "they need to know about their sets ... a smart list called 'My closed' ... where they're the follower and one where it's
+'My no-show'". Results that matter: closed and no-show. The setter is whoever booked the call or ran its triage. All offers,
+Nelly first.
+
+- GHL Smart Lists have no "followed by me" or "current user" filter, and the public API cannot create them, so each setter gets two
+  lists made by hand once: Followers = them and tag `stat-closed-won`; Followers = them and tag `stat-no-show`. A rebook already
+  removes `stat-no-show` (Call booked), so the no-show list drops people who rebook.
+- `setsToFollow`: a closing call's setters are the user whose setter link booked it (`set_by`, by name) and whoever ran the
+  person's last triage call that started by the time it was booked (one hour's grace); both when they differ. Self-booked with
+  no triage: nobody. Test contacts never.
+- `POST /api/admin/followers/backfill { company, days = 30, skip?, dryRun = true }` lists each contact and who would follow it
+  and why; applied, one write per contact through D266's `addFollowers`, audited. From booking time on, D266's Call booked
+  follows the setter whose link booked the call; the triage caller is not added there yet.
+
+## D269. Whoever ran a person's triage call follows them when their closing call is booked (2026-10-30)
+
+Tyler: the setter is "the person who booked or triaged the call", and yes to adding the triage caller going forward (D268 was the
+backfill). D266 makes the setter whose link booked the call a follower; a person who books themselves after a triage call had nobody.
+
+- The run context has `appointment.triager`: the team member on the person's last triage call (`first_call`, not cancelled) that
+  started by an hour after this booking, with their `ghl_user_id`. Additive: nothing read it before.
+- Dating Nelly's Closing call booked (her playbook copy): the contact step every booking runs (n1, which makes the closer the owner)
+  follows `appointment.triager`. D266's rules hold: each id once, and an owner is never also a follower (a closer who triaged
+  them owns them; Tyler: that is fine). Other offers get it only when Tyler asks, one at a time.
