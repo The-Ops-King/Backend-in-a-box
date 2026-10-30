@@ -6657,4 +6657,4 @@ Dating Nelly's Sales call recorded: before the Sales Call is written, a person w
 Closing call booked makes it: "<name> -- Direct" at Scheduled, assigned to the closer on the call; the end of day moves it from there,
 and the Sales Call links to it in the same run. A person who has a closer card (every booked consultation) is untouched.
 Operator doors for the one already made: `/api/admin/events/replay` takes `again: true` with `why` to run an event a workflow already
-ran for once more (audited), and `/api/admin/contact/notes` lists a contact's notes and deletes one (dry run first, audited).
+ran for once more, after that run is over (its re-entry key retired, as D210 does; audited), and `/api/admin/contact/notes` lists a contact's notes and deletes one (dry run first, audited).
