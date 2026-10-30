@@ -14,6 +14,11 @@ import { requestReassign } from "@/engine/reassign";
 import { recordRecording } from "@/engine/recordings";
 import { dispatchEvent } from "@/engine/dispatch";
 import { reactionArrived } from "@/engine/webhooks/slack";
+import { loadCompany } from "@/engine/context";
+import { prefill, submitEod, todayFor } from "@/engine/eod";
+import { TAKEN } from "@/engine/eod-form";
+import { reassignStart, reassignPicked, reassignChosen } from "@/engine/webhooks/reassign-command";
+import { parseSlackInteraction } from "@/engine/webhooks/slack-actions";
 import type { Adapters } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -112,5 +117,63 @@ describe.skipIf(!HAS_DB)("D253: reassigning a call, the shipped workflows", () =
     if (r.outcome === "linked" && "event" in r && r.event) await asOperator((c) => dispatchEvent(c, r.event!, { contact: { id: ct }, appointment: { id: call } }));
     await ticks();
     expect(posts.filter((p) => p.channel === "CATT")).toEqual([]);
+  });
+  it("the end of day: Jose says Minerva took a call; it leaves his day, is handed to her and is on hers to file", async () => {
+    const day = todayFor(TZ), now = DateTime.now().setZone(TZ);
+    const at = now.hour >= 1 ? now.minus({ minutes: 30 }) : now;
+    const id = await asOperator(async (c) => {
+      await c.query("update users set report_token=$2 where id=$1", [jp, `tok-${SLUG}`]);
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [co]))!.id;
+      const cal = (await one<{ id: string }>(c, "select id from calendars where company_id=$1 and external_id='CAL-RR'", [co]))!.id;
+      const ct3 = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone) values ($1,'G-J','Johanny','Restrepo',$2) returning id", [co, TZ]))!.id;
+      return (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, slot_key, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status) values ($1,$2,'ghl','EV-J','EV-J',$3,$4,$5,$6,$7,now(),'confirmed') returning id",
+        [co, ct3, cal, term, jp, at.toJSDate(), at.plus({ minutes: 20 }).toJSDate()]))!.id;
+    });
+    const pre = await asOperator(async (c) => { const { row } = await loadCompany(c, co); return prefill(c, row, { id: jp, name: "Jose P", email: "jp@x.com" }, day); });
+    const calls = pre.calls.filter((x) => x.appointment_id === id).map((x) => ({ ...x, outcome: TAKEN }));
+    expect(calls).toHaveLength(1);
+    const ans = { calls_count: "0", closes: "", deposits: "0", cash: "", revenue: "", day_answers: {} };
+    expect(await asOperator((c) => submitEod(c, { token: `tok-${SLUG}`, day, answers: { ...ans, calls } as never }))).toMatchObject({ ok: false, why: expect.stringMatching(/who took the call/) });
+    expect(await asOperator((c) => submitEod(c, { token: `tok-${SLUG}`, day, answers: { ...ans, calls: calls.map((x) => ({ ...x, taken_by: jp })) } as never }))).toMatchObject({ ok: false, why: expect.stringMatching(/on the team/) });
+    expect(await asOperator((c) => submitEod(c, { token: `tok-${SLUG}`, day, answers: { ...ans, calls: calls.map((x) => ({ ...x, taken_by: min })) } as never }))).toMatchObject({ ok: true, recorded: 0 });
+    await ticks();
+    expect(await closerOf(id)).toBe("Minerva Rostro");
+    const theirs = await asOperator(async (c) => { const { row } = await loadCompany(c, co); return prefill(c, row, { id: min, name: "Minerva Rostro", email: "min@x.com" }, day); });
+    expect(theirs.calls.map((x) => x.contact)).toContain("Johanny Restrepo");
+    const his = await asOperator(async (c) => { const { row } = await loadCompany(c, co); return prefill(c, row, { id: jp, name: "Jose P", email: "jp@x.com" }, day); });
+    expect(his.calls.map((x) => x.contact)).not.toContain("Johanny Restrepo");
+  });
+  it("/reassign: a closer's own calls, ticked from the day's list, handed to whoever they pick; someone else's are a manager's", async () => {
+    const at = DateTime.now().setZone(TZ).plus({ days: 2 }).set({ hour: 10, minute: 0 }), day = at.toISODate()!;
+    const [a1, a2] = await asOperator(async (c) => {
+      const cal = (await one<{ id: string; t: string }>(c, "select id, appointment_term as t from calendars where company_id=$1 and external_id='CAL-RR'", [co]))!;
+      const mk = async (ext: string, ctId: string, h: number) => (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, slot_key, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status) values ($1,$2,'ghl',$3,$3,$4,$5,$6,$7,$8,now(),'confirmed') returning id",
+        [co, ctId, ext, cal.id, cal.t, jp, at.plus({ hours: h }).toJSDate(), at.plus({ hours: h, minutes: 45 }).toJSDate()]))!.id;
+      return [await mk("EV-R1", ct, 0), await mk("EV-R2", ct2, 2)];
+    });
+    const start = await asOperator((c) => reassignStart(c, co, "S-JP", TZ, "CCHAN"));
+    expect(start).toMatchObject({ view: { callback_id: "reassign_pick" } });
+    const fromOpts = ((start as { view: { blocks: { block_id: string; element: { options: { value: string }[] } }[] } }).view.blocks[0].element.options).map((o) => o.value);
+    expect(fromOpts).toEqual([jp]);   // a closer sees only themselves
+    expect(await asOperator((c) => reassignStart(c, co, "S-NOBODY", TZ, "CCHAN"))).toMatchObject({ say: expect.stringMatching(/not on this offer's team/) });
+    expect(await asOperator((c) => reassignPicked(c, co, "S-MIN", TZ, { from: jp, day }, '{"channel":"CCHAN"}'))).toMatchObject({ errors: { from: expect.stringMatching(/your own calls/) } });
+    const picked = await asOperator((c) => reassignPicked(c, co, "S-JP", TZ, { from: jp, day }, '{"channel":"CCHAN"}'));
+    const view = (picked as { view: { callback_id: string; private_metadata: string; blocks: { block_id?: string; element?: { options: { value: string; text: { text: string } }[] } }[] } }).view;
+    expect(view.callback_id).toBe("reassign_calls");
+    const listed = view.blocks.find((b) => b.block_id === "calls")!.element!.options;
+    expect(listed.map((o) => o.value)).toEqual([a1, a2]);
+    expect(listed[0].text.text).toMatch(/^10:00 AM · Bertha Ekoko \(Closing/);
+    expect(view.blocks.find((b) => b.block_id === "to")!.element!.options.map((o) => o.value)).not.toContain(jp);
+    expect(await asOperator((c) => reassignChosen(c, co, "S-JP", TZ, { calls: "", to: min }, view.private_metadata))).toMatchObject({ errors: { calls: "Tick at least one call" } });
+    const done = await asOperator((c) => reassignChosen(c, co, "S-JP", TZ, { calls: `${a1},${a2}`, to: min }, view.private_metadata));
+    expect(done).toMatchObject({ say: expect.stringMatching(/^🔀 Handed 2 calls to Minerva Rostro: 10:00 AM Bertha Ekoko, 12:00 PM Sherita Hogan\./) });
+    await ticks();
+    expect([await closerOf(a1), await closerOf(a2)]).toEqual(["Minerva Rostro", "Minerva Rostro"]);
+  });
+
+  it("a form's checkboxes and date come back as values", () => {
+    const raw = new URLSearchParams({ payload: JSON.stringify({ type: "view_submission", user: { id: "U1" }, view: { callback_id: "reassign_calls", private_metadata: "{}", state: { values: {
+      calls: { v: { selected_options: [{ value: "a" }, { value: "b" }] } }, day: { v: { selected_date: "2026-10-30" } }, to: { v: { selected_option: { value: "m" } } } } } } }) }).toString();
+    expect(parseSlackInteraction(raw)).toMatchObject({ kind: "submit", values: { calls: "a,b", day: "2026-10-30", to: "m" } });
   });
 });

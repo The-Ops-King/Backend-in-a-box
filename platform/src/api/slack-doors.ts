@@ -11,6 +11,7 @@ import { alertPressed, parseSlackInteraction, ONLY_MANAGERS, type SlackPress } f
 import { checkSubmit, LINK_ACTIONS, LINK_FORM, linkForm, linkSubmitted, parseMeta } from "@/engine/webhooks/slack-link";
 import { openTicket, TICKET_COMMAND, TICKET_USAGE } from "@/engine/tickets";
 import { TEAM_COMMAND, teamCommand } from "@/engine/team-command";
+import { REASSIGN_COMMAND, REASSIGN_PICK, REASSIGN_CALLS, reassignStart, reassignPicked, reassignChosen } from "@/engine/webhooks/reassign-command";
 import { AGREEMENT_COMMAND, AGREEMENT_FORM, agreementForm, answerAgreementCommand, checkAgreementPress, checkAgreementSubmit, requestAgreement, type AgreementChoice, type Who } from "@/engine/webhooks/agreement-request";
 import { slackBot } from "@/engine/slack-conn";
 import { ambiguousWords, routeSlack, slackGone, type SharedApp, type SlackRoute, type SlackWho } from "@/engine/slack-app";
@@ -128,6 +129,15 @@ export async function commandsDoor(req: Request, key: DoorKey): Promise<Response
       if (a.send) return { companyId, agreement: { ...a.send, user: cmd.userId, url: f.get("response_url") ?? "", say: a.say } };
       return NextResponse.json(a.say);
     }
+    // D253: /reassign opens its form here too (inside the three seconds)
+    if (name === REASSIGN_COMMAND) {
+      const a = await reassignStart(c, companyId, cmd.userId, row.timezone, cmd.channelId);
+      if ("say" in a) return NextResponse.json({ response_type: "ephemeral", text: a.say });
+      const bot = await slackBot(c, companyId), trigger = f.get("trigger_id");
+      if (!bot || !trigger || !liveAdapters.notifier.openView) return NextResponse.json({ response_type: "ephemeral", text: "Slack didn't give me a way to open the form; try again." });
+      await liveAdapters.notifier.openView(bot.token, trigger, a.view);
+      return new Response(null, { status: 200 });
+    }
     // D152: /support opens a ticket (the reply says it is in; the post and the operator's note follow)
     if (name === TICKET_COMMAND) return cmd.text.trim() ? { companyId, ticket: true } : NextResponse.json({ response_type: "ephemeral", text: TICKET_USAGE });
     // D203: /team (the operator only) answers privately, after the response: it reads GHL, Slack and the booking tool
@@ -198,6 +208,19 @@ export async function interactionsDoor(req: Request, key: DoorKey): Promise<Resp
       const a = await checkAgreementSubmit(c, companyId, p.user, bindings, p.values.who ?? "", p.values.which ?? "");
       if ("errors" in a) return NextResponse.json({ response_action: "errors", errors: a.errors });
       return { companyId, kind: "agreement", user: p.user, ...a };
+    }
+    // D253: /reassign's two forms: the first is answered with the second in its place; the second hands the calls over now
+    if (p.kind === "submit" && (p.callbackId === REASSIGN_PICK || p.callbackId === REASSIGN_CALLS)) {
+      const { row } = await loadCompany(c, companyId);
+      if (p.callbackId === REASSIGN_PICK) {
+        const r = await reassignPicked(c, companyId, p.user, row.timezone, p.values, p.meta);
+        return "errors" in r ? NextResponse.json({ response_action: "errors", errors: r.errors }) : NextResponse.json({ response_action: "update", view: r.view });
+      }
+      const r = await reassignChosen(c, companyId, p.user, row.timezone, p.values, p.meta);
+      if ("errors" in r) return NextResponse.json({ response_action: "errors", errors: r.errors });
+      const said = r.say, token = bot.token, user = p.user;
+      after(() => liveAdapters.notifier.post(token, user, said).then(() => runCompanyNow(companyId)).catch((e) => console.error("slack reassign:", e)));
+      return NextResponse.json({ response_action: "clear" });
     }
     if (p.kind === "submit") {
       const meta = p.callbackId === LINK_FORM ? parseMeta(p.meta) : null;

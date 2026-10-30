@@ -3,10 +3,10 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, usePage } from "~/api";
 import type { CallEntry, EodField } from "@/engine/eod-form";
 type EodPrefill = { day: string; calls_count: number; closes: number; deposits: number; cash: number; revenue: number; calls: CallEntry[] };
-import { dayFields, fieldsFor, isSetterCall, outcomeLabel, totalsOf, valueOf, DIAL_OUTCOMES, TRIAGE_OUTCOMES, type CallOutcome } from "@/engine/eod-form";
+import { dayFields, fieldsFor, isSetterCall, outcomeLabel, totalsOf, valueOf, DIAL_OUTCOMES, TRIAGE_OUTCOMES, TAKEN, TAKEN_LABEL, type CallOutcome } from "@/engine/eod-form";
 import { Skeleton } from "~/ui/pieces";
 
-type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; brand?: { name: string; logo_url: string | null; accent: string | null }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] };
+type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; brand?: { name: string; logo_url: string | null; accent: string | null }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] ; team: { id: string; name: string }[] };
 
 /**
  * The closer's end-of-day page (D34): bare, no nav, nothing but their day. One question per call first (what happened), then
@@ -50,7 +50,8 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const [busy, setBusy] = useState(false); const [done, setDone] = useState<{ recorded: number; changes: number } | null>(null); const [err, setErr] = useState<string | null>(null); const [editing, setEditing] = useState(false);
   const t = totalsOf(calls, d.fields);
   // a call is done when it has its outcome and every required answer that outcome asks for; done calls fold to one line
-  const complete = (c: CallEntry) => !!c.outcome && !c.moved && fieldsFor(d.fields, c.outcome, c.kind).every((f) => !f.required || String(valueOf(c, f.key) ?? "").trim() !== "");
+  const complete = (c: CallEntry) => c.outcome === TAKEN ? !!c.taken_by : !!c.outcome && !c.moved && fieldsFor(d.fields, c.outcome, c.kind).every((f) => !f.required || String(valueOf(c, f.key) ?? "").trim() !== "");
+  const takenBy = (c: CallEntry) => d.team.find((m) => m.id === c.taken_by)?.name;
   const set = (i: number, patch: Partial<CallEntry>) => setCalls((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const setField = (i: number, key: string, v: string) => {
     if (key === "revenue" || key === "cash") set(i, { [key]: v === "" ? null : Number(v.replace(/[,$]/g, "")) || 0 });
@@ -102,19 +103,20 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
     {calls.length === 0 ? <><h2 className="eodx-h2 out">Your calls</h2><div className="eodx-empty">No calls on your calendar this day.</div></> : null}
     {groups.map((g) => <div key={g.title}>
       <h2 className="eodx-h2 out">{g.title} <small>{g.left ? `${g.left} to go` : "all set"}</small></h2>
-      {g.rows.map(({ c, i }, n) => { const after = fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : c.kind === "dial" ? DIAL_OUTCOMES : d.outcomes;
+      {g.rows.map(({ c, i }, n) => { const after = c.outcome === TAKEN ? [] : fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : c.kind === "dial" ? DIAL_OUTCOMES : d.outcomes;
       const done_ = complete(c), shown = !done_ || open[c.appointment_id];
       const kind = c.kind === "triage" ? "Triage call" : c.kind === "dial" ? "Outbound call" : null;
       return <section key={c.appointment_id} className={`eodx-call${done_ ? " done" : ""}`}>
         <button type="button" className="eodx-call-hd" onClick={() => done_ && setOpen((o) => ({ ...o, [c.appointment_id]: !o[c.appointment_id] }))} aria-expanded={!!shown}>
           <span className="eodx-dot" aria-hidden>{done_ ? "✓" : n + 1}</span>
           <span className="eodx-who"><b>{c.contact}</b><small>{time(c.starts_at)}{kind ? ` · ${kind}` : ""}</small></span>
-          {done_ ? <span className="eodx-pill">{outcomeLabel(c.outcome, d.fields, c.kind)}</span> : null}
+          {done_ ? <span className="eodx-pill">{c.outcome === TAKEN ? `Taken by ${takenBy(c) ?? "someone else"}` : outcomeLabel(c.outcome, d.fields, c.kind)}</span> : null}
           {done_ ? <span className="eodx-edit">{shown ? "Close" : "Edit"}</span> : null}
         </button>
         {shown ? <div className="eodx-call-bd">
           {c.href_contact || c.recording_url ? <div className="eodx-links">{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">Open contact ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}</div> : null}
-          <label className="eodx-field"><span>{outcomeField.label}{outcomeField.required ? <em> *</em> : null}</span><select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">Choose one</option>{choices.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+          <label className="eodx-field"><span>{outcomeField.label}{outcomeField.required ? <em> *</em> : null}</span><select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">Choose one</option>{choices.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}{d.team.length ? <option value={TAKEN}>{TAKEN_LABEL}…</option> : null}</select></label>
+          {c.outcome === TAKEN ? <label className="eodx-field"><span>Who took it?<em> *</em><small> It moves to their end of day, and they fill in how it went.</small></span><select value={c.taken_by ?? ""} required onChange={(e) => set(i, { taken_by: e.target.value || undefined })}><option value="">Choose one</option>{d.team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label> : null}
           {c.hint && !c.outcome ? <p className="eodx-hint">{c.hint}</p> : null}
           {c.moved ? <p className="eodx-hint warn">{c.moved}</p> : null}
           {after.length ? <div className="eodx-after">{after.map((f) => <Field key={f.key} f={f} value={valueOf(c, f.key)} onChange={(v) => setField(i, f.key, v)} />)}</div> : null}

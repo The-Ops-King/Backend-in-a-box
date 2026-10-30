@@ -24,11 +24,12 @@ export function parseSlackInteraction(raw: string): SlackPress | SlackSubmit | {
   let p: Record<string, unknown>;
   try { p = JSON.parse(new URLSearchParams(raw).get("payload") ?? ""); } catch { return { kind: "ignored", type: "no payload" }; }
   if (p?.type === "view_submission") {
-    const view = (p.view ?? {}) as { callback_id?: string; private_metadata?: string; state?: { values?: Record<string, Record<string, { value?: string | null; selected_option?: { value?: string } | null }>> } };
+    const view = (p.view ?? {}) as { callback_id?: string; private_metadata?: string; state?: { values?: Record<string, Record<string, { value?: string | null; selected_option?: { value?: string } | null; selected_options?: { value?: string }[] | null; selected_date?: string | null }>> } };
     const user = (p.user ?? {}) as Record<string, unknown>;
     if (typeof view.callback_id !== "string" || typeof user.id !== "string") return { kind: "ignored", type: "view_submission" };
     // a text box answers `value`, a dropdown `selected_option.value` (D202)
-    const values = Object.fromEntries(Object.entries(view.state?.values ?? {}).map(([block, inputs]) => { const i = Object.values(inputs)[0]; return [block, String(i?.value ?? i?.selected_option?.value ?? "")]; }));
+    // D253: checkboxes answer `selected_options` (their values joined by commas), a date picker `selected_date`
+    const values = Object.fromEntries(Object.entries(view.state?.values ?? {}).map(([block, inputs]) => { const i = Object.values(inputs)[0]; return [block, String(i?.value ?? i?.selected_option?.value ?? i?.selected_date ?? (i?.selected_options ? i.selected_options.map((o) => o.value ?? "").filter(Boolean).join(",") : ""))]; }));
     return { kind: "submit", teamId: typeof (p.team as { id?: unknown } | undefined)?.id === "string" ? (p.team as { id: string }).id : undefined, user: user.id, callbackId: view.callback_id, meta: view.private_metadata, values };
   }
   if (p?.type !== "block_actions") return { kind: "ignored", type: String(p?.type ?? "?") };

@@ -47,7 +47,13 @@ export const outcomesOf = (fields?: EodField[] | null): OutcomeChoice[] => field
 /** The answers a call of this kind takes (D143). */
 export const outcomesFor = (kind: CallKind | undefined, fields?: EodField[] | null): OutcomeChoice[] => (kind === "triage" ? TRIAGE_OUTCOMES : kind === "dial" ? DIAL_OUTCOMES : outcomesOf(fields));
 export const choiceOf = (v: string, fields?: EodField[] | null, kind?: CallKind): OutcomeChoice | undefined => outcomesFor(kind, fields).find((o) => o.value === v);
-export const outcomeLabel = (v: string, fields?: EodField[] | null, kind?: CallKind) => choiceOf(v, fields, kind)?.label ?? (v || "blank");
+/**
+ * D253: "someone else took this call", a choice on every call that is no outcome of its own: the closer names who took it, the
+ * call is handed to them (Reassign request) and leaves this day; whoever took it files how it went on their own end of day.
+ */
+export const TAKEN = "taken_by_other";
+export const TAKEN_LABEL = "Someone else took this call";
+export const outcomeLabel = (v: string, fields?: EodField[] | null, kind?: CallKind) => (v === TAKEN ? TAKEN_LABEL : choiceOf(v, fields, kind)?.label ?? (v || "blank"));
 /** Money changes hands: cash and revenue are asked and counted (never on a triage call). */
 export const isMoney = (v: string, fields?: EodField[] | null, kind?: CallKind) => { const o = choiceOf(v, fields, kind); return !isSetterCall(kind) && !!o && (o.money ?? (o.call_outcome === "closed" || o.call_outcome === "deposit")); };
 /** D119: revenue contracted is asked and counted only on a close: a deposit's cash counts, its revenue does not. */
@@ -155,6 +161,7 @@ export type CallEntry = {
   appointment_id: string; contact_id: string; contact: string; starts_at: string; href_contact: string | null; recording_url: string | null;
   kind?: CallKind;                                     // D143: absent on a report filed before triage calls were on the form: a closing call
   outcome: CallOutcome;
+  taken_by?: string;                                   // D253: with outcome TAKEN, the team member (user id) who took the call
   hint?: string;                                       // why the outcome is blank (no evidence to pre-fill from)
   moved?: string;                                      // A1 (D88): a card dragged in the CRM filed this outcome; the form says so and asks why
   revenue: number | null; cash: number | null;        // cash: closed, deposit; revenue: closed only (D119)
@@ -192,6 +199,7 @@ export function missingAnswers(fields: EodField[], calls: CallEntry[], day: Reco
   for (const call of calls) {
     const outcomeField = fields.find((f) => f.key === "outcome")!;
     if (!call.outcome) { if (outcomeField.required) out.push(`${call.contact}: ${outcomeField.label}`); continue; }
+    if (call.outcome === TAKEN) { if (!call.taken_by) out.push(`${call.contact}: who took the call`); continue; }   // D253
     if (!choiceOf(call.outcome, fields, call.kind)) { out.push(`${call.contact}: ${outcomeField.label}`); continue; }
     for (const f of fieldsFor(fields, call.outcome, call.kind)) if (f.required && valueOf(call, f.key).trim() === "") out.push(`${call.contact}: ${f.label}`);
   }

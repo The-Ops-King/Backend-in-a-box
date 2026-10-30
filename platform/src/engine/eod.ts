@@ -7,7 +7,8 @@ import { loadCompany, type CompanyRow } from "./context";
 import { callTime, dispositionMeaning, dispositionValues, filedMeaning, closerNameOf, closerOptions, CLOSER_OPTIONS_KEY } from "./sales-call";
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, pitchedOf, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { requestReassign } from "./reassign";
+import { TAKEN, mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, pitchedOf, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
 import { SETTING_DEFAULTS, switchOn } from "./setting-defaults";
 
 /**
@@ -402,8 +403,13 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   if (args.adapters) { try { inGhl = new Map((await closerSalesCalls(c, args.adapters, adapterCompany, company.id, bindings, closer.name, company.timezone, DateTime.now())).map((r) => [r.appointment_id, { attendance: r.attendance, call: r.call }])); } catch { /* GHL did not answer */ } }
   const triage = args.answers.calls.filter((x) => x.kind === "triage").map((x) => x.appointment_id);
   if (args.adapters && triage.length) { try { for (const [k, v] of await triageRecords(c, args.adapters, adapterCompany, company.id, bindings, triage)) inGhl.set(k, v); } catch { /* GHL did not answer */ } }
+  // D253: a call someone else took is handed to them (Reassign request) and is not filed here; it is theirs to file
+  const team = new Set((await many<{ id: string }>(c, "select id from users where company_id=$1 and active and id<>$2", [company.id, closer.id])).map((u) => u.id));
+  const taken = args.answers.calls.filter((x) => x.outcome === TAKEN && BOOKING_ID.test(x.appointment_id) && x.taken_by && team.has(x.taken_by));
+  if (args.answers.calls.some((x) => x.outcome === TAKEN && !taken.includes(x))) return { ok: false, why: "Check who took each call you marked as someone else's: they must be on the team" };
+  for (const x of taken) await requestReassign(c, company.id, { appointmentId: x.appointment_id, toUserId: x.taken_by!, via: "eod", by: closer.name, why: `${closer.name}'s end of day for ${args.day}` });
   let recorded = 0;
-  for (const call of args.answers.calls) {
+  for (const call of args.answers.calls.filter((x) => x.outcome !== TAKEN)) {
     const r = call.kind === "dial" ? await fileDial(c, company.id, fields, call, closer) : await fileCall(c, company.id, fields, call, closer.id, inGhl.get(call.appointment_id));
     if (r.status !== "skipped") recorded++;
   }

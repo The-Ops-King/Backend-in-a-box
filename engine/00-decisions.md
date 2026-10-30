@@ -6608,3 +6608,12 @@ engine alert". Remember "this should all be a workflow not hard coded".
   reschedule.
 
 Nothing an existing offer runs changes: no booking is reassigned yet, and no saved workflow reads the new paths or events.
+
+The doors, as built: the end of day has "Someone else took this call" on every call with a picker of the team; the call leaves
+that day (it is not filed there) and lands on the other person's day to file. `/reassign` is two Slack forms (whose calls and
+which day, then that day's calls still ahead, all ticked, and who takes them); the person who ran it is told in a DM what was
+handed over. The shipped workflows: Reassign request (hand it over), Call reassigned (the Sales Call's closer, the owner, the
+closer card, a line in the booking's thread, a DM to the new closer to send their own link for a call still ahead, and a post to
+the team when the new closer is missing from Slack or the CRM: never a refusal), and Another closer took the call (a booked
+call with a client on it, recorded by someone else on the team: asked in the attention channel, ✅ hands it over, ❌ keeps it,
+asked again the next morning, then left). They install off on every offer; each is turned on by Tyler.
