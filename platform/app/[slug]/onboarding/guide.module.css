@@ -1,4 +1,4 @@
-/* D260: the team onboarding page. Team facing like the end-of-day page (D220): light, phone first, the offer's accent (--brand). */
+/* D263: the team onboarding page. Team facing like the end-of-day page (D220): light, phone first, the offer's accent (--brand). */
 .page{--brand:#1f6feb;--brand-ink:color-mix(in srgb,var(--brand) 70%,#000);--brand-soft:color-mix(in srgb,var(--brand) 9%,#fff);
   --ink:#14161a;--ink-2:#4a505a;--ink-3:#7a808a;--line:#e3e6ea;--card:#fff;--soft:#f6f7f9;
   position:relative;min-height:100vh;background:var(--soft);color:var(--ink);font-size:16px;line-height:1.55;color-scheme:light}

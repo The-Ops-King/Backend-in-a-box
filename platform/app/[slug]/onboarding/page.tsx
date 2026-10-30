@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { GUIDES } from "@/team-guide";
 import { GuideView } from "./guide";
 
-/** D260: the team onboarding page, one per offer, built at deploy from `src/team-guide`; an offer without one is a 404. */
+/** D263: the team onboarding page, one per offer, built at deploy from `src/team-guide`; an offer without one is a 404. */
 export const dynamicParams = false;
 export const generateStaticParams = () => Object.keys(GUIDES).map((slug) => ({ slug }));
 

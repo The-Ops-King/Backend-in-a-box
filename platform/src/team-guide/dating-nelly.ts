@@ -103,7 +103,7 @@ export const datingNelly: Guide = {
           summary: "A phone call through GHL. It's recorded and read automatically.",
           blocks: [
             { steps: [
-              "Check #dating-traige-booked for who's coming up. Each post shows their application answers.",
+              "Check #dating-traige-booked for who's coming up. Each post shows their application answers and tags whoever the call is booked with.",
               "Call them from GHL at the booked time. GHL records and transcribes the call.",
               "If they fit, book the consultation while you're still on the phone, using your setter link.",
             ] },
@@ -240,6 +240,7 @@ export const datingNelly: Guide = {
               "Creating the GHL contact, cards and call records when a call books, moves or cancels.",
               "Posting every booking, recording and deal in Slack.",
               "Writing your end-of-day answers into GHL.",
+              "Writing each call's summary onto the call record and as a note on the contact.",
               "Daily, weekly and monthly wrap-ups and the weekly leaderboard.",
             ] },
             { note: "Replies to those texts come to GHL, and a person answers them there.", tone: "tip" },

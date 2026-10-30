@@ -1,5 +1,5 @@
 /**
- * D260: the team onboarding page (`/<offer>/onboarding`): how a new closer, setter or manager gets set up and works the
+ * D263: the team onboarding page (`/<offer>/onboarding`): how a new closer, setter or manager gets set up and works the
  * offer's systems. Static: the words live here, per offer, and change by editing this folder. Nothing is read from the engine.
  */
 export type Role = "closer" | "setter" | "manager";

@@ -6699,7 +6699,7 @@ doors only set an owner and only watch a new calendar. `/api/admin/calendars/own
 booking is its host's again; bookings already held keep theirs); `/api/admin/calendars/watch` with `term: "ignore"` stops watching a
 calendar as install's "ignore" does (D148). Both dry run first, audited.
 
-## D260. A team onboarding page per offer (2026-10-30)
+## D263. A team onboarding page per offer (2026-10-30)
 
 Tyler: "when I want to onboard a new closer to the system, I want to be able to give them an 80% onboarding on how to use all
 of the systems", with "a different section for closer, setter, manager", "strictly for onboarding new closers and kind of

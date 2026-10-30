@@ -3,7 +3,7 @@ import { embedUrl } from "./embed";
 import { GUIDES } from "./index";
 import { ROLES, sectionShows } from "./types";
 
-describe("D260: the team onboarding page", () => {
+describe("D263: the team onboarding page", () => {
   it("plays Drive, YouTube and Loom links inside the page; anything else is only linked", () => {
     expect(embedUrl("https://drive.google.com/file/d/1AbC-d_9/view?usp=sharing")).toBe("https://drive.google.com/file/d/1AbC-d_9/preview");
     expect(embedUrl("https://drive.google.com/open?id=1AbC")).toBe("https://drive.google.com/file/d/1AbC/preview");
