@@ -84,6 +84,16 @@ export function datingCopies(company: string, words: DatingWords, own?: { setup:
   a4.criteria = Object.fromEntries(list.map((r) => [r, words.setterDq.reasons[r]]));
   const dqHeld = [words.setterDq.result, ...Object.values(words.setterDq.reasons)].some(isPlaceholderCopy);
   if (dqHeld) a4.title = "Jev: why disqualified? [placeholder: the company's DQ reasons are not written yet]";
+  // D254 (Tyler: a triage call recorded on Fathom became a Sales Call): a triage call recorded on a meeting is a setter call, read and
+  // posted like a dialed one; the triage booking's own Discovery Call stands for it (no second one), and the end of day files it
+  const graph = scl as unknown as { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] };
+  graph.nodes.push({ id: "t2", type: "trigger", title: "A triage call recorded on a meeting (Fathom)", event: "recording.received", match: { eq: ["{{appointment.term.category}}", "first_call"] } });
+  graph.edges.push({ from: "t2", to: "v1" });
+  graph.nodes.push({ id: "v_open", type: "set_var", title: "Where the call can be heard", key: "open_words", value: "{{recording.provider}}", pick: { ghl: "Open the conversation in GHL" }, else_value: "Open the recording" });
+  const toConv = graph.edges.find((e) => e.from === "v1" && e.to === "l_conv"); if (!toConv) throw new Error("setter-call-logged: v1 → l_conv not found");
+  toConv.to = "v_open"; graph.edges.push({ from: "v_open", to: "l_conv" });
+  const r1 = node(scl, "r1"); r1.only_if = r1.only_if ? { and: [r1.only_if, { not: { exists: "appointment.id" } }] } : { not: { exists: "appointment.id" } };
+  for (const id of ["s1", "s_late"]) { const post = node(scl, id); if (typeof post.template !== "string" || !post.template.includes("|Open the conversation in GHL>")) throw new Error(`setter-call-logged ${id}: link words not found`); post.template = post.template.replace("|Open the conversation in GHL>", "|{{vars.open_words}}>"); }
   out.push({ workflow: "setter-call-logged", definition: scl as unknown as Record<string, unknown>,
     note: `${company}: why a setter DQs a lead, in the company's words (installs/${company}/words.json)${dqHeld ? "; still placeholders" : ""}, not Hair's (D118)` });
   if (words.preCall) out.push(...preCallCopies(words.preCall));
