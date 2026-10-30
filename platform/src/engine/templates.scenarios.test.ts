@@ -279,7 +279,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await tick(fake, undefined, companyId); await tick(fake, undefined, companyId);   // flush what this started so later tests' send counts are their own (the chase parks itself for 24h)
   });
 
-  it("new-lead: a lead with a phone gets a setter-pipeline card named 'Name -- New' with today's stage date, and the tag stat-new; without a phone, the run exits no_phone", async () => {
+  it("new-lead: a lead with a phone gets a setter-pipeline card named 'Name -- New' with today's stage date, and the tags stat-new and stat-call-not-booked; without a phone, the run exits no_phone", async () => {
     const withNum = await newContact("CNL1", "nl1@x.com"); await withPhone(withNum, "+16025550101");
     await asOperator((c) => c.query("update contacts set first_name='Edwin', last_name='Ruh' where id=$1", [withNum]));
     const noNum = await newContact("CNL2", "nl2@x.com", null);
@@ -298,7 +298,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({ op: "create", contactId: "CNL1", pipelineId: "PIPE-SETTER", stageId: "STAGE-NEW", name: "Edwin Ruh -- New", status: "open" });
     expect((created[0].customFields as { id: string; field_value: string }[])[0]).toEqual({ id: "CF-STAGE-DATE", field_value: DateTime.now().setZone(TZ).toFormat("yyyy-MM-dd") });
-    expect(tags.slice(nTags)).toEqual(["stat-new"]);
+    expect(tags.slice(nTags)).toEqual(["stat-new", "stat-call-not-booked"]);
     const card = await asOperator((c) => one<{ name: string; ghl_opportunity_id: string; ghl_pipeline_id: string; ghl_stage_id: string; status: string; opportunity_id: string }>(c, "select name, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, status, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2", [companyId, withNum]));
     expect(card).toMatchObject({ name: "Edwin Ruh -- New", ghl_pipeline_id: "PIPE-SETTER", ghl_stage_id: "STAGE-NEW", status: "open" }); expect(card!.ghl_opportunity_id).toMatch(/^ghl-opp-/);
     expect(await asOperator((c) => many(c, "select 1 from opportunities where company_id=$1 and contact_id=$2 and status='open'", [companyId, withNum]))).toHaveLength(1);   // the card hangs off one pursuit
@@ -341,7 +341,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(await cardsOf(dq)).toEqual([{ pipeline: "PIPE-CLOSER", stage: "STAGE-DQ", status: "lost" }, { pipeline: "PIPE-SETTER", stage: "STAGE-SHOWED", status: "won" }]);
   });
 
-  it("call-booked, self-booked: closer card created at Scheduled, setter card only moved if present, stat-booked + stat-self-booked, nurture tags off, contact gets date + owner, Slack skipped when unbound", async () => {
+  it("call-booked, self-booked: closer card created at Scheduled, setter card only moved if present, stat-call-booked + stat-self-booked, nurture tags off, contact gets date + owner, Slack skipped when unbound", async () => {
     const id = await newContact("CCB1", "cb1@x.com"); await asOperator((c) => c.query("update contacts set first_name='Mia', last_name='Ortiz' where id=$1", [id]));
     const start = DateTime.now().plus({ days: 4 }).setZone(TZ).set({ hour: 10, minute: 0, second: 0, millisecond: 0 });
     const snap: AppointmentSnapshot = { id: "ACB1", calendarId: "CAL", contactId: "CCB1", assignedUserId: "U1", startTime: start.toISO()!, endTime: start.plus({ minutes: 45 }).toISO()!, status: "confirmed", dateAdded: new Date().toISOString(), tracking: { utm_source: "meta" }, rescheduleUrl: "https://calendly.com/reschedulings/abc", raw: {} };
@@ -355,8 +355,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       expect.objectContaining({ op: "create", pipelineId: "PIPE-SETTER", stageId: "STAGE-DIRECT", name: "Mia Ortiz -- Direct", assignedUserId: "U1" }),   // no setter card existed → one is made where it belongs (D41)
       expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Mia Ortiz -- Direct", assignedUserId: "U1" }),
     ]);
-    expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-self-booked", "meta booked call"]);
-    expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead", "stat-no-show", "stat-cancelled", "stat-possible-cancel", "stat-needs-attention"]);   // D62: a fresh booking takes the no-show / cancel / attention tags off
+    expect(tags.slice(nTags)).toEqual(["stat-call-booked", "stat-self-booked", "meta booked call"]);
+    expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead", "stat-no-show", "stat-cancelled", "stat-possible-cancel", "stat-needs-attention", "stat-call-not-booked"]);   // D62: a fresh booking takes the no-show / cancel / attention tags off
     expect(contactWrites.slice(nCw)).toEqual([expect.objectContaining({ id: "CCB1", assignedUserId: "U1", customFields: [{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }] })]);
     const steps = await asOperator((c) => many<{ node_id: string; status: string; result: Record<string, unknown> }>(c, "select node_id, status, result from run_steps where run_id=$1 order by started_at", [r.id]));
     expect(steps.find((x) => x.node_id === "s3")?.status).toBe("ok");
@@ -414,7 +414,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       expect.objectContaining({ op: "update", stageId: "STAGE-SET", name: "Leo Park -- Set", customFields: [{ id: "CF-SETTER-OWNER", field_value: "Luis" }] }),
       expect.objectContaining({ op: "create", pipelineId: "PIPE-CLOSER", stageId: "STAGE-SCHED", name: "Leo Park -- Setter Booked", customFields: [{ id: "CF-SETTER-OWNER", field_value: "Luis" }] }),
     ]);
-    expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-set", "meta booked call"]);
+    expect(tags.slice(nTags)).toEqual(["stat-call-booked", "stat-set", "meta booked call"]);
     expect(contactWrites.slice(nCw).map((w) => w.customFields)).toEqual([[{ id: "CF-APPT-DATE", field_value: start.setZone(TZ).toFormat("yyyy-MM-dd") }], [{ id: "CF-SETTER", field_value: "Luis" }]]);
     const cards = await asOperator((c) => many<{ ghl_pipeline_id: string; name: string; opportunity_id: string }>(c, "select ghl_pipeline_id, name, opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 order by ghl_pipeline_id", [companyId, id]));
     expect(cards.map((x) => x.name)).toEqual(["Leo Park -- Setter Booked", "Leo Park -- Set"]);
@@ -439,7 +439,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(tasks.slice(nTasks)).toEqual([expect.objectContaining({ contactId: "CCB1", title: "Rebook Mia Ortiz — cancelled", body: "Cancelled by Mia Ortiz. Reason: work trip.", assignedUserId: "U1" })]);
     const due = (tasks.at(-1)!.dueAt as Date).getTime() - Date.now(); expect(due).toBeGreaterThan(23 * 3600e3); expect(due).toBeLessThan(25 * 3600e3);
     expect(tags.slice(nTags)).toEqual(["stat-cancelled"]);
-    expect(removedTags.slice(nRm)).toEqual(["stat-booked", "stat-self-booked", "stat-set", "stat-confirmed"]);
+    expect(removedTags.slice(nRm)).toEqual(["stat-self-booked", "stat-set", "stat-confirmed"]);
     const appt = await asOperator((c) => one<{ cancelled_by: string; cancel_reason: string }>(c, "select cancelled_by, cancel_reason from appointments where company_id=$1 and external_id='ACB1'", [companyId]));
     expect(appt).toEqual({ cancelled_by: "Mia Ortiz", cancel_reason: "work trip" });
     expect((await runsFor("cancellation-rebook")).some((x) => x.contact_id === id)).toBe(true);
@@ -661,7 +661,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(sup?.suppressed_reason).toMatch(/sms_disabled/);
   });
 
-  it("setter-call-logged: a connected dialer call with a transcript → Jev calls it a setting call and, 15 minutes after hang-up with no setter booking, it posts Jev's read: digest, Discovery Call record linked to the contact, note, Slack; too short / no transcript / 'where are you' each stop at their check; a fresh call waits", async () => {
+  it("setter-call-logged: a connected dialer call with a transcript → Jev calls it a setting call and, 15 minutes after hang-up with no setter booking, it posts Jev's read: digest and Slack, and makes the call's Discovery Call blank, linked to the contact (D239: the end of day files the result); too short / no transcript / 'where are you' each stop at their check; a fresh call waits", async () => {
     const id = (await asOperator((c) => one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='CCB2'", [companyId])))!.id;
     const transcript = [{ speaker: "0", text: "Hey Leo, got two minutes?" }, { speaker: "1", text: "Sure. It has been getting worse for a year. What does it cost?" }, { speaker: "0", text: "The specialist covers that. Thursday at two?" }, { speaker: "1", text: "Works." }];
     const logCall = (ext: string, durationSec: number, minutesAgo: number, withTranscript: boolean, status = "completed", who = id) => asOperator(async (c) => {
@@ -682,7 +682,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(run).toMatchObject({ status: "completed", exit_reason: "posted" });
     expect(analyses.slice(nAn)).toHaveLength(1);   // the digest; the kind of call is Jev's (D48)
     const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
-    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", outcome: "connected", recording_url: "https://ghl.test/call-1/recording", call_result: "follow_up" });
+    expect(rw[0]).toMatchObject({ op: "create", external_id: "call-1", contact_id: "CCB2", direction: "outbound", duration_sec: 184, setter: "Sam Closer", recording_url: "https://ghl.test/call-1/recording" });
+    expect(rw[0]).not.toHaveProperty("call_result"); expect(rw[0]).not.toHaveProperty("outcome");   // D239: blank until the end of day files it;
     expect(rw[0]).not.toHaveProperty("led_to_booking");   // D87: only a Set call ticks it; Leo's booking came through no setter link
     expect(relations.slice(nRel)).toEqual([`ASSOC-DC:CCB2>rec-${nRec + 1}`]);
     const slack = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]));

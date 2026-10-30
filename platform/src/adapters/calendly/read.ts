@@ -2,7 +2,7 @@ import type { AppointmentSnapshot, BookingRead, CalendarConfig, CalendarSnapshot
 import { calendly, calendlyAll, calendlyPost, eventUuidOfInvitee, uuidOf } from "./client";
 
 export type RawEventType = { uri: string; name: string; active: boolean; scheduling_url: string; internal_note?: string | null; pooling_type?: string | null; duration: number; custom_questions?: { name: string; type?: string; position?: number; enabled?: boolean; required?: boolean; answer_choices?: string[] }[]; profile?: { type?: string; name?: string; owner?: string } | null };
-export type RawEvent = { uri: string; name: string; status: "active" | "canceled"; start_time: string; end_time: string; event_type: string; created_at: string; updated_at: string; event_memberships: { user: string; user_email?: string; user_name?: string }[]; invitees_counter: { total: number; active: number }; location?: { type?: string; join_url?: string | null; location?: string | null } | null };
+export type RawEvent = { uri: string; name: string; status: "active" | "canceled"; start_time: string; end_time: string; event_type: string; created_at: string; updated_at: string; event_memberships: { user: string; user_email?: string; user_name?: string }[]; invitees_counter: { total: number; active: number }; location?: { type?: string; join_url?: string | null; location?: string | null; status?: string | null } | null };
 export type RawInvitee = { uri: string; email: string; name: string; first_name?: string | null; last_name?: string | null; status: "active" | "canceled"; timezone?: string | null; rescheduled: boolean; old_invitee?: string | null; new_invitee?: string | null; text_reminder_number?: string | null; no_show?: { uri: string; created_at: string } | null; cancellation?: { canceled_by?: string; reason?: string | null; canceler_type?: string; created_at?: string } | null; questions_and_answers?: { question: string; answer: string }[]; reschedule_url?: string | null; cancel_url?: string | null; tracking?: Record<string, string | null> | null; updated_at: string };
 
 const DEFAULT_PHONE_QUESTION = "phone number";
@@ -38,6 +38,7 @@ export function mapEvent(e: RawEvent, inv: RawInvitee | undefined, phoneQuestion
     rescheduleUrl: inv?.reschedule_url ?? undefined, cancelUrl: inv?.cancel_url ?? undefined,
     // a conferencing integration's link is join_url; a custom location typed by the host may be a link too (meetingKey ignores one that is not)
     meetingUrl: e.location?.join_url || e.location?.location || undefined,
+    meetingFailed: e.location?.status === "failed" ? (e.location.type || "meeting") : undefined,
     cancellation: inv?.cancellation ? { by: inv.cancellation.canceled_by, reason: inv.cancellation.reason ?? undefined, byType: inv.cancellation.canceler_type, at: inv.cancellation.created_at ?? undefined } : undefined,
     // utm_source, utm_medium, utm_campaign, utm_content, utm_term (and any other key Calendly passes, fbclid included), blanks dropped; captured onto the contact by Call booked (D78)
     tracking: inv?.tracking ? Object.fromEntries(Object.entries(inv.tracking).map(([k, v]) => [k, typeof v === "string" ? v.trim() : ""]).filter(([, v]) => v)) : undefined,
@@ -109,6 +110,17 @@ export const calendlyBooking: BookingRead = {
         byId.set(id, { id, name: t.name.trim(), teamMemberIds: [], bookingUrl: t.scheduling_url, note: t.internal_note ?? undefined, active: t.active, pooling: t.pooling_type ?? undefined, hosts: host.email ? [host] : [],
           questions: (t.custom_questions ?? []).filter((q) => q.enabled !== false).sort((a, z) => (a.position ?? 0) - (z.position ?? 0)).map((q) => ({ name: q.name, type: q.type, position: q.position, required: q.required, choices: q.answer_choices?.length ? q.answer_choices : undefined })) });
       }
+    }
+    // D243: a member's own listing also carries team (round robin) types they only own or administer: Calendly listed Mary Emily
+    // (team@) under PMU's three round robins whose hosts are Carly and Jose. A shared type's hosts are what Calendly says hosts it;
+    // the listing is kept only when that read is refused (the hosts endpoint takes a personal access token)
+    for (const cal of byId.values()) {
+      if (!cal.pooling) continue;
+      try {
+        const ms = await calendlyAll<{ member: { email?: string; name?: string } }>(b.token, `/event_type_memberships?event_type=${encodeURIComponent(`https://api.calendly.com/event_types/${cal.id}`)}&count=100`);
+        const hosts = ms.filter((m) => m.member.email).map((m) => ({ name: m.member.name ?? m.member.email!, email: m.member.email! }));
+        if (hosts.length) cal.hosts = hosts;
+      } catch { /* keep the listing's */ }
     }
     return [...byId.values()].sort((a, z) => a.name.localeCompare(z.name));
   },

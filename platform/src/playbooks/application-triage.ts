@@ -44,8 +44,6 @@ export type DatingSetup = {
   triageFiled?: { workflow: string; name: string; callType: string; channel?: string };
   /* D211: `channel` on a booked, triageCancelled or triageFiled entry: the Slack channel slot (slack.channel.<slot>) its posts use in
      place of the bookings channel; a thread reply follows its card wherever that is */
-  /** D154: Setter call logged reads and posts only; the end of day writes the Discovery Call record and moves the setter card */
-  setterCallReadOnly?: boolean;
   /** D156: an outbound call's answer on the end of day (setter_call.filed): its own workflow */
   setterFiled?: { workflow: string; name: string };
 };
@@ -67,12 +65,10 @@ export function datingCopies(company: string, words: DatingWords, own?: { setup:
   Object.assign(e1, { subject: words.welcome.subject, template: words.welcome.email, title: held ? "Welcome email [placeholder: the words are not written yet, so it is skipped]" : "Welcome email" });
   Object.assign(e2, { template: words.welcome.sms, title: held ? "Welcome text [placeholder: the words are not written yet, so it is skipped]" : "Welcome text" });
   if (held) { e1.only_if = HELD; e2.only_if = HELD; }
-  // D130: the won closer card carries what the deal is worth (the opportunity's contract value, else the program price); the cash is the Sales Call's
-  node(dc, "p1").value = "{{contact.revenue}}";
   out.push({ workflow: "deal-closed", definition: dc as unknown as Record<string, unknown>,
-    note: `${company}: the welcome email and text are the company's own (installs/${company}/words.json)${held ? "; still placeholders, so both are skipped" : ""}, not Hair's (D118); the won closer card carries the deal's value (D130)` });
+    note: `${company}: the welcome email and text are the company's own (installs/${company}/words.json)${held ? "; still placeholders, so both are skipped" : ""}, not Hair's (D118)` });
 
-  // Setter call logged: why a setter DQs a lead, in the company's words; D154: it reads and posts, the end of day writes
+  // Setter call logged: why a setter DQs a lead, in the company's words (D154, now the template's: it reads and posts, the end of day writes)
   const scl = load("setter-call-logged");
   // the reasons are the template's (setter_dq_reason) or, D154, the dating ones (dating_dq_reason): whichever set the words name, all of it
   const keys = Object.keys(words.setterDq.reasons).sort().join();
@@ -83,47 +79,18 @@ export function datingCopies(company: string, words: DatingWords, own?: { setup:
   if (words.setterCall?.setting) (a1.criteria as Record<string, string>).setting = words.setterCall.setting;
   (a3.criteria as Record<string, string>).dq = words.setterDq.result;
   if (domain !== a4.domain) a4.domain = domain;
+  // what the end of day pre-fills the DQ reason from names the same list (D156)
+  for (const id of ["rec_read", "rec_late"]) { const rec = node(scl, id); rec.data = { ...(rec.data as Record<string, unknown>), dq_domain: domain }; }
   a4.criteria = Object.fromEntries(list.map((r) => [r, words.setterDq.reasons[r]]));
   const dqHeld = [words.setterDq.result, ...Object.values(words.setterDq.reasons)].some(isPlaceholderCopy);
   if (dqHeld) a4.title = "Jev: why disqualified? [placeholder: the company's DQ reasons are not written yet]";
-  const readOnly = !!own?.setup.setterCallReadOnly;
-  if (readOnly) readOnlySetterCall(scl);
   out.push({ workflow: "setter-call-logged", definition: scl as unknown as Record<string, unknown>,
-    note: `${company}: why a setter DQs a lead, in the company's words (installs/${company}/words.json)${dqHeld ? "; still placeholders" : ""}, not Hair's (D118)${readOnly ? "; a setting call's read is posted and logged for the end of day, which writes the Discovery Call record and moves the setter card: nothing written to the CRM here, no question to the team (D154)" : ""}` });
+    note: `${company}: why a setter DQs a lead, in the company's words (installs/${company}/words.json)${dqHeld ? "; still placeholders" : ""}, not Hair's (D118)` });
   if (words.preCall) out.push(...preCallCopies(words.preCall));
   if (own) out.push(...ownWorkflows(company, own.setup, own.install));
   return out;
 }
 
-
-/**
- * D154 (Tyler: "the setter call log shouldn't change things in HighLevel ... the setter end of day should"): Setter call logged
- * reads the call (Jev's call type, result and DQ reason, the notes), posts it in the setter channel and logs the read
- * (setter_call.result) for the end of day to pre-fill; Set by a booking through a setter's link still counts. Taken out: the
- * Discovery Call record and the note (r1, r_late, m1), the question to the team and its answer (b_ask on), the actions behind
- * setter_result.act (the task, the DQ tag, the lost cards) and the variables only they read.
- */
-function readOnlySetterCall(d: Def) {
-  for (const id of ["v_dqtag", "v_due", "v_mode", "v_key", "v_act", "v_ask", "r1", "m1", "lt_key", "lt_act", "r_late"]) drop(d, id);
-  // b_ask and everything only it leads to: the run ends where the team would have been asked
-  const gone = new Set<string>(["b_ask"]);
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const e of d.edges) if (gone.has(e.from) && !gone.has(e.to) && d.edges.filter((x) => x.to === e.to).every((x) => gone.has(x.from))) { gone.add(e.to); grew = true; }
-  }
-  gone.delete("x1");
-  for (const e of d.edges) if (e.to === "b_ask") e.to = "x1";
-  d.edges = d.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to));
-  d.nodes = d.nodes.filter((n) => !gone.has(n.id));
-  for (const id of ["s1", "s_late"]) { const n = node(d, id); n.template = String(n.template).replace("{{vars.act_line | line}}", ""); }
-  Object.assign(node(d, "v_line"), { else_value: "{{vars.unsure_line}}; the end of day asks" });
-  node(d, "v_by").title = "Without a booking, Jev's read (a Set read with no booking is left to the end of day)";
-  // what the end of day pre-fills from (D156): the call type, the DQ reason's list, the write-up
-  const a4 = node(d, "a4");
-  for (const id of ["rec_read", "rec_late"]) { const rec = node(d, id); rec.data = { ...(rec.data as Record<string, unknown>), call_type: "{{vars.classify.call_type}}", dq_domain: a4.domain, digest: "{{vars.notes.digest | default:}}" }; }
-  const left = JSON.stringify(d.nodes);
-  for (const w of ["crm_record", "\"note\"", "create_task", "pipeline_card", "\"tags\"", "vars.act_line", "vars.asking"]) if (left.includes(w)) throw new Error(`Setter call logged still has ${w} after D154`);
-}
 
 /**
  * D155 (Tyler, 2026-10-19: one number, Nelly's, "all from Nelly"): the pre-call texts per call type, each its own copy of the
@@ -175,16 +142,12 @@ function preCallCopies(words: { triage: PreCallWords; closing: PreCallWords }): 
       if (!String(ask.template).includes(sent)) throw new Error(`${t.name}: the ask no longer quotes what we sent`);
       Object.assign(ask, { channel: "{{slack.channel.bookings}}", template: String(ask.template).replace(offer, "Tap ✅ keep the call, ❌ cancel it, 🔁 reschedule (move it by hand; no text goes out).").replace(sent, "> {{reply.last_outbound.body | default:nothing yet: our booking text didn't go out}}"), title: "Ask in the booking channel: keep, cancel or reschedule?" });
     }
-    // D186: a booking with no meeting link is said at once in the channel the company names (slack.channel.no_link), the closer
-    // tagged; the hour-before text then leaves the link line out
+    // D186, D235: with no meeting link the hour-before text is hourNoLink (the link sentence left out); Call booked already said so in Slack
     if (w.hourNoLink !== undefined) {
       if (!w.hourNoLink.trim()) throw new Error(`words.preCall.${t.key}.hourNoLink is empty`);
       if (!w.hour.includes("{{appointment.meeting_url}}")) throw new Error(`words.preCall.${t.key}: hourNoLink without a link in the hour text`);
+      if (w.hourNoLink.includes("{{appointment.meeting_url")) throw new Error(`words.preCall.${t.key}.hourNoLink names the link it is for the lack of`);
       const noLink = { not: { exists: "appointment.meeting_url" } };
-      const said = `{{appointment.closer.mention | default:Heads up}}: {{contact.name | default:A contact}}'s ${t.card} {{appointment.starts_at | date_company}} has no meeting link in Calendly. Please send them the link.`;
-      // Tyler: "let's have no-link alert to go to sales booked and alert": one post in each, each channel its own setting
-      after(d, "c0", { id: "n_nolink", type: "slack_post", channel: "{{slack.channel.no_link}}", only_if: noLink, as: { name: "No meeting link", icon: ":link:" }, template: said, title: "No meeting link: tell the closer in the booking channel" });
-      after(d, "n_nolink", { id: "n_nolink_alert", type: "slack_post", channel: "{{slack.channel.no_link_alerts}}", only_if: noLink, as: { name: "No meeting link", icon: ":link:" }, template: said, title: "No meeting link: and in the alerts channel" });
       node(d, "m1").only_if = { exists: "appointment.meeting_url" };
       after(d, "m1", { id: "m1_nolink", type: "send_sms", template: w.hourNoLink, validity: node(d, "m1").validity, on_stale: "skip", only_if: noLink, title: "An hour before, no link yet" });
     }
@@ -317,38 +280,6 @@ function triageFiled(callType: string): Def {
  * triage call's: the conversation's Discovery Call record (made here, keyed by the conversation, as Setter call logged's was), the
  * setter card, a line under the call's post.
  */
-function setterFiled(): Def {
-  const rec = "{{crm.object_discovery_call | default:custom_objects.discovery_call}}";
-  const card = (id: string, stage: string, status: string | null, title: string) => ({ id, type: "pipeline_card", pipeline: "{{crm.pipeline_setter}}", stage, if_missing: "skip", pick: "latest", ...(status ? { status } : {}), title });
-  return {
-    schema: 1, reentry: "always", premise: { check: "contact_exists" },
-    nodes: [
-      { id: "t1", type: "trigger", event: "setter_call.filed", title: "An outbound call answered on the end of day" },
-      { id: "v_line", type: "set_var", key: "line", value: "{{event.result}}", pick: { set: "✅ End of day: set", follow_up: "🔁 End of day: follow up", dq: "⛔ End of day: DQ", not_interested: "👋 End of day: not interested" }, else_value: "", title: "The thread line" },
-      { id: "d1", type: "crm_record", object: rec, key: "{{event.conversation}}", owner: "{{event.setter_ghl_user_id | default:}}", title: "The call's Discovery Call record",
-        properties: { display_label: "{{contact.name | default:Unknown}} — {{event.started_at | date_company:yyyy-MM-dd}}", external_id: "{{event.conversation}}", contact_id: "{{contact.ghl_contact_id | default:}}",
-          occurred_at: "{{event.started_at | date_company}}", direction: "{{event.direction | default:}}", duration_sec: "{{event.duration_sec | default:}}", setter: "{{event.setter | default:}}", outcome: "showed",
-          recording_url: "{{event.recording_url | default:}}", call_result: "{{event.result}}", dq_reason: "{{event.dq_reason | default:}}", notes: "{{event.note | default:}}" },
-        clear: ["dq_reason"],
-        relate: [{ association: "{{crm.assoc_discovery_call_contact}}", first: "{{contact.ghl_contact_id | default:}}", second: "{{record.id}}" }] },
-      { id: "b1", type: "branch", title: "Where the setter card goes" },
-      card("c_set", "{{crm.stage_setter_appointment_set}}", null, "Setter card → Appointment Set"),
-      card("c_dq", "{{crm.stage_setter_dq}}", "lost", "Setter card → DQ, marked lost"),
-      card("c_ni", "{{crm.stage_setter_not_interested}}", "lost", "Setter card → Not Interested, marked lost"),
-      { id: "n1", type: "slack_post", channel: "{{slack.channel.setter_calls}}", thread_of: "tag:setter-call:{{event.conversation}}", thread_only: true, only_if: { neq: ["{{vars.line}}", ""] }, as: { name: "Setter call", icon: ":clipboard:" }, template: "{{vars.line}}", title: "A line under the call's post" },
-      { id: "x1", type: "exit", reason: "filed" },
-    ],
-    edges: [
-      { from: "t1", to: "v_line" }, { from: "v_line", to: "d1" }, { from: "d1", to: "b1" },
-      { from: "b1", to: "c_set", label: "set", when: { eq: ["{{event.result}}", "set"] } },
-      { from: "b1", to: "c_dq", label: "DQ", when: { eq: ["{{event.result}}", "dq"] } },
-      { from: "b1", to: "c_ni", label: "not interested", when: { eq: ["{{event.result}}", "not_interested"] } },
-      { from: "b1", to: "n1", label: "follow up", else: true },
-      { from: "c_set", to: "n1" }, { from: "c_dq", to: "n1" }, { from: "c_ni", to: "n1" }, { from: "n1", to: "x1" },
-    ],
-  } as unknown as Def;
-}
-
 /**
  * D123: the company's own workflows. Each booked-call one is Call booked with both triggers held to its call type (a calendar's
  * own type, D101, so a booking runs exactly one of them), its Sales Call written with its call_type option, and its extra tags
@@ -391,8 +322,7 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
   }
   if (setup.setterFiled) {
     const sf = setup.setterFiled, co = template("call-outcome");
-    if (!setup.setterCallReadOnly) throw new Error("copies.json setterFiled: only with setterCallReadOnly (the end of day writes what Setter call logged no longer does)");
-    out.push({ workflow: sf.workflow, name: sf.name, create: { stage: co.stage, sort: co.sort + 2 }, definition: setterFiled() as unknown as Record<string, unknown>,
+    out.push({ workflow: sf.workflow, name: sf.name, create: { stage: co.stage, sort: co.sort + 2 }, definition: load("setter-call-filed") as unknown as Record<string, unknown>,
       note: `${company}: a setter's outbound call answered on the end of day (D156): the conversation's Discovery Call record (showed, set / follow up / DQ / not interested), the setter card to Appointment Set or DQ / Not Interested (lost), a line under the call's post in the setter channel` });
   }
   if (setup.fromForm) {

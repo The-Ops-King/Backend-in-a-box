@@ -338,7 +338,6 @@
      "booked_at": "{{vars.booked.appointment.booked_at | default:}}",
      "jev_agreed": "{{vars.jev_agreed}}",
      "dq_reason": "{{vars.classify.dq_reason | default:}}",
-     "acts": "{{setting.setter_result.act}}",
      "call_type": "{{vars.classify.call_type}}",
      "dq_domain": "dating_dq_reason",
      "digest": "{{vars.notes.digest | default:}}"
@@ -413,6 +412,51 @@
      ]
     },
     "else_exit": "read_with_a_later_part"
+   },
+   {
+    "id": "l_tri",
+    "type": "lookup",
+    "query": "appointments_for_contact",
+    "params": {
+     "kind": "first_call",
+     "status_not": "cancelled",
+     "closer": "{{recording.caller.ghl_user_id | default:}}",
+     "starts_since": "{{vars.convo.first.started_at | date_company:\"yyyy-MM-dd'T'00:00:00ZZ\"}}",
+     "starts_until": "{{vars.convo.first.started_at | date_company:\"yyyy-MM-dd'T'23:59:59ZZ\"}}"
+    },
+    "into": "triage_today",
+    "title": "A triage call booked with this caller that day: its own Discovery Call already stands for this call"
+   },
+   {
+    "id": "r1",
+    "type": "crm_record",
+    "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
+    "key": "{{vars.convo.key}}",
+    "owner": "{{recording.caller.ghl_user_id | default:}}",
+    "properties": {
+     "display_label": "{{contact.name | default:Unknown}} — {{vars.convo.first.started_at | date_company}}{{vars.parts_line}}",
+     "external_id": "{{vars.convo.key}}",
+     "contact_id": "{{contact.ghl_contact_id | default:}}",
+     "occurred_at": "{{vars.convo.first.started_at | date_company}}",
+     "direction": "{{recording.direction}}",
+     "duration_sec": "{{vars.convo.total_sec}}",
+     "setter": "{{recording.caller.name | default:}}",
+     "recording_url": "{{recording.url | default:}}"
+    },
+    "relate": [
+     {
+      "association": "{{crm.assoc_discovery_call_contact}}",
+      "first": "{{contact.ghl_contact_id | default:}}",
+      "second": "{{record.id}}"
+     }
+    ],
+    "title": "The call's Discovery Call, made blank: no outcome, no result (the end of day files them)",
+    "only_if": {
+     "eq": [
+      "{{vars.triage_today.count}}",
+      0
+     ]
+    }
    },
    {
     "id": "s1",
@@ -566,7 +610,6 @@
      "booked_at": "{{vars.late.appointment.booked_at | default:}}",
      "jev_agreed": "{{vars.jev_agreed}}",
      "dq_reason": "{{vars.classify.dq_reason | default:}}",
-     "acts": "{{setting.setter_result.act}}",
      "call_type": "{{vars.classify.call_type}}",
      "dq_domain": "dating_dq_reason",
      "digest": "{{vars.notes.digest | default:}}"
@@ -755,7 +798,7 @@
    },
    {
     "from": "c_latest",
-    "to": "s1"
+    "to": "l_tri"
    },
    {
     "from": "s1",
@@ -821,8 +864,16 @@
    {
     "from": "s_late",
     "to": "x1"
+   },
+   {
+    "from": "l_tri",
+    "to": "r1"
+   },
+   {
+    "from": "r1",
+    "to": "s1"
    }
   ]
  },
- "note": "dating-nelly: why a setter DQs a lead, in the company's words (installs/dating-nelly/words.json), not Hair's (D118); a setting call's read is posted and logged for the end of day, which writes the Discovery Call record and moves the setter card: nothing written to the CRM here, no question to the team (D154)"
+ "note": "dating-nelly: why a setter DQs a lead, in the company's words (installs/dating-nelly/words.json), not Hair's (D118)"
 }

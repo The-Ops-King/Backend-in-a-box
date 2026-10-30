@@ -143,7 +143,7 @@ describe.skipIf(!HAS_DB)("D90: the closing chain and the cards poll", () => {
     await holdDealClosed(ct, false); await tickNow();
     const closed = (await runsOf("deal-closed", ct)).at(-1)!;
     expect(closed).toMatchObject({ status: "completed", exit_reason: "closed" });
-    expect(await stepOf(closed.id, "p1")).toMatchObject({ status: "skipped", result: { kind: "noop", why: "already there" } });
+    expect(await stepOf(closed.id, "p1")).toMatchObject({ status: "ok" });   // the card is already there; Deal closed only puts the deal's value on it (D238)
     expect(closerCards("TT2")).toHaveLength(1);
     expect(writes.slice(nWrites).filter((w) => w.op === "create")).toEqual([]);
     expect(await cardMoves(ct)).toEqual([expect.objectContaining({ pipeline: "closer", from_stage: CRM.stage_closer_scheduled, to_stage: CRM.stage_closer_closed_won, from_status: "open", to_status: "won", mover: null })]);

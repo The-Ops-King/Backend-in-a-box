@@ -68,7 +68,6 @@
      "stat-cancelled"
     ],
     "remove": [
-     "stat-booked",
      "stat-self-booked",
      "stat-set",
      "stat-confirmed"
@@ -86,10 +85,24 @@
     "title": "The Discovery Call record: cancelled"
    },
    {
+    "id": "v_task",
+    "type": "set_var",
+    "key": "task_line",
+    "value": "\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}",
+    "when": {
+     "eq": [
+      "{{setting.tasks}}",
+      true
+     ]
+    },
+    "else_value": "",
+    "title": "The rebook task line, only when the offer makes GHL tasks"
+   },
+   {
     "id": "n7",
     "type": "slack_post",
     "channel": "{{slack.channel.triage_bookings}}",
-    "template": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} · {{appointment.starts_at | date_company}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:—}}\n*Rebook task:* due in 1 day for {{appointment.closer.name | default:the team}}",
+    "template": "*Cancelled:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Was booked with:* {{appointment.closer.name | default:unassigned}} · {{appointment.starts_at | date_company}}\n*Cancelled by:* {{appointment.cancelled_by | default:the invitee}}\n*Reason:* {{appointment.cancel_reason | default:none given}}\n*Phone:* {{contact.phone | default:—}}{{vars.task_line}}",
     "as": {
      "name": "Triage call cancelled",
      "icon": [
@@ -135,6 +148,10 @@
    },
    {
     "from": "n6",
+    "to": "v_task"
+   },
+   {
+    "from": "v_task",
     "to": "n7"
    }
   ]

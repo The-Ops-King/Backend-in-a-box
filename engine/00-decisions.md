@@ -6368,3 +6368,233 @@ with a dry run each (Sales call recorded and Payment recorded on Dating Nelly, P
 - The templates carry the same (`fixtures/before-d236` holds them as they were for D118's guard); PMU's copies are rebuilt.
 
 Tests: `recordings.test.ts`, `health.drift.test.ts`, the scenarios.
+
+## D237. The health check names each upcoming closing call with no meeting link (2026-10-25)
+
+Tyler: "Ideally the health check also finds upcoming calls with no link." A new check, `meeting_links`, in every offer's hourly
+health check: each closing call starting in the next 48 hours (the step's `meeting_link_hours`, 1 to 168) that is not cancelled
+and has no join link from its booking is a warning naming the person, the time in the offer's zone and the closer, with the CRM
+contact as its link. It clears itself when the link arrives (the poll fills it in, D144), the call is cancelled, or its time
+passes. Only closing calls, the ones Call booked's no-link steps cover (D235); a triage call is a phone call. Staged test
+bookings are left out. On by default, as every check; Dating, PMU and Hair all run Health check. Tests: `health.meeting-links.test.ts`.
+
+## D238. Small things every offer does the same way (2026-10-25)
+
+Tyler's list: "The EOD operator ping linking each overdue day is standard. Deal value goes on the won card for all." Dating's
+1-hour closing text: "when there's no link, send it without the 'Join here' sentence." And the cancel post's "Rebook task" line
+only when a task was made (Dating's GHL tasks are off, by Tyler's choice).
+- **The operator's end-of-day ping** (two days blank) links each day to that person's form, as Dating's did (D207): "{name} still
+  has calls with no outcome after two days: • <link|day>: names. Open a day to file it yourself." In the template; PMU and Hair
+  patched.
+- **The won closer card carries the deal's value** (`{{contact.revenue | default:}}`: the opportunity's contract value, else the
+  program price; nothing written when neither is set), as Dating's did (D130). In the template, so Dating's playbook no longer adds
+  it; Hair and PMU patched.
+- **The cancel post's rebook task line** is a step before the post (`v_task`) that says it only when `setting.tasks` (the offer's
+  `crm.tasks`, the switch create_task obeys) is on. In the template; every offer's Call cancelled patched (Dating's two too).
+- **Dating's closing hour text with no link** is `words.preCall.closing.hourNoLink`, her hour text without "Join here: {link}";
+  the same safety rules as the hour text (not on the heels of another text, skipped when stale). `hourNoLink` no longer adds
+  Slack posts to the pre-call: Call booked says it at booking (D235). No "link coming" text to anyone.
+Tests: `cancel-task-line.test.ts`, `dating-copies.test.ts`, `eod.test.ts`.
+
+**D237, D238 applied (2026-10-25, Tyler: "fix the issues").** After the full suite (1260 tests) and the deploy, each a patch of the
+offer's own copy, dry run first, Dating, PMU, Hair:
+- Dating: Call cancelled v3 and Triage call cancelled v4 (the rebook task line only with tasks on; hers are off), Closing pre-call
+  v8 (the no-link hour text), Send agreement manually v2 (the /agreement trigger; left off, as it was).
+- PMU: EOD reminder v2 (linked operator ping), Deal closed v5 (the won card's value; its welcome words are still Hair's, for the
+  Deal closed rebuild before go-live), Call cancelled v3, Calendar availability v2 and Health check v3 (D189: availability alerts
+  said by Calendar availability, in that order).
+- Hair: EOD reminder v6, Deal closed v7, Call cancelled v8, Send agreement manually v3 (/agreement), the daily, weekly and monthly
+  wrap-ups v4 (Deposits and Deposit cash rows, quiet when empty) and Weekly leaderboard v3 (quiet when empty), all posting through
+  `slack.channel.reports`, now #sales-ops (was #ops-test; they posted to #sales-ops by its typed id, so nothing moved). Hair's
+  leaderboard uses the reports channel, not ops: Hair's ops channel is its test channel, #ops-test.
+- GHL, additive: PMU's Sales Call gets Duration (min), Transcript, Next Step Date, Payment Terms; Hair's gets Next Step, Next Step
+  Date, Payment Terms. Every Sales Call field each offer's workflows write now exists. PMU also has its own Follow Up Date.
+
+## D239. One setter/closer model on every offer: Jev guesses, the end of day writes (2026-10-26)
+
+Tyler: "EOD writes the result. the AI takes a guess and prefills the EOD ... AI doesn't move anything or change anything. only the
+EOD." Hair's setter: "Don't do that. EOD does that." And the hybrid: "if they make a set call, at 10am, then a closing call at 11am,
+same person, they own both one discovery call, and one closing call, both show up on the EOD. Separated into sections of
+'Discovery calls' and 'Closing calls'."
+- **Setter call logged** (the template, so every offer): D154 is no longer Dating's alone. Jev reads the call (what kind, what it
+  achieved, why a DQ, the write-up); a setting call is posted in the setter channel and its read logged for the caller's end of day;
+  a closing call goes to Sales call recorded, whoever made it. Gone from the template: the result on the record, the note, the
+  question to the team and its taps, the task, tag and card actions (`setter_result.act`, their switch, is read by no template now;
+  the setting itself is left for a cleanup). New:
+  the call's Discovery Call is made at call time, blank (no outcome, no result), owned by the caller, so GHL shows it as owed until
+  the end of day files it; not when the person had a triage call booked with that caller that day (its own Discovery Call stands for
+  it, and the end of day folds the read into that row).
+- **Setter call filed** is a template now (was Dating's own, D156): the end of day's answer writes that same record (showed, the
+  result, why a DQ, notes) and moves the setter card to Appointment Set, DQ or Not Interested where the offer has a setter board and
+  that stage; an offer on one board (PMU) has none and its card is left alone.
+- **The end of day**: a caller's setting calls with no booking are on their day on every offer (`eod.setter_calls`, now on by
+  default), and a setter's blank triage calls are in the operator's ping (`eod.triage_overdue`, on by default, a registered setting).
+  The page puts a person's calls in two sections, "Discovery calls" (triage and outbound) and "Closing calls".
+- **GHL, additive**: Hair's setter board gets DQ and Not Interested (bound), its Discovery Call gets DQ Reason and Notes; PMU gets a
+  Discovery Call object (Dating's fields) and its link to the contact (bound).
+Tests: `setter-result.test.ts` (rewritten for the model: blank record, nothing asked or done, the triage-call skip),
+`setter-call-filed.test.ts` (one board), `eod.setter-calls.test.ts`, `dating-copies.test.ts`, `templates.scenarios.test.ts`.
+
+**D239 applied (2026-10-26).** Full suite (1265 tests), deployed, then each offer's own copy, dry run first; no setter run was waiting
+on any offer. GHL first (additive): Hair's setter board DQ and Not Interested stages (bound) and its Discovery Call's DQ Reason and
+Notes fields; PMU's Discovery Call object and its contact link (bound). Then:
+- Dating: Setter call logged v5 (the blank Discovery Call at call time; its own words kept) and Setter call filed v3 (from the template).
+- PMU: `eod.setter_calls` on; Setter call logged v3 (the template; still off, as it was); Setter call filed made (off).
+- Hair: `eod.setter_calls` on; Setter call logged v10 (the template: Jev no longer writes the result or acts); Setter call filed made,
+  **off: turning it on waits for Tyler's word**. Until it is on, Hair's end of day answers for setting calls with no booking are
+  recorded (setter_call.filed) but written to GHL by nothing.
+
+**D239 follow-up (2026-10-26, Tyler).** Hair's Setter call filed turned on ("I think it should be on"): Hair's end of day now
+writes its setting calls' Discovery Calls. No-show recovery ("off intentionally. get the guard, and keep it off"): the template's
+closing-calls-only guard on both triggers, saved on Dating v2, PMU v2, Hair v5; still off on all three.
+
+## D240. Following a merge the operator names (2026-10-26)
+
+Tyler merged Alma Saucedo's and Elena Jocobi's two GHL contacts each. D222 finds the contact a merge kept by a shared email or
+phone, and these pairs had none in common, so nothing found it. `POST /api/admin/contact/merged { company, gone, into, why,
+dryRun = true }` follows a merge the operator names. GHL must already have dropped the gone contact, and the one it went into
+must be live. The dry run counts what would move. Applied, D222's follow moves it all and keeps the gone row as merged into the
+survivor. Audited. Tests: `contact-ops.test.ts`.
+
+## D241. The minute tick reads GHL documents every five minutes (2026-10-26)
+
+PMU's documents read took 5.8 s of every minute's tick. The minute tick now reads them at most every five minutes
+(`AGREEMENTS_EVERY_MS`, an `engine_state` stamp per company). An offer waiting on a signature (a payment, or an agreement sent
+in the last 30 minutes) is still read every ten seconds by its own job (D202). Tests: `poll.agreements.test.ts`.
+
+## D242. A booking whose meeting Calendly could not make is an alert the minute it books (2026-10-26)
+
+Tyler: "it should warn me that zoom is not connected the minute a single call books." Calendly's event carries
+`location.status`. "failed" means it could not make the Zoom (or Meet or Teams), so the booking has no link. A new booking like
+that raises `booking:meeting-failed:<appointment>` at once, naming the host whose connection broke and what to do. The alert
+closes itself if the link turns up later. Tests: `poll.meeting-failed.test.ts`.
+
+## D243. A round robin's hosts are the ones Calendly says host it (2026-10-26)
+
+The engine listed every member whose own event-type listing carried a round robin as its host. Calendly carries the type
+under a member who only owns or administers it: Mary Emily (team@) showed as a host on PMU's three round robins, whose hosts
+are Carly and Jose. A shared type's hosts now come from `/event_type_memberships`. The member listings are kept only when
+that read is refused. Tests: `list-calendars.test.ts`.
+
+## D244. In the end of day, each payment counts on the call it followed (2026-10-26)
+
+Jose's Oct 22 end of day showed $20,000 collected for Jennyfer Cantrell's $10,000. Each of her two calls that day was credited
+with all of her payments that day. Now a person's payment belongs to the latest of their closing calls that day that started
+by the time they paid, and a payment made before their first call counts on that first call. Being won works the same way.
+Her $250 is the 10 AM call's deposit and her $9,750 the 7 PM call's close. Tests: `eod.money-per-call.test.ts`.
+
+## D245. An emptied money field is sent as no money (2026-10-26)
+
+PMU's Call outcome filed empties a held call's fields on a no-show (`clear`, `cash_collected` among them). GHL refuses a null
+money field ("Cash Collected is missing a currency code") and with it the whole update, so Renee G's two Oct 22 no-shows stayed
+"scheduled" in GHL. A money field in `clear` is now sent as `{ currency: "default", value: 0 }`, which GHL takes. Engine code:
+it changes only writes GHL was refusing. Tests: `nodes.test.ts`.
+
+## D246. Who owes an end of day, at a glance (2026-10-28)
+
+Tyler: "i can't see who has missing EODs at a glance." One list, from the end-of-day reminder's own rule: for each active
+closer and setter, the days before today with calls and no report filed, with the names of the calls still open. Today is not
+late yet. No one's private link appears in it. It shows up in three places:
+- `/missing-eod` in Slack, for every offer (in both Slack app manifests; each app needs its manifest pasted and reinstalling).
+- `report.missing_eods` (`count`, `lines`) for a wrap-up's words: an offer's copy says it only where its layout lines word it.
+- The dashboard: a Missing section at the top of an offer's End of day page, and a line on the offer's page.
+Tests: `missing-eods.test.ts`.
+
+## D247. A team member whose email changed in GHL is found by the new one (2026-10-28)
+
+Mel Reynolds was in the engine under her old GHL email (ops@thebeautybosses.com). Tyler changed it in GHL to
+mel@thebeautymoguls.com, the address Calendly knows her by, and `/api/admin/team` still answered "not a GHL user". The roster
+sync matched her GHL user but only took the name. It now takes the email too, unless another member already has that address.
+A GHL user whose address is already another member's is skipped, where before it stopped the whole sync. Tests: `team.test.ts`.
+
+Addendum to D246 (2026-10-28). Tyler: "The 'missing EOD' doesn't link me to the missing EOD." A closer's link is private:
+whoever holds it files as them. So it never goes in Slack. On the operator's End of day page, each owed day opens that
+person's form for that day. `/missing-eod` links to that page.
+
+## D248. What the offer's Fathom key can see, by recorder (2026-10-28)
+
+`GET /api/admin/fathom/meetings?company&days` is read only. For each recorder, it gives the meetings the key can read, how
+many are in the engine, and the latest one. It answers "can the engine see Jose's calls" from Fathom's side: a key sees its
+own user's recordings, plus what is shared with that user or their team.
+
+Addendum to D246 (2026-10-28). Tyler: "i'd prefer each day gives the link. Jose is missing EOD for [mon oct 26](link)."
+Each owed day is now its own link, in Slack and in the wrap-up line: "Jose P is missing EOD for <Mon Oct 26> (Tommy Arakilian)".
+The link is `/go/eod/<offer>/<person>/<day>`. It sits behind the dashboard's sign-in, then opens that person's form on that day,
+so the closer's private link is still never posted.
+
+## D249. One name per stat tag in the shipped templates (2026-10-28)
+
+Tyler: "I want all of them to have a booking tag that they have booked a call at least once." The shipped templates now use:
+
+- `stat-call-not-booked`: New lead adds it with `stat-new`; Call booked takes it off (setter and closer bookings).
+- `stat-call-booked`: Call booked adds it. It is sticky: Call cancelled no longer removes it. It replaces `stat-booked` and
+  `stat-booked-call`.
+- `stat-no-show`, `stat-cancelled`, `stat-closed-won`: unchanged in the templates.
+
+This is a template change only. Per the rules in CLAUDE.md it reaches no existing offer; PMU's workflows change one at a time,
+by name, through the definition route with a dry run.
+
+## D250. Application and booking tags over an offer's Typeform history (2026-10-28)
+
+Tyler: "we also want to add Application partial and application complete tags", and "compare all of the ones in type form.
+Anybody that has not booked a call, add that tag". `POST /api/admin/contact/application-tags { company, forms, why, dryRun }`
+reads every completed and partial response of the named forms, finds each person in GHL (email, then phone), and sets:
+
+- `stat-application-complete` if any response of theirs was submitted (`stat-application-partial` comes off), else
+  `stat-application-partial`;
+- `stat-call-not-booked` if they never booked, taken off if they did. Booked at least once: a booking tag in GHL
+  (`stat-call-booked`, `stat-booked-call`, `stat-booked`, `meta booked call`), a booking in the ledger, or any Calendly booking
+  under their email, a cancelled one included. The ledger starts at install, so Calendly covers the months before.
+
+A person GHL does not have is listed, never created; `skip` (GHL ids) leaves the named contacts (tests) alone. Dry run by default; apply re-reads each contact live and writes only what
+it lacks. `POST /api/admin/bindings { company, key, value, why }` sets one setting (a secret encrypted, never answered back);
+the Typeform token is allowed before an offer's forms are mapped.
+
+## D251. One shared Slack app, installed per offer from a link (2026-10-28)
+
+Tyler: "installable shared app. one that does it all so we update once and it all gets it. however it's connected to the app
+itself so we can make sure to get the right data. if i do /team on one account for example I should Only get that team".
+
+- One Slack app (its manifest from `GET /api/admin/slack/install`), made once and distributed (unlisted). Its keys live on the server:
+  `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`. Its doors: `/api/slack/events`, `/commands`, `/interactions`,
+  `/oauth`. Changing a command or a scope means updating that one app, and every workspace gets the change.
+- An offer connects it with its own "Add to Slack" link (the dashboard's Slack step, or `GET /api/admin/slack/install?company=`).
+  The link carries the offer, signed and valid for an hour. The bot token Slack hands back becomes that offer's Slack (encrypted), with
+  `slack_connections.app = 'shared'`. Installing into a different workspace from the offer's existing one is refused.
+- Which offer a request is for: the workspace (`team_id`) among the offers on the shared app. If a workspace runs several offers,
+  the request's channel decides (a channel-slot setting, or a post the engine made there; for a reaction or button, that exact post). A
+  DM is decided by the person (whose active team they are on). A form is decided by the channel it was opened from. Anything still
+  unclear is answered "which offer?" and never guessed. So `/team` in one offer's channel answers for that offer only.
+- The per-offer apps (D174) keep working. Once an offer moves to the shared app, its own app's doors stop acting: commands
+  answer that the app can be removed, and events and buttons are dropped. Re-pasting an own app's token in the wizard moves the
+  offer back to it.
+- If the app is uninstalled or its token revoked, each offer in that workspace loses its Slack connection, and an engine alert
+  says so.
+- The three doors are one piece of code (`src/api/slack-doors.ts`) whichever app a request came through. The shared app and the
+  per-offer apps build their manifests from one place (`manifestYaml`).
+
+Not done: moving Dating, PMU and Hair onto it. Each is one click on its link once the app exists, and is Tyler's call, one offer at a time.
+
+## D252. Nobody who showed up to a call, or bought, carries a reactivation tag (2026-10-29)
+
+Tyler: "I don't want anyone who showed up to a call to have those tags. This is to send out a reactivation sms and I don't want
+anyone who bought to receive one." Those tags: `stat-noshow`, `stat-no-show`, `stat-cancelled`, `stat-possible-cancel`,
+`stat-call-not-booked`. The run context gains `contact.showed_ever`: any booking of theirs marked or filed showed, whatever came
+after. Nothing read it before, so no saved workflow changes with it. PMU's workflows use it with `contact.paid`:
+
+- Call outcome filed: a call filed showed takes the five tags off (v8); its no-show and possible-cancel tags are skipped for
+  someone who showed before or paid.
+- Call cancelled: `stat-cancelled` is skipped for the same people.
+
+GHL was cleaned the same day: the six who had showed and still carried one of these (each from a later call cancelled or
+no-showed) lost it. Outbound dialer calls that connected are not a show. No buyer carried one.
+
+## D253. An unmatched recording is posted unless it is clearly not a sales call (2026-10-30)
+
+Nelly's Fathom records her own short Meets with people who are not the offer's prospects (about 25 in ten days, none in the CRM or on
+Calendly), and each was posted to Slack as an Unmatched recording. Tyler: "We need them to be better so it only posts sales calls and
+doesn't post calls that aren't sales calls or prospects." Unmatched recording now asks Jev first what the call is (the recording's own
+transcript: an unmatched recording has no contact for the whole-call lookup), with "sales call" meaning a prospect, someone not yet a
+client, about buying or starting the program; a client's session is "other". It stays silent only when Jev clearly says internal or
+other; a sales call, an unsure read, or no transcript to read is still posted, so what the engine cannot tell still reaches a person.
+A Slack change, so every offer in one pass (D: Slack works the same on every offer), each saved with a dry run.

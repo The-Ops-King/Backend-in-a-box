@@ -47,7 +47,6 @@ const booked = z.object({ workflow: z.string().min(1), name: z.string().min(1), 
 const own = z.object({ workflow: z.string().min(1), name: z.string().min(1), callType: z.string().min(1), channel: z.string().regex(/^[a-z][a-z0-9_]*$/).optional() });   // D211: channel
 const setup = z.object({ booked: z.array(booked), fromForm: z.object({ workflow: z.string().min(1), name: z.string().min(1) }).optional(),
   triageCancelled: own.optional(), triageFiled: own.optional(),   // D142, D143 (dropped here by the onboarding merge, so a build left them out)
-  setterCallReadOnly: z.boolean().optional(),   // D154
   setterFiled: z.object({ workflow: z.string().min(1), name: z.string().min(1) }).optional() });   // D156
 const label = z.string().trim().min(1);
 const oneBoard = z.object({

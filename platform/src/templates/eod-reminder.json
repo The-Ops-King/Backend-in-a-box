@@ -95,7 +95,7 @@
           "name": "End of day",
           "icon": ":clipboard:"
         },
-        "template": "{{user.name}} still has Sales Calls with no outcome in GHL after two days:\n{{vars.due.overdue | each:\"• {{item.label}}: {{item.names | join}}\" | join:\"\\n\"}}",
+        "template": "{{user.name}} still has calls with no outcome after two days:\n{{vars.due.overdue | each:\"• <{{item.url}}|{{item.label}}>: {{item.names | join}}\" | join:\"\\n\"}}\nOpen a day to file it yourself.",
         "title": "Tell the operator about calls blank for two days"
       },
       {

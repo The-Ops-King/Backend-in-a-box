@@ -1,0 +1,227 @@
+{
+  "slug": "setter-call-filed",
+  "name": "Setter call filed",
+  "category": "post_call",
+  "stage": "post_call",
+  "sort": 6,
+  "origin": "spec",
+  "description": "A setting call with no booking behind it (an outbound or follow-up dial) answered on the caller's end of day (D156): the end of day is the only thing that writes what the call achieved. The conversation's Discovery Call record (made blank when the call was logged) gets showed and the result: set, follow up, DQ (with why) or not interested, and the notes. The setter card goes to Appointment Set, or DQ / Not Interested marked lost, where the offer has a setter board and that stage (an offer on one board has none, and its card is left alone). A line goes under the call's post in the setter channel. Jev's read only pre-fills the end of day; a refiled answer writes again over the same record.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "setter_call.filed",
+        "title": "A setting call answered on the end of day"
+      },
+      {
+        "id": "v_line",
+        "type": "set_var",
+        "key": "line",
+        "value": "{{event.result}}",
+        "pick": {
+          "set": "✅ End of day: set",
+          "follow_up": "🔁 End of day: follow up",
+          "dq": "⛔ End of day: DQ",
+          "not_interested": "👋 End of day: not interested"
+        },
+        "else_value": "",
+        "title": "The thread line"
+      },
+      {
+        "id": "d1",
+        "type": "crm_record",
+        "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
+        "key": "{{event.conversation}}",
+        "owner": "{{event.setter_ghl_user_id | default:}}",
+        "title": "The call's Discovery Call record: showed, and the result filed",
+        "properties": {
+          "display_label": "{{contact.name | default:Unknown}} — {{event.started_at | date_company:yyyy-MM-dd}}",
+          "external_id": "{{event.conversation}}",
+          "contact_id": "{{contact.ghl_contact_id | default:}}",
+          "occurred_at": "{{event.started_at | date_company}}",
+          "direction": "{{event.direction | default:}}",
+          "duration_sec": "{{event.duration_sec | default:}}",
+          "setter": "{{event.setter | default:}}",
+          "outcome": "showed",
+          "recording_url": "{{event.recording_url | default:}}",
+          "call_result": "{{event.result}}",
+          "dq_reason": "{{event.dq_reason | default:}}",
+          "notes": "{{event.note | default:}}"
+        },
+        "clear": [
+          "dq_reason"
+        ],
+        "relate": [
+          {
+            "association": "{{crm.assoc_discovery_call_contact}}",
+            "first": "{{contact.ghl_contact_id | default:}}",
+            "second": "{{record.id}}"
+          }
+        ]
+      },
+      {
+        "id": "b1",
+        "type": "branch",
+        "title": "Where the setter card goes"
+      },
+      {
+        "id": "c_set",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter | default:}}",
+        "stage": "{{crm.stage_setter_appointment_set | default:}}",
+        "if_missing": "skip",
+        "pick": "latest",
+        "only_if": {
+          "and": [
+            {
+              "exists": "crm.pipeline_setter"
+            },
+            {
+              "exists": "crm.stage_setter_appointment_set"
+            }
+          ]
+        },
+        "title": "Setter card → Appointment Set"
+      },
+      {
+        "id": "c_dq",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter | default:}}",
+        "stage": "{{crm.stage_setter_dq | default:}}",
+        "if_missing": "skip",
+        "pick": "latest",
+        "status": "lost",
+        "only_if": {
+          "and": [
+            {
+              "exists": "crm.pipeline_setter"
+            },
+            {
+              "exists": "crm.stage_setter_dq"
+            }
+          ]
+        },
+        "title": "Setter card → DQ, marked lost"
+      },
+      {
+        "id": "c_ni",
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_setter | default:}}",
+        "stage": "{{crm.stage_setter_not_interested | default:}}",
+        "if_missing": "skip",
+        "pick": "latest",
+        "status": "lost",
+        "only_if": {
+          "and": [
+            {
+              "exists": "crm.pipeline_setter"
+            },
+            {
+              "exists": "crm.stage_setter_not_interested"
+            }
+          ]
+        },
+        "title": "Setter card → Not Interested, marked lost"
+      },
+      {
+        "id": "n1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.setter_calls}}",
+        "thread_of": "tag:setter-call:{{event.conversation}}",
+        "thread_only": true,
+        "only_if": {
+          "neq": [
+            "{{vars.line}}",
+            ""
+          ]
+        },
+        "as": {
+          "name": "Setter call",
+          "icon": ":clipboard:"
+        },
+        "template": "{{vars.line}}",
+        "title": "A line under the call's post"
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "filed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "v_line"
+      },
+      {
+        "from": "v_line",
+        "to": "d1"
+      },
+      {
+        "from": "d1",
+        "to": "b1"
+      },
+      {
+        "from": "b1",
+        "to": "c_set",
+        "label": "set",
+        "when": {
+          "eq": [
+            "{{event.result}}",
+            "set"
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "c_dq",
+        "label": "DQ",
+        "when": {
+          "eq": [
+            "{{event.result}}",
+            "dq"
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "c_ni",
+        "label": "not interested",
+        "when": {
+          "eq": [
+            "{{event.result}}",
+            "not_interested"
+          ]
+        }
+      },
+      {
+        "from": "b1",
+        "to": "n1",
+        "label": "follow up",
+        "else": true
+      },
+      {
+        "from": "c_set",
+        "to": "n1"
+      },
+      {
+        "from": "c_dq",
+        "to": "n1"
+      },
+      {
+        "from": "c_ni",
+        "to": "n1"
+      },
+      {
+        "from": "n1",
+        "to": "x1"
+      }
+    ]
+  }
+}

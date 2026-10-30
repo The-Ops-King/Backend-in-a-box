@@ -174,38 +174,42 @@ describe.skipIf(!HAS_DB)("setter call result (D79, D87)", () => {
     companyId = await fresh("setres", fake);
   });
 
-  it("set: a booking through a setter link made during the call → posted at once as Set, whatever Jev read; Set on the record, the read is on the recording and logged; nothing asked, nothing done", async () => {
+  // D239 (Tyler: "the AI takes a guess and prefills the EOD ... AI doesn't move anything or change anything. only the EOD"): the read
+  // is posted and logged for the caller's end of day; the call's Discovery Call is made blank (no outcome, no result); nothing else
+  const blank = (w: Record<string, unknown>) => !("call_result" in w) && !("outcome" in w);
+
+  it("set: a booking through a setter link made during the call → posted at once as Set, whatever Jev read; the Discovery Call made blank; the read is on the recording and logged; nothing asked, nothing done", async () => {
     const nRec = recordWrites.length, nTasks = tasks.length;
     const k = await call(FOLLOW, { endedAgo: 2 });
     await book(k, k.startedAt.plus({ minutes: 1 }));
     await run();
     const r = (await runOf(k.contactId))!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "posted" });   // posted at the transcript: no wait
-    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: k.external, call_result: "set" })]);   // no led_to_booking: GHL cannot update a checkbox; call_result carries Set
+    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: k.external, setter: "Allan Setter" })]);
+    expect(blank(recordWrites.slice(nRec)[0])).toBe(true);
     expect(await digestOf(r.id)).toContain("*Outcome:* Set — booked through a setter link during the call (Jev read: follow up, 88% sure)");
     expect(await digestOf(r.id)).not.toMatch(/Would have/);
     const analysis = await analysisOf(k.recordingId);
     expect(analysis.classify).toMatchObject({ call_type: { value: "setting" }, result: { value: "follow_up", confidence: 0.88 } });   // the second read does not wipe the first
-    expect(await eventsOf(k.contactId, "setter_call.result")).toEqual([expect.objectContaining({ recording_id: k.recordingId, external_id: k.external, predicted: "follow_up", predicted_confidence: "88", result: "set", decided_by: "booking", set_by_booking: true, jev_agreed: false, setter: "Allan Setter", acts: false })]);
+    expect(await eventsOf(k.contactId, "setter_call.result")).toEqual([expect.objectContaining({ recording_id: k.recordingId, external_id: k.external, predicted: "follow_up", predicted_confidence: "88", result: "set", decided_by: "booking", set_by_booking: true, jev_agreed: false, setter: "Allan Setter", call_type: "setting" })]);
     expect(await tsOf(`setter-result:${k.external}`)).toBeFalsy();
     expect(tasks.length).toBe(nTasks);
     expect((await step(r.id, "a4"))?.status).toBe("skipped");   // the DQ reason is read only when it could be a DQ
     expect((await step(r.id, "w_late"))?.status).toBe("skipped");   // already Set: nothing to wait for
   });
 
-  it("follow up / DQ / not interested with the actions OFF (the default): the result is written and the post says what would have happened; no task, tag or card move", async () => {
+  it("follow up / DQ / not interested: Jev's read is posted and logged for the end of day; each call's Discovery Call made blank; no task, tag or card move", async () => {
     const nTasks = tasks.length, nTags = tags.length, nOpp = oppWrites.length, nRec = recordWrites.length;
     const f = await call(FOLLOW), d = await call(DQ), x = await call(NI);
     for (const k of [f, d, x]) liveCards.set(k.ghl, setterCard(k.ghl));
     await run();
     const [rf, rd, rx] = [(await runOf(f.contactId))!, (await runOf(d.contactId))!, (await runOf(x.contactId))!];
     for (const r of [rf, rd, rx]) expect(r).toMatchObject({ status: "completed", exit_reason: "posted" });
-    expect(recordWrites.slice(nRec).map((w) => [w.external_id, w.call_result]).sort()).toEqual([[f.external, "follow_up"], [d.external, "dq"], [x.external, "not_interested"]].sort());
-    expect(await digestOf(rf.id)).toContain("*Outcome:* Follow up (Jev is 88% sure)\n*Would have (actions are off):* a task for Allan Setter to call back Lead No");
-    expect(await digestOf(rd.id)).toContain("*Would have (actions are off):* tag dq-budget and mark the setter card lost.");
-    expect(await digestOf(rx.id)).toContain("*Would have (actions are off):* mark the setter card lost.");
+    expect(recordWrites.slice(nRec).map((w) => w.external_id).sort()).toEqual([f.external, d.external, x.external].sort());
+    expect(recordWrites.slice(nRec).every(blank)).toBe(true);
+    expect(await digestOf(rf.id)).toContain("*Outcome:* Follow up (Jev is 88% sure)");
+    for (const r of [rf, rd, rx]) expect(await digestOf(r.id)).not.toMatch(/Would have|Next:/);
     expect([tasks.length, tags.length, oppWrites.length]).toEqual([nTasks, nTags, nOpp]);
-    for (const [r, node] of [[rf, "k_task"], [rd, "k_tag"], [rd, "k_lost_dq"], [rx, "k_lost_ni"]] as const) expect((await step(r.id, node))?.status).toBe("skipped");
     expect((await eventsOf(d.contactId, "setter_call.result"))[0]).toMatchObject({ predicted: "dq", result: "dq", dq_reason: "budget", set_by_booking: false });
     expect((await analysisOf(d.recordingId)).classify).toMatchObject({ dq_reason: { value: "budget" } });
   });
@@ -218,94 +222,68 @@ describe.skipIf(!HAS_DB)("setter call result (D79, D87)", () => {
     const nRec = recordWrites.length;
     await run();
     for (const w of [k, late, self]) expect(await runOf(w.contactId)).toMatchObject({ status: "completed" });
-    expect(recordWrites.slice(nRec).map((w) => [w.external_id, w.call_result]).sort()).toEqual([[k.external, "set"], [late.external, "follow_up"], [self.external, "follow_up"]].sort());
+    expect(recordWrites.slice(nRec).every(blank)).toBe(true);
     expect(await digestOf((await runOf(k.contactId))!.id)).toContain("*Outcome:* Set — booked through a setter link after the call (Jev read: follow up, 88% sure)");
     expect((await eventsOf(k.contactId, "setter_call.result"))[0]).toMatchObject({ predicted: "follow_up", result: "set", decided_by: "booking", set_by_booking: true, jev_agreed: false });
     for (const w of [late, self]) expect((await eventsOf(w.contactId, "setter_call.result"))[0]).toMatchObject({ result: "follow_up", decided_by: "jev", set_by_booking: false });
   });
 
-  it("D87: Jev reads Set but no booking came through a setter link: not Set; the setters are asked", async () => {
+  it("D87: Jev reads Set but no booking came through a setter link: not Set; the post says the end of day asks; nobody is asked in Slack", async () => {
+    const nPosts = posts.length;
     const k = await call(SET);
     await run();
     const r = (await runOf(k.contactId))!;
-    expect(r).toMatchObject({ status: "waiting", current_node: "w_hold" });
-    expect(await digestOf(r.id)).toContain("*Outcome:* Jev read Set (92% sure), but no booking came through a setter link; the team is asked");
-    expect(posts.find((p) => p.text.includes("what did it achieve?") && p.text.includes(`|Lead No`) && p.text.includes("but no booking came through a setter link"))).toBeTruthy();
+    expect(r).toMatchObject({ status: "completed", exit_reason: "posted" });
+    expect(await digestOf(r.id)).toContain("*Outcome:* Jev read Set (92% sure), but no booking came through a setter link; the end of day asks");
+    expect(posts.slice(nPosts).filter((p) => p.text.includes("what did it achieve?"))).toEqual([]);
     expect((await eventsOf(k.contactId, "setter_call.result"))[0]).toMatchObject({ predicted: "set", result: "", decided_by: "" });
   });
 
-  it("unsure (Jev under 70%, or doubtful): nothing written; the setters are asked with Jev's guesses and four taps; the first tap writes the result, is scored as the team's answer and replies in the thread", async () => {
-    const nRec = recordWrites.length;
+  it("unsure (Jev under 70%, or doubtful): posted with Jev's guesses for the end of day; nothing asked, no taps; the Discovery Call made blank", async () => {
+    const nRec = recordWrites.length, nPosts = posts.length;
     const k = await call(UNSURE);
     await run();
     const r = (await runOf(k.contactId))!;
-    expect(r).toMatchObject({ status: "waiting", current_node: "w_hold" });
+    expect(r).toMatchObject({ status: "completed", exit_reason: "posted" });
     expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: k.external })]);
-    expect(recordWrites.slice(nRec)[0]).not.toHaveProperty("call_result");
-    expect(await digestOf(r.id)).toContain("*Outcome:* Jev isn't sure (its guesses: follow up 55%, not interested 30%, set 15%); the team is asked");
-    const q = (await tsOf(`setter-result:${k.external}`))!;
-    expect(q.channel).toBe("CSET");
-    const question = posts.find((p) => p.text.includes("what did it achieve?") && p.text.includes(`|Lead No${n - 1}>`))!;
-    expect(question.text).toContain("Allan Setter's call with");
-    expect(question.text).toContain("its guesses: follow up 55%, not interested 30%, set 15%");
-    expect(question.text).toContain("Tap ✅ Set · 🔁 Follow up · ❌ DQ · 🚫 Not interested");
-    expect(reacted.filter((x) => x.startsWith(`${q.ts}:`))).toEqual(["white_check_mark", "repeat", "x", "no_entry_sign"].map((e) => `${q.ts}:${e}`));
+    expect(blank(recordWrites.slice(nRec)[0])).toBe(true);
+    expect(await digestOf(r.id)).toContain("*Outcome:* Jev isn't sure (its guesses: follow up 55%, not interested 30%, set 15%); the end of day asks");
+    expect(await tsOf(`setter-result:${k.external}`)).toBeFalsy();
+    expect(posts.slice(nPosts).filter((p) => p.text.includes("what did it achieve?"))).toEqual([]);
     expect(await eventsOf(k.contactId, "setter_call.result")).toEqual([expect.objectContaining({ predicted: "unclear", result: "", decided_by: "", top_guesses: "follow up 55%, not interested 30%, set 15%" })]);
-    // a stray emoji changes nothing; ❌ decides
-    await tap(q.ts, "eyes"); await run();
-    expect(await runOf(k.contactId)).toMatchObject({ status: "waiting", current_node: "w_hold" });
-    await tap(q.ts, "x"); await run();
-    expect(await runOf(k.contactId)).toMatchObject({ status: "completed", exit_reason: "posted" });
-    expect(recordWrites.slice(nRec).at(-1)).toEqual({ op: "update", object: "custom_objects.discovery_call", id: expect.stringMatching(/^rec-/), call_result: "dq" });
-    expect(await eventsOf(k.contactId, "intent.reviewed")).toEqual([{ domain: "setter_call_result", predicted: "unclear", predicted_confidence: "55", decided: "dq", agreed: false, decided_by: "Tyler Ray", recording_id: k.recordingId }]);
-    expect(posts.filter((p) => p.threadTs === q.ts).map((p) => p.text)).toEqual(["DQ, per Tyler Ray.\n*Would have (actions are off):* tag dq and mark the setter card lost."]);
-    expect(unreacted.filter((x) => x.startsWith(`${q.ts}:`))).toHaveLength(4);
-    // a second tap after the decision does nothing more
-    const nPosts = posts.length; await tap(q.ts, "white_check_mark"); await run();
-    expect(posts.length).toBe(nPosts);
   });
 
-  it("unanswered for two days: the question closes, recorded as unanswered; nothing is written", async () => {
+  it("a triage call booked with this caller that day has its own Discovery Call: the call writes no second one", async () => {
     const nRec = recordWrites.length;
-    const k = await call(UNSURE);
+    const who = await newLead(companyId);
+    await asOperator(async (c) => {
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='first_call'", [companyId]))!.id;
+      const u = (await one<{ id: string }>(c, "select id from users where company_id=$1 and ghl_user_id='U1'", [companyId]))!.id;
+      const at = DateTime.now().minus({ minutes: 50 });
+      await c.query("insert into appointments (company_id, contact_id, external_id, appointment_term, assigned_user_id, starts_at, ends_at, booked_at, status) values ($1,$2,$3,$4,$5,$6,$7,now(),'confirmed')", [companyId, who.contactId, `TRI-${who.ghl}`, term, u, at.toJSDate(), at.plus({ minutes: 15 }).toJSDate()]);
+    });
+    const k = await call(FOLLOW, { who });
     await run();
     const r = (await runOf(k.contactId))!;
-    const q = (await tsOf(`setter-result:${k.external}`))!;
-    await wakeAt(r.id);
-    await run(fake, companyId, DateTime.now().plus({ hours: 47 }));
-    expect(await runOf(k.contactId)).toMatchObject({ status: "waiting", current_node: "w_hold" });   // not yet
-    await wakeAt(r.id);
-    await run(fake, companyId, DateTime.now().plus({ days: 2, minutes: 5 }));
-    expect(await runOf(k.contactId)).toMatchObject({ status: "completed", exit_reason: "posted" });
-    expect(await eventsOf(k.contactId, "intent.unanswered")).toEqual([{ domain: "setter_call_result", predicted: "unclear", predicted_confidence: "55", top_guesses: "follow up 55%, not interested 30%, set 15%", recording_id: k.recordingId }]);
-    expect(await eventsOf(k.contactId, "intent.reviewed")).toEqual([]);
-    expect(posts.filter((p) => p.threadTs === q.ts).map((p) => p.text)).toEqual([`Nobody answered in two days, so no result was written for Lead No${n - 1}.`]);
-    expect(recordWrites.slice(nRec).filter((w) => "call_result" in w)).toEqual([]);
+    expect(r).toMatchObject({ status: "completed", exit_reason: "posted" });
+    expect(await step(r.id, "r1")).toMatchObject({ status: "skipped" });
+    expect(recordWrites.slice(nRec)).toEqual([]);
+    expect(await eventsOf(k.contactId, "setter_call.result")).toHaveLength(1);   // the end of day pre-fills the triage call's row from it
   });
 
-  it("actions ON (setter_result.act): follow up → a task for the setter due the next business day with the suggested next step; DQ → the dq tag Jev's reason maps to and the setter card lost at the DQ stage; not interested → the setter card lost; set → nothing", async () => {
+  it("setter_result.act on changes nothing: Jev never acts (D239)", async () => {
     await setBinding(companyId, "setter_result.act", "true");
     try {
       const nTasks = tasks.length, nTags = tags.length, nOpp = oppWrites.length;
-      const f = await call(FOLLOW), d = await call(DQ), x = await call(NI), s = await call(SET);
-      await book(s, s.startedAt.plus({ minutes: 2 }));
-      for (const k of [f, d, x, s]) liveCards.set(k.ghl, setterCard(k.ghl));
+      const f = await call(FOLLOW), d = await call(DQ), x = await call(NI);
+      for (const k of [f, d, x]) liveCards.set(k.ghl, setterCard(k.ghl));
       await run();
-      for (const k of [f, d, x, s]) expect(await runOf(k.contactId)).toMatchObject({ status: "completed", exit_reason: "posted" });
-      const wd = DateTime.now().setZone(TZ).weekday, days = wd === 5 ? 3 : wd === 6 ? 2 : 1;
-      expect(tasks.slice(nTasks)).toEqual([expect.objectContaining({ contactId: f.ghl, title: `Call back ${(await asOperator((c) => one<{ n: string }>(c, "select first_name||' '||last_name as n from contacts where id=$1", [f.contactId])))!.n}`, assignedUserId: "U1", body: expect.stringContaining("Suggested next step: Call him Tuesday after work") })]);
-      const due = DateTime.fromJSDate(tasks.at(-1)!.dueAt as Date);
-      expect(Math.abs(due.diff(DateTime.now().plus({ days }), "minutes").minutes)).toBeLessThan(5);
-      expect(tags.slice(nTags)).toEqual([{ contact: d.ghl, tag: "dq-budget" }]);
-      expect(oppWrites.slice(nOpp).sort((a, b) => String(a.id).localeCompare(String(b.id)))).toEqual([expect.objectContaining({ id: `card-${d.ghl}`, stageId: "STAGE-S-DQ", status: "lost" }), expect.objectContaining({ id: `card-${x.ghl}`, stageId: "STAGE-CONTACTED", status: "lost" })]);   // no not-interested stage bound: status only
-      const fr = (await runOf(f.contactId))!;
-      expect(await digestOf(fr.id)).toContain("*Next:* a task for Allan Setter to call back");
-      expect((await eventsOf(s.contactId, "setter_call.result"))[0]).toMatchObject({ result: "set", acts: true });
+      for (const k of [f, d, x]) expect(await runOf(k.contactId)).toMatchObject({ status: "completed", exit_reason: "posted" });
+      expect([tasks.length, tags.length, oppWrites.length]).toEqual([nTasks, nTags, nOpp]);
     } finally { await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='setter_result.act'", [companyId])); }
   });
 
-  it("test mode (D52): a real person's call is read and posted, but nothing reaches the CRM, actions on or not", async () => {
-    await setBinding(companyId, "setter_result.act", "true");
+  it("test mode (D52): a real person's call is read and posted, but nothing reaches the CRM", async () => {
     await asOperator((c) => c.query("update companies set mode='test' where id=$1", [companyId]));
     try {
       const nTags = tags.length, nRec = recordWrites.length, nOpp = oppWrites.length;
@@ -314,30 +292,20 @@ describe.skipIf(!HAS_DB)("setter call result (D79, D87)", () => {
       const r = (await runOf(d.contactId))!;
       expect(r).toMatchObject({ status: "completed" });
       expect([tags.length, recordWrites.length, oppWrites.length]).toEqual([nTags, nRec, nOpp]);
-      expect((await step(r.id, "k_tag"))?.result).toMatchObject({ ghost: true, would_tag: ["dq-budget"] });
-      expect((await step(r.id, "r1"))?.result).toMatchObject({ ghost: true, properties: expect.objectContaining({ call_result: "dq" }) });
+      expect((await step(r.id, "r1"))?.result).toMatchObject({ ghost: true });
       expect(await eventsOf(d.contactId, "setter_call.result")).toHaveLength(1);
-    } finally {
-      await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId]));
-      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='setter_result.act'", [companyId]));
-    }
+    } finally { await asOperator((c) => c.query("update companies set mode='live' where id=$1", [companyId])); }
   });
 
-  it("a company whose Discovery Call object has no call_result field yet: the result is left out of the write and named (not_on_object), and a tapped answer writes nothing; no failure", async () => {
+  it("a company whose Discovery Call object has no call_result field: the blank record is made as usual; no failure", async () => {
     const co = await fresh("setres-nofield", noField);
     const nRec = recordWrites.length;
-    const k = await call(FOLLOW, { co }), u = await call(UNSURE, { co });
+    const k = await call(FOLLOW, { co });
     await run(noField, co);
     const r = (await runOf(k.contactId))!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "posted" });
-    expect((await step(r.id, "r1"))?.result).toMatchObject({ record: "created", not_on_object: ["call_result"] });
-    expect(recordWrites.slice(nRec).every((w) => !("call_result" in w))).toBe(true);
-    const q = (await tsOf(`setter-result:${u.external}`, co))!;
-    await tap(q.ts, "repeat", co); await run(noField, co);
-    const ru = (await runOf(u.contactId))!;
-    expect(ru).toMatchObject({ status: "completed", exit_reason: "posted" });
-    expect((await step(ru.id, "r2"))).toMatchObject({ status: "skipped", result: { kind: "noop", not_on_object: ["call_result"] } });
-    expect(await eventsOf(u.contactId, "intent.reviewed")).toEqual([expect.objectContaining({ decided: "follow_up", decided_by: "Tyler Ray" })]);
+    expect((await step(r.id, "r1"))?.status).toBe("ok");
+    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: k.external })]);
   });
 });
 
@@ -347,7 +315,7 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     companyId = await fresh("setres87", fake);
   });
 
-  it("no booking: posted 15 minutes after hang-up with Jev's read; a setter-link booking at minute 25 edits the post and the record to Set the moment it lands; one at minute 40 changes nothing", async () => {
+  it("no booking: posted 15 minutes after hang-up with Jev's read; a setter-link booking at minute 25 edits the post to Set the moment it lands (the record waits for the end of day); one at minute 40 changes nothing", async () => {
     const k = await call(FOLLOW, { endedAgo: 5 });
     await run();
     let r = (await runOf(k.contactId))!;
@@ -360,8 +328,10 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     r = (await runOf(k.contactId))!;
     expect(r).toMatchObject({ status: "waiting", current_node: "w_late" });
     expect(await digestOf(r.id)).toContain("*Outcome:* Follow up (Jev is 88% sure)");
-    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: k.external, call_result: "follow_up" })]);
+    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: k.external })]);
+    expect(recordWrites.at(-1)).not.toHaveProperty("call_result");   // D239: blank; the end of day files the result
     const post = (await postOf(k.external))!;
+    const nRecBefore = recordWrites.length;
     // minute 25: a booking through the setter link → the same post and the same record become Set, at once
     await book(k, k.endedAt.plus({ minutes: 25 }));
     expect((await runOf(k.contactId))!.next_run_at!.getTime()).toBeLessThanOrEqual(Date.now());   // the booking woke it; nothing polls
@@ -371,7 +341,7 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     const edit = edits.filter((e) => e.ts === post.ts).at(-1)!;
     expect(edit.text).toContain("*Outcome:* Set — booked through a setter link after the call (Jev read: follow up, 88% sure)");
     expect(edit.text).not.toContain("Would have");
-    expect(recordWrites.at(-1)).toEqual({ op: "update", object: "custom_objects.discovery_call", id: expect.stringMatching(/^rec-/), call_result: "set" });
+    expect(recordWrites.length).toBe(nRecBefore);   // only the post becomes Set; the record waits for the end of day
     expect((await eventsOf(k.contactId, "setter_call.result")).map((e) => [e.result, e.decided_by])).toEqual([["follow_up", "jev"], ["set", "booking"]]);
     const name = (await asOperator((c) => one<{ n: string }>(c, "select first_name||' '||last_name as n from contacts where id=$1", [k.contactId])))!.n;
     expect(posts.filter((p) => p.text.includes(`|${name}>`))).toHaveLength(1);   // one post, edited
@@ -422,7 +392,8 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     const edit = edits.filter((e) => e.ts === post.ts).at(-1)!;
     expect(edit.text).toContain("*Length:* 8 min (2 parts)"); expect(edit.text).toContain("*Outcome:* Not interested (Jev is 93% sure)");
     expect(posts.filter((p) => p.ts === post.ts)).toHaveLength(1);
-    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "update", external_id: p1.external, duration_sec: 480, call_result: "not_interested", display_label: expect.stringMatching(/\(2 parts\)$/) })]);   // the first part's record, never a second one
+    expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "update", external_id: p1.external, duration_sec: 480, display_label: expect.stringMatching(/\(2 parts\)$/) })]);   // the first part's record, never a second one
+    expect(recordWrites.at(-1)).not.toHaveProperty("call_result");
     expect((await eventsOf(who.contactId, "setter_call.result")).map((e) => [e.recording_id, e.result, e.parts])).toEqual([[p1.recordingId, "follow_up", 1], [p1.recordingId, "not_interested", 2]]);
   });
 

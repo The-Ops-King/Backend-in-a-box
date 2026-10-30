@@ -131,20 +131,62 @@
     "on_stale": "skip",
     "title": "An hour before",
     "only_if": {
-     "or": [
+     "and": [
       {
-       "not": {
-        "exists": "reply.last_outbound.at"
-       }
+       "exists": "appointment.meeting_url"
       },
       {
-       "lt": [
-        "{{reply.last_outbound.at | hours_until}}",
-        -1
+       "or": [
+        {
+         "not": {
+          "exists": "reply.last_outbound.at"
+         }
+        },
+        {
+         "lt": [
+          "{{reply.last_outbound.at | hours_until}}",
+          -1
+         ]
+        }
        ]
       }
      ]
     }
+   },
+   {
+    "id": "m1_nolink",
+    "type": "send_sms",
+    "template": "{{contact.first_name}}, your consultation is {{appointment.starts_at | relative:hours}} ({{appointment.starts_at | date:\"h:mm a ZZZZ\"}}). See you soon!",
+    "validity": {
+     "anchor": "before_event",
+     "min_lead": "15m"
+    },
+    "on_stale": "skip",
+    "only_if": {
+     "and": [
+      {
+       "not": {
+        "exists": "appointment.meeting_url"
+       }
+      },
+      {
+       "or": [
+        {
+         "not": {
+          "exists": "reply.last_outbound.at"
+         }
+        },
+        {
+         "lt": [
+          "{{reply.last_outbound.at | hours_until}}",
+          -1
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "title": "An hour before, no link yet"
    },
    {
     "id": "x_done",
@@ -179,11 +221,15 @@
    },
    {
     "from": "m1",
-    "to": "x_done"
+    "to": "m1_nolink"
    },
    {
     "from": "s1",
     "to": "v_lead"
+   },
+   {
+    "from": "m1_nolink",
+    "to": "x_done"
    },
    {
     "from": "v_lead",

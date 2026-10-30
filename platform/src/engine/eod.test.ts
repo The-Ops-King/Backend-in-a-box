@@ -281,7 +281,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       const label = (d: DateTime) => d.toFormat("ccc LLL d");
       expect(dm.length).toBeGreaterThan(0);
       for (const t of dm) expect(t).toBe(`Hey Allan, your end-of-day is waiting:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: 1 call with no outcome in GHL\nIt's prefilled from your calendar and the day's calls. Fix anything that's off and hit submit.`);   // only Xena's day, from either reminder
-      expect(posts.slice(n).filter((p) => p.channel === "UOPS").map((p) => p.text)).toEqual([`Allan P still has Sales Calls with no outcome in GHL after two days:\n• ${label(day(3))}: Xena Person`]);   // once a day, from the evening reminder
+      expect(posts.slice(n).filter((p) => p.channel === "UOPS").map((p) => p.text)).toEqual([`Allan P still has calls with no outcome after two days:\n• <https://engine.test/eod/${token}?day=${day(3).toISODate()}|${label(day(3))}>: Xena Person\nOpen a day to file it yourself.`]);   // once a day, from the evening reminder; each day links to the form (D207)
       // the count is what the forms show: Xena's booking on that day's form; Yuri on no form
       const form = (d: DateTime) => asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, { id: allan, name: "Allan P", email: "allan@eod.test" }, d.toISODate()!));
       expect((await form(day(3))).calls.map((x) => [x.appointment_id, x.contact, x.outcome])).toEqual([[xena.appt, "Xena Person", "no_show"]]);

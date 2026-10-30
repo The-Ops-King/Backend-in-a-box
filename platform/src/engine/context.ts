@@ -11,6 +11,7 @@ import type { ContactTruth } from "./contact-truth";
 import { salesCallValues, dispositionValues, bookingSourceValues, objectionOptions, closerOptions, CLOSER_OPTIONS_KEY, OBJECT_ROLES } from "./sales-call";
 import { discoveryResultValues, setterResultActs } from "./setter-result";
 import { callSetting } from "./call-settings";
+import { switchOn } from "./setting-defaults";
 import { leadSourceSql, sourceFields, sourceFieldsParam, UNKNOWN_SOURCE } from "./lead-source";
 import { intakeLines, intakeText } from "./booking-card";
 
@@ -105,7 +106,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       ...(bindings[CLOSER_OPTIONS_KEY] ? { sales_call_closer: closerOptions(bindings, await many<{ name: string; email: string | null; ghl_user_id: string | null }>(c, "select name, email, ghl_user_id from users where company_id=$1", [company.id])) } : {}) },
     // company switches a template reads (D79: whether a setter call's result acts, or only says what it would do; D87: the call flow's windows)
     setting: { setter_result: { act: setterResultActs(bindings), set_within_min: callSetting(bindings, "setter_result.set_within_min") },
-      calls: { transcript_wait_min: callSetting(bindings, "calls.transcript_wait_min"), conversation_gap_min: callSetting(bindings, "calls.conversation_gap_min") } },
+      calls: { transcript_wait_min: callSetting(bindings, "calls.transcript_wait_min"), conversation_gap_min: callSetting(bindings, "calls.conversation_gap_min") },
+      tasks: switchOn(bindings, "crm.tasks") },   // D238: a post names a GHL task only when the offer makes them
   };
   // the recording a run was started by (recording.received) — read from the ledger every tick, never copied into the run's context
   const recId = (run.context.event as { recording_id?: string } | undefined)?.recording_id;
@@ -162,6 +164,8 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const setterUser = setterName ? await one<{ name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select name, email, ghl_user_id, slack_user_id from users where company_id=$1 and lower(name)=lower($2) limit 1", [company.id, setterName]) : null;
     const firstBooking = await one<{ at: Date | null }>(c, "select min(starts_at) as at from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled'", [company.id, run.contact_id]);
     const firstBookedAt = firstBooking?.at ?? null, firstPaidAt = pay?.first_at ?? null;
+    // D252: has this person ever shown up to a call (any booking filed or marked showed)? Tyler: "I don't want anyone who showed up to a call to have those tags"
+    const showedEver = !!(await one(c, "select 1 from appointments a left join company_terms t on t.id=a.outcome_term where a.company_id=$1 and a.contact_id=$2 and (a.status='showed' or t.category='showed') limit 1", [company.id, run.contact_id]));
     // D44: a payment or a no-show lands as a reaction on the person's booking post and call review; these name which
     const latestAppt = await one<{ id: string }>(c, "select id from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' order by starts_at desc limit 1", [company.id, run.contact_id]);
     const latestRec = await one<{ id: string }>(c, "select id from recordings where company_id=$1 and contact_id=$2 order by started_at desc limit 1", [company.id, run.contact_id]);
@@ -173,7 +177,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     const opp = await one<{ v: string | null }>(c, "select coalesce(o.contract_value, co.contract_value_default)::text as v from opportunities o join companies co on co.id=o.company_id where o.company_id=$1 and o.contact_id=$2 and o.status in ('open','won') order by (o.status='open') desc, o.opened_at desc limit 1", [company.id, run.contact_id]);
     const revenue = opp?.v != null ? Number(opp.v) : undefined;
     const person = (u: { name: string; email: string; ghl_user_id: string; slack_user_id: string | null }) => ({ name: u.name, first_name: u.name.split(" ")[0], email: u.email, ghl_user_id: u.ghl_user_id, slack_user_id: u.slack_user_id, mention: u.slack_user_id ? `<@${u.slack_user_id}>` : u.name });
-    ctx.contact = { ...(ctx.contact as Record<string, unknown> ?? {}), paid: (pay?.n ?? 0) > 0, paid_non_deposit: (pay?.beyond ?? 0) > 0, deposit_paid: (pay?.deposits ?? 0) > 0, payments_count: pay?.n ?? 0, cash_collected: Number(pay?.total ?? 0), first_paid_at: firstPaidAt?.toISOString() ?? null,
+    ctx.contact = { ...(ctx.contact as Record<string, unknown> ?? {}), paid: (pay?.n ?? 0) > 0, showed_ever: showedEver, paid_non_deposit: (pay?.beyond ?? 0) > 0, deposit_paid: (pay?.deposits ?? 0) > 0, payments_count: pay?.n ?? 0, cash_collected: Number(pay?.total ?? 0), first_paid_at: firstPaidAt?.toISOString() ?? null,
       agreement_signed: !!agr?.signed_at, agreement_sent: !!agr, owner: owner ? { ...person(owner), inherited: !contact?.assigned_ghl_user_id } : undefined,
       closer: closer ? { ...person(closer), from: closerCard ? "closer card" : "contact owner" } : undefined,
       call_closer: callCloser ? { ...person(callCloser), from: "latest call" } : owner ? { ...person(owner), from: "contact owner" } : undefined,

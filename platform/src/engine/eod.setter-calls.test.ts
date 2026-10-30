@@ -122,11 +122,13 @@ describe.skipIf(!process.env.DATABASE_URL)("D154/D156: a setter's calls on the e
     await run(); await run();
   });
 
-  it("D154: Setter call logged reads, posts and logs Jev's read (call type, DQ reason from her list, the write-up); it writes nothing to the CRM and asks the team nothing", async () => {
+  it("D154, D239: Setter call logged reads, posts and logs Jev's read (call type, DQ reason from her list, the write-up); its only CRM write is Omar's blank Discovery Call (Pia's triage call has its own); it asks the team nothing", async () => {
     for (const who of [pia, omar]) expect(await runOf(who.contactId, "Setter call logged"), who.ghl).toMatchObject({ status: "completed" });
     expect(criteria.call_type.setting).toMatch(/A booked triage or strategy call is a setting call too/);
     expect(Object.keys(criteria.dq_reason).sort()).toEqual(["bad_contact", "budget", "casual", "in_relationship", "not_ready", "other"]);
-    expect(recordWrites).toEqual([]); expect(notes).toEqual([]); expect(tasks).toEqual([]); expect(tags).toEqual([]); expect(cardWrites).toEqual([]);
+    expect(recordWrites).toEqual([expect.objectContaining({ op: "create", object: "custom_objects.dating_discovery", external_id: omarCall.ext, setter: "Mitch Setter" })]);
+    expect(recordWrites[0]).not.toHaveProperty("call_result"); expect(recordWrites[0]).not.toHaveProperty("outcome");
+    expect(notes).toEqual([]); expect(tasks).toEqual([]); expect(tags).toEqual([]); expect(cardWrites).toEqual([]);
     expect(posts.filter((p) => p.channel === "CSET" && !p.threadTs)).toHaveLength(2);
     expect(posts.some((p) => /Set, follow up or DQ\?|Tap ✅/.test(p.text))).toBe(false);
     expect(await eventsOf(omar.contactId, "setter_call.result")).toEqual([expect.objectContaining({ external_id: omarCall.ext, result: "dq", dq_reason: "budget", dq_domain: "dating_dq_reason", call_type: "setting", digest: expect.stringContaining("Wants something serious") })]);
@@ -166,7 +168,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D154/D156: a setter's calls on the e
     await run(); await run();
     const sf = (await runOf(omar.contactId, "Setter call filed"))!;
     expect(sf).toMatchObject({ status: "completed", exit_reason: "filed" });
-    expect(recordWrites).toEqual([expect.objectContaining({ op: "create", object: "custom_objects.dating_discovery", external_id: omarCall.ext, outcome: "showed", call_result: "dq", setter: "Mitch Setter", recording_url: `https://ghl.test/convo/${omarCall.ext}` })]);
+    // the blank record the call made is the one the end of day files (D239)
+    expect(recordWrites).toEqual([expect.objectContaining({ op: "create", external_id: omarCall.ext }), expect.objectContaining({ op: "update", object: "custom_objects.dating_discovery", external_id: omarCall.ext, outcome: "showed", call_result: "dq", setter: "Mitch Setter", recording_url: `https://ghl.test/convo/${omarCall.ext}` })]);
     expect(cardWrites).toEqual([expect.objectContaining({ id: "card-omar", stageId: "STAGE-S-DQ", status: "lost" })]);
     const line = posts.find((x) => x.text.includes("End of day: DQ"));
     expect(line?.threadTs).toBeTruthy();

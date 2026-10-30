@@ -140,12 +140,12 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       await tickAt(T0);
       expect(await lastRun("new-lead", jordan)).toMatchObject({ status: "completed", exit_reason: "done" });
       expect(await cardsOf(jordan)).toEqual([{ pipeline: "PIPE-SETTER", stage: "STAGE-NEW", name: "Jordan Vale -- New", status: "open" }]);
-      expect(await tagsOf(jordan)).toEqual(["stat-new"]);
+      expect(await tagsOf(jordan)).toEqual(["stat-call-not-booked", "stat-new"]);
       expect(sent.filter((s) => s.to === "JV1").map((s) => s.kind).sort()).toEqual(["email", "sms"]);
       expect(await lastRun("speed-to-lead", jordan)).toMatchObject({ status: "waiting", current_node: "n3" });
     });
 
-    it("setter call logged: a connected 3-minute dial with a transcript, no setter booking, posted 15 minutes after it ended with Jev's read → Discovery Call record linked, note, Slack; nothing moves on the cards (the actions are off)", async () => {
+    it("setter call logged: a connected 3-minute dial with a transcript, no setter booking, posted 15 minutes after it ended with Jev's read → a blank Discovery Call record linked, Slack; nothing moves on the cards (D239: Jev only guesses, the end of day files)", async () => {
       const nRec = recordWrites.length, nCards = JSON.stringify(await cardsOf(jordan));
       await asOperator(async (c) => {
         const { recording } = await recordPhoneCall(c, companyId, { externalId: "dial-1", contactId: jordan, startedAt: T0.minus({ minutes: 40 }).toJSDate(), durationSec: 184, direction: "outbound", status: "completed", callerGhlUserId: "U1" });
@@ -156,11 +156,13 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       await tickAt(T0); await tickAt(T0);
       expect(await lastRun("setter-call-logged", jordan)).toMatchObject({ status: "completed", exit_reason: "posted" });
       expect(recordWrites.slice(nRec)).toEqual([expect.objectContaining({ op: "create", external_id: "dial-1", contact_id: "JV1", setter: "Sam Closer" })]);
-      expect(posts.filter((p) => p.channel === "CSET").at(-1)?.text).toContain("*Outcome:* Follow up (Jev is 95% sure)\n*Would have (actions are off):* a task for Sam Closer to call back Jordan Vale, due next business day.");   // D79: Jev's read of the result; the actions are off until the company turns them on
+      expect(recordWrites.slice(nRec)[0]).not.toHaveProperty("call_result");
+      const post = posts.filter((p) => p.channel === "CSET").at(-1)?.text;
+      expect(post).toContain("*Outcome:* Follow up (Jev is 95% sure)"); expect(post).not.toContain("Would have");
       expect(JSON.stringify(await cardsOf(jordan))).toBe(nCards);
     });
 
-    it("setter books the call: setter card → Appointment Set '-- Set', closer card created at Scheduled '-- Setter Booked', stat-booked + stat-set + meta booked call, nurture tags off, date + setter on the contact, video task, Sales Call record, booking post; pre-call sends the booking email and text and waits for a reply", async () => {
+    it("setter books the call: setter card → Appointment Set '-- Set', closer card created at Scheduled '-- Setter Booked', stat-call-booked + stat-set + meta booked call, nurture tags off, date + setter on the contact, video task, Sales Call record, booking post; pre-call sends the booking email and text and waits for a reply", async () => {
       const nTags = tags.length, nRm = removedTags.length, nSent = sent.length, nTasks = tasks.length;
       await book(snap("A-JV", "JV1", A, { setBy: "Luis", tracking: { utm_source: "meta" } }));
       await tickAt(T0);
@@ -170,9 +172,9 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
         { pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", name: "Jordan Vale -- Setter Booked", status: "open" },
         { pipeline: "PIPE-SETTER", stage: "STAGE-SET", name: "Jordan Vale -- Set", status: "open" },
       ]);
-      expect(tags.slice(nTags)).toEqual(["stat-booked", "stat-set", "meta booked call"]);
-      expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead", "stat-no-show", "stat-cancelled", "stat-possible-cancel", "stat-needs-attention"]);   // the four nurture tags nothing in any template adds, and the four a fresh booking resets (D62)
-      expect(await tagsOf(jordan)).toEqual(["meta booked call", "stat-booked", "stat-new", "stat-set"]);
+      expect(tags.slice(nTags)).toEqual(["stat-call-booked", "stat-set", "meta booked call"]);
+      expect(removedTags.slice(nRm)).toEqual(["seq-no-show", "seq-nurture", "seq-winback", "opt-in lead", "stat-no-show", "stat-cancelled", "stat-possible-cancel", "stat-needs-attention", "stat-call-not-booked"]);   // the four nurture tags nothing in any template adds, and the four a fresh booking resets (D62)
+      expect(await tagsOf(jordan)).toEqual(["meta booked call", "stat-call-booked", "stat-new", "stat-set"]);
       expect(contactWrites.filter((w) => w.id === "JV1").map((w) => w.customFields)).toEqual([[{ id: "CF-APPT-DATE", field_value: A.toFormat("yyyy-MM-dd") }], [{ id: "CF-SETTER", field_value: "Luis" }]]);
       expect(tasks.slice(nTasks)).toEqual([expect.objectContaining({ contactId: "JV1", title: "Send Jordan a personalized video", assignedUserId: "U1" })]);
       expect(recordWrites.at(-1)).toMatchObject({ op: "create", external_id: "A-JV", outcome: "scheduled", setter: "Luis" });
@@ -311,7 +313,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await pay(jordan, "pay-jv-2", 1499)).toHaveLength(1);   // payment-recorded only: deal-closed and the chase already spent their once
       await tickAt(A.plus({ days: 30 }));
       expect(tags.slice(nTags)).toEqual(["pay-paid-full"]); expect(removedTags.slice(nRm)).toEqual(["pay-plan-active"]);
-      expect(await tagsOf(jordan)).toEqual(["meta booked call", "pay-paid-full", "stat-agreement-sent", "stat-agreement-signed", "stat-booked", "stat-closed-won", "stat-confirmed", "stat-customer", "stat-new", "stat-set", "stat-showed", "sys-test"]);   // sys-test: the harness signed for them (D97)
+      expect(await tagsOf(jordan)).toEqual(["meta booked call", "pay-paid-full", "stat-agreement-sent", "stat-agreement-signed", "stat-call-booked", "stat-closed-won", "stat-confirmed", "stat-customer", "stat-new", "stat-set", "stat-showed", "sys-test"]);   // sys-test: the harness signed for them (D97)
       const pif = await asOperator((c) => many<{ id: number }>(c, "select id from events where company_id=$1 and contact_id=$2 and event_type='payment.paid_in_full'", [companyId, jordan]));
       expect(pif).toHaveLength(1);
       expect(await asOperator((c) => many(c, "select 1 from runs where company_id=$1 and triggered_by_event=$2", [companyId, pif[0].id]))).toHaveLength(0);
@@ -436,11 +438,11 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect(await lastRun("call-cancelled", mina)).toMatchObject({ status: "completed", exit_reason: "cancelled_recorded" });
       expect(await lastRun("cancellation-rebook", mina)).toMatchObject({ status: "completed", exit_reason: "sent" });
     });
-    it("F1 (fixed, D59): a cancel the prospect texted runs Call cancelled (cards → Cancelled, date cleared, rebook task, stat-cancelled, booked tags off) and Cancellation rebook (the rebook text and email), as a cancel at the source does", async () => {
+    it("F1 (fixed, D59): a cancel the prospect texted runs Call cancelled (cards → Cancelled, date cleared, rebook task, stat-cancelled; stat-call-booked stays: booked at least once) and Cancellation rebook (the rebook text and email), as a cancel at the source does", async () => {
       expect(await runsFor("call-cancelled", mina)).toHaveLength(1);
       expect(await runsFor("cancellation-rebook", mina)).toHaveLength(1);
       expect(await cardsOf(mina)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-C-CANCEL", name: "Mina Osei -- Cancelled", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-S-CANCEL", name: "Mina Osei -- Cancelled", status: "open" })]);
-      expect(await tagsOf(mina)).toEqual(["meta booked call", "stat-cancelled"]);
+      expect(await tagsOf(mina)).toEqual(["meta booked call", "stat-call-booked", "stat-cancelled"]);
       expect(tasks.filter((t) => t.contactId === "MINA1" && /^Rebook/.test(String(t.title))).map((t) => t.title)).toEqual(["Rebook Mina Osei — cancelled"]);
       expect(sent.filter((s) => s.to === "MINA1").slice(-2).map((s) => s.kind).sort()).toEqual(["email", "sms"]);
     });
@@ -459,7 +461,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       await file(appt, "showed", "follow_up");
       await tickAt(A.plus({ hours: 5 }));
       expect(await lastRun("call-outcome", pat)).toMatchObject({ status: "completed", exit_reason: "noted" });
-      expect(await tagsOf(pat)).toEqual(["meta booked call", "stat-booked", "stat-follow-up", "stat-self-booked", "stat-showed"]);
+      expect(await tagsOf(pat)).toEqual(["meta booked call", "stat-call-booked", "stat-follow-up", "stat-self-booked", "stat-showed"]);
       const ts = (await postTs(`appointment:${appt}`))!;
       expect(reactionsOn(ts)).toEqual(["white_check_mark"]); expect(threadOf(ts).at(-1)).toBe("✅ Showed, per Sam Closer: follow up.");
       expect(await lastRun("post-call-follow-up", pat)).toMatchObject({ status: "waiting", current_node: "n1" });
@@ -525,15 +527,15 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       await wake(rec.id); await tickAt(A.plus({ hours: 5, minutes: 11 }));
       expect(sent.slice(n).filter((s) => s.to === "QUINN1").map((s) => s.kind)).toEqual(["sms", "email"]);
       rec = await lastRun("no-show-recovery", quinn); expect(rec).toMatchObject({ status: "waiting", current_node: "n4" });
-      expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-no-show", "stat-self-booked"]);
+      expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-call-booked", "stat-no-show", "stat-self-booked"]);
       expect(await cardsOf(quinn)).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-C-CANCEL", name: "Quinn Adebayo -- Direct", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-S-CANCEL", name: "Quinn Adebayo -- Direct", status: "lost" })]);
     });
-    it("they book again: Call booked moves the open closer card back to Scheduled and makes a fresh setter card at Direct Booked (the lost one is the last cycle's loss, D61), re-adds stat-booked and takes stat-no-show off (F9, D62); the parked recovery run wakes a day later, sees the new call on the calendar and exits `rebooked` without the 'Want to reschedule?' email (F8, D59)", async () => {
+    it("they book again: Call booked moves the open closer card back to Scheduled and makes a fresh setter card at Direct Booked (the lost one is the last cycle's loss, D61), re-adds stat-call-booked and takes stat-no-show off (F9, D62); the parked recovery run wakes a day later, sees the new call on the calendar and exits `rebooked` without the 'Want to reschedule?' email (F8, D59)", async () => {
       await book(snap("A-Q2", "QUINN1", daysOut(11, 10)));
       await tickAt(DateTime.now());
       expect(await runsFor("call-booked", quinn)).toHaveLength(2);
       expect((await cardsOf(quinn)).sort((a, b) => `${a.pipeline}${a.stage}`.localeCompare(`${b.pipeline}${b.stage}`))).toEqual([expect.objectContaining({ pipeline: "PIPE-CLOSER", stage: "STAGE-SCHED", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-DIRECT", status: "open" }), expect.objectContaining({ pipeline: "PIPE-SETTER", stage: "STAGE-S-CANCEL", status: "lost" })]);
-      expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-booked", "stat-self-booked"]);   // stat-no-show comes off on the new booking (F9, D62)
+      expect(await tagsOf(quinn)).toEqual(["meta booked call", "stat-call-booked", "stat-self-booked"]);   // stat-no-show comes off on the new booking (F9, D62)
       const rec = await lastRun("no-show-recovery", quinn);
       expect(rec).toMatchObject({ status: "waiting", current_node: "n4" });
       const n = sent.length;
@@ -571,7 +573,7 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
     });
     it("F8 / F9 (fixed, D62): stat-no-show comes off on the new booking — the owner: a filter on no-show or cancelled must not catch someone who has rebooked; the other stat-* tags stay milestones", async () => {
       expect(await tagsOf(quinn)).not.toContain("stat-no-show");
-      expect(await tagsOf(quinn)).toContain("stat-booked");
+      expect(await tagsOf(quinn)).toContain("stat-call-booked");
     });
   });
 
@@ -633,9 +635,9 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect([...removes.keys()].filter((t) => !adds.has(t)).sort()).toEqual(["opt-in lead", "seq-no-show", "seq-nurture", "seq-winback", "sys-send-agreement-manually"]);
     });
     it("tags a template adds that nothing ever removes (F9, D62): the milestones — every other stat-*, meta booked call, pay-deposit, pay-paid-full, pay-refunded; the ones that would misfire on a filter come off: stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention on a fresh booking, stat-agreement-unsigned on the signature, stat-unconfirmed on the confirmation", () => {
-      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-deposit", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-closed-won", "stat-customer", "stat-deposit", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-showed"]);
+      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-deposit", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-call-booked", "stat-closed-won", "stat-customer", "stat-deposit", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-showed"]);
       expect(removes.get("stat-unconfirmed")).toEqual(["pre-call-sequence:n_conf"]);
-      expect(removes.get("stat-booked")).toEqual(["call-cancelled:n5"]);
+      expect(removes.get("stat-call-not-booked")).toEqual(["call-booked:s5", "call-booked:b6"]);   // on until they book (Tyler, 2026-10-28); stat-call-booked is a milestone
       for (const t of ["stat-no-show", "stat-cancelled", "stat-possible-cancel"]) expect(removes.get(t)).toEqual(["call-booked:s5", "call-booked:b6"]);
       expect(removes.get("stat-needs-attention")).toEqual(["pre-call-sequence:n_att_off", "call-booked:s5", "call-booked:b6"]);
       expect(removes.get("stat-agreement-unsigned")).toEqual(["agreement-signed:g1"]);

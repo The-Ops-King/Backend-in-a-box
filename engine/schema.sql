@@ -362,7 +362,7 @@ insert into event_types values
   ('call.held','call'),
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'), ('intent.unanswered','message'), ('intent.unanswered_no_show','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
-  ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('call.closing','call'),
+  ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('setter_call.filed','call'), ('call.closing','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'), ('agreement.requested','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('card.moved','crm'), ('scope.left','crm'),
   ('schedule','clock'), ('eod.filed','report'), ('slack.reaction','slack'),
@@ -622,8 +622,11 @@ create table slack_connections (
   bot_token    bytea not null,                             -- encrypted
   channels     jsonb not null default '{}',                -- {"closers":"C0123","managers":"C0456","ops":"C0789"}
   connected_by uuid references users(id),
-  connected_at timestamptz not null default now()
+  connected_at timestamptz not null default now(),
+  bot_user_id  text,                                       -- the bot's own Slack user (its reactions and messages are not facts)
+  app          text not null default 'own' check (app in ('own','shared'))   -- D251: an app made by hand for this offer, or the shared app installed by link
 );
+create index slack_connections_team on slack_connections (team_id);
 
 -- D145: the people behind every offer, one roster across companies. The operator (Tyler) is the only one the send lock lets
 -- through. Not readable through the query door: it spans companies.

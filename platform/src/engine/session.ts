@@ -47,9 +47,9 @@ export function readCookie(header: string | null | undefined, name: string): str
   return undefined;
 }
 
-/** Paths that have their own door: the clock, the admin endpoints, the webhooks, the closer's link, the login itself, the app shell. */
+/** Paths that have their own door: the clock, the admin endpoints, the webhooks and the shared Slack app's doors (D251), the closer's link, the login itself, the app shell. */
 export function openPath(pathname: string): boolean {
   return pathname === "/" || pathname.startsWith("/app") || pathname.startsWith("/eod/") || pathname.startsWith("/api/eod/")
-    || pathname.startsWith("/api/tick") || pathname.startsWith("/api/admin") || pathname.startsWith("/api/webhooks") || pathname === "/api/health"
+    || pathname.startsWith("/api/tick") || pathname.startsWith("/api/admin") || pathname.startsWith("/api/webhooks") || pathname.startsWith("/api/slack/") || pathname === "/api/health"
     || pathname === "/api/v1/session" || pathname.startsWith("/_next") || pathname === "/favicon.ico";
 }

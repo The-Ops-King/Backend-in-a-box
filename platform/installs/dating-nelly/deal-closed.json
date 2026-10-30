@@ -60,7 +60,7 @@
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_closed_won}}",
     "status": "won",
-    "value": "{{contact.revenue}}"
+    "value": "{{contact.revenue | default:}}"
    },
    {
     "id": "p2",
@@ -204,5 +204,5 @@
    }
   ]
  },
- "note": "dating-nelly: the welcome email and text are the company's own (installs/dating-nelly/words.json); still placeholders, so both are skipped, not Hair's (D118); the won closer card carries the deal's value (D130)"
+ "note": "dating-nelly: the welcome email and text are the company's own (installs/dating-nelly/words.json); still placeholders, so both are skipped, not Hair's (D118)"
 }

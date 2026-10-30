@@ -29,11 +29,11 @@ describe("coverage (D33)", () => {
     expect(cr.some((r) => r.kind === "classify_domain" || r.kind === "anthropic")).toBe(true);
   });
   it("a binding the template gives a default is optional: the step runs without it, so leaving it unbound is not a fault", () => {
-    const refs = workflowRefs(parseDefinition(templates.find((t) => t.slug === "setter-call-logged")!.definition)).filter((r) => r.kind === "binding");
-    const opt = (v: string) => refs.filter((r) => r.value === v).map((r) => !!r.optional);
-    expect(opt("crm.stage_setter_not_interested")).toEqual([true]);
-    expect(opt("crm.stage_setter_dq")).toEqual([true]);
-    expect(opt("crm.pipeline_setter").every((o) => !o)).toBe(true);
+    // D239: the setter card moves are Setter call filed's, and an offer on one board has no setter board at all
+    const refs = workflowRefs(parseDefinition(templates.find((t) => t.slug === "setter-call-filed")!.definition)).filter((r) => r.kind === "binding");
+    const opt = (v: string) => [...new Set(refs.filter((r) => r.value === v).map((r) => !!r.optional))];
+    for (const k of ["crm.stage_setter_not_interested", "crm.stage_setter_dq", "crm.stage_setter_appointment_set", "crm.pipeline_setter"]) expect(opt(k), k).toEqual([true]);
+    expect(opt("crm.assoc_discovery_call_contact")).toEqual([false]);
   });
   it("every emoji a shipped workflow puts in Slack is one Slack knows (a wrong name shows as raw text, as :fountain_pen: did)", () => {
     const all = templates.flatMap((t) => workflowEmoji(parseDefinition(t.definition)).map((e) => ({ ...e, slug: t.slug })));

@@ -60,7 +60,8 @@
     "type": "pipeline_card",
     "pipeline": "{{crm.pipeline_closer}}",
     "stage": "{{crm.stage_closer_closed_won}}",
-    "status": "won"
+    "status": "won",
+    "value": "{{contact.revenue | default:}}"
    },
    {
     "id": "b1",

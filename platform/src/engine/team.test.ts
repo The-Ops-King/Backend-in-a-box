@@ -38,4 +38,14 @@ describe.skipIf(!process.env.DATABASE_URL)("D197: an offer's team", () => {
     expect((await asOperator((c) => teamOf(c, co))).map((p) => [p.email, p.role])).toEqual([["sam@x.com", "closer"], ["riley@x.com", "staff"]]);
     expect(await change({ email: "sam@x.com", role: "boss" as "setter" })).toMatchObject({ ok: false, status: 400 });
   });
+
+  it("D247: a GHL user whose email changed in GHL is found by the new one; an email another member has is not taken", async () => {
+    ghlUsers.push({ id: "U3", name: "Mel Reynolds", email: "ops@other.com" });
+    await change({ email: "ops@other.com", role: "closer" });   // known under the old address
+    ghlUsers[ghlUsers.length - 1] = { id: "U3", name: "Mel Reynolds", email: "mel@x.com" };
+    expect(await change({ email: "mel@x.com", role: "closer" })).toMatchObject({ ok: true, synced: true, person: { name: "Mel Reynolds", email: "mel@x.com", role: "closer" } });
+    ghlUsers.push({ id: "U4", name: "Copy", email: "sam@x.com" });
+    await change({ email: "nobody-yet@x.com", role: "closer" });   // a resync with a clash leaves Sam's row and U4 as they were
+    expect(await asOperator((c) => one(c, "select name from users where company_id=$1 and email='sam@x.com'", [co]))).toEqual({ name: "Sam Closer" });
+  });
 });

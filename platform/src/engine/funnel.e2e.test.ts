@@ -72,7 +72,7 @@ describe.skipIf(!HAS_DB)("funnel end to end", () => {
     await tick(fake, undefined, companyId, fakeProbes);
     expect(await run("new-lead")).toMatchObject({ status: "completed", exit_reason: "done" });
     expect(oppWrites).toEqual([expect.objectContaining({ op: "create", contactId: "CF1", pipelineId: "PIPE-SETTER", stageId: "STAGE-NEW", name: "Jordan Lee -- New" })]);
-    expect(tags).toEqual(["stat-new"]);
+    expect(tags).toEqual(["stat-new", "stat-call-not-booked"]);   // D249
     expect(await run("speed-to-lead")).toMatchObject({ status: "waiting", current_node: "n3" });
     expect(sent.map((s) => s.kind)).toEqual(["email", "sms"]);
   });

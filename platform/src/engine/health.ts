@@ -39,7 +39,7 @@ export type Finding = { check: string; item?: string; ok: boolean; level: Level;
 
 export type HealthRow = { company_id: string; channel: string | null; as_name: string | null; as_icon: string | null; last_run_at: Date | null; last_result: Finding[] };
 /** What a sweep is told by the step that runs it: which checks, the availability threshold, the channel its alerts announce in, and its run (the ledger_drift repair records its CRM writes against it, D66). */
-export type HealthConfig = { checks: Record<string, boolean>; min_slots: number; slots_days: number; channel?: string | null; run_id?: string; fathom_silent_days?: number; drift_days?: number; poll_lag_min?: number };
+export type HealthConfig = { checks: Record<string, boolean>; min_slots: number; slots_days: number; channel?: string | null; run_id?: string; fathom_silent_days?: number; drift_days?: number; poll_lag_min?: number; meeting_link_hours?: number };
 
 export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_token", label: "GoHighLevel token", about: "the private integration token still opens the location" },
@@ -50,6 +50,7 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "ghl_users", label: "Team", about: "closers on calendars and cards are still users in the location" },
   { id: "duplicates", label: "Duplicate contacts", about: "no person is held twice by the CRM: two records the engine already folded into one person (same phone or email, spelled two ways), or two engine persons whose phone or email differ only in spelling. The engine never merges — GoHighLevel is the source of truth, so a person merges the records there; the finding and its alert clear once the dropped record is gone from the CRM" },
   { id: "ledger_drift", label: "Ledger matches GHL (repaired)", about: "the last 7 days (except the last half hour) compared with GHL and repaired: a contact GHL added that the ledger lacks is pulled in (New lead fires once); one GHL no longer has is marked gone; a Sales Call the booking source cancelled before the call is set to cancelled in GHL (mode rules apply) and in the ledger; otherwise GHL's filed attendance and outcome (the disposition, D83) replace the ledger's. Every repair is logged; what cannot be repaired (an unmatched record, a cancel at an unknown time, a write the mode holds back) is an alert (D73)" },
+  { id: "meeting_links", label: "Upcoming calls have a meeting link", about: "every closing call in the next 48 hours (the step's meeting_link_hours) that is not cancelled has a join link from its booking. One without is an alert naming the person, the time and the closer; it clears when the link arrives, the call is cancelled or its time passes (D237). The booking itself already says so when it lands without one (D235); this catches a link that never came" },
   { id: "calendly_token", label: "Calendly token", about: "the token still answers (companies that book through Calendly)" },
   { id: "calendly_calendars", label: "Calendly event types bookable", about: "every mapped event type is active and has available times over the next 7 days; a host's calendar disconnecting shows up here" },
   { id: "whop_key", label: "Whop key", about: "the API key still reads payments" },
@@ -160,6 +161,24 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   if (on("duplicates")) out.push(...(await findDuplicates(c, company, ac, adapters, connected)));
   if (on("ledger_drift") && connected && probes.ghl) out.push(...(await ledgerDrift(c, company, ac, bindings, probes.ghl, adapters, row.run_id, now, { days: row.drift_days, pollLagMin: row.poll_lag_min })));
 
+  // D237: a closing call coming up with no join link (the booking said so when it landed, D235; this keeps saying it until the link comes)
+  if (on("meeting_links")) {
+    const hours = row.meeting_link_hours ?? 48;
+    const calls = await many<{ id: string; starts_at: Date; first_name: string | null; last_name: string | null; ghl_contact_id: string | null; closer: string | null }>(c, `
+      select a.id, a.starts_at, ct.first_name, ct.last_name, ct.ghl_contact_id, u.name as closer
+      from appointments a join company_terms t on t.id=a.appointment_term left join contacts ct on ct.id=a.contact_id left join users u on u.id=a.assigned_user_id
+      where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.status not in ('cancelled','invalid') and a.meeting_url is null
+        and a.starts_at > $2 and a.starts_at <= $3 order by a.starts_at`, [company.id, now.toJSDate(), now.plus({ hours }).toJSDate()]);
+    for (const a of calls) {
+      const who = [a.first_name, a.last_name].filter(Boolean).join(" ") || "A contact";
+      const when = DateTime.fromJSDate(a.starts_at).setZone(company.timezone).toFormat("ccc LLL d, h:mm a");
+      const href = ac.locationId && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${ac.locationId}/contacts/detail/${a.ghl_contact_id}` : undefined;
+      out.push({ check: "meeting_links", item: a.id, ok: false, level: "warning", text: `${who}'s call ${when} has no meeting link${a.closer ? ` (${a.closer})` : ""}. Send them the link.`,
+        detail: { appointment_id: a.id, starts_at: a.starts_at }, href, hrefLabel: href ? "Open in the CRM" : undefined });
+    }
+    if (!calls.length) ok("meeting_links", `Every closing call in the next ${hours} hours has a meeting link.`);
+  }
+
   // Calendly
   if (ac.booking.source === "calendly") {
     const token = bindings["secret.calendly_token"];
@@ -267,7 +286,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
           if (!id || seen.has(id)) continue; seen.add(id);
           const info = await channelInfo(token, id);
           // one finding per channel, naming every setting that points at it: the steps check leaves an unreadable channel to this one
-          const keys = channels.filter(([, v]) => v === id).map(([key]) => key), named = keys.length > 1 ? `${keys.length} settings (${keys.join(", ")})` : k;
+          const keys = channels.filter(([, v]) => v === id).map(([key]) => key).sort(), named = keys.length > 1 ? `${keys.length} settings (${keys.join(", ")})` : k;
           if (!info.ok) bad("slack", "error", info.error === "missing_scope" && info.needed
             ? `Channel ${id}, used by ${named}, cannot be checked: the Slack app is missing the ${info.needed} permission${info.needed === "groups:read" ? " (the channel is private)" : ""}. Add it under OAuth & Permissions and reinstall the app. Posts there may still land.`
             : `Channel for ${named} (${id}) cannot be read: ${info.error ?? "unknown"}.`, id);

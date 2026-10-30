@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, usePage, useAction, modeLabel, MODES, MODE_ABOUT, type Mode, type CompanyPage, type WorkflowRow } from "~/api";
+import { api, usePage, useAction, modeLabel, MODES, MODE_ABOUT, type Mode, type CompanyPage, type EodListPage, type WorkflowRow } from "~/api";
 import { Counts, Crumb, Empty, NameLine, Skeleton, Switch, Tag, toast } from "~/ui/pieces";
 import { ago } from "~/fmt";
 
@@ -9,6 +9,8 @@ export function Company() {
   const { slug = "" } = useParams();
   const key = ["company", slug];
   const q = usePage<CompanyPage>(key, `/api/v1/companies/${slug}`);
+  const eod = usePage<EodListPage>(["eod", slug], `/api/v1/companies/${slug}/eod`, { every: 60_000 });   // D246: who owes an end of day, at the top
+  const owed = eod.data?.missing ?? [];
   const [filter, setFilter] = useState<Filter>("all");
   const flip = useAction<{ id: string; enabled: boolean }>((v) => api(`/api/v1/workflows/${v.id}/enabled`, { method: "POST", json: { enabled: v.enabled } }), [key]);
   const mode = useAction<{ mode: Mode }, { cleared?: { runs: number } }>((v) => api(`/api/v1/companies/${slug}/mode`, { method: "POST", json: v }), [key, ["companies"]]);
@@ -28,6 +30,7 @@ export function Company() {
     <div className="tagline"><Tag kind={co.mode}>{co.mode}</Tag><span>{MODE_ABOUT[co.mode]}</span><span>·</span><span>{co.timezone}</span>
       <span>·</span><Link to={`/app/c/${slug}/health`} style={{ color: alerts_open ? "var(--warn)" : "var(--fg-3)" }}>{alerts_open ? `${alerts_open} open alert${alerts_open === 1 ? "" : "s"}` : "health: all clear"}</Link><span>·</span><Link to={`/app/c/${slug}/eod`} style={{ color: "var(--fg-3)" }}>end of day</Link><span>·</span><Link to={`/app/c/${slug}/setup`} style={{ color: "var(--fg-3)" }}>settings</Link></div>
     {co.status === "template" ? <div className="banner wait">A template business: it runs only while Claude tests it in the sandbox (your snapshot sub-account). Edit its words and params under <Link to={`/app/c/${slug}/words`}>Words</Link>, publish from Companies → Templates once tested. Changes to its steps go through the code.</div> : null}
+    {owed.length ? <div className="banner wait">Missing end of day: {owed.map((p) => `${p.name} (${p.days.map((d) => d.label).join(", ")})`).join(" · ")}. <Link to={`/app/c/${slug}/eod`}>See whose calls</Link></div> : null}
     {co.status === "onboarding" ? <div className="banner wait">Being onboarded: nothing runs yet. <Link to={`/app/c/${slug}/onboarding`}>Open the onboarding steps</Link></div> : null}
     <div className="filt">{([["all", "All", workflows.length], ["on", "On", workflows.filter((w) => w.enabled).length], ["off", "Off", workflows.filter((w) => !w.enabled).length], ["look", "Needs a look", workflows.filter(looks).length]] as [Filter, string, number][]).map(([id, label, n]) => <button key={id} type="button" className="fb" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label} · {n}</button>)}</div>
     {groups.length === 0 ? <Empty>Nothing here.</Empty> : <div className="rail">{groups.map((g) => <div key={g.id} className={`grp ${g.items.some((w) => w.enabled) ? "live" : ""}`}><span className="stg">{g.label}</span><div className="rows">{g.items.map((w) => <Link key={w.id} to={`/app/c/${slug}/w/${w.id}`} className={`row ctl ${w.enabled ? "" : "off"}`}>

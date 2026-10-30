@@ -688,6 +688,9 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // a property the company's object does not have is left out and named
       const dropped = known ? [...Object.keys(properties), ...Object.keys(cleared)].filter((k) => !known.has(k)) : [];
       for (const k of dropped) { delete properties[k]; delete cleared[k]; }
+      // D245: GHL refuses an empty money field ("Cash Collected is missing a currency code") and with it the whole write (Renee G's
+      // no-show, 2026-10-26); a money field is emptied as no money, which it takes
+      for (const k of Object.keys(cleared)) if (MONEY_TYPES.has(String(known?.get(k) ?? "").toUpperCase())) (cleared as Record<string, unknown>)[k] = { currency: "default", value: 0 };
       if (dropped.length && !Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: `nothing to write: the ${objectKey} object has no ${dropped.join(", ")} field yet`, not_on_object: dropped } };
       if (byId) return recordById(d, node, next, objectKey, key, byId, properties, cleared, owner, dropped);
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
@@ -886,7 +889,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
     case "health_check": {
       const channel = node.channel ? (/^\{\{/.test(node.channel) ? (resolvePath(d.ctx, node.channel.replace(/^\{\{\s*|\s*\}\}$/g, "")) as string | undefined) : node.channel) : undefined;
       const as = persona(d, node.as);
-      const r = await runHealthStep(d.c, d.company, d.adapters, d.probes ?? liveProbes, { checks: node.checks, min_slots: 0, slots_days: node.slots_days, fathom_silent_days: node.fathom_silent_days, drift_days: node.drift_days, poll_lag_min: node.poll_lag_min, channel: channel ?? null, run_id: d.run.id, as_name: node.as?.name ? as.name : null, as_icon: node.as?.icon ? (Array.isArray(as.icon) ? as.icon[0] : as.icon) : null }, d.now as DateTime<true>);
+      const r = await runHealthStep(d.c, d.company, d.adapters, d.probes ?? liveProbes, { checks: node.checks, min_slots: 0, slots_days: node.slots_days, fathom_silent_days: node.fathom_silent_days, drift_days: node.drift_days, poll_lag_min: node.poll_lag_min, meeting_link_hours: node.meeting_link_hours, channel: channel ?? null, run_id: d.run.id, as_name: node.as?.name ? as.name : null, as_icon: node.as?.icon ? (Array.isArray(as.icon) ? as.icon[0] : as.icon) : null }, d.now as DateTime<true>);
       const failing = r.findings.filter((f) => !f.ok);
       return { status: "ok", next, result: { checks: r.findings.length, failing: failing.length, raised: r.raised, resolved: r.resolved, ...(failing.length ? { problems: failing.map((f) => f.text).slice(0, 10) } : {}) } };
     }
@@ -930,7 +933,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // D207: a setter's triage calls are named to the operator too once overdue, where the company turns it on (`eod.triage_overdue`;
       // Tyler: "add setters to the ping"). Owed is the ledger's: a triage call the end of day has not answered; one whose Discovery Call
       // record in GHL already has an outcome other than scheduled was answered there, and is not owed (as a filed Sales Call is not)
-      if (/^(on|true|yes)$/i.test((d.bindings["eod.triage_overdue"] ?? "").trim())) {
+      if (switchOn(d.bindings, "eod.triage_overdue")) {
         const open = [...new Set([...days.values()].flatMap((e) => [...e.ledger]))];
         const triage = open.length ? await many<{ id: string; slot_key: string | null; who: string }>(d.c, `select a.id::text as id, a.slot_key, coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), 'someone') as who
           from appointments a join company_terms t on t.id=a.appointment_term left join contacts ct on ct.id=a.contact_id where a.id = any($1::uuid[]) and t.category='first_call'`, [open]) : [];
@@ -1190,7 +1193,7 @@ async function lostCreate(d: ExecDeps, objectKey: string, key: string, propertie
   return { why: `${hits.length} records in the CRM carry its key (${hits.map((h) => h.id).join(", ")}): which is it is a person's call` };
 }
 
-async function recordById(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>, next: string | null, objectKey: string, key: string, ghlId: string, properties: Record<string, unknown>, cleared: Record<string, null>, owner: string | undefined, dropped: string[]): Promise<StepOutcome> {
+async function recordById(d: ExecDeps, node: Extract<Node, { type: "crm_record" }>, next: string | null, objectKey: string, key: string, ghlId: string, properties: Record<string, unknown>, cleared: Record<string, unknown>, owner: string | undefined, dropped: string[]): Promise<StepOutcome> {
   const write = { ...properties, ...cleared };
   if (!Object.keys(write).length) return { status: "skipped", next, result: { kind: "noop", why: "nothing to write: every value rendered empty", crm_id: ghlId } };
   const ours = await one<{ id: string; record_key: string }>(d.c, "select id, record_key from crm_records where company_id=$1 and object_key=$2 and ghl_record_id=$3 order by updated_at desc limit 1", [d.company.id, objectKey, ghlId]);
