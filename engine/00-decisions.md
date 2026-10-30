@@ -6629,3 +6629,13 @@ call with a client on it, recorded by someone else on the team: asked in the att
 asked again the next morning, then left). They install off on every offer; each is turned on by Tyler. Until an offer's Reassign request is on, neither door is
 offered there (the end of day has no "Someone else took this call", `/reassign` says it isn't turned on), so a call is never
 left unfiled and unmoved.
+
+## D255. A triage call recorded on a meeting is a setter call (2026-10-30)
+
+Isabel Vega's triage call (Oct 25) was recorded on Nelly's Fathom and Sales call recorded took it as a closing call: it made a Sales
+Call for a triage booking, which has no closer card, so the health check asked "which card is it?" every hour for five days. Tyler:
+"fix those two issues". Dating Nelly only (her triage playbook): her Setter call logged also starts on a recording whose booking is a
+triage call (`t2`), and reads and posts it as it does a dialed call (the call's kind, the setter's result, the Set window, the read
+logged for the end of day; the link says "Open the recording"); the triage booking's own Discovery Call stands for it, so none is
+made (`r1` waits for no booking on the run); her Sales call recorded no longer starts on one (its trigger matches every booking but a
+triage call). The end of day still files the result (D239).

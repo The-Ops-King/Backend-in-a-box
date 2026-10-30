@@ -452,9 +452,18 @@
     ],
     "title": "The call's Discovery Call, made blank: no outcome, no result (the end of day files them)",
     "only_if": {
-     "eq": [
-      "{{vars.triage_today.count}}",
-      0
+     "and": [
+      {
+       "eq": [
+        "{{vars.triage_today.count}}",
+        0
+       ]
+      },
+      {
+       "not": {
+        "exists": "appointment.id"
+       }
+      }
      ]
     }
    },
@@ -462,7 +471,7 @@
     "id": "s1",
     "type": "slack_post",
     "channel": "{{slack.channel.setter_calls}}",
-    "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{vars.convo.total_min}} min{{vars.parts_line}} · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>",
+    "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{vars.convo.total_min}} min{{vars.parts_line}} · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|{{vars.open_words}}>",
     "as": {
      "name": "Setter call",
      "icon": [
@@ -620,7 +629,7 @@
     "id": "s_late",
     "type": "slack_post",
     "channel": "{{slack.channel.setter_calls}}",
-    "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{vars.convo.total_min}} min{{vars.parts_line}} · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>",
+    "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> · {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} · *Length:* {{vars.convo.total_min}} min{{vars.parts_line}} · {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.notes.digest}}\n\n<{{recording.share_url | default:}}|{{vars.open_words}}>",
     "as": {
      "name": "Setter call",
      "icon": [
@@ -637,6 +646,29 @@
     "id": "x1",
     "type": "exit",
     "reason": "posted"
+   },
+   {
+    "id": "t2",
+    "type": "trigger",
+    "title": "A triage call recorded on a meeting (Fathom)",
+    "event": "recording.received",
+    "match": {
+     "eq": [
+      "{{appointment.term.category}}",
+      "first_call"
+     ]
+    }
+   },
+   {
+    "id": "v_open",
+    "type": "set_var",
+    "title": "Where the call can be heard",
+    "key": "open_words",
+    "value": "{{recording.provider}}",
+    "pick": {
+     "ghl": "Open the conversation in GHL"
+    },
+    "else_value": "Open the recording"
    }
   ],
   "edges": [
@@ -646,7 +678,7 @@
    },
    {
     "from": "v1",
-    "to": "l_conv"
+    "to": "v_open"
    },
    {
     "from": "l_conv",
@@ -872,6 +904,14 @@
    {
     "from": "r1",
     "to": "s1"
+   },
+   {
+    "from": "t2",
+    "to": "v1"
+   },
+   {
+    "from": "v_open",
+    "to": "l_conv"
    }
   ]
  },

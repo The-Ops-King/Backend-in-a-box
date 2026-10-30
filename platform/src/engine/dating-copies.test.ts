@@ -15,7 +15,7 @@ import { installCompany } from "./install";
 import { findCompanyWorkflow, saveDefinition, validateDefinition } from "./definitions";
 import { loadCompany } from "./context";
 import { applyPayment } from "./lifecycle";
-import { dispatchEvent } from "./dispatch";
+import { dispatchEvent, emitEvent } from "./dispatch";
 import { simulate } from "./simulate";
 import { tick } from "./runner";
 import { fakeAdapters } from "./test-install";
@@ -31,6 +31,7 @@ const file = (slug: string) => JSON.parse(fs.readFileSync(path.join(DIR, `${slug
 const template = (slug: string) => templates.find((t) => t.slug === slug)!.definition as unknown as { nodes: { id: string }[]; edges: unknown[] };
 const HAIR_WORDS = /hair|scalp|follicle|thinning|saveyourhair|allan|telegram|clinician|burned_before/i;
 
+const at0 = (d: { nodes: ({ id: string } & Record<string, unknown>)[] }, id: string) => d.nodes.find((n) => n.id === id)!;
 describe("D118: Dating Nelly's copies", () => {
   it("are exactly what the build makes from the templates and her words (pnpm exec tsx scripts/build-copies.ts dating-nelly --check)", () => {
     const built = datingCopies("dating-nelly", words, { setup, install: installBits() });
@@ -57,8 +58,11 @@ describe("D118: Dating Nelly's copies", () => {
     const t = new Map(template("setter-call-logged").nodes.map((n) => [n.id, n as N]));
     const d = file("setter-call-logged").definition as unknown as { nodes: N[]; edges: E[] };
     const ids = d.nodes.map((n) => n.id);
-    expect(ids).toEqual([...t.keys()]);
-    expect(d.nodes.filter((n) => JSON.stringify(n) !== JSON.stringify(t.get(n.id))).map((n) => n.id).sort()).toEqual(["a1", "a3", "a4", "rec_late", "rec_read"]);
+    expect(ids).toEqual([...t.keys(), "t2", "v_open"]);   // D254: a triage call recorded on a meeting comes in too
+    expect(d.nodes.filter((n) => t.has(n.id) && JSON.stringify(n) !== JSON.stringify(t.get(n.id))).map((n) => n.id).sort()).toEqual(["a1", "a3", "a4", "r1", "rec_late", "rec_read", "s1", "s_late"]);
+    expect(at0(d, "t2")).toMatchObject({ type: "trigger", event: "recording.received", match: { eq: ["{{appointment.term.category}}", "first_call"] } });
+    expect(d.edges).toEqual(expect.arrayContaining([{ from: "t2", to: "v1" }, { from: "v1", to: "v_open" }, { from: "v_open", to: "l_conv" }]));
+    for (const id of ["s1", "s_late"]) expect(at0(d, id).template).toContain("|{{vars.open_words}}>");
     const at = (id: string) => d.nodes.find((n) => n.id === id)!;
     expect((at("a1").criteria as Record<string, string>).setting).toBe(words.setterCall!.setting);
     expect(at("a4")).toMatchObject({ domain: "dating_dq_reason", criteria: words.setterDq.reasons });
@@ -67,7 +71,8 @@ describe("D118: Dating Nelly's copies", () => {
     // its one CRM write: the call's Discovery Call, blank (no outcome, no result), unless a triage call booked with the caller that day stands for it
     expect(d.nodes.filter((n) => ["crm_record", "note", "create_task", "pipeline_card", "tags", "set_tag", "wait_for_reaction"].includes(n.type as string)).map((n) => n.id)).toEqual(["r1"]);
     expect(Object.keys(at("r1").properties as object)).not.toContain("call_result"); expect(Object.keys(at("r1").properties as object)).not.toContain("outcome");
-    expect(at("r1").only_if).toEqual({ eq: ["{{vars.triage_today.count}}", 0] });
+    // D254: nor when the call is a triage booking's own (a recorded triage call): its Discovery Call already stands
+    expect(at("r1").only_if).toEqual({ and: [{ eq: ["{{vars.triage_today.count}}", 0] }, { not: { exists: "appointment.id" } }] });
     expect(at("l_tri")).toMatchObject({ query: "appointments_for_contact", params: expect.objectContaining({ kind: "first_call", closer: "{{recording.caller.ghl_user_id | default:}}" }) });
     expect(d.edges.filter((e) => e.to === "x1").map((e) => e.from).sort()).toEqual(["b_late", "s_late"]);
     expect(JSON.stringify(d)).not.toMatch(/act_line|setter_result\.act/);
@@ -238,5 +243,18 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: Dating Nelly's copies on a com
     expect(steps.find((s) => s.node_id === "g1")).toMatchObject({ status: "ok" });
     expect(sent).toEqual([]);
     expect(await asOperator((c) => many(c, "select 1 from sends where company_id=$1 and channel in ('sms','email')", [co]))).toEqual([]);
+  });
+
+  it("D254: a recording of a triage booking starts her Setter call logged; a closing booking's does not", async () => {
+    await asOperator((c) => c.query("update workflows set enabled=true where company_id=$1 and name='Setter call logged'", [co]));
+    const started = (category: string) => asOperator(async (c) => {
+      const ct = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name) values ($1,$2,'Tri','Age') returning id", [co, `G-TRI-${category}`]))!.id;
+      const rec = (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, provider, external_id, title, started_at, invitees, link_status, linked_by) values ($1,$2,'fathom',$3,'Tri and Nelly',now(),'[]','linked','speaker') returning id", [co, ct, `F-${category}`]))!.id;
+      const ev = await emitEvent(c, { company_id: co, contact_id: ct, opportunity_id: null, appointment_id: null, event_type: "recording.received", source: "fathom", data: { recording_id: rec } });
+      const runs = await dispatchEvent(c, ev, { contact: { id: ct }, appointment: { id: "00000000-0000-0000-0000-000000000000", term: { category } }, recording: { id: rec } });
+      return many<{ name: string }>(c, "select w.name from runs r join workflows w on w.id=r.workflow_id where r.id = any($1::uuid[])", [runs]);
+    });
+    expect((await started("first_call")).map((r) => r.name)).toContain("Setter call logged");
+    expect((await started("closing")).map((r) => r.name)).not.toContain("Setter call logged");
   });
 });
