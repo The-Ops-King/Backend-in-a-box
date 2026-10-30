@@ -206,6 +206,9 @@
       "id": "{{crm.field_contact_setter}}",
       "value": "{{appointment.set_by | default:}}"
      }
+    ],
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
     ]
    },
    {
@@ -220,6 +223,9 @@
       "id": "{{crm.field_opportunity_setter_owner}}",
       "value": "{{appointment.set_by | default:}}"
      }
+    ],
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
     ]
    },
    {

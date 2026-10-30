@@ -46,6 +46,7 @@ export const ghlWrite: CrmWrite = {
     try { await ghl(c.pit, "POST", "/associations/relations", { body: { locationId: c.locationId, associationId, firstRecordId, secondRecordId } }); }
     catch (e) { const st = (e as { status?: number }).status; if (st !== 400 && st !== 409) throw e; }   // already related
   },
+  async addFollowers(c, on, id, userIds) { await ghl(c.pit, "POST", `/${on === "contact" ? "contacts" : "opportunities"}/${id}/followers`, { body: { followers: userIds } }); },
   async createOpportunity(c, input) {
     const r = await ghl<{ opportunity: { id: string } }>(c.pit, "POST", "/opportunities/", { body: {
       locationId: c.locationId, contactId: input.contactId, pipelineId: input.pipelineId, pipelineStageId: input.stageId, name: input.name, status: input.status,

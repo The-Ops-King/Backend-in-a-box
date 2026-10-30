@@ -6745,3 +6745,20 @@ at least 80% sure; to the alerts channel; nothing else on it; every offer.
   call, so a refiled day edits the post instead of posting it twice.
 - Engine change only adds an event; no existing workflow takes it, so no offer's saved workflows change. The template reaches an
   offer only by being added to it (install, dry run first).
+
+## D266. A setter who sets a closing call follows the person (2026-10-30)
+
+Tyler: "when the appointment gets set from a setter, the setter moves from owner to follower (or if they're not there, they're
+moved to follower)".
+
+- `update_contact` and `pipeline_card` take `followers`: team members' CRM user ids, added as followers after the step's write
+  (GHL `POST /contacts/{id}/followers`, `POST /opportunities/{id}/followers`). Each id is added once. The owner is never also
+  made a follower: for a card, the step's owner; for a contact, the step's, else the owner an earlier step wrote.
+- `appointment.setter` is the team member the booking names (`set_by` is a roster name), with their `ghl_user_id`.
+- Call booked (the template, and Dating's and PMU's copies): on a setter-booked call, the setter follows the contact (b3), the
+  setter card (b4) and the closer card (c_new / c_rs), while the closer stays the owner (n1). A self-booked call, or a setter
+  not on the roster, adds nobody. A hybrid who sets their own call owns it and is not also a follower.
+- If the CRM refuses a follower, the step's write still stands and the run goes on (the booking post still goes). The step says
+  why, and a warning alert is raised.
+
+Existing offers change only when their Call booked is updated, one at a time, through the definition route with a dry run.

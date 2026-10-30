@@ -160,6 +160,9 @@
       "value": "{{appointment.set_by | default:}}"
      }
     ],
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
+    ],
     "title": "The setter goes on the contact"
    },
    {
@@ -206,7 +209,10 @@
      }
     ],
     "id": "c_new",
-    "title": "Card → Booked Call, named -- Setter / -- Direct"
+    "title": "Card → Booked Call, named -- Setter / -- Direct",
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
+    ]
    },
    {
     "type": "pipeline_card",
@@ -231,6 +237,9 @@
      "{{crm.stage_closer_no_show}}",
      "{{crm.stage_closer_cancelled}}",
      "{{crm.stage_closer_rescheduled}}"
+    ],
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
     ]
    },
    {

@@ -21,7 +21,7 @@ Every step also takes `title`, `only_if` (skipped when false) and `blocking`.
 | `note` | `template` | Leaves a GHL note on the contact. | none |
 | `notify_owner` | `template`, `fallback_channel`, `task`, `as` | DMs the contact's owner in Slack, else posts in a fallback channel; can make a task. | crm.default_closer, bot.escalate_to, slack.channel.ops, test.slack_channel, slack.live, slack.name, slack.icon |
 | `pause_runs` | `scope` | Pauses the contact's other runs (a person took over). | none |
-| `pipeline_card` | `pipeline`, `stage`, `name`, `assign_to`, `status`, `if_missing`, `pick`, `fields`, `from_stages`, `keep_name`, `value` | Creates or moves the contact's GHL pipeline card (opportunity). | none |
+| `pipeline_card` | `pipeline`, `stage`, `name`, `assign_to`, `status`, `if_missing`, `pick`, `fields`, `followers`, `from_stages`, `keep_name`, `value` | Creates or moves the contact's GHL pipeline card (opportunity). | none |
 | `record` | `event`, `data`, `appointment`, `start` | Writes an event to the ledger; with start, the workflows that start on it start. | none |
 | `record_outcome` | `outcome`, `call_outcome`, `notes`, `source`, `user`, `via` | Records the call's outcome on the booking (as the closer's answer with source disposition). | none |
 | `remove_tag` | `tag` | Takes contact tags off (the older one-direction form of tags). | none |
@@ -37,7 +37,7 @@ Every step also takes `title`, `only_if` (skipped when false) and `blocking`.
 | `tags` | `add`, `remove`, `keep` | Adds, then takes off, contact tags in GHL; each tag added or taken off is an event other workflows start on. | none |
 | `trigger` | `event`, `match`, `schedule` | Starts the workflow on an event (matched against `match`) or a schedule. | scope.tag (lead.created only) |
 | `update_appointment` | `set` | Changes the GHL appointment (a Calendly booking is read-only); a status change is an event. | none |
-| `update_contact` | `set`, `fields`, `clear` | Writes GHL contact fields; an empty value is never written (clear blanks on purpose). | none |
+| `update_contact` | `set`, `fields`, `clear`, `followers` | Writes GHL contact fields; an empty value is never written (clear blanks on purpose). | none |
 | `update_opportunity` | `set`, `status`, `from`, `lost_reason`, `card` | Marks the engine's deal won, lost or open (and can move its card); won and lost are events. | none |
 | `wait` | `rule` | Waits until a time worked out from an anchor and an offset, moved into the send window. | send window |
 | `wait_for_event` | `event`, `match`, `about`, `since`, `until`, `into`, `respect_send_window` | Waits for an event about this person or booking, or a deadline. | send window |

@@ -10,7 +10,7 @@ import { testDomains } from "./mode";
 import { SETTING_DEFAULTS } from "./setting-defaults";
 
 /**
- * D264 (Tyler, 2026-10-30: "the EOD should ONLY pull from the GHL sales calls ... everything pulls from GHL!"). What a person still
+ * D266 (Tyler, 2026-10-30: "the EOD should ONLY pull from the GHL sales calls ... everything pulls from GHL!"). What a person still
  * owes on their end of day is read live from GHL, never from what the engine stored: a Sales Call record whose call has passed with
  * no outcome (the very rule /weekly's "No EOD outcome yet" uses, `salesCallsFor`), and a Discovery Call record (a setter's triage
  * call) whose call has passed still "scheduled" or blank. Whose it is: the record's closer or setter, matched to the roster by name;

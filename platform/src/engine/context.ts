@@ -128,6 +128,9 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
       select a.id, a.source, a.external_id, coalesce(a.slot_key, a.external_id) as slot_key, a.starts_at, a.ends_at, a.status, a.self_booked, a.set_by, a.answers, a.reschedule_url, a.cancel_url, a.meeting_url, a.tracking, a.cancelled_by, a.cancel_reason, a.pending_read,
              json_build_object('name', t.name, 'category', t.category) as term,
              json_build_object('id', u.id, 'first_name', split_part(u.name,' ',1), 'name', u.name, 'email', u.email, 'ghl_user_id', u.ghl_user_id, 'slack_user_id', u.slack_user_id, 'mention', coalesce('<@' || u.slack_user_id || '>', u.name), 'booking_url', u.booking_url) as closer, a.reassigned_at, a.reassigned_by,
+             -- D266: the setter the booking names (set_by is a roster name), as a team member, so a step can make them a follower
+             (select json_build_object('id', su.id, 'first_name', split_part(su.name,' ',1), 'name', su.name, 'email', su.email, 'ghl_user_id', su.ghl_user_id, 'slack_user_id', su.slack_user_id, 'mention', coalesce('<@' || su.slack_user_id || '>', su.name))
+                from users su where su.company_id=a.company_id and su.active and lower(su.name)=lower(trim(a.set_by)) order by su.created_at limit 1) as setter,
              ot.category as outcome, cot.category as call_outcome
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term

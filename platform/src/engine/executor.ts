@@ -766,15 +766,19 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const patch = { firstName: r(node.set.first_name), lastName: r(node.set.last_name), phone: r(node.set.phone), timezone: r(node.set.timezone), assignedUserId: r(node.set.assign_to),
         customFields: [...fields.map(({ id, field_value }) => ({ id, field_value })), ...cleared] };
       const already = kept.length ? { already_set: kept } : {};
-      const nothing = !patch.firstName && !patch.lastName && !patch.phone && !patch.timezone && !patch.assignedUserId && !patch.customFields.length;
-      if (nothing) return { status: "skipped", next, result: { kind: "noop", why: kept.length ? "nothing to write: the CRM already has every value" : "nothing to write: every value rendered empty", ...already } };
-      if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_update: patch, ...already } };
+      // the contact's owner as of now (this step's, else one an earlier step wrote) is never also made a follower
+      const owner = patch.assignedUserId ?? (d.run.contact_id ? (await one<{ o: string | null }>(d.c, "select assigned_ghl_user_id as o from contacts where id=$1", [d.run.contact_id]))?.o ?? undefined : undefined);
+      const followers = followersOf(d, node.followers, owner);
+      const empty = !patch.firstName && !patch.lastName && !patch.phone && !patch.timezone && !patch.assignedUserId && !patch.customFields.length;
+      if (empty && !followers.length) return { status: "skipped", next, result: { kind: "noop", why: kept.length ? "nothing to write: the CRM already has every value" : "nothing to write: every value rendered empty", ...already } };
+      if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_update: patch, ...already, ...(followers.length ? { would_follow: followers } : {}) } };
       if (!contact?.ghl_contact_id) return { status: "failed", error: "update_contact: contact has no CRM id yet" };
-      await d.adapters.write.updateContact(d.adapterCompany, contact.ghl_contact_id, patch);
+      if (!empty) await d.adapters.write.updateContact(d.adapterCompany, contact.ghl_contact_id, patch);
+      const followed = await addFollowers(d, node.id, "contact", contact.ghl_contact_id, followers);
       // our replica of the CRM contact learns what we just wrote, so a later step in the same minute reads it (the next poll confirms it)
       const fieldPatch = Object.fromEntries(patch.customFields.map((f) => [f.id, f.field_value === "" ? null : f.field_value]));
-      await d.c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), ghl_fields = ghl_fields || $5::jsonb, updated_at=now() where id=$1", [d.run.contact_id, patch.firstName ?? null, patch.lastName ?? null, patch.timezone ?? null, JSON.stringify(fieldPatch)]);
-      return { status: "ok", next, result: { ...patch, ...already } };
+      await d.c.query("update contacts set first_name=coalesce($2,first_name), last_name=coalesce($3,last_name), timezone=coalesce($4,timezone), assigned_ghl_user_id=coalesce($6,assigned_ghl_user_id), ghl_fields = ghl_fields || $5::jsonb, updated_at=now() where id=$1", [d.run.contact_id, patch.firstName ?? null, patch.lastName ?? null, patch.timezone ?? null, JSON.stringify(fieldPatch), patch.assignedUserId ?? null]);
+      return { status: "ok", next, result: { ...patch, ...already, ...followed } };
     }
     case "ensure_contact": {
       // D141 (Tyler: "Update, and if they don't exist, then create"): GHL is the truth, so it is asked first; nothing it holds is overwritten
@@ -919,7 +923,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       return { status: "ok", next, result: { calendars: r.findings.length, low: low.length, raised: r.raised, resolved: r.resolved, ...(cal ? { only: cal.external_id } : {}), ...(low.length ? { problems: low.map((f) => f.text) } : {}) } };
     }
     case "eod_due": {
-      // D76: the closer is reminded every day until each of their calls is filed; D264: what is filed is GHL's alone (below).
+      // D76: the closer is reminded every day until each of their calls is filed; D266: what is filed is GHL's alone (below).
       // D88 (A4): how far back, whether today counts and when the operator hears are the step's; the words are the template's
       const user = d.ctx.user as { id?: string; name?: string; eod?: { day: string; url: string } } | undefined;
       const legacy = node.lookback_days === undefined && node.include_today === undefined && node.overdue_after_days === undefined;
@@ -928,7 +932,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const tz = d.company.timezone, today = d.now.setZone(tz).toISODate()!, label = (day: string) => DateTime.fromISO(day, { zone: tz }).toFormat("ccc LLL d");
       const { eodFacts } = await import("./eod");
       const eod = await eodFacts(d.c, d.company, user.id, (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, ""), d.now as DateTime<true>, lookback);
-      // D264 (Tyler: "the EOD should ONLY pull from the GHL sales calls"): what is owed is GHL's, read live (`owedFromGhl`): their Sales
+      // D266 (Tyler: "the EOD should ONLY pull from the GHL sales calls"): what is owed is GHL's, read live (`owedFromGhl`): their Sales
       // Calls passed with no outcome and their triage calls' Discovery Calls still scheduled, the same list /missing-eod and /weekly give.
       // dials (D156, D191, D239): a setter's outbound call has its own Discovery Call record in GHL from the minute it is logged, so it is
       // in that same list; nothing is counted from what the engine stored
@@ -1061,12 +1065,32 @@ async function updateOpportunity(d: ExecDeps, node: Extract<Node, { type: "updat
   if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
   d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
   if (!node.card) return { status: "ok", next, result: out };
-  const card = await pipelineCard(d, { id: node.id, type: "pipeline_card", pipeline: node.card.pipeline, stage: node.card.stage, status: (status || undefined) as "open" | "won" | "lost" | undefined, if_missing: "skip", pick: status === "open" ? "latest" : "open", fields: [] }, next);
+  const card = await pipelineCard(d, { id: node.id, type: "pipeline_card", pipeline: node.card.pipeline, stage: node.card.stage, status: (status || undefined) as "open" | "won" | "lost" | undefined, if_missing: "skip", followers: [], pick: status === "open" ? "latest" : "open", fields: [] }, next);
   if (card.status === "failed") return card;
   return { status: "ok", next, result: { ...out, card: "result" in card ? card.result ?? {} : {} } };
 }
 
 /** A card on a CRM board (D19, D41): the pipeline_card step, and the card an update_opportunity marks won or lost (D85). */
+/** D266: the team members a step adds as followers, each once; the step's new owner is left out (they own it already). */
+function followersOf(d: ExecDeps, list: string[], owner?: string): string[] {
+  return [...new Set(list.map((f) => render(f, d.ctx, env(d)).trim()).filter((f) => f && f !== owner))];
+}
+/**
+ * D266: followers added after the write they ride on. A refusal here never fails that write (a booking's card is still made, its
+ * post still goes): it is said on the step and as a warning, so a wrong user id is seen and fixed.
+ */
+async function addFollowers(d: ExecDeps, nodeId: string, on: "contact" | "opportunity", id: string, ids: string[]): Promise<Record<string, unknown>> {
+  if (!ids.length) return {};
+  if (!d.adapters.write.addFollowers) return { followers_skipped: "this CRM has no followers" };
+  try { await d.adapters.write.addFollowers(d.adapterCompany, on, id, ids); return { followers: ids }; }
+  catch (e) {
+    const why = String((e as Error).message).slice(0, 300);
+    await raise(d.c, { companyId: d.company.id, key: `followers:${d.run.workflow_id}:${nodeId}`, level: "warning", source: "engine", href: `/app/c/${d.company.slug}/runs/${d.run.id}`,
+      text: `Step ${nodeId} could not add ${ids.join(", ")} as a follower of the ${on === "contact" ? "contact" : "card"}; the rest of the step was done. The CRM said: ${why.slice(0, 160)}`, detail: { run_id: d.run.id, on, id, ids, error: why } });
+    return { followers_failed: why };
+  }
+}
+
 async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_card" }>, next: string | null): Promise<StepOutcome> {
   const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
   const pipelineId = render(node.pipeline, d.ctx, env(d));
@@ -1100,6 +1124,7 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   const name = node.keep_name && card ? card.name : node.name ? render(node.name, nameCtx, env(d)) : card?.name ?? render("{{contact.name}}", nameCtx, env(d));   // a card made without a name carries the person's
   const customFields = node.fields.map((f) => ({ id: render(f.id, d.ctx, env(d)), field_value: render(f.value, d.ctx, env(d)) })).filter((f) => f.id && f.field_value !== "");
   const assignedUserId = node.assign_to ? render(node.assign_to, d.ctx, env(d)) || undefined : undefined;
+  const followers = followersOf(d, node.followers, assignedUserId);
   const valueText = node.value ? render(node.value, d.ctx, env(d)).replace(/[$,\s]/g, "") : "";
   const monetaryValue = valueText ? Number(valueText) : undefined;
   if (monetaryValue !== undefined && !(Number.isFinite(monetaryValue) && monetaryValue >= 0)) return { status: "failed", error: `pipeline_card ${node.id}: value "${valueText}" is not an amount` };
@@ -1109,7 +1134,7 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
   const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields, ...(monetaryValue !== undefined ? { monetaryValue } : {}) };
   // D61: a card already where this step would put it (a second filing, a hand that moved it first) is left alone: no CRM write, no replica bump
-  if (card && card.ghl_stage_id === stageId && card.name === name && (!node.status || node.status === card.status) && !customFields.length && !assignedUserId && monetaryValue === undefined) return { status: "skipped", next, result: { kind: "noop", why: "already there", stage: stageId, crm_card: card.ghl_opportunity_id } };
+  if (card && card.ghl_stage_id === stageId && card.name === name && (!node.status || node.status === card.status) && !customFields.length && !assignedUserId && !followers.length && monetaryValue === undefined) return { status: "skipped", next, result: { kind: "noop", why: "already there", stage: stageId, crm_card: card.ghl_opportunity_id } };
   // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
   let oppId = d.run.opportunity_id ?? card?.opportunity_id ?? (await one<{ id: string }>(d.c, "select id from opportunities where company_id=$1 and contact_id=$2 and status='open' order by opened_at desc limit 1", [d.company.id, d.run.contact_id]))?.id;
   if (!oppId) {
@@ -1145,7 +1170,9 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
   d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
   await refreshCardsCtx(d, pipelineId);
-  return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), ...(monetaryValue !== undefined ? { value: monetaryValue } : {}), fields: customFields } };
+  const cardId = card && !goneCard ? card.ghl_opportunity_id : (await one<{ ghl_opportunity_id: string | null }>(d.c, "select ghl_opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and created_by_run=$4 order by updated_at desc limit 1", [d.company.id, d.run.contact_id, pipelineId, d.run.id]))?.ghl_opportunity_id;
+  const followed = ghost(d) ? (followers.length ? { would_follow: followers } : {}) : cardId ? await addFollowers(d, node.id, "opportunity", cardId, followers) : {};
+  return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...followed, card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), ...(monetaryValue !== undefined ? { value: monetaryValue } : {}), fields: customFields } };
 }
 
 /** A crm_record step's `relate`, after the record is in `record.*`: each link both ends of which rendered. */

@@ -117,6 +117,8 @@ export interface CrmWrite {
   deleteNote?(c: Company, contactId: string, noteId: string): Promise<void>;
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;
   updateContact(c: Company, contactId: string, patch: ContactWrite): Promise<void>;
+  /** D266: team members (CRM user ids) added as followers of a contact or a card; ones already following stay. Absent: the CRM has no followers. */
+  addFollowers?(c: Company, on: "contact" | "opportunity", id: string, userIds: string[]): Promise<void>;
   createTask(c: Company, contactId: string, task: { title: string; body?: string; dueAt: Date; assignedUserId?: string }): Promise<{ id: string }>;
   createRecord(c: Company, objectKey: string, properties: Record<string, unknown>, ownerUserId?: string): Promise<{ id: string }>;
   updateRecord(c: Company, objectKey: string, recordId: string, properties: Record<string, unknown>, ownerUserId?: string, removeOwnerIds?: string[]): Promise<void>;

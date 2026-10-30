@@ -217,6 +217,9 @@
       "id": "{{crm.field_contact_setter}}",
       "value": "{{appointment.set_by | default:}}"
      }
+    ],
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
     ]
    },
    {
@@ -231,6 +234,9 @@
       "id": "{{crm.field_opportunity_setter_owner}}",
       "value": "{{appointment.set_by | default:}}"
      }
+    ],
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
     ]
    },
    {
@@ -271,7 +277,10 @@
      }
     ],
     "id": "c_new",
-    "title": "Closer card → Scheduled, named -- Direct / -- Setter Booked"
+    "title": "Closer card → Scheduled, named -- Direct / -- Setter Booked",
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
+    ]
    },
    {
     "type": "pipeline_card",
@@ -291,6 +300,9 @@
     "from_stages": [
      "{{crm.stage_closer_scheduled}}",
      "{{crm.stage_closer_cancelled | default:}}"
+    ],
+    "followers": [
+     "{{appointment.setter.ghl_user_id | default:}}"
     ]
    },
    {
