@@ -27,3 +27,13 @@ describe("D243: round-robin hosts", () => {
     expect(cal.hosts?.map((h) => h.email)).toEqual(["carly@x.co", "jp@x.co", "team@x.co"]);
   });
 });
+
+describe("D258: a one-host type an admin can also see", () => {
+  it("is hosted by whom Calendly says, not by the admin whose listing also carries it", async () => {
+    const own = { uri: "https://api.calendly.com/event_types/T1", name: "Dating Consultation with Taylor", scheduling_url: "x", active: true };
+    serve([["/organization_memberships", page([{ user: { uri: "U1", email: "taylor@x.co", name: "Taylor" } }, { user: { uri: "U2", email: "admin@x.co", name: "Tyler" } }])],
+      ["event_types?user=U1", page([own])], ["event_types?user=U2", page([own])], ["/event_type_memberships", page([{ member: { email: "taylor@x.co", name: "Taylor" } }])]]);
+    const [cal] = await calendlyBooking.listCalendars(co);
+    expect(cal.hosts?.map((h) => h.email)).toEqual(["taylor@x.co"]);
+  });
+});

@@ -441,7 +441,8 @@
      "direction": "{{recording.direction}}",
      "duration_sec": "{{vars.convo.total_sec}}",
      "setter": "{{recording.caller.name | default:}}",
-     "recording_url": "{{recording.url | default:}}"
+     "recording_url": "{{recording.url | default:}}",
+     "call_summary": "{{vars.notes.digest | default:}}"
     },
     "relate": [
      {
@@ -669,6 +670,41 @@
      "ghl": "Open the conversation in GHL"
     },
     "else_value": "Open the recording"
+   },
+   {
+    "id": "v_tri",
+    "type": "set_var",
+    "title": "The triage booking's Discovery Call: the call's own booking, else one booked with this caller that day",
+    "key": "tri_key",
+    "when": {
+     "exists": "appointment.slot_key"
+    },
+    "value": "{{appointment.slot_key}}",
+    "else_value": "{{vars.triage_today.first.slot_key | default:}}"
+   },
+   {
+    "id": "r_tri",
+    "type": "crm_record",
+    "title": "The summary on that Discovery Call (never its result: the end of day files that)",
+    "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
+    "key": "{{vars.tri_key}}",
+    "if_missing": "skip",
+    "only_if": {
+     "neq": [
+      "{{vars.tri_key}}",
+      ""
+     ]
+    },
+    "properties": {
+     "call_summary": "{{vars.notes.digest | default:}}",
+     "recording_url": "{{recording.share_url | default:}}"
+    }
+   },
+   {
+    "id": "n_sum",
+    "type": "note",
+    "title": "The summary as a note on the contact",
+    "template": "CALL SUMMARY ({{vars.classify.call_type | words}} call) — {{vars.convo.first.started_at | date_company}} · {{recording.caller.name | default:}}\n\n{{vars.notes.digest | default:}}\n\nRecording: {{recording.share_url | default:—}}"
    }
   ],
   "edges": [
@@ -899,11 +935,11 @@
    },
    {
     "from": "l_tri",
-    "to": "r1"
+    "to": "v_tri"
    },
    {
     "from": "r1",
-    "to": "s1"
+    "to": "n_sum"
    },
    {
     "from": "t2",
@@ -912,6 +948,18 @@
    {
     "from": "v_open",
     "to": "l_conv"
+   },
+   {
+    "from": "v_tri",
+    "to": "r_tri"
+   },
+   {
+    "from": "r_tri",
+    "to": "r1"
+   },
+   {
+    "from": "n_sum",
+    "to": "s1"
    }
   ]
  },

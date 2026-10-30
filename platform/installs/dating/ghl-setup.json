@@ -125,7 +125,8 @@
           { "key": "set", "label": "Set" }, { "key": "follow_up", "label": "Follow Up" }, { "key": "dq", "label": "DQ" },
           { "key": "not_interested", "label": "Not Interested" } ] },
         { "key": "dq_reason", "name": "DQ Reason", "type": "TEXT" },
-        { "key": "notes", "name": "Notes", "type": "LARGE_TEXT" } ] }
+        { "key": "notes", "name": "Notes", "type": "LARGE_TEXT" },
+        { "key": "call_summary", "name": "Call Summary", "type": "LARGE_TEXT" } ] }
   ],
   "associations": [
     { "binding": "sales_call_contact", "key": "dating_sales_call_contact", "first": "contact", "second": "sales_call" },

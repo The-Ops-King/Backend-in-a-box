@@ -63,10 +63,13 @@
   },
   "closers": [
     "nellysudri@gmail.com",
-    "mitch@revsignals.io"
+    "mitch@revsignals.io",
+    "taylor@nellysudri.com",
+    "jassie@nellysudri.com"
   ],
   "roles": {
-    "taylorjakeh@gmail.com": "setter"
+    "taylorjakeh@gmail.com": "setter",
+    "sobregn@gmail.com": "setter"
   },
   "testDomains": [
     "jtylerray.com"
@@ -92,20 +95,28 @@
     "03ad5f45-89a1-4d07-8728-c180e5e2213e": {
       "term": "first_call",
       "name": "Triage call",
-      "booking": "self",
-      "owner": "mitch@revsignals.io"
+      "booking": "self"
     },
     "6a643c89-68fc-4272-9188-a7a42648d2fd": {
       "term": "closing",
       "name": "Closing call",
-      "booking": "utm",
-      "owner": "mitch@revsignals.io"
+      "booking": "utm"
     },
-    "80955126-29fe-48ea-a85e-ba4bcd145790": {
+    "80955126-29fe-48ea-a85e-ba4bcd145790": "ignore",
+    "e41428bf-3d81-48f4-ba4a-589961bb67d2": {
       "term": "closing",
       "name": "Closing call",
-      "booking": "utm",
-      "alerts": false
+      "booking": "utm"
+    },
+    "df8daabd-1ac9-4602-a8a6-78b7765c3883": {
+      "term": "closing",
+      "name": "Closing call",
+      "booking": "utm"
+    },
+    "3995ae74-d028-4b8f-86ce-6da33dbf5228": {
+      "term": "first_call",
+      "name": "Triage call",
+      "booking": "utm"
     }
   },
   "closerCall": "6a643c89-68fc-4272-9188-a7a42648d2fd",

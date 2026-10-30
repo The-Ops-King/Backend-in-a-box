@@ -11,7 +11,7 @@ import { timeParam } from "./waitrule";
  */
 
 /** What a booking is, in the words a template filters on: its kind (the calendar's call type; none is a closing call, as D79 counts), how it was booked, and when. */
-export const APPOINTMENT_FACTS = `a.id, a.starts_at, a.ends_at, a.booked_at, a.status, coalesce(t.category, 'closing') as kind,
+export const APPOINTMENT_FACTS = `a.id, a.slot_key, a.starts_at, a.ends_at, a.booked_at, a.status, coalesce(t.category, 'closing') as kind,
   case when a.self_booked then 'self' when a.self_booked = false then 'setter' end as booking_source, a.set_by, a.source, u.name as closer, ot.category as outcome`;
 export const APPOINTMENT_JOINS = "left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id left join company_terms ot on ot.id=a.outcome_term";
 const plain = (r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]));

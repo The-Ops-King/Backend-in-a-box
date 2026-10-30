@@ -6659,6 +6659,46 @@ and the Sales Call links to it in the same run. A person who has a closer card (
 Operator doors for the one already made: `/api/admin/events/replay` takes `again: true` with `why` to run an event a workflow already
 ran for once more, after that run is over (its re-entry key retired, as D210 does; audited), and `/api/admin/contact/notes` lists a contact's notes and deletes one (dry run first, audited).
 
+## D258. A one-host Calendly type is hosted by whom Calendly says (2026-10-30)
+
+The calendar listing showed Tyler as a host of "Dating Consultation with Taylor": a member's own listing carries every type they can see,
+and an admin sees Taylor's. D243 asked Calendly who hosts a round robin; a one-person type listed under more than one member is now
+asked the same (`event_type_memberships`). Engine code, every offer: only the hosts a listing reports change. Tests:
+`list-calendars.test.ts`.
+
+## D259. A setter's call writes its summary to its Discovery Call and as a note (2026-10-30)
+
+Tyler: the AI "only pre-fills the end of day and writes results, but it also does add the notes and the summary to the discovery call
+and the high-level note. Keep the exact result for the end of day." Dating Nelly's Setter call logged: the call's summary (Jev's
+write-up) goes to a new Call Summary field on her Discovery Call (made in GHL by the setup door, `installs/dating/ghl-setup.json`),
+on the call's own Discovery Call when it makes one and on the triage booking's own when the call was one (never created there, never
+its result or outcome), and as a "CALL SUMMARY" note on the contact. Lookups' bookings carry their slot key. The result stays the end
+of day's (D239). Tests: `dating-copies.test.ts`, `eod.setter-calls.test.ts`.
+
+## D260. Open cards follow a person to their new GHL user (2026-10-30)
+
+Jassie's AOL GHL user was removed for her nellysudri one, and five open cards were still on the old user. Tyler: "Add her proper
+contact to all of those open cards." `POST /api/admin/cards/reassign { company, from: <GHL user id or email>, to: <roster email>, why,
+dryRun = true }`: every open card the replica has on `from`, each read live in GHL first and moved only if GHL still has it open on
+`from` (the rest are said); the owner alone is written. Audited.
+
+## D261. Nelly's calendars for three closers, and the triage post tags who it is booked with (2026-10-30)
+
+Taylor and Jassie closing with Mitch, and setting too; Shawnee setting. Tyler: watch Jassie's and Taylor's own consultations, the
+Private Dating Consultation (closing) and the Complimentary Dating Strategy Session (triage) round robins, and stop watching
+Nelly's own consultation ("just the onboarding call now"); watch Shawnee's as a setter and "if something books with her, tag her in
+Slack". Her install: both round robins lose the owner D212 set when Mitch was their only host (each booking is its host's now);
+Jassie's and Taylor's consultations are closing calls (booking by link, D159); Shawnee's is a triage call; Nelly's is ignored (D148);
+closers Taylor and Jassie, setter Shawnee. Triage call booked's post tags whoever it is booked with (`appointment.closer.mention`,
+their name when they have no Slack).
+
+## D262. A calendar's owner can be taken off, and a calendar unwatched, by the operator (2026-10-30)
+
+Applying D261 live: the round robins kept the owner D212 set (Mitch) and Nelly's consultation stayed watched, because the calendar
+doors only set an owner and only watch a new calendar. `/api/admin/calendars/owner` with `owner: "host"` takes the owner off (each
+booking is its host's again; bookings already held keep theirs); `/api/admin/calendars/watch` with `term: "ignore"` stops watching a
+calendar as install's "ignore" does (D148). Both dry run first, audited.
+
 ## D260. A team onboarding page per offer (2026-10-30)
 
 Tyler: "when I want to onboard a new closer to the system, I want to be able to give them an 80% onboarding on how to use all

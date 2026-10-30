@@ -93,6 +93,18 @@ export function datingCopies(company: string, words: DatingWords, own?: { setup:
   const toConv = graph.edges.find((e) => e.from === "v1" && e.to === "l_conv"); if (!toConv) throw new Error("setter-call-logged: v1 → l_conv not found");
   toConv.to = "v_open"; graph.edges.push({ from: "v_open", to: "l_conv" });
   const r1 = node(scl, "r1"); r1.only_if = r1.only_if ? { and: [r1.only_if, { not: { exists: "appointment.id" } }] } : { not: { exists: "appointment.id" } };
+  // D259 (Tyler: "it also does add the notes and the summary to the discovery call and the high-level note"; the result stays the end
+  // of day's): the call's summary on its Discovery Call (the triage booking's own when there is one), and as a note on the contact
+  r1.properties = { ...(r1.properties as Record<string, unknown>), call_summary: "{{vars.notes.digest | default:}}" };
+  graph.nodes.push({ id: "v_tri", type: "set_var", title: "The triage booking's Discovery Call: the call's own booking, else one booked with this caller that day", key: "tri_key",
+    when: { exists: "appointment.slot_key" }, value: "{{appointment.slot_key}}", else_value: "{{vars.triage_today.first.slot_key | default:}}" });
+  graph.nodes.push({ id: "r_tri", type: "crm_record", title: "The summary on that Discovery Call (never its result: the end of day files that)", object: (r1 as unknown as { object: string }).object, key: "{{vars.tri_key}}",
+    if_missing: "skip", only_if: { neq: ["{{vars.tri_key}}", ""] }, properties: { call_summary: "{{vars.notes.digest | default:}}", recording_url: "{{recording.share_url | default:}}" } });
+  graph.nodes.push({ id: "n_sum", type: "note", title: "The summary as a note on the contact", template: "CALL SUMMARY ({{vars.classify.call_type | words}} call) — {{vars.convo.first.started_at | date_company}} · {{recording.caller.name | default:}}\n\n{{vars.notes.digest | default:}}\n\nRecording: {{recording.share_url | default:—}}" });
+  const triToR1 = graph.edges.find((e) => e.from === "l_tri" && e.to === "r1"); const r1ToS1 = graph.edges.find((e) => e.from === "r1" && e.to === "s1");
+  if (!triToR1 || !r1ToS1) throw new Error("setter-call-logged: l_tri → r1 → s1 not found");
+  triToR1.to = "v_tri"; r1ToS1.to = "n_sum";
+  graph.edges.push({ from: "v_tri", to: "r_tri" }, { from: "r_tri", to: "r1" }, { from: "n_sum", to: "s1" });
   for (const id of ["s1", "s_late"]) { const post = node(scl, id); if (typeof post.template !== "string" || !post.template.includes("|Open the conversation in GHL>")) throw new Error(`setter-call-logged ${id}: link words not found`); post.template = post.template.replace("|Open the conversation in GHL>", "|{{vars.open_words}}>"); }
   out.push({ workflow: "setter-call-logged", definition: scl as unknown as Record<string, unknown>,
     note: `${company}: why a setter DQs a lead, in the company's words (installs/${company}/words.json)${dqHeld ? "; still placeholders" : ""}, not Hair's (D118)` });
@@ -230,6 +242,10 @@ function triageBooked(): Def {
       relate: [{ association: "{{crm.assoc_discovery_call_contact}}", first: "{{contact.ghl_contact_id | default:}}", second: "{{record.id}}" }] });
   d.edges = edges.filter((e) => !gone.includes(e.from) && !gone.includes(e.to));
   (d.edges as Edge[]).push({ from: "s5", to: "d_rs" }, { from: "b6", to: "d_rs" }, { from: "d_rs", to: "d1" }, { from: "d1", to: "v4" });
+  // D261 (Tyler: "if something books with her, you should tag her in Slack"): the post tags whoever the triage call is booked with
+  const post = node(d, "n4");
+  if (typeof post.template !== "string" || !post.template.includes("*Booked with:* {{appointment.closer.name | default:unassigned}}")) throw new Error("Call booked's post no longer names who it is booked with");
+  post.template = post.template.replace("*Booked with:* {{appointment.closer.name | default:unassigned}}", "*Booked with:* {{appointment.closer.mention | default:unassigned}}");
   return d;
 }
 

@@ -114,8 +114,9 @@ export const calendlyBooking: BookingRead = {
     // D243: a member's own listing also carries team (round robin) types they only own or administer: Calendly listed Mary Emily
     // (team@) under PMU's three round robins whose hosts are Carly and Jose. A shared type's hosts are what Calendly says hosts it;
     // the listing is kept only when that read is refused (the hosts endpoint takes a personal access token)
+    // D258: a one-host type shows up under its owner and under every admin who can see it (Tyler, on Taylor's own consultation): the same read decides it
     for (const cal of byId.values()) {
-      if (!cal.pooling) continue;
+      if (!cal.pooling && (cal.hosts?.length ?? 0) < 2) continue;
       try {
         const ms = await calendlyAll<{ member: { email?: string; name?: string } }>(b.token, `/event_type_memberships?event_type=${encodeURIComponent(`https://api.calendly.com/event_types/${cal.id}`)}&count=100`);
         const hosts = ms.filter((m) => m.member.email).map((m) => ({ name: m.member.name ?? m.member.email!, email: m.member.email! }));

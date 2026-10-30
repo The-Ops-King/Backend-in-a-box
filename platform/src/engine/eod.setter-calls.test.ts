@@ -128,7 +128,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D154/D156: a setter's calls on the e
     expect(Object.keys(criteria.dq_reason).sort()).toEqual(["bad_contact", "budget", "casual", "in_relationship", "not_ready", "other"]);
     expect(recordWrites).toEqual([expect.objectContaining({ op: "create", object: "custom_objects.dating_discovery", external_id: omarCall.ext, setter: "Mitch Setter" })]);
     expect(recordWrites[0]).not.toHaveProperty("call_result"); expect(recordWrites[0]).not.toHaveProperty("outcome");
-    expect(notes).toEqual([]); expect(tasks).toEqual([]); expect(tags).toEqual([]); expect(cardWrites).toEqual([]);
+    // D259: each call's summary is a note on the contact (and on the Discovery Call where its object has a Call Summary field; this test object has none)
+    expect(notes).toEqual([expect.stringMatching(/^CALL SUMMARY \(setting call\) — .* · Mitch Setter\n\nWants something serious/), expect.stringMatching(/^CALL SUMMARY \(setting call\)/)]);
+    expect(tasks).toEqual([]); expect(tags).toEqual([]); expect(cardWrites).toEqual([]);
     expect(posts.filter((p) => p.channel === "CSET" && !p.threadTs)).toHaveLength(2);
     expect(posts.some((p) => /Set, follow up or DQ\?|Tap ✅/.test(p.text))).toBe(false);
     expect(await eventsOf(omar.contactId, "setter_call.result")).toEqual([expect.objectContaining({ external_id: omarCall.ext, result: "dq", dq_reason: "budget", dq_domain: "dating_dq_reason", call_type: "setting", digest: expect.stringContaining("Wants something serious") })]);
