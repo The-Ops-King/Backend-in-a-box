@@ -1,4 +1,4 @@
-/** D246/D266: who owes an end of day, at a glance, read from GHL alone: Sales Calls passed with no outcome and triage Discovery Calls still scheduled; today is said apart; someone off the team is still listed by the name GHL has. */
+/** D246/D264: who owes an end of day, at a glance, read from GHL alone: Sales Calls passed with no outcome and triage Discovery Calls still scheduled; today is said apart; someone off the team is still listed by the name GHL has. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { DateTime } from "luxon";
 import { asOperator, one } from "@/db/client";

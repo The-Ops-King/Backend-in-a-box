@@ -291,7 +291,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day reminder's days 
       sam = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role, slack_user_id) values ($1,'sam@x.test','Sam Closer','closer','USAM') returning id", [companyId]))!.id;
       const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const cal = (await one<{ id: string }>(c, "insert into calendars (company_id, external_id, name, appointment_term, active) values ($1,'CAL','Closer',$2,true) returning id", [companyId, term]))!.id;
-      // D266: what Sam owes is GHL's: three Sales Calls of his with no outcome (today, 3 days ago, 9 days ago)
+      // D264: what Sam owes is GHL's: three Sales Calls of his with no outcome (today, 3 days ago, 9 days ago)
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.object_sales_call','text',$2),($1,'sales_call.outcomes','text',$3)", [companyId, Buffer.from("custom_objects.sales_call"), Buffer.from(JSON.stringify({ showed: "showed", no_show: "noshow", scheduled: "scheduled" }))]);
       for (const [i, daysAgo] of [[1, 0], [2, 3], [3, 9]] as const) {
         const ct = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,$2,$3) returning id", [companyId, `G${i}`, `P${i}`]))!.id;

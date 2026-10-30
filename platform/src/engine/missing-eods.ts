@@ -6,7 +6,7 @@ import type { GhlReads } from "@/adapters/ghl/metrics";
 import { owedFromGhl } from "./owed";
 
 /**
- * D246: who owes an end of day, at a glance (Tyler: "i can't see who has missing EODs at a glance"). D266: read live from GHL
+ * D246: who owes an end of day, at a glance (Tyler: "i can't see who has missing EODs at a glance"). D264: read live from GHL
  * (`owedFromGhl`: Sales Calls whose call passed with no outcome, Discovery Calls still scheduled), never from what the engine
  * stored, so it is the same list /weekly's "No EOD outcome yet" gives. Each person with a day before today still owed, the names
  * open that day; today's are not late yet and are said apart (`today`). Someone off the team whose calls GHL still has unfiled is

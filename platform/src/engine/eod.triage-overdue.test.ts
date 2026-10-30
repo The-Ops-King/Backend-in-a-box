@@ -37,7 +37,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D207: setters' blank triage calls in
         await c.query("insert into appointments (company_id, contact_id, calendar_id, external_id, slot_key, appointment_term, starts_at, ends_at, status, booked_at, assigned_user_id) values ($1,$2,$3,$4,$4,$5,$6,$7,'confirmed',now() - interval '20 days',$8)", [co, ct, cal, ext, term, at.toJSDate(), at.plus({ minutes: 15 }).toJSDate(), mitch]);
       }
     });
-    // D266: what is owed is GHL's Discovery Call records alone: whose (setter), when (the label's day, occurred_at's clock), and whether answered (outcome)
+    // D264: what is owed is GHL's Discovery Call records alone: whose (setter), when (the label's day, occurred_at's clock), and whether answered (outcome)
     const rec = (id: string, ext: string, first: string, daysAgo: number, outcome: string) => { const at = DateTime.now().setZone(TZ).minus({ days: daysAgo }).set({ hour: 10, minute: 0 }); return { id, createdAt: "", properties: { external_id: ext, outcome, setter: "Mitch Setter", contact_id: `G${ext}`, display_label: `${first} Lead — ${at.toISODate()}`, occurred_at: `${at.toFormat("ccc LLL d")} · 10:00 AM` } }; };
     records.push(rec("R1", "T1", "Blank", 3, "scheduled"), rec("R2", "T2", "Answered", 3, "showed"), rec("R3", "T3", "Recent", 1, "scheduled"));
   });
