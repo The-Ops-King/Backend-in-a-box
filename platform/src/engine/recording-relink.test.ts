@@ -62,7 +62,7 @@ describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong per
 
   it("the dry run names every part, writes nothing; the move puts Corina back and links Beth's booking", async () => {
     const dry = await asOperator((c) => relinkRecording(c, fake, { company: SLUG, recording: recId, to: "rules", why: "Beth's call, not Corina's" }));
-    expect(dry).toMatchObject({ ok: true, dryRun: true, from: { contact: corina, name: "Corina Raducanu", appointment: apptC }, to: { contact: beth, name: "Beth Huffman", appointment: apptB, by: "speaker" } });
+    expect(dry).toMatchObject({ ok: true, dryRun: true, from: { contact: corina, name: "Corina Raducanu", appointment: apptC }, to: { contact: beth, name: "Beth Huffman", appointment: apptB, by: "time" } });   // D273: the booking's time, Beth speaking agrees
     if (!dry.ok) return;
     const said = dry.undo.map((u) => u.what);
     expect(said[0]).toMatch(/delete the record REC-COR \(custom_objects.sales_call\) it made on Corina Raducanu/);   // what the runs made goes first
@@ -84,9 +84,9 @@ describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong per
       expect.stringMatching(/^update C-BOOK 1.2 ~This call was not Corina/), expect.stringMatching(/^update C-CALLS 2.1 ~This call was not Corina/)]));
     expect(await asOperator((c) => one(c, "select outcome_term, call_outcome_term, dispositioned_at from appointments where id=$1", [apptC]))).toEqual({ outcome_term: null, call_outcome_term: null, dispositioned_at: null });
     expect(await asOperator((c) => one(c, "select tags from contacts where id=$1", [corina]))).toEqual({ tags: ["dating"] });
-    expect(await asOperator((c) => one(c, "select ghl_stage_id, status from pipeline_cards where ghl_opportunity_id='OPP-COR'"))).toEqual({ ghl_stage_id: "STAGE-BOOKED", status: "open" });
-    expect(await asOperator((c) => many(c, "select 1 from crm_records where ghl_record_id='REC-COR'"))).toHaveLength(0);
-    expect(await asOperator((c) => one(c, "select contact_id, appointment_id, link_status, linked_by from recordings where id=$1", [recId]))).toEqual({ contact_id: beth, appointment_id: apptB, link_status: "linked", linked_by: "speaker" });
+    expect(await asOperator((c) => one(c, "select ghl_stage_id, status from pipeline_cards where company_id=$1 and ghl_opportunity_id='OPP-COR'", [companyId]))).toEqual({ ghl_stage_id: "STAGE-BOOKED", status: "open" });
+    expect(await asOperator((c) => many(c, "select 1 from crm_records where company_id=$1 and ghl_record_id='REC-COR'", [companyId]))).toHaveLength(0);
+    expect(await asOperator((c) => one(c, "select contact_id, appointment_id, link_status, linked_by from recordings where id=$1", [recId]))).toEqual({ contact_id: beth, appointment_id: apptB, link_status: "linked", linked_by: "time" });
     expect(await asOperator((c) => one(c, "select contact_id, appointment_id from events where company_id=$1 and event_type='recording.received' order by id desc limit 1", [companyId]))).toEqual({ contact_id: beth, appointment_id: apptB });
     // the wrong invite is not remembered on Beth
     expect(await asOperator((c) => many<{ value: string }>(c, "select value from contact_identifiers where contact_id=$1 and kind='email'", [beth]))).toEqual([{ value: "elizabethahuffman@gmail.com" }]);
