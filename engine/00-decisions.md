@@ -6865,6 +6865,9 @@ scored each call on eight categories; the engine's Setter call logged had one 1-
 - The form answers are read live from the contact in GHL, by the fields the offer bound (`crm.field_contact_<name>`), as the
   Zap read them: never the engine's copy. `GET /api/admin/ghl/setup` now lists the location's contact fields (id, name), so a
   field is bound by the id GHL gives it.
+- The fields a rubric reads are the offer's settings: the Settings page and the bindings route offer
+  `crm.field_contact_<name>` for each, required, used by the workflow whose rubric names them. PMU's are the Zap's: the first field
+  named "biggest struggle" (What's your biggest struggle right now?) and the one named "average monthly revenue".
 - Jev or the AI down never loses the call: the post says "Scoring unavailable" or "Summary step failed". Like analyze, the step is
   not a CRM write, so it runs in ghost.
 - PMU's Setter call logged (its own copy, v4): the score replaces the AI notes; the transcript goes in the post's thread; the same

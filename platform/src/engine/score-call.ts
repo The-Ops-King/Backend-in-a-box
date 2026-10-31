@@ -56,6 +56,9 @@ export function parseRubric(raw: string | undefined | null): { ok: true; rubric:
   return { ok: true, rubric: r };
 }
 
+/** The form answers a rubric reads, by the contact field's bound name (crm.field_contact_<name>). */
+export const rubricFields = (r: Rubric): string[] => [...new Set([...Object.keys(r.form_fields ?? {}), ...r.categories.flatMap((c) => [...(c.form ? [c.form.field] : []), ...(c.answered_of ?? [])])])];
+
 /** A revenue answer ("5-10k", "$4,000 - $8,000", "21k+") read by its lower bound against the rubric's cutoffs; unreadable is N/A, never a guess. */
 export function revenueScore(value: unknown, cutoffs: [number, number]): number | null {
   const s = String(value ?? "").toLowerCase().replace(/[$,\s]/g, "");

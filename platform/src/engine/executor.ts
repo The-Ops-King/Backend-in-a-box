@@ -12,7 +12,7 @@ import { computeWaitUntil, deferIntoWindow, pullBackIntoWindow, timeParam } from
 import type { CompanyRow, RunRow } from "./context";
 import { followMerge } from "./merge";
 import { TEST_CHANNEL_KEY, slackLiveSet, type Effective, type Mode } from "./mode";
-import { parseRubric, scoreCall } from "./score-call";
+import { parseRubric, rubricFields, scoreCall } from "./score-call";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
@@ -869,7 +869,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       if (!transcript) return { status: "skipped", next, result: { kind: "noop", why: "nothing to score: input rendered empty (no transcript?)" } };
       // the form answers the rubric names, by their bound contact field (crm.field_contact_<name>), read live from the CRM (the
       // replica keeps only what it was bound to keep when the contact last changed); a CRM that cannot be read is the failure policy's
-      const names = new Set([...Object.keys(parsed.rubric.form_fields ?? {}), ...parsed.rubric.categories.flatMap((c) => [...(c.form ? [c.form.field] : []), ...(c.answered_of ?? [])])]);
+      const names = new Set(rubricFields(parsed.rubric));
       const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id;
       const live = ghlId && names.size ? (await d.adapters.read.getContact(d.adapterCompany, ghlId))?.customFields ?? {} : {};
       const said = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v ?? "")).trim();
