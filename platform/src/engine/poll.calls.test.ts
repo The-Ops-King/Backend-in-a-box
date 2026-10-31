@@ -4,6 +4,7 @@ import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { pollAll } from "@/engine/poll";
+import { repairUnfinishedCalls } from "@/engine/call-repair";
 import type { Adapters, CallMedia, ContactSnapshot, MessageSnapshot } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -11,9 +12,11 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 let companyId: string;
 let messages: MessageSnapshot[] = [];
 const media = new Map<string, CallMedia>();
+/** D275: the call as GHL has it now, read again for a call first seen while it was ringing */
+const callNow = new Map<string, { status: string; durationSec?: number }>();
 const contacts: ContactSnapshot[] = [{ id: "GC1", firstName: "Ana", tags: [], customFields: {}, dateUpdated: "2026-10-01T00:00:00Z", dateAdded: "2026-10-01T00:00:00Z" }];
 const fake: Adapters = {
-  read: { openCards: async () => [], contactsChangedSince: async (c) => (c.id === companyId ? contacts : []), inboundSince: async (c) => (c.id === companyId ? messages : []), messageBodies: async () => new Map(), callMedia: async (_c, id) => media.get(id) ?? { transcript: null }, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
+  read: { openCards: async () => [], contactsChangedSince: async (c) => (c.id === companyId ? contacts : []), inboundSince: async (c) => (c.id === companyId ? messages : []), messageBodies: async () => new Map(), callMedia: async (_c, id) => media.get(id) ?? { transcript: null }, callNow: async (_c, id) => callNow.get(id) ?? null, contactsAddedBetween: async () => [], callsBetween: async () => [], wonOpportunities: async () => [], objectRecords: async () => [], documents: async () => [], opportunitiesSince: async () => [], pipelineCards: async () => [],
     getContact: async (_c, id) => (id === "GC-NEW" ? { id, firstName: "Newly", tags: [], customFields: {}, dateUpdated: new Date().toISOString(), dateAdded: new Date().toISOString() } : null), listUsers: async () => [{ id: "U9", name: "Lu Setter", email: "lu@x.com" }] },
   booking: { ghl: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] }, calendly: { appointmentsInWindow: async () => [], getAppointment: async () => null, listCalendars: async () => [] } },
   write: { createContact: async () => ({ id: "x" }), addTag: async () => {}, removeTag: async () => {}, addNote: async () => {}, updateAppointment: async () => {}, updateContact: async () => {}, createTask: async () => ({ id: "t" }), createRecord: async () => ({ id: "r" }), updateRecord: async () => {}, relateRecords: async () => {}, createOpportunity: async () => ({ id: "o" }), updateOpportunity: async () => {}, sendDocumentTemplate: async () => ({ id: "doc-x" }) },
@@ -33,7 +36,7 @@ describe.skipIf(!HAS_DB)("dialer calls in the recordings ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='pc'");
-      if (co) { for (const t of ["events", "recordings", "messages", "contact_identifiers", "contacts", "users", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["audit_log", "events", "recordings", "messages", "contact_identifiers", "contacts", "users", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('PC','pc','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3)", [companyId, Buffer.from("LOC"), encrypt("p")]);
     });
@@ -101,5 +104,40 @@ describe.skipIf(!HAS_DB)("dialer calls in the recordings ledger", () => {
     const c4 = (await rows()).find((r) => r.external_id === "c4")!;
     const contact = await asOperator((c) => one<{ ghl_contact_id: string }>(c, "select ghl_contact_id from contacts where id=$1", [c4.contact_id]));
     expect(contact?.ghl_contact_id).toBe("GC-NEW");
+  });
+  it("D275: a call first seen still ringing is read again each tick until GHL has its end, then settles as any call does: connected, its length, its transcript, call.logged once", async () => {
+    messages = [call("c5", "GC1", "ringing", undefined, 1)];
+    const before = (await logged()).length;
+    await pollAll(fake);
+    expect((await rows()).find((r) => r.external_id === "c5")!.raw).toMatchObject({ call_status: "ringing", transcript_status: "unfinished" });
+    expect(await logged()).toHaveLength(before);   // nothing yet: the call has not ended
+    await pollAll(fake); expect(await logged()).toHaveLength(before);   // GHL still says nothing new
+    callNow.set("c5", { status: "completed", durationSec: 412 });
+    media.set("c5", { recordingUrl: "https://ghl.test/c5", transcript: [{ speaker: "0", text: "Hi Ana, thanks for picking up." }] });
+    await pollAll(fake);
+    expect((await rows()).find((r) => r.external_id === "c5")!.raw).toMatchObject({ call_status: "connected", duration_sec: 412, transcript_status: "ready", finished_late: true });
+    expect((await logged()).at(-1)!.data).toMatchObject({ external_id: "c5", connected: true, has_transcript: true, duration_sec: 412 });
+    await pollAll(fake); expect((await logged()).filter((e) => e.data.external_id === "c5")).toHaveLength(1);
+  });
+  it("D275: a ringing call GHL never finishes is settled as it stands once the company's wait has passed, so nothing waits for ever", async () => {
+    messages = [call("c6", "GC1", "ringing", undefined, 130)];
+    await pollAll(fake);
+    expect((await rows()).find((r) => r.external_id === "c6")!.raw).toMatchObject({ call_status: "ringing", transcript_status: "none" });
+    expect((await logged()).at(-1)!.data).toMatchObject({ external_id: "c6", connected: false });
+  });
+  it("D275: the calls left ringing before the fix are read again and corrected silently: dry run first, then the row, no event, audited", async () => {
+    const stuck = await asOperator(async (c) => (await one<{ id: string }>(c, `insert into recordings (company_id, contact_id, provider, external_id, title, started_at, ended_at, duration_min, invitees, link_status, raw)
+      select $1, id, 'ghl', 'old1', 'Outbound call · ringing', now() - interval '3 days', now() - interval '3 days', 0, '[]', 'linked', '{"kind":"phone","direction":"outbound","call_status":"ringing","duration_sec":0,"transcript_status":"none"}' from contacts where company_id=$1 and ghl_contact_id='GC1' returning id`, [companyId]))!.id);
+    callNow.set("old1", { status: "completed", durationSec: 305 });
+    media.set("old1", { transcript: [{ speaker: "0", text: "Old call." }] });
+    const events = (await logged()).length;
+    const dry = await asOperator((c) => repairUnfinishedCalls(c, fake, { company: "pc", why: "test", dryRun: true }));
+    expect(dry).toMatchObject({ ok: true, dryRun: true, repaired: [expect.objectContaining({ id: stuck, was: "ringing", now: "connected", duration_sec: 305 })] });
+    expect((await rows()).find((r) => r.external_id === "old1")!.raw.call_status).toBe("ringing");
+    const done = await asOperator((c) => repairUnfinishedCalls(c, fake, { company: "pc", why: "test", dryRun: false }));
+    expect(done).toMatchObject({ ok: true, dryRun: false, repaired: [expect.objectContaining({ id: stuck, transcript: true })] });
+    expect((await rows()).find((r) => r.external_id === "old1")!.raw).toMatchObject({ call_status: "connected", duration_sec: 305, transcript_status: "ready", repaired: "D275" });
+    expect(await logged()).toHaveLength(events);
+    expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and action='calls.repaired'", [companyId]))).toBeTruthy();
   });
 });

@@ -55,7 +55,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D271: recordings for PMU's call revi
     expect(titleNames(null, staff)).toEqual([]);
   });
 
-  it("D275: a booking cancelled after its start is still the call (they showed, then the slot was cleared); one cancelled before it is not", async () => {
+  it("D276: a booking cancelled after its start is still the call (they showed, then the slot was cleared); one cancelled before it is not", async () => {
     const at = nextDay(), bo = await person("Bo", "Lane", "bo@x.com"), held = await book(bo, "H-1", at);
     await asOperator((c) => c.query("update appointments set status='cancelled', source_updated_at=$2 where id=$1", [held, new Date(at.getTime() + 40 * 60e3)]));
     const r = await asOperator((c) => resolveRecording(c, co, rec("h1", { startedAt: new Date(at.getTime() + 60e3), invitees: [{ email: "bo@x.com", isExternal: true }], transcript: [{ speaker: "Bo Lane", text: "hi" }] })));

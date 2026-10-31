@@ -6908,7 +6908,24 @@ gets the recording and its call filed on their booking (or placed, D236), but no
 post or GHL note for an old call. The dry run says which (`workflows: "start" | "none"`), and the audit keeps it. Without the flag a
 relink runs the right person's workflows as before, so calls matched from now on are reviewed live.
 
-## D275. A booking cancelled after its start is still the call, everywhere (2026-10-31)
+## D275. A call first seen while it was still ringing is read again until GHL has its end (2026-10-31)
+
+Tyler: "I really think there are probably more over a minute." There were: the poll recorded a call the first time it saw it and never
+read it again, so a call it caught mid-ring stayed "ringing", 0 seconds, for ever: no transcript, no call.logged with its length, so no
+setter call post. Longer calls are the likeliest to be caught mid-call. 96 such calls on PMU, 104 on Dating (Setter call logged live
+there), 4 on Hair. PMU's Zap avoided it by skipping a call with no final duration and catching it on the next hourly run.
+
+- A call GHL has not finished (ringing, in progress, initiated, queued, dialing) is kept as `unfinished` and read again from GHL each
+  tick (`callNow`: GET /conversations/messages/<id>) until it has its final status and length; then it settles as any call does
+  (a connected call waits for its transcript, call.logged once). One GHL never finishes is settled as it stands once
+  `calls.transcript_wait_min` has passed since it started, so nothing waits for ever.
+- Every offer: from the deploy, a call that ends after the poll first saw it is logged with its real length, so Dating's live Setter
+  call logged posts the calls it had been missing (Tyler: "yes that's fine make the change").
+- The calls already stuck: `POST /api/admin/recordings/finish-calls` (dry run first) reads each from GHL again and corrects its row
+  silently (status, length, end, whether there is a transcript): no event, no workflow, no post. Audited. Replaying one through a
+  workflow is a separate, deliberate step.
+
+## D276. A booking cancelled after its start is still the call, everywhere (2026-10-31)
 
 Tyler: "no cancellation after the start IF THEY DIDN'T SHOW UP. aka, no-show takes priority over 'canceled' but if they show up,
 then cancel, they still showed up." Engine code, every offer. D73 already kept Call cancelled from answering such a cancel and kept

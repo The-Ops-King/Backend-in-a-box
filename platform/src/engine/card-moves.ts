@@ -30,7 +30,7 @@ export async function handMoved(c: PoolClient, companyId: string, _adapters: Ada
   const boardWords = board ?? "pipeline";
   const fromName = stageWords(bindings, board, m.fromStage), toName = stageWords(bindings, board, m.toStage);
   const mover = m.movedBy ? await one<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and ghl_user_id=$2", [companyId, m.movedBy]) : null;
-  // the booking the move is about: the contact's latest closing call not cancelled before its start (D275; the no-show / lost / DQ it names, the post its line goes under)
+  // the booking the move is about: the contact's latest closing call not cancelled before its start (D276; the no-show / lost / DQ it names, the post its line goes under)
   const appt = await one<{ id: string }>(c, `select a.id from appointments a join company_terms t on t.id=a.appointment_term
     where a.company_id=$1 and a.contact_id=$2 and t.category='closing' and ${standsSql("a")} order by a.starts_at desc limit 1`, [companyId, m.contactId]);
   const event = await emitEvent(c, { company_id: companyId, contact_id: m.contactId, opportunity_id: m.opportunityId, appointment_id: appt?.id ?? null, event_type: "card.moved", source: "ghl_poll", occurred_at: m.at,
