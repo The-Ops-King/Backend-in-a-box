@@ -119,14 +119,6 @@ export const ghlRead: CrmRead = {
    * not recorded, and the recording endpoint itself streams the whole WAV (no HEAD), so it is never probed. Verified 2026-10-07:
    * the body is an array of {speaker, transcript, startTime, endTime} segments; speaker is 0 (the dialer's side) or 1.
    */
-  async callNow(c, messageId) {
-    type Msg = { id: string; status?: string; userId?: string; meta?: { call?: { status?: string; duration?: number } } };
-    let r: { message?: Msg } & Partial<Msg>;
-    try { r = await ghl<{ message?: Msg } & Partial<Msg>>(c.pit, "GET", `/conversations/messages/${messageId}`, { version: "2021-04-15" }); }
-    catch (e) { if (e instanceof GhlError && (e.status === 400 || e.status === 404 || e.status === 422)) return null; throw e; }
-    const msg = (r.message ?? r) as Msg, call = msg.meta?.call ?? {};
-    return { status: String(call.status ?? msg.status ?? ""), durationSec: typeof call.duration === "number" ? call.duration : undefined, userId: msg.userId };
-  },
   async callMedia(c, messageId): Promise<CallMedia | null> {
     type Seg = { speaker?: number | string; transcript?: string; text?: string; startTime?: number };
     let segs: Seg[];

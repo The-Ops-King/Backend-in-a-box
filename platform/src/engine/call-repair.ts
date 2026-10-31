@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
 import { loadCompany } from "./context";
-import { callOutcome, finishPhoneCall, UNFINISHED_CALL, type RecordingRow } from "./recordings";
+import { callOutcome, callsNow, finishPhoneCall, UNFINISHED_CALL, type RecordingRow } from "./recordings";
 
 /**
  * D275: the calls the poll first saw while they were still ringing and then never read again (before D275 they settled as
@@ -15,14 +15,15 @@ export async function repairUnfinishedCalls(c: PoolClient, adapters: Adapters, a
   Promise<{ ok: true; dryRun: boolean; repaired: CallRepair[]; still_unfinished: number; unread: number; left: number } | { ok: false; status: number; error: string }> {
   if (!a.why?.trim()) return { ok: false, status: 400, error: "why is required" };
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [a.company]); if (!co) return { ok: false, status: 404, error: "no such company" };
-  if (!adapters.read.callNow) return { ok: false, status: 500, error: "this CRM adapter cannot read one call" };
+  if (!adapters.read.contactCalls) return { ok: false, status: 500, error: "this CRM adapter cannot list a contact's calls" };
   const { adapterCompany: ac } = await loadCompany(c, co.id);
   const stuck = await many<RecordingRow & { who: string | null }>(c, `select r.*, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as who from recordings r left join contacts ct on ct.id=r.contact_id
     where r.company_id=$1 and r.provider='ghl' and r.raw->>'call_status' = any($2::text[]) and r.raw->>'transcript_status' <> 'unfinished' order by r.started_at desc`, [co.id, [...UNFINISHED_CALL]]);
   const batch = stuck.slice(0, Math.max(1, Math.min(a.limit ?? 50, 200)));
   const repaired: CallRepair[] = []; let still = 0, unread = 0;
+  const latest = await callsNow(c, adapters, ac, batch);
   for (const r of batch) {
-    const now = await adapters.read.callNow(ac, r.external_id);
+    const now = latest.get(r.external_id) ?? null;
     if (!now) { unread++; continue; }
     const outcome = callOutcome(now.status);
     if (UNFINISHED_CALL.has(outcome)) { still++; continue; }

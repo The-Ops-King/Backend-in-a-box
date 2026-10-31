@@ -6916,7 +6916,9 @@ setter call post. Longer calls are the likeliest to be caught mid-call. 96 such 
 there), 4 on Hair. PMU's Zap avoided it by skipping a call with no final duration and catching it on the next hourly run.
 
 - A call GHL has not finished (ringing, in progress, initiated, queued, dialing) is kept as `unfinished` and read again from GHL each
-  tick (`callNow`: GET /conversations/messages/<id>) until it has its final status and length; then it settles as any call does
+  tick through the person's threads (the read the poll already makes; GHL refuses the single-message read,
+  /conversations/messages/<id>, to a private integration token: 401 "token source/channel mismatch") until it has its final status
+  and length; then it settles as any call does
   (a connected call waits for its transcript, call.logged once). One GHL never finishes is settled as it stands once
   `calls.transcript_wait_min` has passed since it started, so nothing waits for ever.
 - Every offer: from the deploy, a call that ends after the poll first saw it is logged with its real length, so Dating's live Setter
