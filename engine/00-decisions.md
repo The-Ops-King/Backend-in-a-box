@@ -7069,3 +7069,15 @@ answers and the qualified tag if they have landed; if they never come, the card 
 neither Typeform form, so it shows only for the older application form's leads. Not in the repo copy (installs/pmu/call-booked.json is
 kept by the other session in its own shape); the engine's version history holds v14.
 
+## D287. PMU's EOD list was short: calls from before Call booked went live had no Sales Call (2026-10-31)
+
+Tyler: "it still has only 2 missing eods ... why does oct 27 still stay scheduled if it's passed? why does minerva have calls that have no
+record?" The owed list is GHL's Sales Calls (D264), and PMU's Call booked, which makes a call's Sales Call and marks the old one rescheduled
+when a call moves, went live on Oct 30 at 10:58 PM ET (it had run in ghost). So a call booked or moved before then had no record (Minerva's
+Elanna Stammer Oct 30 6:30 PM and Johanny Restrepo Oct 30 10 PM: never owed), and a call moved before then kept its old record "scheduled"
+(Carly's Quentin Thomas Oct 27, moved to Jose on Oct 30; Jonelle Oct 26, rescheduled): owed to Carly for ever. Put right on Tyler's word:
+the two made blank, so Minerva files them in her end of day; Carly's two marked rescheduled.
+- The operator's record repair (D233 create) made a record only where the engine had no row for the key; a ghost run's would-be row (no CRM
+  id: nothing was made in GHL) blocked it (Johanny's). Now such a row is filled with the record made; a row with a CRM id still refuses.
+  Live steps already treated a row with no CRM id as no record.
+
