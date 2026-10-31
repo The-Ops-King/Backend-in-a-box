@@ -6971,6 +6971,29 @@ takes the offer's latest connected calls of a minute or more and shows, for each
 transcript (status and the start of the body), read only: a recording with no transcript is GHL's transcription off; no recording is
 call recording off; a 401/403 is the token's scopes.
 
+## D278. A booking post says what the booking is (2026-10-31)
+
+Tyler: "we want to say 'Minerva booked a follow up with x' etc."; each closer gets their own 15-minute (triage) and 45-minute
+(closing) calendar, follow-ups go on the closer's own calendar, and the round robin is for direct bookings, with a setter's UTM.
+Engine code, every offer: the run context gains `appointment.calendar` ({ name, personal }: personal when the calendar has an owner,
+so it is one closer's, not a pool) and `appointment.follows_call` (the person had a closing call that happened before this one was
+booked, so not a no-show and not cancelled before its start, D276). A booking on a closer's own calendar is a follow-up when it
+follows a call; otherwise the closer set it.
+
+PMU's Call booked (v13) posts with that as its first line, and the post is sent under a matching name:
+
+- round robin: "New call: X with Minerva" (New call booked)
+- the closer's own calendar, no call before: "Minerva set a call with X" (Call set)
+- the closer's own calendar after a call: "Minerva booked a follow-up with X" (Follow-up booked)
+- a setter's link: "Luis set a call: X with Minerva" (Setter set a call)
+- moved: "X's call with Minerva moved to Tue Nov 3 · 3:00 PM EST" (Call rescheduled)
+
+A move made with Calendly's reschedule link is a reschedule, before or during the call (Tyler: "UNLESS its a reschedule using the
+link"). A move made any other way after the start, such as a drag in Google Calendar, is left to the end of day. Within 15 minutes of
+the start it is suggested as rescheduled on the call, and later as showed with the new time a follow-up. That is not built until a
+Google Calendar drag has been tested, since nobody knows yet how Calendly reports one. PMU's round-robin event types keep the
+original host on a reschedule (Calendly's "Use same hosts as original meeting", set by Tyler).
+
 ## D279. PMU's UTM fields, and a contact field is always a setting an offer may bind (2026-10-31)
 
 Tyler, on the booking card saying "Source: zapier": "The source shouldn't be zapier. It should be meta or Facebook", then "can you add a

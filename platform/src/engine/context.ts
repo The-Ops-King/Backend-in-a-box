@@ -137,6 +137,12 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
                 from appointments tb join company_terms tbt on tbt.id=tb.appointment_term join users tu on tu.id=tb.assigned_user_id
                 where tb.company_id=a.company_id and tb.contact_id=a.contact_id and tb.id<>a.id and tbt.category='first_call' and ${standsSql("tb")} and tb.starts_at <= coalesce(a.booked_at, a.starts_at) + interval '1 hour' and tu.active
                 order by tb.starts_at desc limit 1) as triager,
+             -- D278: the calendar it was booked on; personal = one closer's own (it has an owner), not a pool
+             (select json_build_object('name', cl.name, 'personal', cl.default_user_id is not null) from calendars cl where cl.id=a.calendar_id) as calendar,
+             -- D278: they had a closing call that happened before this one was booked (a later one with the same person is a follow-up)
+             exists (select 1 from appointments p join company_terms pt on pt.id=p.appointment_term left join company_terms po on po.id=p.outcome_term
+                where p.company_id=a.company_id and p.contact_id=a.contact_id and p.id<>a.id and pt.category='closing' and ${standsSql("p")} and p.status<>'noshow'
+                  and p.starts_at < coalesce(a.booked_at, now()) and coalesce(po.category,'') not in ('noshow','cancelled','rescheduled')) as follows_call,
              ot.category as outcome, cot.category as call_outcome
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
