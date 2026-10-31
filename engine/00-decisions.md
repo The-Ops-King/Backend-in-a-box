@@ -6963,6 +6963,14 @@ task for now"; "we should be watching jose and minerva. jose's is a triage". PMU
 - Minerva's "Beauty Mogules Assessment" is watched as a Follow-up call (closing, like Jose's "Beauty Moguls Strategy"; Tyler: "like a
   follow up call"), owned by Minerva.
 
+## D276. A read-only probe of what GHL answers for a call's recording and transcript (2026-10-31)
+
+Tyler: "can you check that we had calls in GHL and that they're not getting the call recording right? what do i need to do?" Dating's
+155 connected dialer calls since Oct 19 never came back with a transcript; PMU's do. `GET /api/admin/recordings/probe?company=<slug>`
+takes the offer's latest connected calls of a minute or more and shows, for each, what GHL answers for its recording and its
+transcript (status and the start of the body), read only: a recording with no transcript is GHL's transcription off; no recording is
+call recording off; a 401/403 is the token's scopes.
+
 ## D278. A booking post says what the booking is (2026-10-31)
 
 Tyler: "we want to say 'Minerva booked a follow up with x' etc."; each closer gets their own 15-minute (triage) and 45-minute
