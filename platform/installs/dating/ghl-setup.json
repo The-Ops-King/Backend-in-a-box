@@ -83,7 +83,7 @@
           { "key": "price", "label": "Price" }, { "key": "partner", "label": "Partner" }, { "key": "timing", "label": "Timing" },
           { "key": "fear", "label": "Fear" },
           { "key": "competitor", "label": "Competitor" }, { "key": "think_about_it", "label": "Think About It" } ] },
-        { "key": "call_type", "name": "Call Type", "type": "SINGLE_OPTIONS", "options": [ { "key": "closing", "label": "Strategy Call" }, { "key": "strategy_session", "label": "Strategy Session" } ] },
+        { "key": "call_type", "name": "Call Type", "type": "SINGLE_OPTIONS", "options": [ { "key": "closing", "label": "Strategy Call" }, { "key": "strategy_session", "label": "Strategy Session" }, { "key": "follow_up", "label": "Follow-up" } ] },
         { "key": "recording_url", "name": "Recording URL", "type": "TEXT" },
         { "key": "transcript_ref", "name": "Transcript", "type": "TEXT" },
         { "key": "duration_min", "name": "Duration (min)", "type": "NUMERICAL" },

@@ -210,6 +210,41 @@ function bookedWithFork(): Def {
   return load("call-booked");
 }
 
+/**
+ * D284 (Tyler: "if the closing call was already held it is a follow up for sure ... if the call already has a setter, it shouldn't
+ * overwrite the setter"; "new record for follow up. we want to see if they close on the first call or the follow up"): a closing call
+ * for someone whose earlier closing call was held takes its own path from the booking fork. The setter stays as it is (the contact's
+ * Setter field, its followers, the setter card: untouched; no stat-set or stat-self-booked), the closer card goes back to Scheduled
+ * with its name, and the call gets a Sales Call of its own, call type follow_up, carrying the original setter. No video task.
+ */
+function followUp(d: Def): void {
+  const edges = d.edges as Edge[];
+  if (edges.filter((e) => e.from === "n2").map((e) => e.to).sort().join() !== "b1,s1") throw new Error("Call booked no longer forks setter-booked or self-booked at n2");
+  const k4 = node(d, "k4"), k5 = node(d, "k5"), v4 = node(d, "v4"), c_rs = node(d, "c_rs"), s5 = node(d, "s5");
+  const props = { ...(k4.properties as Record<string, string>) };
+  if (props.setter !== "{{appointment.set_by | default:}}" || props.call_type === undefined) throw new Error("Call booked's Sales Call no longer writes the setter and call type");
+  const { fields: _f, from_stages: _s, followers: _w, ...rest } = c_rs as Record<string, unknown>;
+  const card = { ...rest, id: "fu_card", type: "pipeline_card", name: "{{contact.name}} -- Follow Up", title: "Closer card → Scheduled, its name kept (a follow-up)" } as (typeof d.nodes)[number];
+  const words = JSON.parse(JSON.stringify(v4)) as { value: Record<string, unknown>; else_value: Record<string, unknown> };
+  words.value.name = "Follow-up rescheduled"; words.else_value = { ...words.else_value, name: "Follow-up booked", icons: [":repeat_one:"] };
+  d.nodes.push(
+    { id: "fu1", type: "set_var", key: "setter_line", value: "*Follow-up* on an earlier call{{contact.setter.name | default: | then:\" · setter \"}}{{contact.setter.name | default:}}", title: "A follow-up: the post says so, and who set them first" },
+    { id: "fu2", type: "set_var", key: "booking_kind", value: "follow-up" },
+    { id: "fu3", type: "set_var", key: "booking_source", when: { exists: "contact.setter.name" }, value: "{{picklist.sales_call_booking_source.setter}}", else_value: "{{picklist.sales_call_booking_source.self}}" },
+    { id: "fu4", type: "tags", add: ["stat-follow-up-booked", "meta booked call"], remove: s5.remove, title: "Tags: a follow-up booked (not a new set)" },
+    card,
+    { ...JSON.parse(JSON.stringify(k5)), id: "fu_rs", only_if: RESCHEDULE },
+    { ...JSON.parse(JSON.stringify(k4)), id: "fu_sc", properties: { ...props, setter: "{{contact.setter.name | default:}}", call_type: "follow_up" }, title: "The follow-up's own Sales Call (call type follow_up, the original setter)" },
+    { ...words, id: "fu_v", type: "set_var" },
+  );
+  // its own fork ahead of the setter-or-self one, so the booking paths stay one group and the follow-up rejoins at the post
+  const into = edges.filter((e) => e.to === "n2"); if (into.length !== 1) throw new Error("Call booked no longer reaches its setter-or-self fork one way");
+  into[0].to = "fu0";
+  d.nodes.push({ id: "fu0", type: "branch", title: "A follow-up? (an earlier closing call of theirs was held)" });
+  edges.push({ from: "fu0", to: "fu1", when: { eq: ["{{appointment.follow_up}}", true] }, label: "a follow-up" } as Edge, { from: "fu0", to: "n2", else: true, label: "a new set" } as Edge);
+  edges.push({ from: "fu1", to: "fu2" }, { from: "fu2", to: "fu3" }, { from: "fu3", to: "fu4" }, { from: "fu4", to: "fu_card" }, { from: "fu_card", to: "fu_rs" }, { from: "fu_rs", to: "fu_sc" }, { from: "fu_sc", to: "fu_v" }, { from: "fu_v", to: "n4" });
+}
+
 const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 /** D211 (Tyler: "put triage calls into the new channel #dating-triage-booked and leave the closing call booked where it is"): a copy's
  * posts to the bookings channel go to the slot it names instead (a setting, not written in: slack.channel.<slot>) */
@@ -328,6 +363,7 @@ function ownWorkflows(company: string, setup: DatingSetup, install: InstallBits)
     if (b.record !== "discovery") { if (!b.salesCallType) throw new Error(`copies.json: ${b.workflow} writes a Sales Call and needs its salesCallType`); (node(d, "k4").properties as Record<string, string>).call_type = b.salesCallType; }
     // D269: whoever ran their triage call follows them too, on the contact step every booking runs (the setter whose link booked it already does, D266)
     if (b.record !== "discovery") node(d, "n1").followers = ["{{appointment.triager.ghl_user_id | default:}}"];
+    if (b.record !== "discovery") followUp(d);
     if (b.card) { const v4 = node(d, "v4"); (v4.value as Record<string, unknown>).name = `${cap(b.card)} rescheduled`; (v4.else_value as Record<string, unknown>).name = `New ${b.card} booked`; }
     if (b.tags?.length) for (const id of ["s5", "b6"]) { const n = node(d, id); n.add = [...(n.add as string[]), ...b.tags]; }
     rechannel(d, b.channel);
