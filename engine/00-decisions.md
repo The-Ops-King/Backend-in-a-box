@@ -7069,3 +7069,12 @@ answers and the qualified tag if they have landed; if they never come, the card 
 neither Typeform form, so it shows only for the older application form's leads. Not in the repo copy (installs/pmu/call-booked.json is
 kept by the other session in its own shape); the engine's version history holds v14.
 
+## D286. The follow-up path is Call booked's, for every offer (2026-10-31)
+
+Tyler: "do the follow up rule. these new calendar settings and plans should carry over to all accounts". D284's follow-up path
+(fu0 … fu_v) moves from Dating Nelly's copy into the shipped Call booked, so every offer has it the same way. A Nelly triage copy
+takes it out (`dropFollowUp`: a triage call has no follow-up of its own). PMU's copy is rebuilt with it.
+
+- An existing offer gets it only through its own save, one offer at a time, dry run first, with only the follow-up path added to
+  what it runs (the rest of its Call booked as it is). Its GHL Sales Call first gets what the path writes: a `follow_up` option on
+  Call Type (PMU), or a Call Type field (Hair, which had none).
