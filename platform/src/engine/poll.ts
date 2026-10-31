@@ -373,7 +373,7 @@ async function applyCall(c: PoolClient, co: CompanyRow, ac: Company, adapters: A
     conversationUrl: `https://app.gohighlevel.com/v2/location/${ac.locationId}/conversations/conversations/${m.contactId}` });
   if (!isNew) return;
   rep.calls++;
-  if (recording.raw.transcript_status === "unfinished") return;   // D273: still ringing; pollUnfinishedCalls reads it again until GHL has its end
+  if (recording.raw.transcript_status === "unfinished") return;   // D275: still ringing; pollUnfinishedCalls reads it again until GHL has its end
   if (recording.raw.transcript_status === "pending") {
     const media = await adapters.read.callMedia(ac, m.id);
     if (!media?.transcript && !isBaseline) return;   // stays pending; the calls poll settles it when the transcript lands or the wait runs out
@@ -385,7 +385,7 @@ async function settleCall(c: PoolClient, r: RecordingRow, media: Awaited<ReturnT
   if (event) rep.eventsDispatched += (await dispatchEvent(c, event, { contact: { id: contactId }, recording: { id: recording.id, ...phoneFacts(recording) } })).length;
 }
 /**
- * D273: calls first seen while they were still ringing, read again each tick until GHL has their final status and length; then they
+ * D275: calls first seen while they were still ringing, read again each tick until GHL has their final status and length; then they
  * settle as any call does (a connected one waits for its transcript). One GHL never finishes is settled as it stands once
  * `calls.transcript_wait_min` has passed since it started, so nothing waits for ever.
  */

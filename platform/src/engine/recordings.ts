@@ -420,7 +420,7 @@ export type PhoneCallInput = { externalId: string; contactId: string; startedAt:
 /** GHL's dialer vocabulary → ours. Unknown statuses are kept as given so nothing is silently rewritten. */
 export const callOutcome = (status: string) => ({ completed: "connected", answered: "connected", "no-answer": "no_answer", noanswer: "no_answer", busy: "busy", failed: "failed", canceled: "failed", cancelled: "failed", voicemail: "voicemail" } as Record<string, string>)[status.toLowerCase()] ?? status.toLowerCase();
 
-/** D273: a call GHL has not finished (still ringing or in progress): no final status or length yet, so it is read again until it has one. */
+/** D275: a call GHL has not finished (still ringing or in progress): no final status or length yet, so it is read again until it has one. */
 export const UNFINISHED_CALL = new Set(["ringing", "in-progress", "in_progress", "initiated", "queued", "dialing"]);
 const outcomeOf = (status: string, durationSec: number) => { const said = callOutcome(status); return said === "connected" && !(durationSec > 0) ? "zero_seconds" : said; };
 export async function recordPhoneCall(c: PoolClient, companyId: string, input: PhoneCallInput): Promise<{ recording: RecordingRow; isNew: boolean }> {
@@ -457,10 +457,10 @@ export const isConnected = (r: Pick<RecordingRow, "raw">) => r.raw.call_status =
 /** Whether the recording has a transcript to read: settled with one (D87: the row keeps only that fact), or one is held. */
 // "at_source": a recording read back from the recorder's history (D115), whose transcript is read from it when needed
 export const hasTranscript = (r: Pick<RecordingRow, "raw" | "transcript">) => r.raw.transcript_status === "ready" || r.raw.transcript_status === "at_source" || !!r.transcript?.length;
-/** D273: calls first seen before they ended, still waiting for GHL's final status. */
+/** D275: calls first seen before they ended, still waiting for GHL's final status. */
 export const unfinishedPhoneCalls = (c: PoolClient, companyId: string, limit = 100) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and provider='ghl' and raw->>'transcript_status'='unfinished' order by started_at limit $2", [companyId, limit]);
 /**
- * D273: a call's final status and length, as GHL now has it, written on its row (status, length, end, title); a connected call then
+ * D275: a call's final status and length, as GHL now has it, written on its row (status, length, end, title); a connected call then
  * waits for its transcript like any other. `settled` keeps the transcript state a call already settled with (the backlog's repair).
  */
 export async function finishPhoneCall(c: PoolClient, r: RecordingRow, now: { status: string; durationSec?: number }, opts: { settled?: boolean } = {}): Promise<RecordingRow> {

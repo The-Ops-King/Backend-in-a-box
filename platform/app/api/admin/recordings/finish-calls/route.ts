@@ -5,7 +5,7 @@ import { operatorAuthorized } from "@/engine/admin-auth";
 import { repairUnfinishedCalls } from "@/engine/call-repair";
 export const dynamic = "force-dynamic"; export const maxDuration = 300;
 
-/** D273: POST { company, why, dryRun = true, limit = 50 }: calls left "ringing" by the poll, read from GHL again and corrected silently (see `repairUnfinishedCalls`). Audited. Authorization: Bearer $CRON_SECRET. */
+/** D275: POST { company, why, dryRun = true, limit = 50 }: calls left "ringing" by the poll, read from GHL again and corrected silently (see `repairUnfinishedCalls`). Audited. Authorization: Bearer $CRON_SECRET. */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const b = (await req.json().catch(() => null)) as { company?: string; why?: string; dryRun?: boolean; limit?: number } | null;

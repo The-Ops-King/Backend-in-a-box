@@ -5,7 +5,7 @@ import { loadCompany } from "./context";
 import { callOutcome, finishPhoneCall, UNFINISHED_CALL, type RecordingRow } from "./recordings";
 
 /**
- * D273: the calls the poll first saw while they were still ringing and then never read again (before D273 they settled as
+ * D275: the calls the poll first saw while they were still ringing and then never read again (before D275 they settled as
  * "ringing", 0 seconds, for ever). Each is read from GHL again and its row corrected: final status, length, end, and for a
  * connected call whether GHL has a transcript. Silent: no event, no workflow, no post (a call from last week is not news);
  * a replay through one workflow is a separate, deliberate step. Dry run first. Audited.
@@ -32,10 +32,10 @@ export async function repairUnfinishedCalls(c: PoolClient, adapters: Adapters, a
       const connected = row.raw.call_status === "connected";
       const media = connected ? await adapters.read.callMedia(ac, row.external_id) : null;
       item.transcript = !!media?.transcript?.length;
-      await c.query("update recordings set raw = raw || $2::jsonb where id=$1", [row.id, JSON.stringify({ transcript_status: item.transcript ? "ready" : "none", repaired: "D273" })]);
+      await c.query("update recordings set raw = raw || $2::jsonb where id=$1", [row.id, JSON.stringify({ transcript_status: item.transcript ? "ready" : "none", repaired: "D275" })]);
     }
     repaired.push(item);
   }
-  if (!a.dryRun && repaired.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calls.repaired','company',$1,$2)", [co.id, { why: a.why, count: repaired.length, ids: repaired.map((x) => x.id) }]);
+  if (!a.dryRun && repaired.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calls.repaired','company',$2,$3)", [co.id, co.id, { why: a.why, count: repaired.length, ids: repaired.map((x) => x.id) }]);
   return { ok: true, dryRun: a.dryRun !== false, repaired, still_unfinished: still, unread, left: stuck.length - batch.length };
 }
