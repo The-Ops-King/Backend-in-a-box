@@ -66,6 +66,8 @@ export interface CrmRead {
   contactsChangedSince(c: Company, sinceIso: string, tag?: string): Promise<ContactSnapshot[]>;
   inboundSince(c: Company, sinceIso: string, after?: number): Promise<InboundPage>;
   callMedia(c: Company, messageId: string): Promise<CallMedia | null>;
+  /** D275: one call as GHL has it now (its status and length), for a call first seen while it was still ringing */
+  callNow?(c: Company, messageId: string): Promise<{ status: string; durationSec?: number; userId?: string } | null>;
   /** D89: the words of these messages, by message id, read at the moment a step needs them. A thread named for a message is read once for all of
    *  its messages; the rest one by one. A message the CRM no longer has is left out of the map; a CRM that does not answer throws. */
   messageBodies(c: Company, messages: { id: string; conversationId?: string | null }[]): Promise<Map<string, MessageText>>;
