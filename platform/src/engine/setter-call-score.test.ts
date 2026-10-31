@@ -14,6 +14,7 @@ import { dispatchEvent } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { fakeAdapters } from "@/engine/test-install";
 import { findCompanyWorkflow, saveDefinition } from "@/engine/definitions";
+import { settingsRows } from "@/engine/settings";
 import { recordPhoneCall, settlePhoneCall, phoneFacts } from "@/engine/recordings";
 import type { Adapters, CallMedia, Classification } from "@/adapters/types";
 
@@ -102,5 +103,11 @@ describe.skipIf(!HAS_DB)("D272: PMU's setter call, scored as the Zap scored it",
     expect(notes[0].body).not.toMatch(/\*Fit|:label:/);
 
     expect(records.filter((r) => r.object === "custom_objects.discovery_call")).toHaveLength(1);
+  });
+
+  it("the form fields the rubric reads are the offer's settings, bound to its GHL fields (the Settings page and the bindings route offer them)", async () => {
+    const rows = await asOperator((c) => settingsRows(c, co));
+    expect(rows.filter((r) => r.key.startsWith("crm.field_contact_")).map((r) => ({ key: r.key, required: r.required, set: r.set, usedBy: r.usedBy })))
+      .toEqual(expect.arrayContaining([{ key: "crm.field_contact_average_monthly_revenue", required: true, set: true, usedBy: ["Setter call logged"] }, { key: "crm.field_contact_biggest_struggle", required: true, set: true, usedBy: ["Setter call logged"] }]));
   });
 });

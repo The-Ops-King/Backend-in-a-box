@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { decrypt, encrypt } from "./crypto";
 import type { ManifestEntry } from "./definition";
+import { parseRubric, rubricFields } from "./score-call";
 import { vendorOfBinding, wakePausedOnAuth } from "./failures";
 
 /**
@@ -28,6 +29,13 @@ export async function settingsRows(c: PoolClient, companyId: string): Promise<Se
   for (const [k, kind] of [["agreements.list", "text"], ["crm.location_id", "id"], ["secret.ghl_pit", "secret"], ["test.domains", "text"], ["secret.calendly_token", "secret"], ["calendly.user", "id"], ["calendly.phone_question", "text"], ["calendly.setter_question", "text"], ["booking.setter_rule", "text"], ["crm.default_closer", "id"], ["secret.fathom_api_key", "secret"], ["secret.fathom_webhook", "secret"], ["secret.whop_webhook", "secret"], ["secret.whop_api_key", "secret"], ["whop.webhook_id", "id"], ["slack.name", "text"], ["slack.icon", "text"], ["alerts.slack_channel", "channel"], ["test.slack_channel", "channel"], ["alerts.as_name", "text"], ["alerts.as_icon", "text"], ["alerts.repeat_minutes", "number"], ["alerts.repeat_hours", "text"], ["alerts.repeat_timezone", "text"], ["alerts.poll_failures", "number"], ["secret.anthropic_key", "secret"], ["secret.zapier_inbound", "secret"], ["discovery_call.results", "text"], ["setter_result.act", "text"], ["setter_result.set_within_min", "number"], ["calls.transcript_wait_min", "number"], ["calls.conversation_gap_min", "number"], ["calls.transcript_hold_hours", "number"], ["booking_card.intake", "text"], ["sales_call.objections", "text"], ["sales_call.closer_options", "text"], ["reports.quiet_when_empty", "text"], ["slack.live", "text"], ["crm.tasks", "text"], ["eod.setter_calls", "text"], ["eod.dq_reasons", "text"], ["contacts.match", "text"], ["eod.triage_overdue", "text"], ["bot.escalate_to", "id"], ["brand.name", "text"], ["brand.logo_url", "text"], ["brand.accent", "text"], ["payments.unmatched_failures", "text"], ["payments.full_prices", "text"], ["payments.price_slack", "number"], ["payments.deposit_under", "number"], ["payments.deposit_words", "text"], ["payments.full_reasons", "text"]] as const) add(k, kind, k === "crm.location_id" || k === "secret.ghl_pit");
   const bound = await many<{ key: string; kind: BindingKind; value: Buffer }>(c, "select key, kind, value from bindings where company_id=$1", [companyId]);
   const have = new Map(bound.map((b) => [b.key, b]));
+  // D272: a call rubric names the contact fields it reads (the form's answers); each is a setting the offer binds to its GHL field
+  for (const b of bound) {
+    if (!b.key.startsWith("prompt.") || b.kind === "secret") continue;
+    const r = parseRubric(b.value.toString("utf8")); if (!r.ok) continue;
+    const used = [...need.entries()].filter(([k]) => k === b.key).flatMap(([, n]) => [...n.usedBy]);
+    for (const f of rubricFields(r.rubric)) add(`crm.field_contact_${f}`, "id", true, used[0] ?? b.key);
+  }
   for (const b of bound) if (!need.has(b.key)) add(b.key, b.kind, false);   // bound but unused: still shown, so nothing is hidden
   return [...need.entries()].map(([key, n]) => { const b = have.get(key); const value = b ? (b.kind === "secret" ? decrypt(b.value) : b.value.toString("utf8")) : null; return { key, kind: n.kind, required: n.required, usedBy: [...n.usedBy].sort(), value: b && b.kind !== "secret" ? value : null, masked: value ? mask(b!.kind, value) : null, set: !!value }; }).sort((a, b) => a.key.localeCompare(b.key));
 }
