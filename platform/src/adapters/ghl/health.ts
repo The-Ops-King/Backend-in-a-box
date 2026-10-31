@@ -26,3 +26,21 @@ export async function ghlCalendarTeam(pit: string, calendarId: string): Promise<
   try { const r = await ghl<{ calendar?: { teamMembers?: { userId: string }[] } }>(pit, "GET", `/calendars/${calendarId}`, { version: "2021-04-15" }); return { ok: true, userIds: [...new Set((r.calendar?.teamMembers ?? []).map((t) => t.userId).filter(Boolean))] }; }
   catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 200) }; }
 }
+
+/**
+ * D276: what GHL answers for one dialer call's recording and transcript, as it answers (status and the start of its body), read only.
+ * For an offer whose calls never come back with a transcript: a recording that is there with no transcript is GHL's transcription
+ * being off; no recording at all is call recording being off; a 401/403 is the token's scopes.
+ */
+export async function ghlCallMediaProbe(pit: string, locationId: string, messageId: string): Promise<{ recording: { status: number; type: string | null; bytes: number | null; body?: string }; transcript: { status: number; segments: number | null; body?: string } }> {
+  const BASE = "https://services.leadconnectorhq.com", headers = { Authorization: `Bearer ${pit}`, Version: "2021-04-15" };
+  const rec = await fetch(`${BASE}/conversations/messages/${messageId}/locations/${locationId}/recording`, { headers: { ...headers, Range: "bytes=0-1023" } });
+  const recType = rec.headers.get("content-type");
+  const recording = { status: rec.status, type: recType, bytes: Number(rec.headers.get("content-range")?.split("/")[1] ?? rec.headers.get("content-length") ?? NaN) || null, ...(recType?.includes("json") || !rec.ok ? { body: (await rec.text()).slice(0, 300) } : {}) };
+  if (!recording.body) await rec.body?.cancel();
+  const tr = await fetch(`${BASE}/conversations/locations/${locationId}/messages/${messageId}/transcription`, { headers: { ...headers, Accept: "application/json" } });
+  const text = await tr.text();
+  let segments: number | null = null;
+  try { const j = JSON.parse(text) as unknown; segments = Array.isArray(j) ? j.length : Array.isArray((j as { transcription?: unknown[] }).transcription) ? (j as { transcription: unknown[] }).transcription.length : null; } catch { /* not JSON */ }
+  return { recording, transcript: { status: tr.status, segments, ...(tr.ok && segments ? {} : { body: text.slice(0, 300) }) } };
+}
