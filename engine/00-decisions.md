@@ -6952,6 +6952,8 @@ task for now"; "we should be watching jose and minerva. jose's is a triage". PMU
   crm.field_contact_meeting_location, _zoom_link, _invitee_call_start_time, _calendly_cancel_link and _calendly_reschedule_link.
   The personalized-video task is gone. The card goes to Booked Call (a reschedule to Rescheduled), and the tags are
   stat-call-booked on and stat-call-not-booked off.
-- Call cancelled (v7, still ghost until the Canceled Zap is paused): it replies in the booking's thread with ❌ on the booking post,
+- Call cancelled (v7, live): it replies in the booking's thread with ❌ on the booking post,
   and posts nothing when there is no booking post (Tyler: a message of its own "not by default").
 - Jose's "15 Min - Beauty Moguls" Calendly event type is watched as a triage call (first_call), owned by Jose.
+- Minerva's "Beauty Mogules Assessment" is watched as a Follow-up call (closing, like Jose's "Beauty Moguls Strategy"; Tyler: "like a
+  follow up call"), owned by Minerva.
