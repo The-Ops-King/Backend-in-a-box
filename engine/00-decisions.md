@@ -6868,6 +6868,8 @@ scored each call on eight categories; the engine's Setter call logged had one 1-
 - The fields a rubric reads are the offer's settings: the Settings page and the bindings route offer
   `crm.field_contact_<name>` for each, required, used by the workflow whose rubric names them. PMU's are the Zap's: the first field
   named "biggest struggle" (What's your biggest struggle right now?) and the one named "average monthly revenue".
+- A replayed phone call (`/api/admin/events/replay`) is matched with the facts the poll dispatched it with (phone, connected, its
+  length, whether it has a transcript); before, a replay saw only the recording's id and title, so no phone-call trigger took it.
 - Jev or the AI down never loses the call: the post says "Scoring unavailable" or "Summary step failed". Like analyze, the step is
   not a CRM write, so it runs in ghost.
 - PMU's Setter call logged (its own copy, v4): the score replaces the AI notes; the transcript goes in the post's thread; the same

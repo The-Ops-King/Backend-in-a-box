@@ -10,7 +10,7 @@ import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { installCompany } from "@/engine/install";
-import { dispatchEvent } from "@/engine/dispatch";
+import { dispatchEvent, eventMatchContext, workflowTakes, type EventRow } from "@/engine/dispatch";
 import { tick } from "@/engine/runner";
 import { fakeAdapters } from "@/engine/test-install";
 import { findCompanyWorkflow, saveDefinition } from "@/engine/definitions";
@@ -109,5 +109,16 @@ describe.skipIf(!HAS_DB)("D272: PMU's setter call, scored as the Zap scored it",
     const rows = await asOperator((c) => settingsRows(c, co));
     expect(rows.filter((r) => r.key.startsWith("crm.field_contact_")).map((r) => ({ key: r.key, required: r.required, set: r.set, usedBy: r.usedBy })))
       .toEqual(expect.arrayContaining([{ key: "crm.field_contact_average_monthly_revenue", required: true, set: true, usedBy: ["Setter call logged"] }, { key: "crm.field_contact_biggest_struggle", required: true, set: true, usedBy: ["Setter call logged"] }]));
+  });
+
+  it("a replay matches a phone call with the facts the poll dispatched it with: the workflow takes the call it took live", async () => {
+    const r = await asOperator(async (c) => {
+      const e = (await one<EventRow>(c, "select * from events where company_id=$1 and event_type='call.logged' order by id limit 1", [co]))!;
+      const w = await findCompanyWorkflow(c, co, "setter-call-logged"); if (!w.ok) throw new Error(w.why);
+      const ctx = await eventMatchContext(c, e);
+      return { recording: ctx.recording, takes: await workflowTakes(c, e, ctx, w.id) };
+    });
+    expect(r.recording).toMatchObject({ kind: "phone", connected: true });
+    expect(r.takes).toBe(true);
   });
 });

@@ -5,6 +5,7 @@ import { evaluate } from "./predicate";
 import { reentryKey, windowInterval } from "./reentry";
 import { render } from "./template";
 import { runModeSql } from "./mode";
+import { phoneFacts, type RecordingRow } from "./recordings";
 
 const SUPERSEDES: ReadonlySet<Definition["reentry"]> = new Set(["once_per_contact", "once_per_appointment", "once_per_contact_per_window"]);
 
@@ -84,8 +85,9 @@ export async function eventMatchContext(c: PoolClient, e: EventRow): Promise<Rec
     const a = await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a left join company_terms t on t.id=a.appointment_term where a.id=$1", [e.appointment_id]);
     if (a) ctx.appointment = a;
   }
-  const rec = typeof e.data.recording_id === "string" ? await one<{ id: string; title: string | null; duration_min: number | null }>(c, "select id, title, duration_min from recordings where id=$1", [e.data.recording_id]) : null;
-  if (rec) ctx.recording = rec;
+  const rec = typeof e.data.recording_id === "string" ? await one<RecordingRow>(c, "select * from recordings where id=$1", [e.data.recording_id]) : null;
+  // D272: a phone call is matched with the facts the poll dispatched it with (phone, connected, its length), as a meeting with its title
+  if (rec) ctx.recording = { id: rec.id, title: rec.title, duration_min: rec.duration_min, ...(rec.provider === "ghl" ? phoneFacts(rec) : {}) };
   return ctx;
 }
 
