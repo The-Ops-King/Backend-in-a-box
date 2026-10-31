@@ -12,9 +12,9 @@ import { callSetting } from "./call-settings";
  * needs it and dropped when the step is done:
  *
  * - a GHL dialer call: the CRM keeps it; `callMedia` reads it again (every retry reads it again too);
- * - a Fathom recording: the webhook delivered it once, so it is HELD on the recording row until the runs that read it are
- *   done (`releaseHeldTranscripts`, from the runner), kept while one of them is paused on a failing step, and cleared by the
- *   retention sweep (`sweepHeldTranscripts`) at the latest `calls.transcript_hold_hours` after the last of them ended. Once
+ * - a Fathom recording: the webhook delivered it once, so it is HELD on the recording row, and cleared by the retention sweep
+ *   (`sweepHeldTranscripts`) `calls.transcript_hold_hours` after the last run about it ended (D271: not when its review ends, so a
+ *   later part of the same call can read it), never while a run about it is going or paused. Once
  *   cleared, a step that needs it again reads it from Fathom's API (`secret.fathom_api_key`).
  *
  * A template reads `{{recording.transcript_text}}` (the run's call) or `{{vars.<lookup>.transcript_text}}` (every call in a
@@ -79,6 +79,9 @@ export async function releaseHeldTranscripts(c: PoolClient, run: { id: string; c
   if (typeof recId !== "string") return 0;
   const r = await c.query(`update recordings r set transcript=null, summary=null, raw = case when r.transcript is not null then r.raw || '{"transcript_status":"ready"}'::jsonb else r.raw end
     where r.id::text=$1 and r.company_id=$2 and (r.transcript is not null or r.summary is not null)
+      -- D271: a meeting's is kept until the sweep: a later part of the same call (it dropped and was joined again) reads it with its own,
+      -- and the offer's Fathom key may not be able to read it again (PMU's cannot)
+      and r.raw->>'kind' = 'phone'
       and not exists (${runsOf} and x.id<>$3 and x.status in ('active','waiting','paused'))`, [recId, run.company_id, run.id]);
   return r.rowCount ?? 0;
 }

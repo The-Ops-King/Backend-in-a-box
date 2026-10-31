@@ -6845,3 +6845,6 @@ PMU's copy changes by name with a dry run.
   playbook's `review`); its unused `recordedDispositions` is gone. Not a sales call: nothing posts (the Zap posted "N/A"). Nobody
   matched: the Unmatched recording post with its Link button. A GHL dialer call Jev reads as a closing call comes in through Setter
   call logged, which hands it to this review (as before).
+- **Transcripts of meetings are held until the sweep** (`calls.transcript_hold_hours`, 48), not let go when the review finishes:
+  a later part of the same call reads the earlier part's words, and PMU's Fathom key cannot read a transcript again afterwards.
+  A dialer call's is never held (GHL keeps it).
