@@ -6812,7 +6812,8 @@ should be checking GHL in all cases", "DUPLICATES ARE STORED IN AND CHECKED AGAI
   slack under it) for a counted billing reason; the payment that brings the total to the deal's price is its balance; a payment
   beyond a deposit makes the deal worth its full price (`event.full_price`, the opportunity's value); a $0 charge is not recorded.
 - With the offer's GHL (the Whop webhook), the buyer is found there (a Whop user an earlier payment record linked, then the contact
-  with exactly this email, then this phone) and what they paid before is the offer's payment records in GHL, as the Zap read them.
-  GHL unread is a retry, never a guess.
+  with exactly this email, then this phone) and what they paid before is the offer's payment records in GHL, as the Zap read them,
+  dated before this payment (`occurred_at`, else `paid_date`; one with no date counts): a payment that arrives late or is linked
+  after later ones never counts what came after it. GHL unread is a retry, never a guess.
 - A payment record is checked against GHL before it is made: `crm_record` `match_on: transaction_id` updates the record GHL already
   has for the transaction (the Zap's) instead of making a second.
