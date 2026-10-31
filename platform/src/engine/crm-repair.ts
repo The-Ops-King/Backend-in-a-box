@@ -64,12 +64,14 @@ async function typedProperties(adapters: Adapters, ac: Company, object: string, 
   return { properties: Object.fromEntries(Object.entries(properties).map(([k, v]) => [k, typeof v === "string" || typeof v === "number" ? propertyValue(k, String(v), types.get(k)) : v])) };
 }
 
-/** D233: a record the engine should have made and did not (Jennyfer Cantrell's $250 Cash record): made under its key, kept as the engine's, related, audited. Refused when the engine already has a record under that key. */
+/** D233: a record the engine should have made and did not (Jennyfer Cantrell's $250 Cash record): made under its key, kept as the engine's, related, audited. Refused when the engine already has a record under that key in GHL; a ghost run's
+ * would-be row (no CRM id, D287) is filled with the record made. */
 async function createRecordFor(c: PoolClient, adapters: Adapters, companyId: string, ac: Company, bindings: Record<string, string>, object: string, b: RecordRepair): Promise<RepairResult> {
   const cr = b.create!;
   if (!cr.key?.trim()) return { ok: false, status: 400, error: "create needs a key" };
   const have = await one<{ ghl_record_id: string | null }>(c, "select ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [companyId, object, cr.key]);
-  if (have) return { ok: false, status: 409, error: `the engine already has a record under ${cr.key}: ${have.ghl_record_id}` };
+  // a row with no CRM id is a ghost run's would-be record (nothing was made in GHL): the record is made and that row takes its id
+  if (have?.ghl_record_id) return { ok: false, status: 409, error: `the engine already has a record under ${cr.key}: ${have.ghl_record_id}` };
   const typed = await typedProperties(adapters, ac, object, b.properties ?? {});
   if (typed && "error" in typed) return { ok: false, status: 400, error: typed.error };
   const properties = typed?.properties ?? {};
@@ -79,7 +81,8 @@ async function createRecordFor(c: PoolClient, adapters: Adapters, companyId: str
   let id: string;
   try { id = (await adapters.write.createRecord(ac, object, properties)).id; }
   catch (e) { return { ok: false, status: 502, error: `GHL refused the record: ${String((e as Error).message).slice(0, 300)}` }; }
-  await c.query(`insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,(select ct.id from contacts ct where ct.company_id=$1 and ct.ghl_contact_id=$5 limit 1),$6)`,
+  await c.query(`insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,(select ct.id from contacts ct where ct.company_id=$1 and ct.ghl_contact_id=$5 limit 1),$6)
+    on conflict (company_id, object_key, record_key) do update set ghl_record_id=excluded.ghl_record_id, contact_id=coalesce(excluded.contact_id, crm_records.contact_id), properties=crm_records.properties || excluded.properties, updated_at=now()`,
     [companyId, object, cr.key, id, cr.contact_id ?? null, properties]);
   const related: string[] = [], failed: string[] = [];
   for (const r of relate) {
