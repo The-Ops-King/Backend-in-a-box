@@ -511,7 +511,7 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     fake.read.objectFields = async (_c, key) => (key === "custom_objects.sales_call" ? ["display_label", "external_id", "contact_id", "opportunity_id", "scheduled_at", "call_date", "outcome", "recording_url", "transcript_ref", "closer", "setter", "duration_min", "disposition", "objection_primary", "objections_raised", "score_total", "rubric_version", "cash_collected", "booking_source"].map((key) => ({ key })) : []);
     const r = await asOperator((c) => recordRecording(c, companyId, rec));
     expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
-    expect(r.contactId).toBe(id); expect(r.recording.linked_by).toBe("speaker"); expect(r.appointmentId).toBe(appt.id);   // D227: Leo spoke, and the booking then is his
+    expect(r.contactId).toBe(id); expect(r.recording.linked_by).toBe("email"); expect(r.appointmentId).toBe(appt.id);   // D271: the invite's email first, and the booking then is his
     await asOperator((c) => dispatchEvent(c, r.event, { contact: { id }, appointment: { id: appt.id } }));
     await tick(fake, undefined, companyId);
     const run = (await runsFor("call-recorded")).find((x) => x.contact_id === id)!;
@@ -523,7 +523,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     expect(setterCard).toEqual({ status: "won", ghl_stage_id: "STAGE-SHOWED" });
     const rw = recordWrites.slice(nRec); expect(rw).toHaveLength(1);
     // the record was created at booking (call-booked); the recording updates that same one
-    expect(rw[0]).toMatchObject({ op: "update", external_id: appt.external_id, outcome: "showed", contact_id: "CCB2", closer: "Sam Closer", duration_min: 43, disposition: "close_pending", objection_primary: "price", recording_url: "https://fathom.video/share/abc" });   // D236: the AI hears a close; it is pending until cash is collected
+    expect(rw[0]).toMatchObject({ op: "update", external_id: appt.external_id, contact_id: "CCB2", closer: "Sam Closer", duration_min: 43, objection_primary: "price", recording_url: "https://fathom.video/share/abc" });
+    expect(rw[0]).not.toHaveProperty("outcome"); expect(rw[0]).not.toHaveProperty("disposition");   // D271: the AI hears a close, but the end of day writes the result
     expect(relations.slice(nRel)).toEqual([`ASSOC-SC:CCB2>${rw[0].id}`, `ASSOC-SO:${rw[0].id}>${rw[0].opportunity_id}`]);
     expect(rw[0]).not.toHaveProperty("next_step");
     const r1 = await asOperator((c) => one<{ result: { not_on_object?: string[] } }>(c, "select result from run_steps where run_id=$1 and node_id='r1'", [run.id]));

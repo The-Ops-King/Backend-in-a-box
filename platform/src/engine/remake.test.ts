@@ -157,7 +157,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D120: a call Calendly re-makes at th
     await record(live, who, "fathom-tess");
     const recs = inCrm(who);
     expect(recs).toHaveLength(1);
-    expect(recs[0]).toMatchObject({ external_id: "EV-T1", outcome: "showed" });   // the recording, read as a sales call, says she showed
+    expect(recs[0]).toMatchObject({ external_id: "EV-T1" });   // the recording, read as a sales call, updates the one record (its outcome is the end of day's, D271)
     expect((await ours(live, who)).map((r) => r.record_key)).toEqual(["EV-T1"]);
   });
 

@@ -155,7 +155,7 @@ export async function simulate(x: Ctx, action: SimAction): Promise<SimResult> {
       const r = await recordRecording(c, company.id, { provider: "fathom", externalId: `test-${randomUUID().slice(0, 8)}`, title: `${name} <> ${closer?.name ?? "Closer"}`, startedAt, durationMin: 41, shareUrl: "https://example.test/recording", recordedBy: closer ? { name: closer.name, email: closer.email } : undefined,
         invitees: [...(closer ? [{ name: closer.name, email: closer.email, isExternal: false }] : []), { name, email, isExternal: true }],
         transcript: (await harnessScripts(c, company.id)).closerCall.map((l) => ({ speaker: l.speaker === "prospect" ? name : closer?.name ?? "Closer", text: l.text.replace(/\{first\}/g, name.split(" ")[0]) })), raw: { simulated: true } });
-      if (r.outcome !== "linked") return { ok: false, why: r.outcome === "duplicate" ? "duplicate recording id" : `recording did not link to this contact: ${r.reason}` };
+      if (r.outcome !== "linked") return { ok: false, why: r.outcome === "duplicate" ? "duplicate recording id" : r.outcome === "copy" ? `a copy of recording ${r.of} (the same meeting, recorded twice)` : `recording did not link to this contact: ${r.reason}` };
       const appt = r.appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [r.appointmentId]) : null;
       return { ok: true, action, detail: { recording: r.recording.id, appointment: r.appointmentId }, runsStarted: (await dispatchEvent(c, r.event, { ...ctx, appointment: appt ?? undefined })).length };
     }

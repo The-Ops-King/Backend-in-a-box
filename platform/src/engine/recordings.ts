@@ -10,10 +10,13 @@ import { normEmail } from "./identity";
  * worthless"; "if the client doesn't join, we don't just link it to a random client"): a recording is linked only when WHO was on
  * it and WHEN it was agree.
  *
- * - Who: the people who spoke (the transcript's speakers, the truth of who showed up; a speaker who is nobody in the CRM, "iPhone"
- *   or a business name, says nothing against the invite), else who was invited (an invitee email on a
- *   known contact, an invitee name exactly one contact has, the booking whose meeting link the call used). The team is never a
- *   client: a call where only the team spoke (a roleplay, a training) is internal and is linked to no one, and no one is asked.
+ * - Who, in this order (D271, Tyler: "invitee email first, then zoom id, then who spoke last"), each held to the time: the invite's
+ *   email on a known contact; the booking whose own meeting link (Zoom id) the call used; the people who spoke (a speaker who is
+ *   nobody in the CRM, "iPhone" or a business name, says nothing); the meeting's title ("Shay and Carly Vu"); an invitee name exactly
+ *   one contact has. The invite and the room give way when someone who spoke is plainly another person booked then (D227's Beth on
+ *   Corina's invite). The team is never a client: a call where only the team spoke (a roleplay, a training) is internal and is
+ *   linked to no one, and no one is asked. A second recording of the same meeting (another of the team recorded it too) is a copy:
+ *   linked as the first was, it starts nothing (one review per meeting).
  * - When: a booking fits a recording that starts at most 20 minutes before it and before it ends (a short or empty booking spans 15).
  * - Linked: exactly one person on the call has a booking that fits (or the invite's email and the time agree on one person and a
  *   guest who spoke has their first name), and (from the invite alone) no other booking of the recorder's
@@ -37,9 +40,10 @@ export type RecordResult =
   | { outcome: "duplicate"; recording: RecordingRow }
   | { outcome: "internal"; recording: RecordingRow; reason: string }   // D227: only the team spoke; linked to no one, no one asked
   | { outcome: "linked"; recording: RecordingRow; event: EventRow; contactId: string; appointmentId: string | null }
-  | { outcome: "unlinked"; recording: RecordingRow; event: EventRow; reason: string };
+  | { outcome: "unlinked"; recording: RecordingRow; event: EventRow; reason: string }
+  | { outcome: "copy"; recording: RecordingRow; of: string };   // D271: a second recording of a meeting already in: kept, linked as the first was, and starts nothing
 /** `silent` (history, D115): the row is written and linked by the same ladder, and nothing is emitted, so no workflow starts and no waiting run wakes. */
-export type SilentRecordResult = { outcome: "duplicate" | "linked" | "unlinked"; recording: RecordingRow; reason?: string };
+export type SilentRecordResult = { outcome: "duplicate" | "linked" | "unlinked" | "copy"; recording: RecordingRow; reason?: string };
 
 const BEFORE_MIN = 20;                 // D227: a call may start this long before its booking (the room opened early)…
 const SHORT_CALL_MIN = 15;             // …and until the booking ends; a booking with no length spans this much
@@ -82,7 +86,7 @@ export async function prospectsOnCall(c: PoolClient, companyId: string, input: P
 
 /** D236: where a call with no booking that fits is put: a client's call; their closing call held late; a follow-up on a sale already held; none of those. */
 export type Placed = "client" | "held_late" | "follow_up" | "unbooked" | "no_booking";
-export type Match = { contactId: string; by: "email" | "meeting" | "name" | "speaker"; appointmentId?: string; placed?: Placed };
+export type Match = { contactId: string; by: "email" | "meeting" | "name" | "speaker" | "title"; appointmentId?: string; placed?: Placed };
 export type Resolution = { match: Match | null; reason?: string; internal?: boolean };
 type Fit = { id: string; contact_id: string; name: string; first: string | null; last: string | null; assigned_user_id: string | null; meeting_key: string | null; starts_at: Date };
 
@@ -102,6 +106,18 @@ export async function fittingBooking(c: PoolClient, companyId: string, contactId
 const tokens = (n?: string | null) => normName(n)?.split(" ") ?? [];
 /** A name that is a team member's: the same first name, and each further word of it a start of theirs or theirs of it ("Nelly", "Nelly Sudri" for "Nelly S."); never longer than theirs. */
 const staffName = (staff: string[][], name: string) => { const s = tokens(name); return s.length > 0 && staff.some((t) => s.length <= t.length && t[0] === s[0] && s.slice(1).every((x, i) => x.startsWith(t[i + 1]) || t[i + 1].startsWith(x))); };
+/**
+ * D271: the names a meeting's title gives for who it is with, the team's own left out: "Shay and Carly Vu" → Shay, "Carline Sanders:
+ * The Beauty Moguls …" → Carline Sanders, "Test again <> Carly Vu" → Test again. A title that is only the tool's ("Impromptu Zoom
+ * Meeting") names nobody.
+ */
+export function titleNames(title: string | null | undefined, staff: string[][]): string[] {
+  const t = (title ?? "").trim();
+  if (!t || /^impromptu\b|\bmeeting$|^personal meeting room/i.test(t)) return [];
+  const head = t.includes(":") ? t.split(":")[0] : t;
+  return head.split(/\s+(?:and|&|<>|x|with|\+|\/)\s+|\s*<>\s*/i).map((x) => x.trim()).filter((x) => x && /\p{L}/u.test(x) && !staffName(staff, x));
+}
+
 /**
  * D227: a name someone gave on the call is this booked person's: the same surname, and a first name that is theirs, holds theirs or is
  * held in it ("Elizabeth" for "Beth"), or is in one of their email addresses; a first name alone must be theirs exactly.
@@ -189,10 +205,29 @@ async function matchRecording(c: PoolClient, companyId: string, input: Recording
   const fits = await fitsAt(c, companyId, input.startedAt);
   const theirs = (f: Fit) => !!recorder && f.assigned_user_id === recorder.id;
 
-  // 1. who spoke: the transcript says who showed up
-  const { lines, spoke, guests } = await speakersOf(c, companyId, input, staffDropped);
+  const { lines, spoke, guests, staffNames } = await speakersOf(c, companyId, input, staffDropped);
   if (lines.length && spoke.size && !guests.length) return { match: null, internal: true, reason: `only the team spoke (${[...spoke.values()].map((p) => p.name).join(", ")}): not a call with a client, so it is linked to no one` };
   const named = guests.filter((p) => !GENERIC_SPEAKER.test(p.name.trim()));
+  // D271: someone who spoke is plainly another person booked then (D227's Beth Huffman on Corina's invite): the invite or the room gives way to who spoke
+  const spokeElse = async (contactId: string) => { for (const f of fits) if (f.contact_id !== contactId && named.some((p) => nameAgrees(p.name, f.first, f.last))) return true; return false; };
+  const keyed = (f: Fit) => !!key && f.meeting_key === key;
+
+  let sharedLink = 0, room: { id: string; contact_id: string } | null = null;   // the one booking whose own meeting link the call used (D102)
+  if (key) {
+    const rows = await many<{ id: string; contact_id: string; off: number }>(c, "select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and meeting_key=$2 and status<>'cancelled'", [companyId, key, input.startedAt]);
+    if (rows.length === 1 && rows[0].off <= MEETING_WINDOW_H * 3600) room = rows[0];
+    if (rows.length > 1) sharedLink = rows.length;
+  }
+  // D271 (Tyler: "invitee email first, then zoom id, then who spoke last ... it should check based on the time"):
+  // 1. the invite's email: the one invited contact with a booking the call fits
+  const byEmail = new Set<string>();
+  for (const e of emails) { const r = await one<{ contact_id: string }>(c, "select i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and ct.merged_into is null", [companyId, e]); if (r) byEmail.add(r.contact_id); }
+  const emailFits = fits.filter((f) => byEmail.has(f.contact_id)), emailPeople = [...new Set(emailFits.map((f) => f.contact_id))];
+  if (emailPeople.length === 1 && !(await spokeElse(emailPeople[0]))) return { match: { contactId: emailPeople[0], by: "email", appointmentId: room?.contact_id === emailPeople[0] ? room.id : (emailFits.find(keyed) ?? emailFits[0]).id } };   // their booking whose room the call used wins over their nearest (a call taken early or late in its own room)
+  // 2. the meeting's own link (its Zoom id): the one booking that used it, near the time, with nobody else's booking of the recorder's then
+  if (room && !fits.some((f) => f.contact_id !== room!.contact_id && (theirs(f) || keyed(f))) && !(await spokeElse(room.contact_id))) return { match: { contactId: room.contact_id, by: "meeting", appointmentId: room.id } };
+
+  // 3. who spoke: the transcript says who showed up
   let unnamed = "";   // who spoke, when no one who spoke is anyone in the CRM
   if (named.length) {
     const said = named.map((p) => p.name).join(", ");
@@ -226,7 +261,14 @@ async function matchRecording(c: PoolClient, companyId: string, input: Recording
     unnamed = `${said} spoke, and nobody in the CRM has that name`;
   }
 
-  // 2. no one named spoke (no transcript yet, or speakers the recorder did not name): who was invited, held to the time
+  // 4. the meeting's title names them ("Shay and Carly Vu", "Carline Sanders: The Beauty Moguls"): the one booked person it names, held to the time
+  const titled = titleNames(input.title, staffNames);
+  if (titled.length) {
+    const hits = fits.filter((f) => titled.some((n) => nameAgrees(n, f.first, f.last))), people = [...new Set(hits.map((f) => f.contact_id))];
+    if (people.length === 1) return { match: { contactId: people[0], by: "title", appointmentId: (hits.find(keyed) ?? hits[0]).id } };
+  }
+
+  // 5. no one named spoke (no transcript yet, or speakers the recorder did not name): who was invited, held to the time
   const invited = new Map<string, Match["by"]>();
   const notes: string[] = [];
   for (const e of emails) { const r = await one<{ contact_id: string }>(c, "select i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='email' and i.value=$2 and ct.merged_into is null", [companyId, e]); if (r) invited.set(r.contact_id, "email"); }
@@ -234,14 +276,8 @@ async function matchRecording(c: PoolClient, companyId: string, input: Recording
     const rows = await many<{ id: string }>(c, "select id from contacts where company_id=$1 and merged_into is null and lower(regexp_replace(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')), '[^[:alnum:]]+', ' ', 'g'))=$2", [companyId, n]);
     if (rows.length === 1) invited.set(rows[0].id, "name"); else if (rows.length > 1) notes.push(`"${n}" is the name of ${rows.length} contacts`);
   }
-  let sharedLink = 0, room: { id: string; contact_id: string } | null = null;   // the one booking whose own meeting link the call used (D102)
-  if (key) {
-    const rows = await many<{ id: string; contact_id: string; off: number }>(c, "select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and meeting_key=$2 and status<>'cancelled'", [companyId, key, input.startedAt]);
-    if (rows.length === 1 && rows[0].off <= MEETING_WINDOW_H * 3600) { room = rows[0]; if (!invited.has(room.contact_id)) invited.set(room.contact_id, "meeting"); }
-    if (rows.length > 1) sharedLink = rows.length;
-  }
+  if (room && !invited.has(room.contact_id)) invited.set(room.contact_id, "meeting");
   const shared = sharedLink ? `; its meeting link is on ${sharedLink} bookings` : "";
-  const keyed = (f: Fit) => !!key && f.meeting_key === key;
   const agree = fits.filter((f) => invited.has(f.contact_id));
   const agreeing = [...new Set(agree.map((f) => f.contact_id))];
   const others = fits.filter((f) => !invited.has(f.contact_id) && (theirs(f) || keyed(f)));
@@ -315,6 +351,14 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
   if (!inserted) return { outcome: "duplicate", recording: (await one<RecordingRow>(c, "select * from recordings where company_id=$1 and provider=$2 and external_id=$3", [companyId, provider, input.externalId]))! };
   await c.query("update recordings set client_spoke=$2 where id=$1", [inserted.id, await clientSpoke(c, companyId, input)]);   // D254
   const { match, reason, internal } = await resolveRecording(c, companyId, input);
+  // D271 (Tyler: "Call recorded by 2 people only gets reviewed once"): the same meeting recorded by two of the team. The one that came
+  // second is linked as the first was and starts nothing; the review (on the first) is credited to the contact's closer, not the recorder.
+  const twin = await copyOf(c, companyId, inserted, match?.contactId ?? null);
+  if (twin) {
+    if (twin.contact_id) await c.query("update recordings set contact_id=$2, appointment_id=$3, link_status='linked', linked_by=$4, unlinked_reason=null where id=$1", [inserted.id, twin.contact_id, twin.appointment_id, twin.linked_by]);
+    const row = (await one<RecordingRow>(c, "update recordings set raw = raw || jsonb_build_object('copy_of', $2::text), unlinked_reason=coalesce(unlinked_reason, $3) where id=$1 returning *", [inserted.id, twin.id, twin.contact_id ? null : `a copy of ${twin.id}, which matched nobody either`]))!;
+    return { outcome: "copy", recording: row, of: twin.id };
+  }
   if (match) {
     const { event, appointmentId } = await settle(c, companyId, inserted, match.contactId, match.by, match.appointmentId ?? null, opts.silent, match.placed);
     const recording = (await one<RecordingRow>(c, "select * from recordings where id=$1", [inserted.id]))!;
@@ -325,6 +369,22 @@ export async function recordRecording(c: PoolClient, companyId: string, input: R
   if (internal) return { outcome: "internal", recording: row, reason: reason ?? "only the team spoke" };
   const event = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "recording.unlinked", source: provider === "fathom" ? "fathom" : "zapier", occurred_at: input.startedAt, data: eventData(row, { reason, invitees: input.invitees, attendees: input.invitees.map((i) => i.email ?? i.name).filter(Boolean).join(", ") }) });
   return { outcome: "unlinked", recording: row, event, reason: reason ?? "no match" };
+}
+
+const GENERIC_TITLE = /^impromptu\b|^personal meeting room|^zoom meeting$|^meeting$/i;
+/**
+ * D271: the recording already in that this one is another copy of: the same meeting, recorded by someone else on the team, its time
+ * overlapping this one's. The same person on both (this one's match, or theirs), or else the same title, unless the title is only the
+ * tool's ("Impromptu Zoom Meeting": two closers can be on two of those at once). A copy of a copy is a copy of the first.
+ */
+async function copyOf(c: PoolClient, companyId: string, r: RecordingRow, contactId: string | null): Promise<RecordingRow | null> {
+  if (r.provider === "ghl") return null;   // a dialer call is the caller's own; its parts are joined by call_conversation
+  const end = r.ended_at ?? new Date(r.started_at.getTime() + Math.max(r.duration_min ?? 1, 1) * 60e3);
+  const title = (r.title ?? "").trim(), byTitle = !!title && !GENERIC_TITLE.test(title);
+  return (await one<RecordingRow>(c, `select * from recordings where company_id=$1 and id<>$2 and provider<>'ghl' and coalesce(raw->>'copy_of','')=''
+      and recorded_by_email is distinct from $3 and started_at < $5 and coalesce(ended_at, started_at + make_interval(mins => greatest(coalesce(duration_min,1),1))) > $4
+      and (($6::uuid is not null and contact_id=$6) or ($7 and lower(trim(coalesce(title,'')))=lower($8)))
+    order by received_at, started_at limit 1`, [companyId, r.id, r.recorded_by_email, r.started_at, end, contactId, byTitle, title])) ?? null;
 }
 
 /** A person links an orphan (the Slack button): it then runs as a match on arrival would, Sales call recorded included. The attendee's email is remembered so the next call from them links on its own. */

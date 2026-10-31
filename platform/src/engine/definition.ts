@@ -142,7 +142,8 @@ export const Node = z.discriminatedUnion("type", [
   // D141: the person in the CRM: found by their CRM id, else by email or phone, else created from what the booking knows; then given `tags` (and the company's scope tag, scope.tag, with `scope_tag`) and any standard field the CRM has blank (nothing it holds is overwritten). `vars.<id>.action` says created, updated or found
   z.object({ ...base, type: z.literal("ensure_contact"), tags: TagList.optional(), scope_tag: z.boolean().optional(), source: z.string().optional() }),
   z.object({ ...base, type: z.literal("create_task"), title: z.string(), body: z.string().optional(), due: z.string().default("+1d"), assign_to: z.string().optional() }),
-  z.object({ ...base, type: z.literal("note"), template: z.string() }),
+  // D271: `key`: the one note this step keeps on the contact (a call's parts, a review run again): written once, then updated in place
+  z.object({ ...base, type: z.literal("note"), template: z.string(), key: z.string().optional() }),
   z.object({ ...base, type: z.literal("update_appointment"), set: z.record(z.unknown()) }),
   // Our ledger's opportunity (the run's, else the contact's open one). `set`: contract_value, installments (and the older status). D85: `status` open | won | lost (templated),
   // `lost_reason` (a lost_reason term, by key or name), each change to won or lost one opportunity.won / opportunity.lost event that starts workflows; `card` marks (and with
@@ -159,7 +160,7 @@ export const Node = z.discriminatedUnion("type", [
   // Reads a document (the call transcript by default) against a prompt bound per company ({{prompt.<name>}}), answer stored under vars.<into>.
   // json: the answer is parsed and its fields are addressable ({{vars.notes.summary}}); text: stored as a string.
   // optional: decoration (a congratulations line); when the AI cannot run the step is skipped and the run goes on without the value
-  z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.union([z.string(), z.array(z.string().min(1)).min(2)]), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional(), optional: z.boolean().default(false) }),   // into: one var, or the keys of one object the prompt returns (`["notes", "rubric"]` → vars.notes, vars.rubric from one read)
+  z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.union([z.string(), z.array(z.string().min(1)).min(2)]), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional(), model: z.string().regex(/^claude-[a-z0-9.-]+$/).optional(), optional: z.boolean().default(false) }),   // model (D271): this step's Claude model, else the engine's   // into: one var, or the keys of one object the prompt returns (`["notes", "rubric"]` → vars.notes, vars.rubric from one read)
   // Writes the appointment's outcome on OUR row (showed / noshow / …), the same path the closer's disposition form takes; call.held follows a show.
   // source (D88): "engine" (a fact the engine saw, a recording) or "disposition" (a person's answer: filed as the form files it, so Call outcome filed runs);
   // user: who answered (a roster user id, templated); via: what filed it, kept on the submission ("card_moved"), so the end-of-day form can say so

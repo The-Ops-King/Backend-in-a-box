@@ -61,7 +61,7 @@ export async function runLookup(c: PoolClient, s: LookupScope, query: LookupQuer
     case "call_conversation": {
       // D87: "tech issues happen, or sometimes somebody hangs up on accident, so we need to be able to take both calls as a whole." The
       // parts of the conversation a dialer call belongs to: the same caller's connected calls (more than 0 seconds) to this person,
-      // each starting within `gap_min` of the one before it ending, chained both ways, in order. A meeting recording is its own whole.
+      // each starting within `gap_min` of the one before it ending, chained both ways, in order; a meeting's parts the same way (D271).
       if (!s.contactId) return { error: "the run is not about a contact" };
       if (!p.recording_id) return { error: "call_conversation needs the recording_id of a call" };
       const gap = Number(p.gap_min);
@@ -74,19 +74,28 @@ export async function runLookup(c: PoolClient, s: LookupScope, query: LookupQuer
       const self = (await many<Part>(c, `select ${facts} from ${from} where r.company_id=$1 and r.contact_id=$2 and r.id::text=$3`, [s.companyId, s.contactId, p.recording_id]))[0];
       if (!self) return { error: `${p.recording_id} is not a call of this person's` };
       let parts = [self];
+      // D271 (Tyler: "it could be a 2 or even 3 part call if there are connection issues"): a meeting that dropped and was joined again is
+      // read as one too: this person's meeting recordings, each starting within the gap of the last one ending (a second recorder's copy is not a part)
+      const chain = (near: Part[]) => {
+        const at = near.findIndex((r) => r.id === self.id);
+        if (at < 0) return [self];
+        const joins = (a: { ended_at: Date }, b: { started_at: Date }) => b.started_at.getTime() - a.ended_at.getTime() <= gap * 60e3;
+        let lo = at, hi = at;
+        while (lo > 0 && joins(near[lo - 1], near[lo])) lo--;
+        while (hi < near.length - 1 && joins(near[hi], near[hi + 1])) hi++;
+        return near.slice(lo, hi + 1);
+      };
+      if (self.kind === "meeting" && self.provider !== "ghl") {
+        parts = chain(await many<Part>(c, `select ${facts} from ${from}
+          where r.company_id=$1 and r.contact_id=$2 and r.provider<>'ghl' and coalesce(r.raw->>'kind','')<>'phone' and coalesce(r.raw->>'copy_of','')='' and r.started_at between $3::timestamptz - interval '1 day' and $3::timestamptz + interval '1 day'
+          order by r.started_at, r.id`, [s.companyId, s.contactId, self.started_at]));
+      }
       if (self.kind === "phone") {
         const near = await many<Part>(c, `select ${facts} from ${from}
           where r.company_id=$1 and r.contact_id=$2 and r.raw->>'kind'='phone' and r.raw->>'call_status'='connected' and coalesce((r.raw->>'duration_sec')::int, 1) > 0
             and r.raw->>'caller_ghl_user_id' is not distinct from $3 and r.started_at between $4::timestamptz - interval '1 day' and $4::timestamptz + interval '1 day'
           order by r.started_at, r.id`, [s.companyId, s.contactId, self.caller_id, self.started_at]);
-        const at = near.findIndex((r) => r.id === self.id);
-        if (at >= 0) {
-          const joins = (a: { ended_at: Date }, b: { started_at: Date }) => b.started_at.getTime() - a.ended_at.getTime() <= gap * 60e3;
-          let lo = at, hi = at;
-          while (lo > 0 && joins(near[lo - 1], near[lo])) lo--;
-          while (hi < near.length - 1 && joins(near[hi], near[hi + 1])) hi++;
-          parts = near.slice(lo, hi + 1);
-        }
+        parts = chain(near);
       }
       const value = listOf(parts.map(({ caller_id: _c, ...r }) => r));
       const me = parts.findIndex((r) => r.id === self.id);

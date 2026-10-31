@@ -22,9 +22,10 @@ export type OneBoardParams = {
   appointmentDateFormat: string;
   /** the Sales Call's call type: the calendar's call type → option key, `otherwise` for the rest; `title` names the choice */
   callTypes: { pick: Record<string, string>; otherwise: string; title: string };
-  /** the Sales Call's Primary Objection options and the dispositions a recording may file */
+  /** the Sales Call's Primary Objection options (a recording files no disposition: the end of day does, D271) */
   objections: string[];
-  recordedDispositions: string[];
+  /** D271: the call review's model and output allowance (PMU: Sonnet 5.5, 16,000), else the engine's */
+  review?: { model?: string; maxTokens?: number };
   /** the custom object a payment is recorded on */
   paymentObject: string;
   /** the faces the recording's Slack post rotates through */
@@ -81,19 +82,22 @@ export function oneBoardCopies(p: OneBoardParams): Copy[] {
   // the CRM note is Tyler's four sections and the recording link, and the Slack post says the same
   d = load("call-recorded"); drop(d, "o3");
   Object.assign(node(d, "r1").properties as Record<string, string>, {
-    closer: "{{recording.closer.first_name | default: | lower}}",
-    disposition: `{{vars.outcome.disposition | oneof:${p.recordedDispositions.join(",")} | default:}}`,
+    closer: "{{recording.credited.first_name | default: | lower}}",
     objection_primary: `{{vars.notes.primary_objection | oneof:${p.objections.join(",")} | default:}}`,
   });
-  node(d, "n1").template = "CURRENT SITUATION: {{vars.notes.prospect_situation | default:—}}\n\n"
+  const note = "CURRENT SITUATION: {{vars.notes.prospect_situation | default:—}}\n\n"
     + "PAINS: {{vars.notes.pain | join:\" \" | default:—}}\n\n"
     + "GOALS: {{vars.notes.desire | join:\" \" | default:—}}\n\n"
     + "OBJECTIONS: {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n\n"
+    + "NEXT STEPS: {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}\n\n"
     + "Fathom recording: {{recording.share_url | default:—}}";
+  node(d, "n1").template = note; node(d, "n_cl").template = note;
+  if (p.review?.model) node(d, "a2").model = p.review.model;
+  if (p.review?.maxTokens) node(d, "a2").max_tokens = p.review.maxTokens;
   const s1 = node(d, "s1");
   s1.template = "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n"
     + "{{vars.appt_line}}\n"
-    + "*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n"
+    + "*Closer:* {{recording.credited.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n"
     + "*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n\n"
     + "*Current situation:* {{vars.notes.prospect_situation | default:—}}\n"
     + "*Pains:* {{vars.notes.pain | join:\" \" | default:—}}\n"
@@ -101,7 +105,7 @@ export function oneBoardCopies(p: OneBoardParams): Copy[] {
     + "*Objections:* {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n"
     + "*Next step:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}";
   (s1.as as Record<string, unknown>).icon = p.slackIcons;
-  out.push(asCopy("call-recorded", d, `${p.name}: one board. No setter card to mark showed; the closer, disposition and objection in ${p.name}'s own dropdown keys; the GHL note is Tyler's four sections (current situation, pains, goals, objections) and the Fathom link, the Slack post says the same with his emoji, the scorecard only in the thread`));
+  out.push(asCopy("call-recorded", d, `${p.name}: one board. No setter card to mark showed; the closer and objection in ${p.name}'s own dropdown keys (the disposition is the end of day's, D271); the GHL note is Tyler's five sections (current situation, pains, goals, objections, next steps) and the Fathom link, the Slack post says the same with his emoji, the scorecard only in the thread`));
 
   // Deal closed: the one card → won
   d = load("deal-closed"); drop(d, "p2");

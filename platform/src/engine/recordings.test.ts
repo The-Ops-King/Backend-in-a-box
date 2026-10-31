@@ -100,8 +100,8 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
   it("records once: a linked row with event + appointment, a duplicate on replay, an unlinked row with its reason and a contact-less event", async () => {
     const r = await asOperator((c) => recordRecording(c, companyId, rec("f-1", { title: "Ann x Cal", invitees: [{ email: "ann@x.com", name: "Ann Lee", isExternal: true }], transcript: [{ speaker: "Ann", text: "hi" }] })));
     expect(r.outcome).toBe("linked"); if (r.outcome !== "linked") return;
-    expect(r.recording).toMatchObject({ contact_id: ann, link_status: "linked", linked_by: "speaker" }); expect(r.appointmentId).toBeTruthy();
-    expect(r.event).toMatchObject({ event_type: "recording.received", contact_id: ann, source: "fathom" }); expect(r.event.data).toMatchObject({ appointment_matched: true, matched_by: "speaker", title: "Ann x Cal" });
+    expect(r.recording).toMatchObject({ contact_id: ann, link_status: "linked", linked_by: "email" }); expect(r.appointmentId).toBeTruthy();   // D271: the invite's email first
+    expect(r.event).toMatchObject({ event_type: "recording.received", contact_id: ann, source: "fathom" }); expect(r.event.data).toMatchObject({ appointment_matched: true, matched_by: "email", title: "Ann x Cal" });
     expect((await asOperator((c) => recordRecording(c, companyId, rec("f-1")))).outcome).toBe("duplicate");
     const u = await asOperator((c) => recordRecording(c, companyId, rec("f-2", { startedAt: new Date("2020-01-01T00:00:00Z"), invitees: [{ email: "who@where.com" }] })));
     expect(u.outcome).toBe("unlinked"); if (u.outcome !== "unlinked") return;

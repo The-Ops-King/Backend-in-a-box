@@ -448,7 +448,8 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     const review = posts.slice(nPosts).find((p) => p.channel === "CCALLS")!;
     expect(review.text).toContain("*Closer:* James Closer · 64 min"); expect(review.text).toContain("marked showed"); expect(review.text).toContain("Open the call in GHL");
     expect(posts.slice(nPosts).filter((p) => p.channel === "CSET")).toEqual([]);
-    expect(recordWrites.slice(nRec)).toEqual(expect.arrayContaining([expect.objectContaining({ object: "custom_objects.sales_call", outcome: "showed", disposition: "close_pending", closer: "James Closer" })]));
+    expect(recordWrites.slice(nRec)).toEqual(expect.arrayContaining([expect.objectContaining({ object: "custom_objects.sales_call", closer: "James Closer" })]));
+    expect(recordWrites.slice(nRec).filter((w) => w.object === "custom_objects.sales_call" && ("outcome" in w || "disposition" in w))).toEqual([]);   // D271: the end of day writes the result
     expect(recordWrites.slice(nRec).filter((w) => w.object === "custom_objects.discovery_call")).toEqual([]);
   });
 
@@ -478,7 +479,7 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     expect(closer).toMatchObject({ status: "completed", exit_reason: "recorded" });
     expect(await asOperator((c) => one<{ outcome: string }>(c, "select t.category as outcome from appointments a join company_terms t on t.id=a.outcome_term where a.id=$1", [other]))).toEqual({ outcome: "showed" });
     expect(edits.filter((e) => e.ts === review.ts).at(-1)!.text).toContain("marked showed");
-    expect(recordWrites.slice(nRec).filter((w) => w.object === "custom_objects.sales_call")).toEqual([expect.objectContaining({ outcome: "showed" })]);
+    expect(recordWrites.slice(nRec).filter((w) => w.object === "custom_objects.sales_call")).toHaveLength(1);   // one Sales Call write; its outcome is the end of day's (D271)
   });
 
   it("transcripts are never stored: read from GHL when a step needs it; none in the recording, the events, the run or its steps; a read Jev could not do reads it again on the retry", async () => {

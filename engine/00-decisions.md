@@ -6820,3 +6820,28 @@ should be checking GHL in all cases", "DUPLICATES ARE STORED IN AND CHECKED AGAI
 - `event.full_reason`: whether the payment's billing reason is one the offer counts (`payments.full_reasons`). PMU tags
   payment-received on a payment in full, or on a balance that clears the price after only a deposit, paid for a counted reason
   (Tyler, 2026-10-31: a $250 deposit then the $9,750 is paid in full).
+
+## D271. PMU's call review is the Zap's, done the engine's way (2026-10-31)
+
+Tyler, taking PMU's Fathom → GHL → Slack Zap off: "invitee email first, then zoom id, then who spoke last. and it should check based on
+the time"; "Unmatched shouldn't be a thing. we should be finding ENOUGH that it should post"; "Call recorded by 2 people only gets
+reviewed once. and by the MAIN owner, or the owner of the contact"; "There is a chance that it could be a 2 or even 3 part call";
+"we should have the next steps line"; "stop writing directly. only use the EOD"; "Sonnet 5.5"; "16000 tokens". Engine code, every offer;
+PMU's copy changes by name with a dry run.
+
+- **Matching** (`recordings.ts`), each held to the time a booking spans (D227): the invite's email; the booking whose own Zoom id the
+  call used; who spoke; the meeting's title ("Shay and Carly Vu": the name that is not the team's); an invitee name one contact has.
+  The invite and the room give way when someone who spoke is plainly another person booked then (D227's Beth on Corina's invite).
+  A booking whose room the call used still wins over that person's nearest booking.
+- **One review per meeting:** a recording overlapping one already in, of the same person (or the same title, unless the title is
+  only the tool's, "Impromptu Zoom Meeting"), recorded by someone else, is a copy (`raw.copy_of`): linked as the first was, it
+  starts nothing. The review is credited to the booking's closer, else the contact's (`recording.credited`), never merely the recorder.
+- **A call in parts:** a meeting's parts (the same person, each starting within `calls.conversation_gap_min` of the last ending;
+  PMU: 20) are one conversation (`call_conversation`), as a dialer call's are. A later part re-runs the review on the whole call; the
+  Slack post is edited and the note is rewritten (`note.key`: one note per call, `crm_records` 'contact.note').
+- **No result written by the AI:** Sales call recorded no longer writes the Sales Call's outcome or disposition; the end of day does
+  (D239, D264). The AI's read stays in the Slack post and pre-fills the end of day.
+- **PMU:** the note gains NEXT STEPS; the review runs on Sonnet 5.5 with 16,000 tokens (`analyze.model`, `max_tokens`; the one-board
+  playbook's `review`); its unused `recordedDispositions` is gone. Not a sales call: nothing posts (the Zap posted "N/A"). Nobody
+  matched: the Unmatched recording post with its Link button. A GHL dialer call Jev reads as a closing call comes in through Setter
+  call logged, which hands it to this review (as before).

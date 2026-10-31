@@ -54,7 +54,8 @@ const oneBoard = z.object({
   stages: z.object({ newLead: label, booked: label, rescheduled: label, cancelled: label, noShow: label, confirmed: label, unresponsive: label, purchase: label, won: label }),
   lead: z.object({ tags: z.array(label), label }), cardNames: z.object({ self: label, setter: label }), appointmentDateFormat: label,
   callTypes: z.object({ pick: z.record(label), otherwise: label, title: label }),
-  objections: z.array(label).min(1), recordedDispositions: z.array(label).min(1), paymentObject: label, slackIcons: z.array(label).min(1),
+  objections: z.array(label).min(1), paymentObject: label, slackIcons: z.array(label).min(1),
+  review: z.object({ model: z.string().regex(/^claude-[a-z0-9.-]+$/).optional(), maxTokens: z.number().int().positive().optional() }).optional(),   // D271
   noPreCall: z.array(label).optional(),
 });
 const parse = <T>(schema: z.ZodType<T>, params: unknown, slug: string): T => {
@@ -84,7 +85,7 @@ export const playbooks: Playbook[] = [
       name: offer, board: offer,
       stages: { newLead: "New Lead", booked: "Booked Call", rescheduled: "Rescheduled", cancelled: "Cancelled", noShow: "No Show", confirmed: "Call Confirmed", unresponsive: "Unresponsive", purchase: "Purchase", won: "Closed Won" },
       lead: { tags: [], label: "a lead tag" }, cardNames: { self: "Direct", setter: "Setter" }, appointmentDateFormat: "MM-dd-yyyy HH:mm",
-      callTypes: { pick: {}, otherwise: "closing", title: "Call type" }, objections: OBJECTIONS, recordedDispositions: ["closed_won", "follow_up", "lost", "dq"],
+      callTypes: { pick: {}, otherwise: "closing", title: "Call type" }, objections: OBJECTIONS,
       paymentObject: "custom_objects.payment", slackIcons: [":telephone_receiver:"],
     }),
   },

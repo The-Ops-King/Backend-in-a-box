@@ -626,7 +626,23 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const noteText = render(node.template, d.ctx, env(d));
       if (ghost(d)) return { status: "ok", next, result: { ghost: true, would_note: noteText.slice(0, 160) } };
       if (!ghlId) return { status: "failed", error: "note: contact has no CRM id yet" };
-      const w = await writeOnce(d, node, "note", async () => { await d.adapters.write.addNote(d.adapterCompany, ghlId, noteText); return null; });
+      // D271: a keyed note is the contact's one note under that key: rewritten in place when it is there (a later part of the same call), else written and remembered
+      const key = node.key ? render(node.key, d.ctx, env(d)).trim() : "";
+      const kept = key ? await one<{ ghl_record_id: string | null }>(d.c, "select ghl_record_id from crm_records where company_id=$1 and object_key='contact.note' and record_key=$2 and contact_id=$3", [d.company.id, key, d.run.contact_id]) : null;
+      if (kept?.ghl_record_id && d.adapters.write.updateNote) {
+        try {
+          await d.adapters.write.updateNote(d.adapterCompany, ghlId, kept.ghl_record_id, noteText);
+          await d.c.query("update crm_records set properties=jsonb_build_object('body', left($3::text, 2000)), updated_at=now() where company_id=$1 and object_key='contact.note' and record_key=$2", [d.company.id, key, noteText]);
+          return { status: "ok", next, result: { updated: kept.ghl_record_id, key } };
+        } catch (e) { if (!/\b404\b/.test(String((e as Error).message))) throw e; }   // gone from the CRM (deleted by hand): written again below
+      }
+      const w = await writeOnce(d, node, "note", async () => {
+        const made = await d.adapters.write.addNote(d.adapterCompany, ghlId, noteText);
+        const id = (made && "id" in made && made.id) || null;
+        if (key) await d.c.query(`insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,'contact.note',$2,$3,$4,jsonb_build_object('body', left($5::text, 2000)))
+          on conflict (company_id, object_key, record_key) do update set ghl_record_id=excluded.ghl_record_id, contact_id=excluded.contact_id, properties=excluded.properties, updated_at=now()`, [d.company.id, key, id, d.run.contact_id, noteText]);
+        return id;
+      });
       if ("pending" in w) return { status: "skipped", next, result: { kind: "blocked", why: `note not written twice: ${PENDING_WHY}` } };
       return w.reused ? { status: "ok", next, result: { reused: true, why: "written on an earlier try" } } : { status: "ok", next };
     }
@@ -852,7 +868,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const input = render(node.input, d.ctx, env(d)).trim();
       if (!input) return { status: "skipped", next, result: { kind: "noop", why: "nothing to analyze: input rendered empty (no transcript?)" } };
       let r: Awaited<ReturnType<typeof d.adapters.analyst.analyze>>;
-      try { r = await d.adapters.analyst.analyze(apiKey, { system, input, format: node.format, maxTokens: node.max_tokens }); }
+      try { r = await d.adapters.analyst.analyze(apiKey, { system, input, format: node.format, maxTokens: node.max_tokens, model: node.model }); }
       catch (e) { if (node.optional) return soft(`analyze: ${(e as Error).message}`); throw e; }
       if (r.refused) return { status: "failed", error: `analyze ${node.id}: the model declined (${r.refused})` };
       const value = node.format === "json" ? (r.parsed ?? { raw: r.text, parse_error: r.parseError }) : r.text;

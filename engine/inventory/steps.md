@@ -5,20 +5,20 @@ Every step also takes `title`, `only_if` (skipped when false) and `blocking`.
 
 | step | parameters | what it does | company settings it reads |
 |---|---|---|---|
-| `analyze` | `prompt`, `input`, `into`, `format`, `max_tokens`, `optional` | Reads a transcript or text with the AI and keeps what it returns. | secret.anthropic_key, prompt.* |
+| `analyze` | `prompt`, `input`, `into`, `format`, `max_tokens`, `model`, `optional` | Reads a transcript or text with the AI and keeps what it returns. | secret.anthropic_key, prompt.* |
 | `availability_check` | `min_slots`, `days` | Counts bookable times on every watched calendar and raises a low-availability alert. | booking source token |
 | `branch` | `on` | Follows the first way on whose condition holds, else the `else` way. | none |
 | `check` | `when`, `else_exit`, `else_pause`, `retry` | A gate: goes on when its condition holds, else exits or pauses (can look again for a while first). | none |
 | `classify` | `input`, `state`, `domain`, `threshold`, `into`, `question`, `criteria`, `ambiguity_max` | Asks Jev which of a domain's options a reply or transcript means. | secret.jev_key |
 | `create_task` | `body`, `due`, `assign_to` | Makes a GHL task on the contact. | crm.tasks |
-| `crm_record` | `object`, `key`, `record_id`, `properties`, `owner`, `if_missing`, `relate`, `clear` | Creates or updates a GHL custom object record (Sales Call, Discovery Call, Payment) and relates it. | none |
+| `crm_record` | `object`, `key`, `record_id`, `match_on`, `properties`, `owner`, `if_missing`, `relate`, `clear` | Creates or updates a GHL custom object record (Sales Call, Discovery Call, Payment) and relates it. | none |
 | `ensure_contact` | `tags`, `scope_tag`, `source` | Finds the person in GHL by id, email or phone, else creates them; fills blanks, never overwrites. | scope.tag (scope_tag) |
 | `eod_due` | `period`, `into`, `lookback_days`, `include_today`, `overdue_after_days` | Lists the days a person still owes an end of day (the ledger and GHL's Sales Calls). | crm.object_sales_call, sales_call.outcomes, sales_call.dispositions, sales_call.closer_options |
 | `exit` | `reason` | Ends the run with a reason. | none |
 | `health_check` | `checks`, `channel`, `as`, `slots_days`, `fathom_silent_days`, `drift_days`, `poll_lag_min`, `meeting_link_hours` | Runs the hourly checks and turns what fails into alerts (the checks and their words are the engine's). | many: the GHL, Calendly, Whop, Fathom, Typeform, Slack and AI settings |
 | `leaderboard` | `period`, `into` | Builds the closer and setter leaderboard for a period. | none |
 | `lookup` | `query`, `params`, `into` | Reads one of a fixed set of ledger queries into vars (bookings, events, calls, a call's conversation). | none |
-| `note` | `template` | Leaves a GHL note on the contact. | none |
+| `note` | `template`, `key` | Leaves a GHL note on the contact. | none |
 | `notify_owner` | `template`, `fallback_channel`, `task`, `as` | DMs the contact's owner in Slack, else posts in a fallback channel; can make a task. | crm.default_closer, bot.escalate_to, slack.channel.ops, test.slack_channel, slack.live, slack.name, slack.icon |
 | `pause_runs` | `scope` | Pauses the contact's other runs (a person took over). | none |
 | `pipeline_card` | `pipeline`, `stage`, `name`, `assign_to`, `status`, `if_missing`, `pick`, `fields`, `followers`, `from_stages`, `keep_name`, `value` | Creates or moves the contact's GHL pipeline card (opportunity). | none |

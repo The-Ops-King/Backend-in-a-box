@@ -1,6 +1,6 @@
 {
  "workflow": "call-recorded",
- "note": "PMU: one board. No setter card to mark showed; the closer, disposition and objection in PMU's own dropdown keys; the GHL note is Tyler's four sections (current situation, pains, goals, objections) and the Fathom link, the Slack post says the same with his emoji, the scorecard only in the thread",
+ "note": "PMU: one board. No setter card to mark showed; the closer and objection in PMU's own dropdown keys (the disposition is the end of day's, D271); the GHL note is Tyler's five sections (current situation, pains, goals, objections, next steps) and the Fathom link, the Slack post says the same with his emoji, the scorecard only in the thread",
  "definition": {
   "schema": 1,
   "reentry": "always",
@@ -103,7 +103,9 @@
      "rubric"
     ],
     "title": "AI: call notes and scorecard",
-    "input": "{{vars.convo.transcript_text}}"
+    "input": "{{vars.convo.transcript_text}}",
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 16000
    },
    {
     "id": "v_parts",
@@ -156,7 +158,7 @@
      "name": "Showed",
      "icon": ":white_check_mark:"
     },
-    "template": "✅ Showed · {{vars.convo.total_min | default:?}} min{{vars.parts_line}} with {{recording.closer.name | default:the closer}}. The review is in the calls channel.",
+    "template": "✅ Showed · {{vars.convo.total_min | default:?}} min{{vars.parts_line}} with {{recording.credited.name | default:the closer}}. The review is in the calls channel.",
     "title": "React ✅ on the booking post",
     "tag": "showed:{{appointment.id}}",
     "edit": true
@@ -203,12 +205,10 @@
      "opportunity_id": "{{cards.closer.id | default:}}",
      "scheduled_at": "{{appointment.starts_at | default:}}",
      "call_date": "{{recording.started_at | date_company:yyyy-MM-dd}}",
-     "outcome": "{{picklist.sales_call_outcome.showed}}",
      "recording_url": "{{recording.share_url | default:}}",
      "transcript_ref": "{{recording.url | default:}}",
-     "closer": "{{recording.closer.first_name | default: | lower}}",
+     "closer": "{{recording.credited.first_name | default: | lower}}",
      "duration_min": "{{vars.convo.total_min | default:}}",
-     "disposition": "{{vars.outcome.disposition | oneof:closed_won,follow_up,lost,dq | default:}}",
      "objection_primary": "{{vars.notes.primary_objection | oneof:price,think_about_it,spouse_partner,timing,finances,already_working_with_someone,tried_similar_before,no_time_to_implement,skeptical_it_works,needs_more_info,shopping_around,financing_declined,too_early_in_business,went_dark,not_qualified,none | default:}}",
      "next_step": "{{vars.notes.next_step | default:}}",
      "next_step_date": "{{vars.notes.next_step_date | default:}}",
@@ -235,13 +235,14 @@
    {
     "id": "n1",
     "type": "note",
-    "template": "CURRENT SITUATION: {{vars.notes.prospect_situation | default:—}}\n\nPAINS: {{vars.notes.pain | join:\" \" | default:—}}\n\nGOALS: {{vars.notes.desire | join:\" \" | default:—}}\n\nOBJECTIONS: {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n\nFathom recording: {{recording.share_url | default:—}}"
+    "template": "CURRENT SITUATION: {{vars.notes.prospect_situation | default:—}}\n\nPAINS: {{vars.notes.pain | join:\" \" | default:—}}\n\nGOALS: {{vars.notes.desire | join:\" \" | default:—}}\n\nOBJECTIONS: {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n\nNEXT STEPS: {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}\n\nFathom recording: {{recording.share_url | default:—}}",
+    "key": "review:{{vars.convo.key}}"
    },
    {
     "id": "s1",
     "type": "slack_post",
     "channel": "{{slack.channel.calls}}",
-    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n\n*Current situation:* {{vars.notes.prospect_situation | default:—}}\n*Pains:* {{vars.notes.pain | join:\" \" | default:—}}\n*Goals:* {{vars.notes.desire | join:\" \" | default:—}}\n*Objections:* {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n*Next step:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
+    "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.credited.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n*Outcome:* {{vars.outcome.disposition | words | default:unclear}}\n\n*Current situation:* {{vars.notes.prospect_situation | default:—}}\n*Pains:* {{vars.notes.pain | join:\" \" | default:—}}\n*Goals:* {{vars.notes.desire | join:\" \" | default:—}}\n*Objections:* {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n*Next step:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
     "as": {
      "name": "Sales call recorded",
      "icon": [
@@ -460,8 +461,9 @@
    {
     "id": "n_cl",
     "type": "note",
-    "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
-    "title": "A client's call: the note only (D236)"
+    "template": "CURRENT SITUATION: {{vars.notes.prospect_situation | default:—}}\n\nPAINS: {{vars.notes.pain | join:\" \" | default:—}}\n\nGOALS: {{vars.notes.desire | join:\" \" | default:—}}\n\nOBJECTIONS: {{vars.notes.objections | each:\"{{item.objection}}\" | join:\", \" | default:None}}\n\nNEXT STEPS: {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}\n\nFathom recording: {{recording.share_url | default:—}}",
+    "title": "A client's call: the note only (D236)",
+    "key": "review:{{vars.convo.key}}"
    },
    {
     "id": "x_cl",

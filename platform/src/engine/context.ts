@@ -201,6 +201,13 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     for (const role of OBJECT_ROLES) { const r = recs.find((x) => x.object_key === bindings[`crm.object_${role}`]); if (r) records[role] = { key: r.record_key, id: r.ghl_record_id ?? "" }; }
     ctx.records = records;
   }
+  // D271 (Tyler: "reviewed once, and by the MAIN owner, or the owner of the contact"): who a recorded call is credited to: the booking's
+  // closer, else the contact's closer (their closer card, else their owner), else whoever recorded it (a second recorder is never credited)
+  if (ctx.recording) {
+    const rec = ctx.recording as Record<string, unknown>, appt = ctx.appointment as { closer?: { name?: string | null } } | undefined, ct = ctx.contact as { closer?: { name?: string } } | undefined;
+    const by = appt?.closer?.name ? appt.closer : ct?.closer?.name ? ct.closer : rec.closer as { name?: string } | undefined;
+    if (by?.name) rec.credited = { ...by, first_name: by.name.split(" ")[0] };
+  }
   // D104: the booking card's intake lines as the company set them, ready to post; none set, nothing
   if (ctx.contact) (ctx.contact as Record<string, unknown>).intake_lines = intakeText(intakeLines(bindings), fields, (ctx.appointment as { answers?: Record<string, unknown> } | undefined)?.answers, ((ctx.contact as { tags?: string[] }).tags ?? [])) || undefined;
   // a run about a person on the team (a closer's end-of-day, a report filed): who they are, their standing link, and their end-of-day facts

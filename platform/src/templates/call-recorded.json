@@ -5,7 +5,7 @@
   "stage": "call",
   "sort": 10,
   "origin": "spec",
-  "description": "A call recording arrived and was matched to a contact (Fathom), or Setter call logged handed over a dialer call Jev read as a closing call: the same closer workflow reads both. Jev decides whether a meeting recording is a sales call (anything else stops here) and how the call ended, and the AI pulls the notes and scores the call against the rubric, reading the whole call (a dialer call in parts is one call; transcripts are fetched from their source and never stored). When the call lines up with a booking, the appointment is recorded as showed, stat-showed is added and the setter card moves to Showed and is marked won; the team gets the review in Slack first (so a CRM hiccup never hides that the call happened; the same call again edits it), then the Sales Call record is updated (created at booking by call-booked) and the notes go on the contact. A closing call by phone that lines up with no booking is posted as unlinked and the team is asked which booking it was; a tap links it and this workflow runs again on that booking. Picklist values that the CRM would silently drop are filtered before they are written.",
+  "description": "A call recording arrived and was matched to a contact (Fathom), or Setter call logged handed over a dialer call Jev read as a closing call: the same closer workflow reads both. Jev decides whether a meeting recording is a sales call (anything else stops here) and how the call ended, and the AI pulls the notes and scores the call against the rubric, reading the whole call (a dialer call or a meeting in parts is one call, D271; transcripts are fetched from their source and never stored). When the call lines up with a booking, the appointment is recorded as showed, stat-showed is added and the setter card moves to Showed and is marked won; the team gets the review in Slack first (so a CRM hiccup never hides that the call happened; the same call again edits it), then the Sales Call record is updated with the call's facts (created at booking by call-booked; its outcome is the end of day's to write, never the AI's, D271) and the notes go on the contact (one note per call, updated as more of it comes in). The call is credited to the booking's closer, else the contact's, never merely whoever recorded it. A closing call by phone that lines up with no booking is posted as unlinked and the team is asked which booking it was; a tap links it and this workflow runs again on that booking. Picklist values that the CRM would silently drop are filtered before they are written.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -168,7 +168,7 @@
           "name": "Showed",
           "icon": ":white_check_mark:"
         },
-        "template": "✅ Showed · {{vars.convo.total_min | default:?}} min{{vars.parts_line}} with {{recording.closer.name | default:the closer}}. The review is in the calls channel.",
+        "template": "✅ Showed · {{vars.convo.total_min | default:?}} min{{vars.parts_line}} with {{recording.credited.name | default:the closer}}. The review is in the calls channel.",
         "title": "React ✅ on the booking post",
         "tag": "showed:{{appointment.id}}",
         "edit": true
@@ -215,12 +215,10 @@
           "opportunity_id": "{{cards.closer.id | default:}}",
           "scheduled_at": "{{appointment.starts_at | default:}}",
           "call_date": "{{recording.started_at | date_company:yyyy-MM-dd}}",
-          "outcome": "{{picklist.sales_call_outcome.showed}}",
           "recording_url": "{{recording.share_url | default:}}",
           "transcript_ref": "{{recording.url | default:}}",
-          "closer": "{{recording.closer.name | default: | option:sales_call_closer}}",
+          "closer": "{{recording.credited.name | default: | option:sales_call_closer}}",
           "duration_min": "{{vars.convo.total_min | default:}}",
-          "disposition": "{{vars.disp | oneof:closed_won,follow_up,lost,dq,financing_denied,close_pending | default:}}",
           "objection_primary": "{{vars.notes.primary_objection | option:sales_call_objection | default:}}",
           "next_step": "{{vars.notes.next_step | default:}}",
           "next_step_date": "{{vars.notes.next_step_date | default:}}",
@@ -247,13 +245,14 @@
       {
         "id": "n1",
         "type": "note",
-        "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}"
+        "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.credited.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
+        "key": "review:{{vars.convo.key}}"
       },
       {
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.calls}}",
-        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.closer.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n\n*Outcome:* {{vars.disp | words | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
+        "template": "*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{vars.recording_line}}\n{{vars.appt_line}}\n*Closer:* {{recording.credited.name | default:unknown}} · {{vars.convo.total_min | default:?}} min{{vars.parts_line}}\n\n*Outcome:* {{vars.disp | words | default:unclear}}\n*Pain:* {{vars.notes.pain | bullets | default:—}}\n*Goal:* {{vars.notes.desire | bullets | default:—}}\n*Objections:* {{vars.notes.objections | bullets | default:none heard}}\n*Next Steps:* {{vars.notes.next_step | default:—}} {{vars.notes.next_step_date | date_company:ccc LLL d | prefix:by}}",
         "as": {
           "name": "Sales call recorded",
           "icon": [
@@ -456,8 +455,9 @@
       {
         "id": "n_cl",
         "type": "note",
-        "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.closer.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
-        "title": "A client's call: the note only (D236)"
+        "template": "CALL SUMMARY — {{recording.started_at | date_company:yyyy-MM-dd}}{{recording.credited.name | default:}}\n\n{{vars.notes | lines}}\n\nCall review: {{vars.rubric.overall_score | default:?}}/10\n{{vars.rubric | lines}}\n\nRecording: {{recording.share_url | default:—}}",
+        "title": "A client's call: the note only (D236)",
+        "key": "review:{{vars.convo.key}}"
       },
       {
         "id": "x_cl",

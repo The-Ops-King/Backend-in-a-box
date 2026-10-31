@@ -112,7 +112,10 @@ export interface CrmWrite {
   createContact(c: Company, input: { firstName?: string; lastName?: string; email?: string; phone?: string; tags?: string[]; customFields?: { id: string; field_value: string }[]; source?: string }): Promise<{ id: string }>;
   addTag(c: Company, contactId: string, tag: string): Promise<void>;
   removeTag(c: Company, contactId: string, tag: string): Promise<void>;
-  addNote(c: Company, contactId: string, body: string): Promise<void>;
+  /** The new note's id, when the CRM gives it (a keyed note step updates it later, D271). */
+  addNote(c: Company, contactId: string, body: string): Promise<{ id?: string } | void>;
+  /** D271: a note the engine wrote, rewritten in place. Absent: a keyed note is written anew. */
+  updateNote?(c: Company, contactId: string, noteId: string, body: string): Promise<void>;
   /** D227: one note off a contact (a call summary written on the wrong person). */
   deleteNote?(c: Company, contactId: string, noteId: string): Promise<void>;
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;

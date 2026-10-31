@@ -282,7 +282,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: Dating Nelly's runs, in shadow
     await tick(engine, start.plus({ hours: 1 }) as DateTime<true>, co);
     const reviewed = (await records()).filter((x) => x.object_key === DATING_OBJECTS.object_sales_call);
     expect(reviewed).toHaveLength(1);
-    expect(reviewed[0].properties).toMatchObject({ closer: "mitch", outcome: "showed", disposition: "follow_up", next_step: "call Friday" });
+    expect(reviewed[0].properties).toMatchObject({ closer: "mitch", outcome: "scheduled", next_step: "call Friday" });   // D271: still the booking's outcome; the end of day writes the result
+    expect(reviewed[0].properties).not.toHaveProperty("disposition");
     expect(reviewed[0].properties).not.toHaveProperty("objection_primary");   // the AI said "medical": not one of hers, so nothing is written
 
     await asOperator(async (c) => { const ev = await applyPayment(c, co, ct, { whopPaymentId: "pay_run", amount: 250, currency: "USD", status: "succeeded", paidAt: new Date(), raw: {} }); await dispatchEvent(c, ev, { contact: { id: ct } }); });

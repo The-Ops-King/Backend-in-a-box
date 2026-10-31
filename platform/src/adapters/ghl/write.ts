@@ -8,7 +8,8 @@ export const ghlWrite: CrmWrite = {
   },
   async addTag(c, contactId, tag) { await ghl(c.pit, "POST", `/contacts/${contactId}/tags`, { body: { tags: [tag] } }); },
   async removeTag(c, contactId, tag) { await ghl(c.pit, "DELETE", `/contacts/${contactId}/tags`, { body: { tags: [tag] } }); },
-  async addNote(c, contactId, body) { await ghl(c.pit, "POST", `/contacts/${contactId}/notes`, { body: { body } }); },
+  async addNote(c, contactId, body) { const r = await ghl<{ note?: { id?: string } }>(c.pit, "POST", `/contacts/${contactId}/notes`, { body: { body } }); return { id: r.note?.id }; },
+  async updateNote(c, contactId, noteId, body) { await ghl(c.pit, "PUT", `/contacts/${contactId}/notes/${noteId}`, { body: { body } }); },
   async deleteNote(c, contactId, noteId) { await ghl(c.pit, "DELETE", `/contacts/${contactId}/notes/${noteId}`); },
   // never `tags` on this PUT: GHL's spec says tags there replace every tag the contact has (addTag / removeTag change one)
   async updateContact(c, contactId, patch) {
