@@ -102,6 +102,7 @@ export function nodeExamples(n: Node, ctx: Record<string, unknown>, tz: string):
     case "pipeline_card": return ex("Card name", n.name);
     case "set_var": return typeof n.value === "string" ? ex(n.key, n.value) : [];
     case "analyze": return ex("What the AI is given", n.input);
+    case "score_call": return ex("The call scored", n.input);
     case "webhook": return [...ex("URL", n.url), ...(typeof n.body === "string" ? ex("Body", n.body) : n.body !== undefined ? [{ label: "Body", example: exampleOf(JSON.stringify(n.body, null, 2), ctx, tz) }] : [])];
     case "report": return ex("Which", n.kind);
     default: return [];

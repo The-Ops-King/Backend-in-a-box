@@ -37,6 +37,7 @@ function outputsOf(n: Node): { re: RegExp; what: string }[] {
     case "crm_record": return [{ re: pathRe("record"), what: "the record's id" }];
     case "classify": return [n.into, "reply.confidence", "reply.intent_confidence", "reply.top_guesses"].map((p) => ({ re: pathRe(p), what: pathWords(p) }));
     case "analyze": return (Array.isArray(n.into) ? n.into : [n.into]).map((k) => ({ re: pathRe(`vars.${k}`), what: `the AI's ${humanWords(k)}` }));
+    case "score_call": return [{ re: pathRe(`vars.${n.into}`), what: "the call's score" }];
     case "lookup": return [{ re: pathRe(`vars.${n.into}`), what: "what it looked up" }];
     case "webhook": return n.into ? [{ re: pathRe(`vars.${n.into}`), what: "the response" }] : [];
     case "report": return [{ re: pathRe(`vars.${n.into}`), what: "the wrap-up" }];

@@ -1,0 +1,53 @@
+{
+  "offer": "Beauty Moguls runs a $10K coaching program that helps PMU artists and beauty, spa and aesthetics business owners get clients with paid ads. Ad spend of about $600-900 per month is paid separately, on top of the program, and the owner commits about 5 hours per week. Skepticism, or saying they have been burned by an agency or program before, is normal for these buyers and is NOT a negative signal for any category.",
+  "speakers": "Two speakers: a setter from Beauty Moguls and a prospect. Speaker labels are numbers; tell them apart from context.",
+  "discussed_at": 0.5,
+  "low_confidence": 0.4,
+  "min_scored": 3,
+  "max_state_chars": 100000,
+  "tiers": [{ "min": 8, "label": "Hot" }, { "min": 5, "label": "Warm" }, { "min": 0, "label": "Nurture" }],
+  "form_fields": { "biggest_struggle": "Biggest struggle", "average_monthly_revenue": "Average monthly revenue, last 90 days" },
+  "categories": [
+    { "key": "biz_fit", "label": "Biz Fit", "source": "call",
+      "topic": "what kind of business they run and whether it is currently active",
+      "rate": "how well the prospect's business fits the program",
+      "levels": ["Outside the beauty industry, or no active business", "Adjacent beauty business; fit needs review", "Active PMU artist, or owner of a beauty, spa or aesthetics business"] },
+    { "key": "monthly_rev", "label": "Monthly Rev", "source": "call",
+      "topic": "how much money their business makes per month",
+      "rate": "the prospect's monthly revenue",
+      "levels": ["Below $4K per month", "Between $4K and $8K per month, or the amount is unclear", "Confirmed $8K per month or more (any amount above that is still this level)"],
+      "form": { "field": "average_monthly_revenue", "read": "revenue", "cutoffs": [4000, 8000] } },
+    { "key": "problem_goals", "label": "Problem & Goals", "source": "call",
+      "topic": "a problem in their business or a goal they want to reach",
+      "rate": "how clear and relevant the prospect's problem and goals are. Ignore timing; it is rated separately",
+      "levels": ["No relevant need", "General interest in growth", "A clear client-acquisition or consistency problem with a specific goal"],
+      "form": { "field": "biggest_struggle", "read": "jev" } },
+    { "key": "timeline", "label": "Timeline", "source": "call",
+      "topic": "when they want to fix their problem or start",
+      "rate": "how soon the prospect needs a solution",
+      "levels": ["No timeline, or not a priority", "Vague timeline, such as \"eventually\" or \"sometime this year\"", "Needs it now or within 90 days"] },
+    { "key": "investment", "label": "Investment Readiness", "source": "call",
+      "topic": "the program's price, or whether they can pay for the program",
+      "rate": "the prospect's readiness to pay for the program itself, not ad spend",
+      "levels": ["Says the program is financially out of reach", "Unclear, or needs discussion", "Understands the $10K program cost and confirms they can pay it"] },
+    { "key": "ad_spend", "label": "Ad-Spend Capacity", "source": "call", "gate": true,
+      "topic": "a monthly budget for ads, separate from the program price",
+      "rate": "the prospect's ability to fund a monthly ad budget on top of the program",
+      "levels": ["Cannot commit a monthly ad budget", "Unclear", "Confirms about $600-900 per month for ads on top of the program"] },
+    { "key": "decision", "label": "Decision & Implementation", "source": "call", "gate": true,
+      "topic": "who makes the buying decision, or whether they have time to do the work",
+      "rate": "the prospect's decision authority and readiness to put in the time",
+      "levels": ["Is not the decision-maker, or cannot commit the time", "Will have to check with someone else first, or timing is unclear", "Makes the decision alone (or others are not involved) and is ready for about 5 hours per week"] },
+    { "key": "engagement", "label": "Behavior/Engagement", "source": "crm",
+      "levels": ["Bounced fast, never played the VSL, form abandoned", "Partial VSL watch or incomplete form", "Completed form, past the gate, and/or repeat visits"],
+      "answered_of": ["biggest_struggle", "average_monthly_revenue"] }
+  ],
+  "dq_from_scores": [{ "key": "ad_spend", "when": 0, "reason": "Can't fund ad spend" }, { "key": "decision", "when": 0, "reason": "Not the decision-maker" }],
+  "dq_questions": {
+    "dq_no_revenue": { "reason": "No clients or no revenue", "instructions": "In `call_transcript`, does the prospect say their business has no clients at all, or no revenue at all?" },
+    "dq_magic_button": { "reason": "Wants a \"just turn on ads\" fix", "instructions": "In `call_transcript`, does the prospect expect results without doing any work themselves, for example wanting someone to \"just turn on ads\" or a magic button?" }
+  },
+  "bonus_tags": {
+    "tag_academy": { "label": "Academy / adding artists", "instructions": "In `call_transcript`, does the prospect mention starting or growing an academy or training program, or adding artists or staff to their business?" }
+  }
+}

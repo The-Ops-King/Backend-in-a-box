@@ -156,6 +156,8 @@ export type Classification = { value: string; confidence: number; distribution: 
 export type ChoiceOptions = { apiKey?: string; criteria?: Record<string, string>; ambiguityMax?: number; model?: string; question?: string };
 export interface Classifier {
   choice(state: string | undefined, input: string, options: string[], threshold: number, opts?: ChoiceOptions): Promise<Classification>;
+  /** D272: typed questions (choice | noul | score) against a state, each answer as Jev gives it; a failure is said, never thrown */
+  ask?(apiKey: string, state: Record<string, unknown>, questions: Record<string, Record<string, unknown>>): Promise<{ answers: Record<string, Record<string, unknown>> } | { error: string }>;
 }
 /** Who the post appears to come from (Slack `chat:write.customize`): a display name and an emoji (":calendar:") or an image URL. Blank = the app itself. */
 /** Who a post appears from. `icon` is an emoji (`:tada:`), an image URL, or a list of either: one is picked at random per post. */

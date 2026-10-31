@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic"; export const maxDuration = 120;
 
 /**
  * D149: one offer's GHL, with the token the engine holds.
- * GET  ?company=<slug> → { location, pipelines (stages in order), objects (custom objects, their fields and options), settings (crm.*, sales_call.*) }
+ * GET  ?company=<slug> → { location, pipelines (stages in order), objects (custom objects, their fields and options), contactFields (id, name, key, type), settings (crm.*, sales_call.*) }
  * POST { company, setup, apply? } → the additive setup's plan; with apply: true it makes what is missing (never deletes; a PUT
  *      only to the pipeline or field the setup names). `setup` names only what it is about: `pipelines` and `objects` as in
  *      installs/dating/ghl-setup.json, everything else optional. Dry run first, always; apply only on Tyler's word.

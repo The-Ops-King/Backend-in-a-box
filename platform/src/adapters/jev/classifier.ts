@@ -44,6 +44,17 @@ export const jevClassifier: Classifier = {
     if (!options.includes(choice) || p < threshold || ambiguity >= (opts?.ambiguityMax ?? 0.8)) return unclear(dist, p, ambiguity);
     return { value: choice, confidence: p, distribution: dist, unclear: false, ambiguity };
   },
+  // D272: a call scored against a rubric; 429/529 are retried with backoff as TypeSafe asks, anything else is reported
+  async ask(apiKey, state, questions) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let r: Awaited<ReturnType<typeof jevAsk>>;
+      try { r = await jevAsk(apiKey, { model: "jev-latest", state, questions }); } catch (e) { return { error: String((e as Error).message).slice(0, 160) }; }
+      if (r.ok) return { answers: (r.data?.answers ?? {}) as Record<string, Record<string, unknown>> };
+      if (r.status === 429 || r.status === 529) { await new Promise((ok) => setTimeout(ok, 800 * 2 ** attempt)); continue; }
+      return { error: `${r.status} ${r.error ?? ""}`.trim() };
+    }
+    return { error: "rate limited after 3 attempts" };
+  },
 };
 
 /** Is the key alive? One tiny noul question (D33 health). */

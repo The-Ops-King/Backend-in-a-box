@@ -56,6 +56,7 @@ export const NODE_NEEDS: { [T in Node["type"]]: (n: Extract<Node, { type: T }>) 
   crm_record: (n) => [{ kind: "custom_object", value: n.object, node: n.id, what: "the custom object" }],
   classify: (n) => [{ kind: "classify_domain", value: n.domain, node: n.id, what: "the options the AI picks from" }],
   analyze: (n) => [{ kind: "anthropic", value: "key", node: n.id, what: "the AI key" }],
+  score_call: (n) => [{ kind: "anthropic", value: "key", node: n.id, what: "the AI key" }],
   start_workflow: (n) => [{ kind: "workflow", value: n.workflow, node: n.id, what: "the workflow it hands off to" }],
   record: (n) => [{ kind: "event", value: n.event, node: n.id, what: "the event it records" }],
 };
