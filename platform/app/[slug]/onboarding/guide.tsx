@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ROLES, sectionShows, type Block, type Guide, type Role, type Video } from "@/team-guide/types";
 import { embedUrl } from "@/team-guide/embed";
+import type { TeamLinks } from "@/engine/team-links";
 import s from "./guide.module.css";
 
 // the role is in the link (?role=setter), so a manager can send each person the page already showing their part
@@ -10,9 +11,11 @@ const readRole = (): Role | null => {
   return ROLES.some((x) => x.id === r) ? (r as Role) : null;
 };
 
-export function GuideView({ guide }: { guide: Guide }) {
+export function GuideView({ guide, links }: { guide: Guide; links?: TeamLinks | null }) {
   const [role, setRole] = useState<Role>("closer");
-  useEffect(() => { const r = readRole(); if (r) setRole(r); }, []);
+  // D283: &name=jake shows only that person's links
+  const [name, setName] = useState("");
+  useEffect(() => { const r = readRole(); if (r) setRole(r); setName((new URLSearchParams(window.location.search).get("name") ?? "").trim().toLowerCase()); }, []);
   const pick = (r: Role) => {
     setRole(r);
     const u = new URL(window.location.href); u.searchParams.set("role", r); u.hash = "";
@@ -34,6 +37,7 @@ export function GuideView({ guide }: { guide: Guide }) {
         {ROLES.map((r) => <button key={r.id} role="tab" aria-selected={role === r.id} className={role === r.id ? `${s.role} ${s.on}` : s.role} onClick={() => pick(r.id)}>{r.label}</button>)}
       </div>
       <p className={s.roleAbout}>{ROLES.find((r) => r.id === role)!.about}</p>
+      {links ? <LinksView links={links} role={role} name={name} /> : null}
 
       <nav className={s.toc} aria-label="Contents">
         {parts.map((p, i) => <div key={p.id}>
@@ -75,4 +79,19 @@ function VideoView({ v }: { v: Video }) {
   if (!v.url) return <div className={s.videoSoon}><b>Video: {v.title}</b><span>Coming soon</span></div>;
   if (!src) return <p className={s.p}><a href={v.url} target="_blank" rel="noreferrer">Watch: {v.title}</a></p>;
   return <figure className={s.video}><iframe src={src} title={v.title} allow="autoplay; fullscreen; picture-in-picture" allowFullScreen loading="lazy" /><figcaption>{v.title}</figcaption></figure>;
+}
+
+/** D283: the booking links for the role (a manager sees everyone's); with a name in the link, only theirs. */
+function LinksView({ links, role, name }: { links: TeamLinks; role: Role; name: string }) {
+  const mine = (n: string) => !name || n.toLowerCase() === name || n.toLowerCase().split(/\s+/)[0] === name;
+  const groups = [...(role !== "setter" ? links.closers : []), ...(role !== "closer" ? links.setters : [])].filter((p) => mine(p.name) && p.links.length);
+  if (!groups.length) return null;
+  return <article id="your-links" className={s.card}>
+    <div className={s.cardHd}><h3 className={s.h3}>Your links</h3></div>
+    <p className={s.summary}>{role === "setter" ? "Book every call with one of these. Each link has your name in it, so the call is credited to you." : "Your booking links. Send the closing link for a follow-up or for a call you set yourself."}</p>
+    {groups.map((p) => <div key={p.name} className={s.tbl}><table>
+      <thead><tr><th colSpan={2}>{p.name}</th></tr></thead>
+      <tbody>{p.links.map((l) => <tr key={l.label}><td>{l.label}</td><td><a href={l.url} target="_blank" rel="noreferrer">{l.url.replace(/^https:\/\//, "")}</a></td></tr>)}</tbody>
+    </table></div>)}
+  </article>;
 }
