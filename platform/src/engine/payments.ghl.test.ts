@@ -35,7 +35,7 @@ describe.skipIf(!HAS_DB)("D270: payments read GHL, by the offer's settings", () 
     const r = await asOperator((c) => recordPayment(c, co, { providerPaymentId: "pay_bal", amount: 9750, status: "succeeded", paidAt: new Date(), email: "jen@x.com", raw: { billing_reason: "one_time" } }, undefined, { dispatch: false, ghl: g }));
     expect(r).toMatchObject({ outcome: "linked", payment: { kind: "balance" } });
     if (r.outcome !== "linked") return;
-    expect(r.event.data).toMatchObject({ prior_total: 250, prior_non_deposit_total: 0, running_total: 10000, cleared: true, full_price: 10000, billing_reason: "one_time", linked_by: "email" });
+    expect(r.event.data).toMatchObject({ prior_total: 250, prior_non_deposit_total: 0, running_total: 10000, cleared: true, full_price: 10000, billing_reason: "one_time", full_reason: true, linked_by: "email" });
     expect(await asOperator((c) => one(c, "select ghl_contact_id from contacts where id=$1", [r.contactId]))).toEqual({ ghl_contact_id: "G-JEN" });
     expect(await asOperator((c) => one(c, "select contract_value::int as v from opportunities where id=$1", [r.event.opportunity_id]))).toEqual({ v: 10000 });
   });
