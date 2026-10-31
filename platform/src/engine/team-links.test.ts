@@ -42,7 +42,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D283: team links", () => {
     const t = (u: string) => `${u}?utm_medium=setter&utm_content=jake`;
     expect(l.setters).toEqual([{ name: "Jake Taylor", links: [
       { label: "Triage (round robin)", url: t("https://cal.test/rr-triage") }, { label: "Closing (round robin)", url: t("https://cal.test/rr-closing") },
-      { label: "Taylor's triage", url: t("https://cal.test/taylor-triage") }, { label: "Taylor's closing", url: t("https://cal.test/taylor-closing") }, { label: "Jassie's closing", url: t("https://cal.test/jassie-closing") }] }]);
+      { label: "Taylor's closing", url: t("https://cal.test/taylor-closing") }, { label: "Jassie's closing", url: t("https://cal.test/jassie-closing") }] }]);
   });
   it("a calendar's booking mode changes after a dry run, audited", async () => {
     expect(await asOperator((c) => calendarBooking(c, { company: "links", calendar: "RT", booking: "utm", why: "test" }))).toMatchObject({ ok: true, dryRun: true, was: "self", booking: "utm" });
