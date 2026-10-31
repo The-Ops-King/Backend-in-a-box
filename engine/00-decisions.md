@@ -6877,6 +6877,11 @@ scored each call on eight categories; the engine's Setter call logged had one 1-
   made for each setting call, so the setter owes the end of day on it (Tyler: "yes the setter should owe the eod"). Outcome words
   stay the engine's (Set / Follow up / DQ / Not interested); which calls post stays the engine's (no voicemails, wrong numbers or
   closing calls). No other offer changes: the step is new and only PMU's copy uses it.
+- PMU's copy v5 (Tyler: yes, after the replay of PMU's 27 real calls over a minute dropped 19, Heather Lewandowski's 14 minutes among
+  them, as "not a setting call": Jev's guess was below its confidence bar, so the call was "unclear", and unclear was skipped). Now a
+  call is skipped only when Jev is sure it is not a setter conversation, or unsure with "other" as its best guess on a call under 3
+  minutes (`vars.other_under_sec`, the workflow's own value); every other call posts, an unsure one marked "call type unclear (Jev's
+  best guess: …)" and read for what it achieved like a setting call. On the 27: 19 post, 8 skip (about a minute each).
 
 ## D273. Which person a recording is: email, then the appointment's time, then the last name; a difference is told (2026-10-31)
 

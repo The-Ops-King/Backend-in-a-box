@@ -1,5 +1,5 @@
 /**
- * D272: PMU's own Setter call logged (installs/pmu/settings/setter-call-logged.v4.definition.json) end to end: the call scored on the
+ * D272: PMU's own Setter call logged (installs/pmu/settings/setter-call-logged.v5.definition.json) end to end: the call scored on the
  * offer's rubric, the post with the summary and the fit block, the transcript in its thread, the same recap as a GHL note, and the
  * Discovery Call made blank for the end of day.
  */
@@ -23,7 +23,7 @@ process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const TZ = "America/New_York", SLUG = `d272-${Date.now()}`;
 const DIR = path.resolve(__dirname, "../../installs/pmu/settings");
 const RUBRIC = fs.readFileSync(path.join(DIR, "setter-call-rubric.json"), "utf8"), PROMPT = fs.readFileSync(path.join(DIR, "setter-call-score-prompt.txt"), "utf8");
-const V4 = JSON.parse(fs.readFileSync(path.join(DIR, "setter-call-logged.v4.definition.json"), "utf8"));
+const V5 = JSON.parse(fs.readFileSync(path.join(DIR, "setter-call-logged.v5.definition.json"), "utf8"));
 
 const posts: { channel: string; text: string; threadTs?: string; ts: string }[] = [];
 const notes: { contact: string; body: string }[] = [], records: Record<string, unknown>[] = [];
@@ -58,7 +58,7 @@ describe.skipIf(!HAS_DB)("D272: PMU's setter call, scored as the Zap scored it",
       for (const [k, v] of [["prompt.setter_call_rubric", RUBRIC], ["prompt.setter_call_score", PROMPT]])
         await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [co, k, Buffer.from(v)]);
       const w = await findCompanyWorkflow(c, co, "setter-call-logged"); if (!w.ok) throw new Error(w.why);
-      const saved = await saveDefinition(c, { workflowId: w.id, definition: V4, note: "PMU v4 (D272)" });
+      const saved = await saveDefinition(c, { workflowId: w.id, definition: V5, note: "PMU v5 (D272)" });
       expect(saved).toMatchObject({ ok: true, saved: true });
       contactId = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, last_name, timezone, ghl_fields) values ($1,'G-ANA','Ana','Lopez',$2,'{}') returning id",
         [co, TZ]))!.id;
