@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { many } from "@/db/client";
 import { testContactSql } from "./mode";
+import { standsSql } from "./held";
 
 /**
  * D268 (Tyler: "they need to know about their sets ... a smart list called 'My closed' ... where they're the follower"). Who set a
@@ -17,7 +18,7 @@ export async function setsToFollow(c: PoolClient, companyId: string, q: { since:
       (select json_build_object('user_id', u.id, 'name', u.name, 'ghl_user_id', u.ghl_user_id) from users u
         where u.company_id=a.company_id and u.active and u.ghl_user_id is not null and lower(u.name) = lower(a.set_by) limit 1) as by_link,
       (select json_build_object('user_id', u.id, 'name', u.name, 'ghl_user_id', u.ghl_user_id) from appointments b join company_terms bt on bt.id=b.appointment_term join users u on u.id=b.assigned_user_id
-        where b.company_id=a.company_id and b.contact_id=a.contact_id and bt.category='first_call' and b.status<>'cancelled' and b.starts_at <= a.booked_at + interval '1 hour'
+        where b.company_id=a.company_id and b.contact_id=a.contact_id and bt.category='first_call' and ${standsSql("b")} and b.starts_at <= a.booked_at + interval '1 hour'
           and u.active and u.ghl_user_id is not null order by b.starts_at desc limit 1) as by_triage
     from appointments a join company_terms t on t.id=a.appointment_term join contacts ct on ct.id=a.contact_id
     where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.booked_at >= $2 and ct.ghl_contact_id is not null and not ${testContactSql("ct", "$3")}

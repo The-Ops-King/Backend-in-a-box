@@ -14,6 +14,7 @@ import { callSetting } from "./call-settings";
 import { switchOn } from "./setting-defaults";
 import { leadSourceSql, sourceFields, sourceFieldsParam, UNKNOWN_SOURCE } from "./lead-source";
 import { intakeLines, intakeText } from "./booking-card";
+import { standsSql } from "./held";
 
 export type RunRow = { id: string; company_id: string; workflow_id: string; workflow_version: number; contact_id: string | null; user_id?: string | null; opportunity_id: string | null; appointment_id: string | null; status: string; current_node: string | null; next_run_at: Date | null; context: Record<string, unknown>; reentry_key: string; started_at?: Date; resume_node?: string | null; resume_at?: Date | null; step_attempt?: number; step_error?: string | null; step_held?: boolean };
 export type CompanyRow = { id: string; name: string; slug: string; timezone: string; send_window_start: string; send_window_end: string; quiet_allow_transactional: boolean; status: string; sms_enabled: boolean; mode: import("./mode").Mode; contract_value_default: string | null };
@@ -131,10 +132,10 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
              -- D266: the setter the booking names (set_by is a roster name), as a team member, so a step can make them a follower
              (select json_build_object('id', su.id, 'first_name', split_part(su.name,' ',1), 'name', su.name, 'email', su.email, 'ghl_user_id', su.ghl_user_id, 'slack_user_id', su.slack_user_id, 'mention', coalesce('<@' || su.slack_user_id || '>', su.name))
                 from users su where su.company_id=a.company_id and su.active and lower(su.name)=lower(trim(a.set_by)) order by su.created_at limit 1) as setter,
-             -- D269: whoever ran their triage call before this call was booked (its last one, not cancelled, started by an hour after booking), so a step can make them a follower too
+             -- D269: whoever ran their triage call before this call was booked (its last one, not cancelled before its start, started by an hour after booking), so a step can make them a follower too
              (select json_build_object('id', tu.id, 'first_name', split_part(tu.name,' ',1), 'name', tu.name, 'email', tu.email, 'ghl_user_id', tu.ghl_user_id, 'slack_user_id', tu.slack_user_id, 'mention', coalesce('<@' || tu.slack_user_id || '>', tu.name))
                 from appointments tb join company_terms tbt on tbt.id=tb.appointment_term join users tu on tu.id=tb.assigned_user_id
-                where tb.company_id=a.company_id and tb.contact_id=a.contact_id and tb.id<>a.id and tbt.category='first_call' and tb.status<>'cancelled' and tb.starts_at <= coalesce(a.booked_at, a.starts_at) + interval '1 hour' and tu.active
+                where tb.company_id=a.company_id and tb.contact_id=a.contact_id and tb.id<>a.id and tbt.category='first_call' and ${standsSql("tb")} and tb.starts_at <= coalesce(a.booked_at, a.starts_at) + interval '1 hour' and tu.active
                 order by tb.starts_at desc limit 1) as triager,
              ot.category as outcome, cot.category as call_outcome
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
@@ -166,16 +167,16 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
     // payment is credited to (PMU's Cash record, as the Zap did it)
     const callCloser = await one<{ id: string; name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, `select u.id, u.name, u.email, u.ghl_user_id, u.slack_user_id from appointments a
       join users u on u.id=a.assigned_user_id join company_terms t on t.id=a.appointment_term
-      where a.company_id=$1 and a.contact_id=$2 and t.category='closing' and a.status<>'cancelled' and a.starts_at <= now() order by a.starts_at desc limit 1`, [company.id, run.contact_id]);
+      where a.company_id=$1 and a.contact_id=$2 and t.category='closing' and ${standsSql("a")} and a.starts_at <= now() order by a.starts_at desc limit 1`, [company.id, run.contact_id]);
     // the setter is a name the team typed on the contact (crm.field_contact_setter); a team member of exactly that name can be @mentioned
     const setterName = typeof fields.setter === "string" ? fields.setter.trim() : "";
     const setterUser = setterName ? await one<{ name: string; email: string; ghl_user_id: string; slack_user_id: string | null }>(c, "select name, email, ghl_user_id, slack_user_id from users where company_id=$1 and lower(name)=lower($2) limit 1", [company.id, setterName]) : null;
-    const firstBooking = await one<{ at: Date | null }>(c, "select min(starts_at) as at from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled'", [company.id, run.contact_id]);
+    const firstBooking = await one<{ at: Date | null }>(c, `select min(a.starts_at) as at from appointments a where a.company_id=$1 and a.contact_id=$2 and ${standsSql("a")}`, [company.id, run.contact_id]);
     const firstBookedAt = firstBooking?.at ?? null, firstPaidAt = pay?.first_at ?? null;
     // D252: has this person ever shown up to a call (any booking filed or marked showed)? Tyler: "I don't want anyone who showed up to a call to have those tags"
     const showedEver = !!(await one(c, "select 1 from appointments a left join company_terms t on t.id=a.outcome_term where a.company_id=$1 and a.contact_id=$2 and (a.status='showed' or t.category='showed') limit 1", [company.id, run.contact_id]));
     // D44: a payment or a no-show lands as a reaction on the person's booking post and call review; these name which
-    const latestAppt = await one<{ id: string }>(c, "select id from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' order by starts_at desc limit 1", [company.id, run.contact_id]);
+    const latestAppt = await one<{ id: string }>(c, `select a.id from appointments a where a.company_id=$1 and a.contact_id=$2 and ${standsSql("a")} order by a.starts_at desc limit 1`, [company.id, run.contact_id]);
     const latestRec = await one<{ id: string }>(c, "select id from recordings where company_id=$1 and contact_id=$2 order by started_at desc limit 1", [company.id, run.contact_id]);
     // a live closing call still ahead of them, other than the one this run is about: what a nudge to book (or rebook) checks before it goes
     const upcoming = await one(c, `select 1 from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and t.category='closing'

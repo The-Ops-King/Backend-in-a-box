@@ -7,6 +7,7 @@ import { closerOptions } from "./sales-call";
 import { loadCompany } from "./context";
 import { callOutcome } from "./recordings";
 import { testContactSql, testDomains, TEST_DOMAINS_KEY } from "./mode";
+import { standsSql } from "./held";
 
 type Fail = { ok: false; status: number; error: string };
 const company = (c: PoolClient, slug: string) => one<{ id: string }>(c, "select id from companies where slug=$1", [slug]);
@@ -99,7 +100,7 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
   const base = { from: from ? from.name : `anyone but ${[...kept, to.name].join(" and ")}`, to: to.name, count: list.length, byOwner };
   const { adapterCompany: ac } = await loadCompany(c, co.id);
   // who has had a call: a past booking of theirs not cancelled, else a connected call in GHL (read only when it decides something)
-  const booked = new Set((await many<{ contact_id: string }>(c, "select distinct contact_id from appointments where company_id=$1 and starts_at < now() and status <> 'cancelled' and contact_id = any($2::uuid[])", [co.id, list.map((x) => x.id)])).map((r) => r.contact_id));
+  const booked = new Set((await many<{ contact_id: string }>(c, `select distinct a.contact_id from appointments a where a.company_id=$1 and a.starts_at < now() and ${standsSql("a")} and a.contact_id = any($2::uuid[])`, [co.id, list.map((x) => x.id)])).map((r) => r.contact_id));
   const hadCall = async (x: { id: string; ghl_contact_id: string }) => {
     if (booked.has(x.id)) return true;
     if (!adapters.read.contactCalls) throw new Error("this CRM cannot list a contact's calls");

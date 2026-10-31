@@ -4,6 +4,7 @@ import { many, one } from "@/db/client";
 import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 import { normEmail } from "./identity";
 import { raise } from "./alerts";
+import { standsSql } from "./held";
 
 /**
  * Call recordings (D22). Same shape as the payments ledger: every recording the provider reports becomes a row, linked
@@ -95,7 +96,7 @@ type Fit = { id: string; contact_id: string; name: string; first: string | null;
 /** D227: the live bookings a recording starting at `at` fits: it starts no more than BEFORE_MIN before one, and before it ends. */
 const FIT_SQL = `select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as name, ct.first_name as first, ct.last_name as last, a.assigned_user_id, a.meeting_key, a.starts_at
   from appointments a join contacts ct on ct.id=a.contact_id
-  where a.company_id=$1 and a.status<>'cancelled' and ct.merged_into is null
+  where a.company_id=$1 and ${standsSql("a")} and ct.merged_into is null
     and $2::timestamptz >= a.starts_at - make_interval(mins => ${BEFORE_MIN})
     and $2::timestamptz < greatest(coalesce(a.ends_at, a.starts_at), a.starts_at + make_interval(mins => ${SHORT_CALL_MIN}))`;
 const fitsAt = (c: PoolClient, companyId: string, at: Date) => many<Fit>(c, `${FIT_SQL} order by abs(extract(epoch from (a.starts_at - $2::timestamptz)))`, [companyId, at]);
@@ -151,14 +152,14 @@ export async function placeCall(c: PoolClient, companyId: string, contactId: str
     or exists (select 1 from appointments a join company_terms t on t.id=a.call_outcome_term where a.company_id=$1 and a.contact_id=$2 and a.starts_at < $3 and t.category in ('closed','deposit'))`, [companyId, contactId, at]);
   if (client) return { appointmentId: null, placed: "client" };
   const late = await many<{ id: string }>(c, `select a.id from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and t.category in ${SALES_BOOKING}
-    and a.status<>'cancelled' and a.starts_at < $3 and a.starts_at >= $3::timestamptz - make_interval(days => ${LATE_DAYS}) and a.outcome_term is null and a.call_outcome_term is null`, [companyId, contactId, at]);
+    and ${standsSql("a")} and a.starts_at < $3 and a.starts_at >= $3::timestamptz - make_interval(days => ${LATE_DAYS}) and a.outcome_term is null and a.call_outcome_term is null`, [companyId, contactId, at]);
   if (late.length === 1) return { appointmentId: late[0].id, placed: "held_late" };
   const held = await one<{ id: string }>(c, `select a.id from appointments a join company_terms t on t.id=a.appointment_term left join company_terms o on o.id=a.outcome_term
-    where a.company_id=$1 and a.contact_id=$2 and t.category in ${SALES_BOOKING} and a.status<>'cancelled' and a.starts_at < $3 and (o.category='showed' or a.call_outcome_term is not null)
+    where a.company_id=$1 and a.contact_id=$2 and t.category in ${SALES_BOOKING} and ${standsSql("a")} and a.starts_at < $3 and (o.category='showed' or a.call_outcome_term is not null)
     order by a.starts_at desc limit 1`, [companyId, contactId, at]);
   if (held && !late.length) return { appointmentId: held.id, placed: "follow_up" };
   const near = await one(c, `select 1 from appointments a join company_terms t on t.id=a.appointment_term where a.company_id=$1 and a.contact_id=$2 and t.category in ${SALES_BOOKING}
-    and a.status<>'cancelled' and a.starts_at between $3::timestamptz - interval '14 days' and $3::timestamptz + interval '14 days' limit 1`, [companyId, contactId, at]);   // what the question lists
+    and ${standsSql("a")} and a.starts_at between $3::timestamptz - interval '14 days' and $3::timestamptz + interval '14 days' limit 1`, [companyId, contactId, at]);   // what the question lists
   return { appointmentId: null, placed: near ? "unbooked" : "no_booking" };
 }
 
@@ -213,7 +214,7 @@ async function matchRecording(c: PoolClient, companyId: string, input: Recording
   const keyed = (f: Fit) => !!key && f.meeting_key === key;
   let sharedLink = 0, room: { id: string; contact_id: string } | null = null;   // the one booking whose own meeting link the call used (D102)
   if (key) {
-    const rows = await many<{ id: string; contact_id: string; off: number }>(c, "select id, contact_id, abs(extract(epoch from (starts_at - $3::timestamptz)))::float as off from appointments where company_id=$1 and meeting_key=$2 and status<>'cancelled'", [companyId, key, input.startedAt]);
+    const rows = await many<{ id: string; contact_id: string; off: number }>(c, `select a.id, a.contact_id, abs(extract(epoch from (a.starts_at - $3::timestamptz)))::float as off from appointments a where a.company_id=$1 and a.meeting_key=$2 and ${standsSql("a")}`, [companyId, key, input.startedAt]);
     if (rows.length === 1 && rows[0].off <= MEETING_WINDOW_H * 3600) room = rows[0];
     if (rows.length > 1) sharedLink = rows.length;
   }
@@ -293,7 +294,7 @@ async function matchRecording(c: PoolClient, companyId: string, input: Recording
   if (byEmail.size > 1) return { match: null, reason: `the invite names ${byEmail.size} different contacts and ${emailThen.length ? `${emailThen.length} were booked then` : "none has a booking then"}${heard}${shared}` };
   if (byName.size === 1) {
     const id = [...byName][0];
-    const own = await one<{ starts_at: Date }>(c, "select starts_at from appointments where company_id=$1 and contact_id=$2 and status<>'cancelled' order by abs(extract(epoch from (starts_at - $3::timestamptz))) limit 1", [companyId, id, input.startedAt]);
+    const own = await one<{ starts_at: Date }>(c, `select a.starts_at from appointments a where a.company_id=$1 and a.contact_id=$2 and ${standsSql("a")} order by abs(extract(epoch from (a.starts_at - $3::timestamptz))) limit 1`, [companyId, id, input.startedAt]);
     return { match: null, reason: `the invite names ${await named_(id)}${own ? `, booked ${when(own.starts_at)}, which this recording (${when(input.startedAt)}) does not fit` : ", who has no booking"}; a name alone is not enough${heard}${shared}` };
   }
   const seen = [...emails, ...names].join(", ");

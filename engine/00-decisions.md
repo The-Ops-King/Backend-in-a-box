@@ -6907,3 +6907,17 @@ Engine code, every offer. The relink (D227) takes `backfill: true`. The wrong pe
 gets the recording and its call filed on their booking (or placed, D236), but no workflow starts: there's no late AI review, Slack
 post or GHL note for an old call. The dry run says which (`workflows: "start" | "none"`), and the audit keeps it. Without the flag a
 relink runs the right person's workflows as before, so calls matched from now on are reviewed live.
+
+## D275. A booking cancelled after its start is still the call, everywhere (2026-10-31)
+
+Tyler: "no cancellation after the start IF THEY DIDN'T SHOW UP. aka, no-show takes priority over 'canceled' but if they show up,
+then cancel, they still showed up." Engine code, every offer. D73 already kept Call cancelled from answering such a cancel and kept
+the call on the closer's end of day; the rest of the engine still skipped it as cancelled. Now one rule (`standsSql`, `held.ts`):
+a booking stands unless it was cancelled before its start. It holds for the bookings a recording fits (and where D236 places one),
+the booking a card move is about, the triage caller who follows a contact (D269), the closing call a payment is credited to, the
+booking post a payment or a no-show reacts on, a contact's first booking, and "has had a call" when contacts are moved between
+owners. Metrics already count such a call by its outcome (D76) and are unchanged.
+
+PMU's Call cancelled (v6) makes no GHL rebook task, and its Slack post drops the task line (Tyler: "no re-book task for PMU. but that
+should just be a workflow step"). Other offers keep theirs. PMU's agreements send as team@ (crm.agreement_sender), since Carly left
+the offer.

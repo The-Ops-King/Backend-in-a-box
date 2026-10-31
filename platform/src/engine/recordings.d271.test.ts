@@ -55,6 +55,17 @@ describe.skipIf(!process.env.DATABASE_URL)("D271: recordings for PMU's call revi
     expect(titleNames(null, staff)).toEqual([]);
   });
 
+  it("D275: a booking cancelled after its start is still the call (they showed, then the slot was cleared); one cancelled before it is not", async () => {
+    const at = nextDay(), bo = await person("Bo", "Lane", "bo@x.com"), held = await book(bo, "H-1", at);
+    await asOperator((c) => c.query("update appointments set status='cancelled', source_updated_at=$2 where id=$1", [held, new Date(at.getTime() + 40 * 60e3)]));
+    const r = await asOperator((c) => resolveRecording(c, co, rec("h1", { startedAt: new Date(at.getTime() + 60e3), invitees: [{ email: "bo@x.com", isExternal: true }], transcript: [{ speaker: "Bo Lane", text: "hi" }] })));
+    expect(r.match).toMatchObject({ contactId: bo, appointmentId: held });
+    const at2 = nextDay(), cy = await person("Cy", "Moss", "cy@x.com"), gone = await book(cy, "H-2", at2);
+    await asOperator((c) => c.query("update appointments set status='cancelled', source_updated_at=$2 where id=$1", [gone, new Date(at2.getTime() - 60 * 60e3)]));
+    const r2 = await asOperator((c) => resolveRecording(c, co, rec("h2", { startedAt: new Date(at2.getTime() + 60e3), invitees: [{ email: "cy@x.com", isExternal: true }], transcript: [{ speaker: "Cy Moss", text: "hi" }] })));
+    expect(r2.match?.appointmentId).not.toBe(gone);
+  });
+
   it("the invite's email first, held to the time: their booking then wins even when the speaker's name is not theirs", async () => {
     const at = nextDay(), ana = await person("Ana", "Ruiz", "ana@x.com"), appt = await book(ana, "E-1", at);
     const r = await asOperator((c) => resolveRecording(c, co, rec("e1", { startedAt: new Date(at.getTime() + 2 * 60e3), invitees: [{ email: "ana@x.com", isExternal: true }], transcript: [{ speaker: "iPhone", text: "hi" }] })));
