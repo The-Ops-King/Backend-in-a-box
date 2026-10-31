@@ -6,9 +6,9 @@ import { relinkRecording, type RelinkAsk } from "@/engine/recording-relink";
 export const dynamic = "force-dynamic"; export const maxDuration = 120;
 
 /**
- * D227: POST { company, recording, to: "rules" | "none" | <contact id>, why, dryRun = true }: a recording linked to the wrong person is
+ * D227: POST { company, recording, to: "rules" | "none" | <contact id>, why, dryRun = true, backfill = false }: a recording linked to the wrong person is
  * moved, and what it set off on them is put back (their booking's outcome, the tags, the card, what the runs made, the call note, the
- * Slack posts). The dry run says every part. Audited. Authorization: Bearer $CRON_SECRET.
+ * Slack posts). D274: backfill links the right person without starting their workflows. The dry run says every part. Audited. Authorization: Bearer $CRON_SECRET.
  */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

@@ -6899,3 +6899,11 @@ asked through the Unmatched recording post's Link button. Nobody known speaking 
 
 PMU's 2026-10-14 11:18 PM "Impromptu Zoom Meeting" (Carly, only her on the invite, 33 minutes after Shay Cox's booking ended) was put
 on Shay by the old calendar rule; Jacklyn Kieu spoke on it. By these rules it is Jacklyn's.
+
+## D274. A recording moved as a backfill starts no workflow (2026-10-31)
+
+Tyler, on moving PMU's 2026-10-14 call from Shay Cox to Jacklyn Kieu: "backfill first, then we can turn it on for the future".
+Engine code, every offer. The relink (D227) takes `backfill: true`. The wrong person is put back as before, and the right person
+gets the recording and its call filed on their booking (or placed, D236), but no workflow starts: there's no late AI review, Slack
+post or GHL note for an old call. The dry run says which (`workflows: "start" | "none"`), and the audit keeps it. Without the flag a
+relink runs the right person's workflows as before, so calls matched from now on are reviewed live.

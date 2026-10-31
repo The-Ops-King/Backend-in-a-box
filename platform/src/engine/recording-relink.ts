@@ -18,12 +18,13 @@ import { fittingBooking, linkRecording, placeCall, resolveRecording, type Placed
  *   from, the records, cards and tasks those runs made deleted (D142's undo; a record they only updated is named, not touched), the
  *   call note deleted when exactly one note was written then, and the Slack posts those runs made edited to say the call was not theirs.
  * - The right person: linked as a person linking it would (the Sales call recorded workflow runs on them); the invite's email is not
- *   remembered for them, since the invite was what was wrong.
+ *   remembered for them, since the invite was what was wrong. D274: `backfill: true` links them and files the call on their booking but
+ *   starts no workflow (an old call: no late review, Slack post or note; Tyler: "backfill first, then we can turn it on for the future").
  * A dry run says all of it. Audited.
  */
-export type RelinkAsk = { company: string; recording: string; to: string; why: string; dryRun?: boolean; by?: string };
+export type RelinkAsk = { company: string; recording: string; to: string; why: string; dryRun?: boolean; backfill?: boolean; by?: string };
 type Done = { what: string; done?: boolean; error?: string };
-export type RelinkResult = { ok: true; dryRun: boolean; recording: string; from: { contact: string; name: string; appointment: string | null } | null; to: { contact: string; name: string; appointment: string | null; by: string; placed?: Placed } | { linked: false; reason: string }; undo: Done[]; kept: string[]; runs_started?: number }
+export type RelinkResult = { ok: true; dryRun: boolean; recording: string; from: { contact: string; name: string; appointment: string | null } | null; to: { contact: string; name: string; appointment: string | null; by: string; placed?: Placed } | { linked: false; reason: string }; undo: Done[]; kept: string[]; workflows: "start" | "none"; runs_started?: number }
   | { ok: false; status: number; error: string };
 
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -134,7 +135,8 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
   const toOut = "contact" in target ? { contact: target.contact, name: await nameOf(target.contact), appointment: target.appointment, by: target.by, ...(target.placed ? { placed: target.placed } : {}) } : { linked: false as const, reason: target.reason };
   // what they made goes first, so nothing is copied back from a record that is about to go
   const ordered = [...steps.filter((x) => x.first), ...steps.filter((x) => !x.first)];
-  if (a.dryRun !== false) return { ok: true, dryRun: true, recording: r.id, from: old, to: toOut, undo: ordered.map((x) => ({ what: x.what })), kept };
+  const workflows = a.backfill === true ? "none" as const : "start" as const;
+  if (a.dryRun !== false) return { ok: true, dryRun: true, recording: r.id, from: old, to: toOut, undo: ordered.map((x) => ({ what: x.what })), kept, workflows };
 
   // put the wrong person back, each part on its own so one failure does not stop the rest
   const undo: Done[] = [];
@@ -145,12 +147,12 @@ export async function relinkRecording(c: PoolClient, adapters: Adapters, a: Reli
   await c.query("update recordings set contact_id=null, appointment_id=null, link_status='unlinked', linked_by=null, unlinked_reason=$2 where id=$1", [r.id, "contact" in target ? "moving" : target.reason]);
   let started: number | undefined;
   if ("contact" in target) {
-    const l = await linkRecording(c, co.id, r.id, target.contact, { remember: false, appointmentId: target.appointment, by: target.by === "manual" ? "manual" : target.by, placed: target.placed });
+    const l = await linkRecording(c, co.id, r.id, target.contact, { remember: false, appointmentId: target.appointment, by: target.by === "manual" ? "manual" : target.by, placed: target.placed, backfill: a.backfill === true });
     started = l.started;
   }
   await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'recording.relinked','recording',$2,$3,$4)",
-    [co.id, r.id, { contact: old?.contact ?? null, appointment: old?.appointment ?? null }, { to: toOut, undo, kept, why: a.why, by: a.by ?? "operator" }]);
-  return { ok: true, dryRun: false, recording: r.id, from: old, to: toOut, undo, kept, runs_started: started };
+    [co.id, r.id, { contact: old?.contact ?? null, appointment: old?.appointment ?? null }, { to: toOut, undo, kept, workflows, why: a.why, by: a.by ?? "operator" }]);
+  return { ok: true, dryRun: false, recording: r.id, from: old, to: toOut, undo, kept, workflows, runs_started: started };
 }
 
 /**

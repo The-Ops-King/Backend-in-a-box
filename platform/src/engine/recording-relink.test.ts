@@ -140,6 +140,27 @@ describe.skipIf(!process.env.DATABASE_URL)("moving a recording off the wrong per
     expect(dry.undo.map((u) => u.what)).toEqual([expect.stringMatching(/delete the record REC-EXTRA/)]);   // no tags, no card, no Slack edit: all hers
   });
 
+  it("D274: a backfill moves it and files it on the right booking, and starts no workflow", async () => {
+    const { rec, wf } = await asOperator(async (c) => {
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, current_version) values ($1,'Recorded live','always',true,1) returning id", [companyId]))!.id;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,'{}')", [wf, { schema: 1, reentry: "always", nodes: [{ id: "t", type: "trigger", event: "recording.received" }, { id: "x", type: "exit", reason: "d" }], edges: [{ from: "t", to: "x" }] }]);
+      await c.query("insert into workflow_triggers (company_id, workflow_id, node_id, event_type, enabled) values ($1,$2,'t','recording.received',true)", [companyId, wf]);
+      const rec = (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, provider, external_id, title, started_at, recorded_by_email, invitees, transcript, link_status, linked_by) values ($1,$2,'fathom','F-6','Old one','2026-10-19T21:10Z','closer@relink.test','[]',$3,'linked','calendar') returning id",
+        [companyId, corina, JSON.stringify([{ speaker: "Cal", email: "closer@relink.test", text: "hi" }, { speaker: "Beth Huffman", text: "hi" }])]))!.id;
+      return { rec, wf };
+    });
+    const dry = await asOperator((c) => relinkRecording(c, fake, { company: SLUG, recording: rec, to: beth, why: "old call", backfill: true }));
+    expect(dry).toMatchObject({ ok: true, dryRun: true, to: { contact: beth }, workflows: "none" });
+    const done = await asOperator((c) => relinkRecording(c, fake, { company: SLUG, recording: rec, to: beth, why: "old call", backfill: true, dryRun: false }));
+    expect(done).toMatchObject({ ok: true, dryRun: false, workflows: "none", runs_started: 0 });
+    expect(await asOperator((c) => one(c, "select contact_id, link_status from recordings where id=$1", [rec]))).toEqual({ contact_id: beth, link_status: "linked" });
+    expect(await asOperator((c) => one(c, "select count(*)::int as n from events where company_id=$1 and event_type='recording.received' and contact_id=$2 and data->>'recording_id'=$3", [companyId, beth, rec]))).toEqual({ n: 1 });
+    expect(await asOperator((c) => many(c, "select 1 from runs where workflow_id=$1", [wf]))).toHaveLength(0);
+    // without it, the same move runs the workflow
+    expect(await asOperator((c) => relinkRecording(c, fake, { company: SLUG, recording: rec, to: corina, why: "back", dryRun: false }))).toMatchObject({ ok: true, workflows: "start", runs_started: 1 });
+    await asOperator((c) => c.query("update workflows set enabled=false where id=$1", [wf]));
+  });
+
   it("the check lists a link the rules would not make, and only that", async () => {
     const roleplay = await asOperator(async (c) => (await one<{ id: string }>(c, "insert into recordings (company_id, contact_id, appointment_id, provider, external_id, title, started_at, recorded_by_email, invitees, transcript, link_status, linked_by) values ($1,$2,$3,'fathom','F-2','Roleplay/training','2026-10-22T20:05Z','closer@relink.test','[]',$4,'linked','calendar') returning id",
       [companyId, beth, apptB, JSON.stringify([{ speaker: "Cal", email: "closer@relink.test", text: "you be the client" }, { speaker: "Cal Closer", text: "ok" }])]))!.id);

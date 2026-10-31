@@ -393,7 +393,7 @@ async function copyOf(c: PoolClient, companyId: string, r: RecordingRow, contact
 }
 
 /** A person links an orphan (the Slack button): it then runs as a match on arrival would, Sales call recorded included. The attendee's email is remembered so the next call from them links on its own. */
-export async function linkRecording(c: PoolClient, companyId: string, recordingId: string, contactId: string, opts: { remember?: boolean; appointmentId?: string | null; by?: string; placed?: Placed } = {}): Promise<{ event: EventRow; appointmentId: string | null; started: number }> {
+export async function linkRecording(c: PoolClient, companyId: string, recordingId: string, contactId: string, opts: { remember?: boolean; appointmentId?: string | null; by?: string; placed?: Placed; backfill?: boolean } = {}): Promise<{ event: EventRow; appointmentId: string | null; started: number }> {
   const r = await one<RecordingRow>(c, "select * from recordings where company_id=$1 and id=$2", [companyId, recordingId]);
   if (!r) throw new Error("recording not found");
   if (r.link_status === "linked") throw new Error("recording is already linked");
@@ -406,6 +406,7 @@ export async function linkRecording(c: PoolClient, companyId: string, recordingI
   if (booking === undefined) { booking = await fittingBooking(c, companyId, contactId, r.started_at); if (!booking) { const p = await placeCall(c, companyId, contactId, r.started_at); booking = p.appointmentId; placed = p.placed; } }
   const { event, appointmentId } = await settle(c, companyId, r, contactId, by, booking, false, placed);
   await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: event!.opportunity_id, appointment_id: appointmentId, event_type: "recording.linked", source: "user", data: { recording_id: r.id, by } });
+  if (opts.backfill) return { event: event!, appointmentId, started: 0 };   // D274: filed on the ledger, nothing set off for an old call
   const appt = appointmentId ? await one<Record<string, unknown>>(c, "select a.id, a.starts_at, a.status, json_build_object('category', t.category) as term from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [appointmentId]) : null;
   const started = await dispatchEvent(c, event!, { contact: { id: contactId }, appointment: appt ?? undefined, recording: { id: r.id, title: r.title, duration_min: r.duration_min } });
   return { event: event!, appointmentId, started: started.length };
