@@ -36,7 +36,7 @@ describe.skipIf(!HAS_DB)("dialer calls in the recordings ledger", () => {
     await migrate();
     await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug='pc'");
-      if (co) { for (const t of ["events", "recordings", "messages", "contact_identifiers", "contacts", "users", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
+      if (co) { for (const t of ["audit_log", "events", "recordings", "messages", "contact_identifiers", "contacts", "users", "bindings", "poll_cursors"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]); await c.query("delete from companies where id=$1", [co.id]); }
       companyId = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('PC','pc','UTC') returning id"))!.id;
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.location_id','id',$2),($1,'secret.ghl_pit','secret',$3)", [companyId, Buffer.from("LOC"), encrypt("p")]);
     });
