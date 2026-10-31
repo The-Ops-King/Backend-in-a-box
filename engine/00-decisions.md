@@ -7056,3 +7056,16 @@ link for a follow-up and a self-set alike, so the engine tells them apart.
   call's own Sales Call, call type `follow_up` (a new option, "Follow-up"), carrying the contact's setter. The setter card, the
   contact's Setter field and its followers are left alone, and there is no video task.
 - Other offers get it only when Tyler asks, one at a time.
+
+## D285. PMU's booking card is filled in once the Typeform answers land (2026-10-31)
+
+Tyler: "the calls booked still come through without the monthly budget and the revenue and qualified" (Gina McBroom). On PMU the
+booking happens inside the Typeform (its Calendly question), so the booking reaches the engine before the form is submitted and the Zap
+writes the answers to GHL: the card is posted with nothing to show. PMU's Call booked (its own copy, v14, saved on Tyler's complaint):
+after the card is posted and its notes are done, the run waits (a check every minute, up to 15 minutes) for the answers the card shows
+(average monthly revenue or biggest struggle) to be on the contact, then edits the same card (tag `appointment:<id>`), picking up the
+answers and the qualified tag if they have landed; if they never come, the card stands. Its booking card reads the Typeform answer fields
+(`booking_card.intake`: Monthly revenue = average_monthly_revenue, Biggest struggle, Ad budget, Qualified). Ad budget is asked on
+neither Typeform form, so it shows only for the older application form's leads. Not in the repo copy (installs/pmu/call-booked.json is
+kept by the other session in its own shape); the engine's version history holds v14.
+
