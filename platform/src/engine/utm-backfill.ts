@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { one } from "@/db/client";
 import type { Adapters } from "@/adapters/types";
-import { liveTypeform, type TfResponse, type TypeformApi } from "@/adapters/typeform/client";
+import { liveTypeform, type TfAnswer, type TfResponse, type TypeformApi } from "@/adapters/typeform/client";
 import { loadCompany } from "./context";
 import { personOf } from "./application-tags";
 import { findInGhl, matchPolicy, TF_TOKEN_KEY } from "./typeform";
@@ -13,6 +13,8 @@ import { findInGhl, matchPolicy, TF_TOKEN_KEY } from "./typeform";
  * lead source is the utm_source in the words `sourceNames` gives it (`{"fb": "Meta"}`), else as Typeform has it. Only an empty field
  * is filled: what the Zap or a person already wrote stays. A person GHL does not have is listed, not made. Dry run (the default) reads
  * only and lists every utm_source seen; apply re-reads each contact and writes only what it still lacks. Audited.
+ * D282: `answers` (question ref → the contact field's bound name, e.g. `average_monthly_revenue`) fills the form's answers the same
+ * way, from the person's latest response that answered it (what they said last is what is true now).
  */
 export const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
 type Utm = Partial<Record<(typeof UTM_KEYS)[number], string>>;
@@ -26,17 +28,24 @@ export function utmOf(r: TfResponse): Utm {
   return out;
 }
 /** The lead source a utm_source stands for, by the names given (any case), else the utm_source itself. */
+/** An answer as words: a choice's label, several choices' labels, or the text, number, date, email or phone it holds. */
+export function answerText(a: TfAnswer): string {
+  const v = a[a.type] as unknown;
+  if (a.type === "choice") return String((v as { label?: string; other?: string } | undefined)?.label ?? (v as { other?: string } | undefined)?.other ?? "").trim();
+  if (a.type === "choices") { const c = v as { labels?: string[]; other?: string } | undefined; return [...(c?.labels ?? []), ...(c?.other ? [c.other] : [])].join(", ").trim(); }
+  return v === undefined || v === null || typeof v === "object" ? "" : String(v).trim();
+}
 export const sourceName = (utmSource: string, names: Record<string, string> = {}) => {
   const hit = Object.entries(names).find(([k]) => k.trim().toLowerCase() === utmSource.trim().toLowerCase());
   return hit ? hit[1] : utmSource;
 };
 
-export async function utmBackfill(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; sourceNames?: Record<string, string>; skip?: string[]; tf?: TypeformApi }) {
+export async function utmBackfill(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; sourceNames?: Record<string, string>; answers?: Record<string, string>; skip?: string[]; tf?: TypeformApi }) {
   if (!a.forms?.length || !a.why?.trim()) return { ok: false as const, status: 400, error: "company, forms (Typeform form ids) and why are required" };
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [a.company]); if (!co) return { ok: false as const, status: 404, error: "no such company" };
   const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
   const token = bindings[TF_TOKEN_KEY]; if (!token) return { ok: false as const, status: 400, error: `no Typeform token bound (${TF_TOKEN_KEY})` };
-  const ids: Record<string, string | undefined> = { ...Object.fromEntries(UTM_KEYS.map((k) => [k, bindings[`crm.field_contact_${k}`]])), lead_source: bindings["crm.field_contact_lead_source"] };
+  const ids: Record<string, string | undefined> = { ...Object.fromEntries(UTM_KEYS.map((k) => [k, bindings[`crm.field_contact_${k}`]])), lead_source: bindings["crm.field_contact_lead_source"], ...Object.fromEntries(Object.values(a.answers ?? {}).map((f) => [f, bindings[`crm.field_contact_${f}`]])) };
   const unbound = Object.entries(ids).filter(([, v]) => !v).map(([k]) => `crm.field_contact_${k}`);
   if (unbound.length) return { ok: false as const, status: 400, error: `not bound for this offer: ${unbound.join(", ")}` };
   const tf = a.tf ?? liveTypeform, dryRun = a.dryRun !== false;
@@ -45,22 +54,27 @@ export async function utmBackfill(c: PoolClient, adapters: Adapters, a: { compan
   const all: TfResponse[] = [];
   for (const id of a.forms) all.push(...(await tf.responses(token, id, "completed")), ...(await tf.responses(token, id, "partial")));
   const at = (r: TfResponse) => r.landed_at ?? r.submitted_at ?? "";
-  const first = new Map<string, { email?: string; phone?: string; name?: string; utm: Utm }>();
+  const first = new Map<string, { email?: string; phone?: string; name?: string; utm: Utm; said: Record<string, string> }>();
   const sources: Record<string, number> = {};
   let noUtm = 0, unidentified = 0;
   for (const r of [...all].sort((x, y) => at(x).localeCompare(at(y)))) {
     const p = personOf(r), key = p.email ?? (p.phone ? `phone:${p.phone}` : undefined), utm = utmOf(r);
     if (!key) { unidentified++; continue; }
-    if (!Object.keys(utm).length) { if (!first.has(key)) noUtm++; continue; }
-    if (first.has(key)) continue;
-    first.set(key, { ...p, utm });
-    if (utm.utm_source) sources[utm.utm_source] = (sources[utm.utm_source] ?? 0) + 1;
+    const cur = first.get(key);
+    // the answers: oldest first, so a later response's answer replaces an earlier one
+    const said = { ...(cur?.said ?? {}) };
+    for (const ans of r.answers ?? []) { const f = a.answers?.[ans.field?.ref]; const t = f ? answerText(ans) : ""; if (f && t) said[f] = t; }
+    const firstUtm = cur && Object.keys(cur.utm).length ? cur.utm : utm;
+    if (!cur && !Object.keys(utm).length) noUtm++;
+    if ((!cur || !Object.keys(cur.utm).length) && utm.utm_source) sources[utm.utm_source] = (sources[utm.utm_source] ?? 0) + 1;
+    first.set(key, { email: p.email ?? cur?.email, phone: p.phone ?? cur?.phone, name: p.name ?? cur?.name, utm: firstUtm, said });
   }
+  for (const [k, p] of first) if (!Object.keys(p.utm).length && !Object.keys(p.said).length) first.delete(k);
 
   const policy = matchPolicy(bindings);
   const changes: UtmChange[] = [], notInGhl: { email?: string; phone?: string; name?: string }[] = [], errors: { who: string; error: string }[] = [];
   let unchanged = 0;
-  const want = (u: Utm): Record<string, string> => ({ ...Object.fromEntries(Object.entries(u)), ...(u.utm_source ? { lead_source: sourceName(u.utm_source, a.sourceNames) } : {}) });
+  const want = (u: Utm, said: Record<string, string>): Record<string, string> => ({ ...Object.fromEntries(Object.entries(u)), ...(u.utm_source ? { lead_source: sourceName(u.utm_source, a.sourceNames) } : {}), ...said });
   const missing = (have: Record<string, unknown>, w: Record<string, string>) => Object.fromEntries(Object.entries(w).filter(([k]) => { const v = have[ids[k]!]; return v === undefined || v === null || String(v).trim() === ""; }));
   for (const p of first.values()) {
     const who = p.name ?? p.email ?? p.phone ?? "?";
@@ -69,12 +83,12 @@ export async function utmBackfill(c: PoolClient, adapters: Adapters, a: { compan
       if (!found) { notInGhl.push({ email: p.email, phone: p.phone, name: p.name }); continue; }
       if (a.skip?.includes(found.snap.id)) continue;
       const name = [found.snap.firstName, found.snap.lastName].filter(Boolean).join(" ") || who;
-      let fill = missing(found.snap.customFields ?? {}, want(p.utm));
+      let fill = missing(found.snap.customFields ?? {}, want(p.utm, p.said));
       if (!Object.keys(fill).length) { unchanged++; continue; }
       if (!dryRun) {
         const live = await adapters.read.getContact(ac, found.snap.id);
         if (!live) { errors.push({ who: name, error: "gone from GHL" }); continue; }
-        fill = missing(live.customFields ?? {}, want(p.utm));
+        fill = missing(live.customFields ?? {}, want(p.utm, p.said));
         if (!Object.keys(fill).length) { unchanged++; continue; }
         await adapters.write.updateContact(ac, found.snap.id, { customFields: Object.entries(fill).map(([k, v]) => ({ id: ids[k]!, field_value: v })) });
         await c.query("update contacts set ghl_fields = coalesce(ghl_fields,'{}'::jsonb) || $3::jsonb, updated_at=now() where company_id=$1 and ghl_contact_id=$2", [co.id, found.snap.id, JSON.stringify(Object.fromEntries(Object.entries(fill).map(([k, v]) => [ids[k]!, v])))]);

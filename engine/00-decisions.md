@@ -7017,3 +7017,11 @@ utm_content, utm_term; blanks and unfilled placeholders left out) in the offer's
 words `sourceNames` gives it (`{"fb": "Meta"}`), else as it came. Only an empty field is filled, never one the Zap or a person wrote.
 A person GHL does not have is listed, not made. The dry run lists every utm_source seen, so the names are chosen from the data. Audited.
 
+## D282. A Typeform form's questions read through the offer's token; the backfill fills the form's answers too (2026-10-31)
+
+Tyler: "can you backfill those?" (the revenue and biggest-struggle answers, so the booking post and the setter score have them).
+`GET /api/admin/typeform/form?company&form` lists a form's questions (ref, type, title, choices) and hidden fields through the
+offer's Typeform token, read only. The UTM backfill (D281) takes `answers` (question ref → the contact field's bound name) and fills
+those empty fields from each person's latest answer. PMU's VSL A and B ask the same two questions (biggest struggle; average monthly
+revenue over 90 days) and no ad budget, so ad budget has nothing in Typeform to fill from.
+
