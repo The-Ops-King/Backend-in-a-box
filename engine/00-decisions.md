@@ -6940,3 +6940,18 @@ owners. Metrics already count such a call by its outcome (D76) and are unchanged
 PMU's Call cancelled (v6) makes no GHL rebook task, and its Slack post drops the task line (Tyler: "no re-book task for PMU. but that
 should just be a workflow step"). Other offers keep theirs. PMU's agreements send as team@ (crm.agreement_sender), since Carly left
 the offer.
+
+## D277. PMU's Call booked goes live in place of its booking Zap (2026-10-31)
+
+Tyler: "it adds the zoom link to the contact meeting location etc. appointment start time and invitee call start time"; "remove the
+task for now"; "we should be watching jose and minerva. jose's is a triage". PMU's own workflows, saved live:
+
+- Call booked (v12, live): writes what the Zap wrote. Meeting Location and Zoom Link get the meeting's join link, the Calendly
+  Cancel Link and Calendly Reschedule Link get Calendly's links, and Appointment Start Time and Invitee Call Start Time get the start
+  as `MM-dd-yyyy HH:mm` in the offer's zone (the Zap wrote the same value into both). These are bound as
+  crm.field_contact_meeting_location, _zoom_link, _invitee_call_start_time, _calendly_cancel_link and _calendly_reschedule_link.
+  The personalized-video task is gone. The card goes to Booked Call (a reschedule to Rescheduled), and the tags are
+  stat-call-booked on and stat-call-not-booked off.
+- Call cancelled (v7, still ghost until the Canceled Zap is paused): it replies in the booking's thread with ❌ on the booking post,
+  and posts nothing when there is no booking post (Tyler: a message of its own "not by default").
+- Jose's "15 Min - Beauty Moguls" Calendly event type is watched as a triage call (first_call), owned by Jose.
