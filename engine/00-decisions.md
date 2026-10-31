@@ -7025,3 +7025,19 @@ offer's Typeform token, read only. The UTM backfill (D281) takes `answers` (ques
 those empty fields from each person's latest answer. PMU's VSL A and B ask the same two questions (biggest struggle; average monthly
 revenue over 90 days) and no ad budget, so ad budget has nothing in Typeform to fill from.
 
+
+## D283. The onboarding page shows each person's booking links (2026-10-31)
+
+Tyler: closers use their own two links (a 15-minute triage, a 45-minute closing call for a follow-up or a self-set); setters book
+through links tagged with their name; "the calendar list should stay active on the dating-nelly/onboarding?role=setter and
+?role=closer so that at any time they can see their own calendar link and their own setter links, their own RR links".
+
+- The offer's setting `team.links` names the round robin's triage and closing calendars and each closer's own two
+  (`{ rr: { triage, closing }, closers: [{ email, triage, closing }] }`, by the booking tool's calendar id or a watched calendar's
+  name). The setters are the roster's active setters. A link is the one the engine keeps for a watched calendar.
+- "Your links" on `/<offer>/onboarding`, read live (the page is no longer built only at deploy): ?role=closer shows each closer's
+  Triage and Closing; ?role=setter shows each setter's round robin Triage and Closing and every closer's two, each tagged
+  `utm_medium=setter&utm_content=<first name>` (their email when someone else active shares the first name, D153); a manager sees
+  both. `&name=jake` shows only that person's. Without `team.links`, or if the engine cannot be read, the page shows no links.
+- A calendar's booking mode can be changed (`POST /api/admin/calendars/booking`, dry run first, audited), so a triage calendar
+  can read a setter's tag (`utm`: through a tagged link, set by that setter; otherwise as before, the closer's own or direct).
