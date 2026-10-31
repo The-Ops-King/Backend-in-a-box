@@ -6,7 +6,7 @@ import { ghlCallMediaProbe } from "@/adapters/ghl/health";
 export const dynamic = "force-dynamic"; export const maxDuration = 180;
 
 /**
- * D276: GET ?company=<slug>&limit=5: the offer's latest connected dialer calls (60 seconds or more), each with what GHL answers for its
+ * D280: GET ?company=<slug>&limit=5: the offer's latest connected dialer calls (60 seconds or more), each with what GHL answers for its
  * recording and its transcript. Read only. Authorization: Bearer $CRON_SECRET.
  */
 export async function GET(req: Request) {

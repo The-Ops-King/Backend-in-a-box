@@ -28,7 +28,7 @@ export async function ghlCalendarTeam(pit: string, calendarId: string): Promise<
 }
 
 /**
- * D276: what GHL answers for one dialer call's recording and transcript, as it answers (status and the start of its body), read only.
+ * D280: what GHL answers for one dialer call's recording and transcript, as it answers (status and the start of its body), read only.
  * For an offer whose calls never come back with a transcript: a recording that is there with no transcript is GHL's transcription
  * being off; no recording at all is call recording being off; a 401/403 is the token's scopes.
  */
