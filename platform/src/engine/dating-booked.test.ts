@@ -149,6 +149,25 @@ describe.skipIf(!process.env.DATABASE_URL)("D123: Dating (Nelly)'s two booked-ca
     expect(tagsOf(cleo)).not.toContain("stat-triage-first");
   });
 
+  it("D284: someone whose earlier closing call was held books again: a follow-up (its own Sales Call, call type follow_up; no new set, the setter card and the setter left alone; the closer card back to Scheduled with its name)", async () => {
+    const fay = await person("Fay");
+    await asOperator(async (c) => {
+      const cal = (await one<{ id: string; term: string }>(c, "select id, appointment_term as term from calendars where company_id=$1 and external_id=$2", [co, CONSULT]))!;
+      await c.query("insert into appointments (company_id, contact_id, calendar_id, source, external_id, starts_at, ends_at, booked_at, status, appointment_term) values ($1,$2,$3,'calendly','EV-F0',now()-interval '2 days',now()-interval '2 days'+interval '45 minutes',now()-interval '5 days','showed',$4)", [co, fay.ct, cal.id, cal.term]);
+    });
+    const before = cards.length;
+    await poll(event(fay, "EV-F1", CONSULT, AT.plus({ hours: 4 })));
+    await run();
+    expect(await runs(fay)).toEqual(["Closing call booked"]);
+    expect(records(fay)).toEqual([expect.objectContaining({ external_id: "EV-F1", call_type: "follow_up", outcome: "scheduled" })]);
+    const [steps] = await stepsOf(fay, "Closing call booked");
+    expect(steps).toEqual(expect.arrayContaining(["fu0", "fu1", "fu4", "fu_card", "fu_sc", "fu_v"])); expect(steps.some((x) => x.startsWith("n4"))).toBe(true);   // the booking post (no Slack in this test)
+    for (const st of steps) expect(st).not.toMatch(/^(n2|s3|s5|b3|b6|c_new|c_rs|k3|k4)$/);
+    const mine = tags.filter((t) => t.id === fay.ghl).map((t) => t.tag);
+    expect(mine).toContain("stat-follow-up-booked"); expect(mine).not.toContain("stat-self-booked"); expect(mine).not.toContain("stat-set");
+    expect(cards.slice(before).filter((k) => k.contact === fay.ghl).map((k) => k.pipeline)).not.toContain("P-S");   // the setter card is not touched
+  });
+
   it("a reschedule runs the same one again (the slot left logged rescheduled); a closing call's cancel runs Call cancelled on its Sales Call", async () => {
     await poll(event(sara, "EV-S1", STRATEGY, AT.plus({ days: 1 })));
     await run();

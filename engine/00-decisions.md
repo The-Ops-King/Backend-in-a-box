@@ -7041,3 +7041,18 @@ through links tagged with their name; "the calendar list should stay active on t
   both. `&name=jake` shows only that person's. Without `team.links`, or if the engine cannot be read, the page shows no links.
 - A calendar's booking mode can be changed (`POST /api/admin/calendars/booking`, dry run first, audited), so a triage calendar
   can read a setter's tag (`utm`: through a tagged link, set by that setter; otherwise as before, the closer's own or direct).
+
+## D284. A closing call for someone whose closing call was already held is a follow-up (2026-10-31)
+
+Tyler: "if the closing call was already held it is a follow up for sure ... if the call already has a setter, it shouldn't overwrite
+the setter"; "new record for follow up. we want to see if they close on the first call or the follow up". Closers use one closing
+link for a follow-up and a self-set alike, so the engine tells them apart.
+
+- The run context has `appointment.follow_up`: the person has an earlier closing call (closing or follow_up type, not cancelled)
+  that was held, marked showed or with a sales recording linked to it (on Nelly the recording is usually the only sign). Additive.
+- Dating Nelly's Closing call booked asks it first, ahead of the setter-or-self fork. A follow-up: the post says "Follow-up on an
+  earlier call" and who set them first; the tags `stat-follow-up-booked` (never stat-set or stat-self-booked); the closer card back to
+  Scheduled with its name kept and no setter field written; the old slot's Sales Call logged rescheduled on a reschedule; and the
+  call's own Sales Call, call type `follow_up` (a new option, "Follow-up"), carrying the contact's setter. The setter card, the
+  contact's Setter field and its followers are left alone, and there is no video task.
+- Other offers get it only when Tyler asks, one at a time.

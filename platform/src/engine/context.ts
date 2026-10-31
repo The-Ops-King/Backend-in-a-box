@@ -137,6 +137,10 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
                 from appointments tb join company_terms tbt on tbt.id=tb.appointment_term join users tu on tu.id=tb.assigned_user_id
                 where tb.company_id=a.company_id and tb.contact_id=a.contact_id and tb.id<>a.id and tbt.category='first_call' and ${standsSql("tb")} and tb.starts_at <= coalesce(a.booked_at, a.starts_at) + interval '1 hour' and tu.active
                 order by tb.starts_at desc limit 1) as triager,
+             -- D284: a closing call for someone whose earlier closing call was held (marked showed, or its sales recording linked to it) is a follow-up
+             exists (select 1 from appointments fb join company_terms fbt on fbt.id=fb.appointment_term
+                where fb.company_id=a.company_id and fb.contact_id=a.contact_id and fb.id<>a.id and fbt.category in ('closing','follow_up') and fb.starts_at < a.starts_at and fb.status<>'cancelled'
+                  and (fb.status='showed' or exists (select 1 from company_terms fo where fo.id=fb.outcome_term and fo.category='showed') or exists (select 1 from recordings fr where fr.appointment_id=fb.id))) as follow_up,
              -- D278: the calendar it was booked on; personal = one closer's own (it has an owner), not a pool
              (select json_build_object('name', cl.name, 'personal', cl.default_user_id is not null) from calendars cl where cl.id=a.calendar_id) as calendar,
              -- D278: they had a closing call that happened before this one was booked (a later one with the same person is a follow-up)

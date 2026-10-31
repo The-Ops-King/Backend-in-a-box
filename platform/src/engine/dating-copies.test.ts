@@ -140,13 +140,18 @@ describe("D118: Dating Nelly's copies", () => {
     // closing: every step of the template, whose card fork (D105, D107) is every offer's since 2026-10-25; only the call type differs
     { const ids = closing.nodes.map((n) => n.id);
       expect([...t.keys()].filter((id) => !ids.includes(id))).toEqual([]);
-      expect(ids.filter((id) => !t.has(id))).toEqual([]);
+      // D284: her follow-up path, its own fork ahead of the setter-or-self one, rejoining at the booking post
+      expect(ids.filter((id) => !t.has(id))).toEqual(["fu1", "fu2", "fu3", "fu4", "fu_card", "fu_rs", "fu_sc", "fu_v", "fu0"]);
+      expect(ways(closing, "u1")).toEqual(["fu0"]); expect(ways(closing, "fu0")).toEqual(["fu1 (a follow-up)", "n2 (a new set)"]); expect(ways(closing, "fu_v")).toEqual(["n4"]);
+      expect(at(closing, "fu_sc")).toMatchObject({ type: "crm_record", key: "{{appointment.slot_key}}", properties: { call_type: "follow_up", setter: "{{contact.setter.name | default:}}" } });
+      expect(at(closing, "fu_card")).toMatchObject({ type: "pipeline_card", stage: "{{crm.stage_closer_scheduled}}", keep_name: true });
+      expect(at(closing, "fu_card")).not.toHaveProperty("fields");
       expect(ways(closing, "s5")).toEqual(["f_card"]); expect(ways(closing, "b6")).toEqual(["f_card"]);
       expect(ways(closing, "f_card")).toEqual(["c_new (a new booking)", "c_rs (a reschedule)"]);
       expect(ways(closing, "c_new")).toEqual(["k3"]); expect(ways(closing, "k3")).toEqual(["k4"]); expect(ways(closing, "c_rs")).toEqual(["k5"]); expect(ways(closing, "k5")).toEqual(["k4"]);
       expect(at(closing, "c_rs")).toMatchObject({ type: "pipeline_card", pipeline: "{{crm.pipeline_closer}}", stage: "{{crm.stage_closer_scheduled}}", keep_name: true });
       expect((at(closing, "k4").properties as Record<string, string>).call_type).toBe("closing");
-      for (const id of ids.filter((id) => t.has(id) && !["t1", "t2", "k3", "k5", "k4", "v4", "n1"].includes(id))) expect(at(closing, id), `closing ${id}`).toEqual(t.get(id));
+      for (const id of ids.filter((id) => t.has(id) && !["t1", "t2", "k3", "k5", "k4", "v4", "n1", "u1"].includes(id))) expect(at(closing, id), `closing ${id}`).toEqual(t.get(id));
       // D269: her contact step also makes whoever ran their triage call a follower; otherwise the template's
       expect(at(closing, "n1")).toEqual({ ...t.get("n1"), followers: ["{{appointment.triager.ghl_user_id | default:}}"] }); }
     // triage: the booking paths and the setter card; its record a Discovery Call, owned by whoever takes the call; nothing of the closing call
