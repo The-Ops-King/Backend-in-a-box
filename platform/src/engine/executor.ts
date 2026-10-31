@@ -1144,7 +1144,8 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   if (!card && node.if_missing === "skip") return { status: "skipped", next, result: { kind: "noop", why: "no open card on this board to move; this step never creates one" } };
   if (!card && !node.stage) return { status: "skipped", next, result: { kind: "noop", why: `no open card on this board to mark ${node.status ?? "updated"}` } };
   if (!pipelineId || !stageId || !name) return { status: "failed", error: `pipeline_card ${node.id}: pipeline, stage or name unresolved` };
-  const write = { pipelineId, stageId, name, status: node.status ?? ("open" as const), assignedUserId, customFields, ...(monetaryValue !== undefined ? { monetaryValue } : {}) };
+  // D270: `keep` leaves the card's status as it is (a deal's value written on a card already won); no status at all is open, as always
+  const write = { pipelineId, stageId, name, status: node.status === "keep" ? ((card?.status as "open" | "won" | "lost" | "abandoned" | undefined) ?? "open") : node.status ?? ("open" as const), assignedUserId, customFields, ...(monetaryValue !== undefined ? { monetaryValue } : {}) };
   // D61: a card already where this step would put it (a second filing, a hand that moved it first) is left alone: no CRM write, no replica bump
   if (card && card.ghl_stage_id === stageId && card.name === name && (!node.status || node.status === card.status) && !customFields.length && !assignedUserId && !followers.length && monetaryValue === undefined) return { status: "skipped", next, result: { kind: "noop", why: "already there", stage: stageId, crm_card: card.ghl_opportunity_id } };
   // the pursuit the card belongs to: the run's, else the contact's open one, else a new one
@@ -1167,7 +1168,7 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   }
   // the replica says what the CRM was told (a step with no status reopens a closed card it picked), stamped when the CRM took it, not when the run began: a snapshot from before this write is the past, never a hand
   if (card && !goneCard) {
-    await d.c.query(`update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=${ghost(d) ? "coalesce($5, status)" : "$5"}, updated_at=clock_timestamp() where id=$1`, [card.id, name, stageId, ownerRow?.id ?? null, ghost(d) ? node.status ?? null : write.status]);
+    await d.c.query(`update pipeline_cards set name=$2, ghl_stage_id=$3, assigned_user_id=coalesce($4, assigned_user_id), status=${ghost(d) ? "coalesce($5, status)" : "$5"}, updated_at=clock_timestamp() where id=$1`, [card.id, name, stageId, ownerRow?.id ?? null, ghost(d) ? (node.status === "keep" ? null : node.status ?? null) : write.status]);
   } else {
     let ghlId: string | null = null;
     if (!ghost(d)) {
