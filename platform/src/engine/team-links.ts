@@ -41,7 +41,8 @@ export async function teamLinks(c: PoolClient, companyId: string): Promise<TeamL
     const tag = setterTag(s, team);
     const links: (TeamLink | { label: string; url: string | null })[] = [
       { label: "Triage (round robin)", url: url(cfg.rr?.triage) }, { label: "Closing (round robin)", url: url(cfg.rr?.closing) },
-      ...closers.flatMap((k) => [{ label: `${first(k.who!.name)}'s triage`, url: url(k.triage) }, { label: `${first(k.who!.name)}'s closing`, url: url(k.closing) }]),
+      // Tyler: setters do not book triage calls on a closer's own calendar; only the round robin's
+      ...closers.map((k) => ({ label: `${first(k.who!.name)}'s closing`, url: url(k.closing) })),
     ];
     out.setters.push({ name: s.name, links: links.filter((l): l is TeamLink => !!l.url).map((l) => ({ label: l.label, url: tagged(l.url, tag) })) });
   }
