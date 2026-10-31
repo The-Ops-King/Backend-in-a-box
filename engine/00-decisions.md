@@ -7056,3 +7056,13 @@ link for a follow-up and a self-set alike, so the engine tells them apart.
   call's own Sales Call, call type `follow_up` (a new option, "Follow-up"), carrying the contact's setter. The setter card, the
   contact's Setter field and its followers are left alone, and there is no video task.
 - Other offers get it only when Tyler asks, one at a time.
+
+## D286. The follow-up path is Call booked's, for every offer (2026-10-31)
+
+Tyler: "do the follow up rule. these new calendar settings and plans should carry over to all accounts". D284's follow-up path
+(fu0 … fu_v) moves from Dating Nelly's copy into the shipped Call booked, so every offer has it the same way. A Nelly triage copy
+takes it out (`dropFollowUp`: a triage call has no follow-up of its own). PMU's copy is rebuilt with it.
+
+- An existing offer gets it only through its own save, one offer at a time, dry run first, with only the follow-up path added to
+  what it runs (the rest of its Call booked as it is). Its GHL Sales Call first gets what the path writes: a `follow_up` option on
+  Call Type (PMU), or a Call Type field (Hair, which had none).
