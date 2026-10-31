@@ -3,7 +3,7 @@ import { asOperator, many, one } from "@/db/client";
 import { operatorAuthorized } from "@/engine/admin-auth";
 import { loadCompany } from "@/engine/context";
 import { ghlCallMediaProbe } from "@/adapters/ghl/health";
-export const dynamic = "force-dynamic"; export const maxDuration = 120;
+export const dynamic = "force-dynamic"; export const maxDuration = 180;
 
 /**
  * D276: GET ?company=<slug>&limit=5: the offer's latest connected dialer calls (60 seconds or more), each with what GHL answers for its
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic"; export const maxDuration = 120;
  */
 export async function GET(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const q = new URL(req.url).searchParams, slug = q.get("company"), limit = Math.min(Math.max(Number(q.get("limit") ?? 5) || 5, 1), 20);
+  const q = new URL(req.url).searchParams, slug = q.get("company"), limit = Math.min(Math.max(Number(q.get("limit") ?? 3) || 3, 1), 5);
   if (!slug) return NextResponse.json({ error: "company is required" }, { status: 400 });
   return asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]); if (!co) return NextResponse.json({ error: "no such company" }, { status: 404 });
