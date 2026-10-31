@@ -34,11 +34,15 @@ export async function ghlCalendarTeam(pit: string, calendarId: string): Promise<
  */
 export async function ghlCallMediaProbe(pit: string, locationId: string, messageId: string): Promise<{ recording: { status: number; type: string | null; bytes: number | null; body?: string }; transcript: { status: number; segments: number | null; body?: string } }> {
   const BASE = "https://services.leadconnectorhq.com", headers = { Authorization: `Bearer ${pit}`, Version: "2021-04-15" };
-  const rec = await fetch(`${BASE}/conversations/messages/${messageId}/locations/${locationId}/recording`, { headers: { ...headers, Range: "bytes=0-1023" } });
+  // each read is cut off at 15 seconds (a recording that streams or a call GHL never answers must not hold the probe)
+  const timed = (ms: number) => { const ctl = new AbortController(); setTimeout(() => ctl.abort(), ms); return ctl.signal; };
+  const rec = await fetch(`${BASE}/conversations/messages/${messageId}/locations/${locationId}/recording`, { headers: { ...headers, Range: "bytes=0-1023" }, signal: timed(15_000) })
+    .catch((e) => ({ status: 0, ok: false, headers: new Headers(), text: async () => `no answer: ${(e as Error).name}`, body: null }) as unknown as Response);
   const recType = rec.headers.get("content-type");
   const recording = { status: rec.status, type: recType, bytes: Number(rec.headers.get("content-range")?.split("/")[1] ?? rec.headers.get("content-length") ?? NaN) || null, ...(recType?.includes("json") || !rec.ok ? { body: (await rec.text()).slice(0, 300) } : {}) };
-  if (!recording.body) await rec.body?.cancel();
-  const tr = await fetch(`${BASE}/conversations/locations/${locationId}/messages/${messageId}/transcription`, { headers: { ...headers, Accept: "application/json" } });
+  if (!recording.body) await rec.body?.cancel().catch(() => undefined);
+  const tr = await fetch(`${BASE}/conversations/locations/${locationId}/messages/${messageId}/transcription`, { headers: { ...headers, Accept: "application/json" }, signal: timed(15_000) })
+    .catch((e) => ({ status: 0, ok: false, text: async () => `no answer: ${(e as Error).name}` }) as unknown as Response);
   const text = await tr.text();
   let segments: number | null = null;
   try { const j = JSON.parse(text) as unknown; segments = Array.isArray(j) ? j.length : Array.isArray((j as { transcription?: unknown[] }).transcription) ? (j as { transcription: unknown[] }).transcription.length : null; } catch { /* not JSON */ }
