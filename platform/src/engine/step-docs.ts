@@ -39,6 +39,7 @@ export const STEP_DOCS: Record<Node["type"], StepDoc> = {
   update_opportunity: { does: "Marks the engine's deal won, lost or open (and can move its card); won and lost are events." },
   pipeline_card: { does: "Creates or moves the contact's GHL pipeline card (opportunity)." },
   analyze: { does: "Reads a transcript or text with the AI and keeps what it returns.", reads: ["secret.anthropic_key", "prompt.*"] },
+  score_call: { does: "Scores a call against the offer's rubric: Jev decides each category, the engine counts, the AI writes a line under each score.", reads: ["secret.jev_key", "secret.anthropic_key", "prompt.*"] },
   record_outcome: { does: "Records the call's outcome on the booking (as the closer's answer with source disposition)." },
   crm_record: { does: "Creates or updates a GHL custom object record (Sales Call, Discovery Call, Payment) and relates it." },
   set_var: { does: "Remembers a value for later steps, picked by a condition or a fact." },

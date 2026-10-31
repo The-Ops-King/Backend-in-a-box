@@ -18,7 +18,7 @@ export function kindOf(n: Node): NodeKind {
     case "tags": case "set_tag": case "remove_tag": case "note": case "update_appointment": case "update_opportunity": case "pipeline_card": case "update_contact": case "create_task": case "crm_record": case "record_outcome": case "ensure_contact": return "crm";
     case "check": case "branch": return "decision";
     case "wait": case "wait_for_reply": case "wait_for_reaction": case "wait_for_event": return "wait";
-    case "classify": case "analyze": return "ai";
+    case "classify": case "analyze": case "score_call": return "ai";
     case "set_var": case "start_workflow": case "pause_runs": case "record": case "resume": case "lookup": return "control";
     case "webhook": return "message";
     case "health_check": case "availability_check": case "report": case "eod_due": case "leaderboard": return "control";
@@ -239,6 +239,7 @@ export function describeNode(n: Node): NodeText {
     case "send_document": return { title: `Send ${pathWords(n.template)} for signature`, detail: `${n.sender ? `From ${pathWords(n.sender)}; ` : ""}recorded in the agreements ledger; the poll reports when it is signed` };
     case "notify_owner": return { title: "Nudge the contact's owner", quote: templateWords(n.template), detail: `Slack DM when the owner is in Slack${n.fallback_channel ? `, else ${pathWords(n.fallback_channel)} with an @mention` : ""}${n.task ? `; CRM task “${templateWords(n.task.title)}” due in ${durationWords(n.task.due)}` : ""}` };
     case "classify": return { title: n.question ? `Jev: ${n.question.replace(/\?$/, "").replace(/^./, (c) => c.toLowerCase())}?` : "Jev reads the reply", detail: `Decides between ${Object.keys(n.criteria ?? {}).map((k) => humanWords(k)).join(", ") || `the ${humanWords(n.domain)} options`}; below ${Math.round(n.threshold * 100)}% sure, or a reply a careful person would doubt, goes to a person` };
+    case "score_call": return { title: `Score the call against ${pathWords(n.rubric)}`, detail: `Jev decides each category, the engine counts the fit out of 10, the AI writes a line under each score (${pathWords(n.prompt)}); saved as ${humanWords(n.into)}` };
     case "analyze": return { title: `AI ${n.format === "text" ? "writes" : "reads"} ${/^\{\{[^}]*\}\}$/.test(n.input.trim()) ? pathWords(n.input) : "from " + templateWords(n.input).split("\n")[0].replace(/:.*$/, "").toLowerCase() + " and more"} with ${pathWords(n.prompt)}`, detail: `Answer saved as ${Array.isArray(n.into) ? n.into.map(humanWords).join(" and ") : humanWords(n.into)}${n.format === "json" ? " (structured)" : ""}${n.optional ? "; skipped quietly when the AI cannot run" : ""}` };
     case "record_outcome": return { title: `Record the appointment as ${value(n.outcome)}`, detail: n.call_outcome ? `Call outcome ${value(n.call_outcome)}` : "On our record of the appointment; a show also fires “call held”" };
     // each quoted “+tag” / “−tag” becomes a chip under the word Tags on the chart

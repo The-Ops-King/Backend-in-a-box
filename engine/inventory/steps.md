@@ -27,6 +27,7 @@ Every step also takes `title`, `only_if` (skipped when false) and `blocking`.
 | `remove_tag` | `tag` | Takes contact tags off (the older one-direction form of tags). | none |
 | `report` | `kind`, `breakdowns`, `sections`, `into`, `metrics`, `period`, `layout` | Builds a daily, weekly or monthly wrap-up from the company's numbers. | test.domains |
 | `resume` | none | Sends the run back to the step it was handed back to. | none |
+| `score_call` | `rubric`, `prompt`, `input`, `about`, `into`, `model` | Scores a call against the offer's rubric: Jev decides each category, the engine counts, the AI writes a line under each score. | secret.jev_key, secret.anthropic_key, prompt.* |
 | `send_document` | `template`, `sender`, `name` | Sends a GHL Documents & Contracts template (held in ghost and quiet; never twice; while its sends are locked, only to Tyler, D145). | the send lock |
 | `send_email` | `subject`, `template`, `ghl_template`, `kind`, `validity`, `on_stale`, `substitute_template` | Emails the contact through GHL (held in ghost and quiet; inside the send window; while its sends are locked, only to Tyler's own emails, D145). | send window, the send lock |
 | `send_sms` | `template`, `ghl_template`, `kind`, `validity`, `on_stale`, `substitute_template` | Texts the contact through GHL (held in ghost and quiet; inside the send window; while its sends are locked, only to Tyler's own phone, D145). | send window, sms enabled, the send lock |

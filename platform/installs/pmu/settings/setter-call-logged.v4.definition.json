@@ -1,0 +1,925 @@
+{
+ "edges": [
+  {
+   "to": "v1",
+   "from": "t1"
+  },
+  {
+   "to": "l_conv",
+   "from": "v1"
+  },
+  {
+   "to": "c1",
+   "from": "l_conv"
+  },
+  {
+   "to": "c2",
+   "from": "c1"
+  },
+  {
+   "to": "a1",
+   "from": "c2"
+  },
+  {
+   "to": "b_kind",
+   "from": "a1"
+  },
+  {
+   "to": "l_book",
+   "from": "b_kind",
+   "when": {
+    "eq": [
+     "{{vars.classify.call_type}}",
+     "closing"
+    ]
+   },
+   "label": "closing call"
+  },
+  {
+   "to": "sc",
+   "from": "b_kind",
+   "when": {
+    "in": [
+     "{{vars.classify.call_type}}",
+     [
+      "setting",
+      "confirmation"
+     ]
+    ]
+   },
+   "label": "setting or confirmation call"
+  },
+  {
+   "to": "x_other",
+   "else": true,
+   "from": "b_kind",
+   "label": "anything else"
+  },
+  {
+   "to": "v_link",
+   "from": "l_book"
+  },
+  {
+   "to": "rec_close",
+   "from": "v_link"
+  },
+  {
+   "to": "x_close",
+   "from": "rec_close"
+  },
+  {
+   "to": "v_parts",
+   "from": "sc"
+  },
+  {
+   "to": "b_type",
+   "from": "v_parts"
+  },
+  {
+   "to": "a3",
+   "from": "b_type",
+   "when": {
+    "eq": [
+     "{{vars.classify.call_type}}",
+     "setting"
+    ]
+   },
+   "label": "setting call"
+  },
+  {
+   "to": "v_cline",
+   "else": true,
+   "from": "b_type",
+   "label": "confirmation call: post as soon as it is read"
+  },
+  {
+   "to": "l_now",
+   "from": "v_cline"
+  },
+  {
+   "to": "v_conf",
+   "from": "a3"
+  },
+  {
+   "to": "v_guess",
+   "from": "v_conf"
+  },
+  {
+   "to": "w_post",
+   "from": "v_guess"
+  },
+  {
+   "to": "v_by",
+   "from": "w_post"
+  },
+  {
+   "to": "v_by30",
+   "from": "v_by"
+  },
+  {
+   "to": "v_res",
+   "from": "v_by30"
+  },
+  {
+   "to": "v_agree",
+   "from": "v_res"
+  },
+  {
+   "to": "a4",
+   "from": "v_agree"
+  },
+  {
+   "to": "rec_read",
+   "from": "a4"
+  },
+  {
+   "to": "v_words",
+   "from": "rec_read"
+  },
+  {
+   "to": "v_when",
+   "from": "v_words"
+  },
+  {
+   "to": "v_unsure",
+   "from": "v_when"
+  },
+  {
+   "to": "v_line",
+   "from": "v_unsure"
+  },
+  {
+   "to": "l_now",
+   "from": "v_line"
+  },
+  {
+   "to": "c_latest",
+   "from": "l_now"
+  },
+  {
+   "to": "l_tri",
+   "from": "c_latest"
+  },
+  {
+   "to": "w_late",
+   "from": "s_tx"
+  },
+  {
+   "to": "l_now2",
+   "from": "w_late"
+  },
+  {
+   "to": "c_latest2",
+   "from": "l_now2"
+  },
+  {
+   "to": "b_late",
+   "from": "c_latest2"
+  },
+  {
+   "to": "lt_res",
+   "from": "b_late",
+   "when": {
+    "eq": [
+     "{{vars.late.matched}}",
+     true
+    ]
+   },
+   "label": "booked: Set"
+  },
+  {
+   "to": "n_note",
+   "else": true,
+   "from": "b_late",
+   "label": "no booking in the window"
+  },
+  {
+   "to": "lt_by",
+   "from": "lt_res"
+  },
+  {
+   "to": "lt_agree",
+   "from": "lt_by"
+  },
+  {
+   "to": "lt_ask",
+   "from": "lt_agree"
+  },
+  {
+   "to": "lt_words",
+   "from": "lt_ask"
+  },
+  {
+   "to": "lt_line",
+   "from": "lt_words"
+  },
+  {
+   "to": "rec_late",
+   "from": "lt_line"
+  },
+  {
+   "to": "s_late",
+   "from": "rec_late"
+  },
+  {
+   "to": "n_note",
+   "from": "s_late"
+  },
+  {
+   "to": "r1",
+   "from": "l_tri"
+  },
+  {
+   "to": "s1",
+   "from": "r1"
+  },
+  {
+   "from": "s1",
+   "to": "s_tx"
+  },
+  {
+   "from": "n_note",
+   "to": "x1"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "t1",
+   "type": "trigger",
+   "event": "call.logged",
+   "match": {
+    "and": [
+     {
+      "eq": [
+       "{{recording.kind}}",
+       "phone"
+      ]
+     },
+     {
+      "eq": [
+       "{{recording.connected}}",
+       true
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "v1",
+   "key": "min_seconds",
+   "type": "set_var",
+   "value": 60
+  },
+  {
+   "id": "l_conv",
+   "into": "convo",
+   "type": "lookup",
+   "query": "call_conversation",
+   "title": "The whole conversation: the same setter's calls to them, each starting within the company's gap (15 minutes) of the last one ending",
+   "params": {
+    "gap_min": "{{setting.calls.conversation_gap_min}}",
+    "recording_id": "{{recording.id}}"
+   }
+  },
+  {
+   "id": "c1",
+   "type": "check",
+   "when": {
+    "gte": [
+     "{{vars.convo.total_sec}}",
+     "{{vars.min_seconds}}"
+    ]
+   },
+   "else_exit": "too_short"
+  },
+  {
+   "id": "c2",
+   "type": "check",
+   "when": {
+    "eq": [
+     "{{recording.has_transcript}}",
+     true
+    ]
+   },
+   "else_exit": "no_transcript"
+  },
+  {
+   "id": "a1",
+   "into": "vars.classify.call_type",
+   "type": "classify",
+   "input": "{{vars.convo.transcript_text}}",
+   "title": "Jev: setting, confirmation or closing call?",
+   "domain": "setter_call_type",
+   "criteria": {
+    "other": "Anything else: 'are you joining the call', 'where are you', a voicemail greeting, a wrong number, spam, a call that never got past hello, an internal or personal call, or a transcript too thin to tell.",
+    "closing": "The booked sales call itself: a closer presents the program, its price or payment, handles objections and asks for a decision to buy.",
+    "setting": "The setter finds out about the lead's situation, qualifies them, and works toward booking (or books) a call with a closer.",
+    "confirmation": "The setter confirms an appointment that is already booked: time, link, what to expect, perhaps a brief re-qualification."
+   },
+   "question": "What kind of phone call between someone on the sales team and a lead was this?",
+   "threshold": 0.8,
+   "ambiguity_max": 0.8
+  },
+  {
+   "id": "b_kind",
+   "type": "branch",
+   "title": "What kind of call?"
+  },
+  {
+   "id": "l_book",
+   "into": "closing_booking",
+   "type": "lookup",
+   "query": "appointments_for_contact",
+   "title": "Their booked call with this closer, starting within an hour of the call",
+   "params": {
+    "kind": "closing",
+    "order": "starts_at",
+    "closer": "{{recording.caller.ghl_user_id | default:}}",
+    "status_not": "cancelled",
+    "starts_since": "{{vars.convo.first.started_at}} -60m",
+    "starts_until": "{{vars.convo.first.started_at}} +60m"
+   }
+  },
+  {
+   "id": "v_link",
+   "key": "booking_id",
+   "type": "set_var",
+   "when": {
+    "eq": [
+     "{{vars.closing_booking.count}}",
+     1
+    ]
+   },
+   "title": "Exactly one booking lines up (none or several: the closer's workflow asks which)",
+   "value": "{{vars.closing_booking.first.id}}",
+   "else_value": ""
+  },
+  {
+   "id": "rec_close",
+   "data": {
+    "parts": "{{vars.convo.count}}",
+    "closer": "{{recording.caller.name | default:}}",
+    "linked": "{{vars.booking_id}}",
+    "external_id": "{{recording.external_id}}",
+    "conversation": "{{vars.convo.key}}",
+    "recording_id": "{{recording.id}}"
+   },
+   "type": "record",
+   "event": "call.closing",
+   "start": true,
+   "title": "A closing call: Sales call recorded takes it from here",
+   "appointment": "{{vars.booking_id}}"
+  },
+  {
+   "id": "x_close",
+   "type": "exit",
+   "reason": "closing_call"
+  },
+  {
+   "id": "x_other",
+   "type": "exit",
+   "reason": "not_a_setting_call"
+  },
+  {
+   "id": "sc",
+   "type": "score_call",
+   "title": "Score the call: Jev decides each of the rubric's categories, the engine counts the fit out of 10, the AI writes the summary and a line under each score (D271)",
+   "rubric": "{{prompt.setter_call_rubric}}",
+   "prompt": "{{prompt.setter_call_score}}",
+   "input": "{{vars.convo.transcript_text}}",
+   "about": "Call with {{contact.name | default:Unknown}}, {{vars.convo.total_min}} minutes. Setter: {{recording.caller.name | default:unknown}}.",
+   "into": "score"
+  },
+  {
+   "id": "v_parts",
+   "key": "parts_line",
+   "type": "set_var",
+   "when": {
+    "gt": [
+     "{{vars.convo.count}}",
+     1
+    ]
+   },
+   "title": "A call in parts says so",
+   "value": " ({{vars.convo.count}} parts)",
+   "else_value": ""
+  },
+  {
+   "id": "b_type",
+   "type": "branch",
+   "title": "A setting call: what did it achieve?"
+  },
+  {
+   "id": "v_cline",
+   "key": "outcome_line",
+   "type": "set_var",
+   "value": "Confirmation call (no result read)"
+  },
+  {
+   "id": "a3",
+   "into": "vars.classify.result",
+   "type": "classify",
+   "input": "{{vars.convo.transcript_text}}",
+   "title": "Jev: set, follow up, DQ or not interested?",
+   "domain": "setter_call_result",
+   "criteria": {
+    "dq": "The lead does not qualify: the setter or the lead established they are not a fit (budget, age, location, medical, timeline, no real problem to solve, already with a competitor, or a bad or wrong contact).",
+    "set": "A call with the closer or specialist was booked on this call: a day and time were agreed, or the setter booked it while they were on the phone.",
+    "follow_up": "The lead is interested but nothing was booked: a callback, a later conversation or sending them information was agreed or clearly implied.",
+    "not_interested": "The lead declined: they said they are not interested, do not want a call, or asked not to be contacted."
+   },
+   "question": "What did this setting call between a setter and a lead achieve?",
+   "threshold": 0.7,
+   "ambiguity_max": 0.8
+  },
+  {
+   "id": "v_conf",
+   "key": "jev_confidence",
+   "type": "set_var",
+   "value": "{{reply.intent_confidence}}"
+  },
+  {
+   "id": "v_guess",
+   "key": "jev_guesses",
+   "type": "set_var",
+   "value": "{{reply.top_guesses | words}}"
+  },
+  {
+   "id": "w_post",
+   "into": "booked",
+   "type": "wait_for_event",
+   "about": "contact",
+   "event": "appointment.booked",
+   "match": {
+    "and": [
+     {
+      "eq": [
+       "{{vars.booked.appointment.booking_source}}",
+       "setter"
+      ]
+     },
+     {
+      "lte": [
+       "{{vars.booked.appointment.booked_at | date:X}}",
+       "{{recording.set_until | date:X}}"
+      ]
+     }
+    ]
+   },
+   "since": "{{vars.convo.first.started_at}}",
+   "title": "Post as soon as a booking lands through a setter link (one made during the call counts at once), else 15 minutes after hang-up",
+   "until": {
+    "tz": "company",
+    "anchor": "recording.ended_at",
+    "offset": "+15m"
+   },
+   "respect_send_window": false
+  },
+  {
+   "id": "v_by",
+   "key": "decided_by",
+   "type": "set_var",
+   "when": {
+    "in": [
+     "{{vars.classify.result}}",
+     [
+      "follow_up",
+      "dq",
+      "not_interested"
+     ]
+    ]
+   },
+   "title": "Without a booking, Jev's read (a Set read with no booking is left to the end of day)",
+   "value": "jev",
+   "else_value": ""
+  },
+  {
+   "id": "v_by30",
+   "key": "decided_by",
+   "type": "set_var",
+   "when": {
+    "eq": [
+     "{{vars.booked.matched}}",
+     true
+    ]
+   },
+   "title": "A booking through a setter link: Set, whatever Jev read",
+   "value": "booking",
+   "else_value": "{{vars.decided_by}}"
+  },
+  {
+   "id": "v_res",
+   "key": "result",
+   "pick": {
+    "jev": "{{vars.classify.result}}",
+    "booking": "set"
+   },
+   "type": "set_var",
+   "value": "{{vars.decided_by}}",
+   "else_value": ""
+  },
+  {
+   "id": "v_agree",
+   "key": "jev_agreed",
+   "type": "set_var",
+   "when": {
+    "eq": [
+     "{{vars.classify.result}}",
+     "{{vars.result}}"
+    ]
+   },
+   "value": true,
+   "else_value": false
+  },
+  {
+   "id": "a4",
+   "into": "vars.classify.dq_reason",
+   "type": "classify",
+   "input": "{{vars.convo.transcript_text}}",
+   "title": "Jev: why disqualified?",
+   "domain": "setter_dq_reason",
+   "only_if": {
+    "in": [
+     "{{vars.result}}",
+     [
+      "dq",
+      ""
+     ]
+    ]
+   },
+   "blocking": false,
+   "criteria": {
+    "age": "They are too young or too old for the program.",
+    "geo": "They are outside the area the company serves.",
+    "other": "Any other reason, or the transcript does not say.",
+    "budget": "They cannot afford it or have no money for it right now.",
+    "medical": "A medical condition or treatment rules them out.",
+    "timeline": "Their timing does not work: not for a long while, or no urgency at all.",
+    "competitor": "They are already working with, or committed to, a competitor.",
+    "no_problem": "They do not actually have the problem the program solves.",
+    "bad_contact": "A wrong number, a fake or duplicate contact, or someone who never asked to be contacted."
+   },
+   "question": "If this lead was disqualified on the call, what was the reason?",
+   "threshold": 0.6,
+   "ambiguity_max": 0.8
+  },
+  {
+   "id": "rec_read",
+   "data": {
+    "parts": "{{vars.convo.count}}",
+    "digest": "{{vars.score.summary | default:}}",
+    "result": "{{vars.result}}",
+    "setter": "{{recording.caller.name | default:}}",
+    "booked_at": "{{vars.booked.appointment.booked_at | default:}}",
+    "call_type": "{{vars.classify.call_type}}",
+    "dq_domain": "setter_dq_reason",
+    "dq_reason": "{{vars.classify.dq_reason | default:}}",
+    "predicted": "{{vars.classify.result}}",
+    "decided_by": "{{vars.decided_by}}",
+    "jev_agreed": "{{vars.jev_agreed}}",
+    "external_id": "{{vars.convo.key}}",
+    "top_guesses": "{{vars.jev_guesses}}",
+    "recording_id": "{{vars.convo.first.id}}",
+    "set_by_booking": "{{vars.booked.matched | default:false}}",
+    "predicted_confidence": "{{vars.jev_confidence}}",
+    "fit": "{{vars.score.fit_text | default:}}",
+    "tier": "{{vars.score.tier | default:}}"
+   },
+   "type": "record",
+   "event": "setter_call.result",
+   "title": "Log Jev's read, to score it later"
+  },
+  {
+   "id": "v_words",
+   "key": "result_words",
+   "pick": {
+    "dq": "DQ",
+    "set": "Set",
+    "follow_up": "Follow up",
+    "not_interested": "Not interested"
+   },
+   "type": "set_var",
+   "value": "{{vars.result}}",
+   "else_value": ""
+  },
+  {
+   "id": "v_when",
+   "key": "booked_when",
+   "type": "set_var",
+   "when": {
+    "lte": [
+     "{{vars.booked.appointment.booked_at | date:X}}",
+     "{{recording.ended_at | date:X}}"
+    ]
+   },
+   "value": "during the call",
+   "else_value": "after the call"
+  },
+  {
+   "id": "v_unsure",
+   "key": "unsure_line",
+   "pick": {
+    "set": "Jev read Set ({{vars.jev_confidence}}% sure), but no booking came through a setter link"
+   },
+   "type": "set_var",
+   "value": "{{vars.classify.result}}",
+   "else_value": "Jev isn't sure (its guesses: {{vars.jev_guesses}})"
+  },
+  {
+   "id": "v_line",
+   "key": "outcome_line",
+   "pick": {
+    "jev": "{{vars.result_words}} (Jev is {{vars.jev_confidence}}% sure)",
+    "booking": "Set \u2014 booked through a setter link {{vars.booked_when}} (Jev read: {{vars.classify.result | words}}, {{vars.jev_confidence}}% sure)"
+   },
+   "type": "set_var",
+   "value": "{{vars.decided_by}}",
+   "else_value": "{{vars.unsure_line}}; the end of day asks"
+  },
+  {
+   "id": "l_now",
+   "into": "convo_now",
+   "type": "lookup",
+   "query": "call_conversation",
+   "title": "Has a later part of this conversation come in meanwhile?",
+   "params": {
+    "gap_min": "{{setting.calls.conversation_gap_min}}",
+    "recording_id": "{{recording.id}}"
+   }
+  },
+  {
+   "id": "c_latest",
+   "type": "check",
+   "when": {
+    "eq": [
+     "{{vars.convo_now.later_ready}}",
+     0
+    ]
+   },
+   "else_exit": "read_with_a_later_part"
+  },
+  {
+   "id": "l_tri",
+   "into": "triage_today",
+   "type": "lookup",
+   "query": "appointments_for_contact",
+   "title": "A triage call booked with this caller that day: its own Discovery Call already stands for this call",
+   "params": {
+    "kind": "first_call",
+    "closer": "{{recording.caller.ghl_user_id | default:}}",
+    "status_not": "cancelled",
+    "starts_since": "{{vars.convo.first.started_at | date_company:\"yyyy-MM-dd'T'00:00:00ZZ\"}}",
+    "starts_until": "{{vars.convo.first.started_at | date_company:\"yyyy-MM-dd'T'23:59:59ZZ\"}}"
+   }
+  },
+  {
+   "id": "r1",
+   "key": "{{vars.convo.key}}",
+   "type": "crm_record",
+   "clear": [],
+   "owner": "{{recording.caller.ghl_user_id | default:}}",
+   "title": "The call's Discovery Call, made blank: no outcome, no result (the end of day files them)",
+   "object": "{{crm.object_discovery_call | default:custom_objects.discovery_call}}",
+   "relate": [
+    {
+     "first": "{{contact.ghl_contact_id | default:}}",
+     "second": "{{record.id}}",
+     "association": "{{crm.assoc_discovery_call_contact}}"
+    }
+   ],
+   "only_if": {
+    "eq": [
+     "{{vars.triage_today.count}}",
+     0
+    ]
+   },
+   "if_missing": "create",
+   "properties": {
+    "setter": "{{recording.caller.name | default:}}",
+    "direction": "{{recording.direction}}",
+    "contact_id": "{{contact.ghl_contact_id | default:}}",
+    "external_id": "{{vars.convo.key}}",
+    "occurred_at": "{{vars.convo.first.started_at | date_company}}",
+    "duration_sec": "{{vars.convo.total_sec}}",
+    "display_label": "{{contact.name | default:Unknown}} \u2014 {{vars.convo.first.started_at | date_company}}{{vars.parts_line}}",
+    "recording_url": "{{recording.url | default:}}"
+   }
+  },
+  {
+   "as": {
+    "icon": [
+     ":telephone_receiver:",
+     ":speech_balloon:",
+     ":headphones:"
+    ],
+    "name": "Setter call"
+   },
+   "id": "s1",
+   "tag": "setter-call:{{vars.convo.key}}",
+   "edit": true,
+   "type": "slack_post",
+   "label": "mode",
+   "title": "Post the setter call in Slack (a later part edits the same post)",
+   "channel": "{{slack.channel.setter_calls}}",
+   "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> \u00b7 {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} \u00b7 *Length:* {{vars.convo.total_min}} min{{vars.parts_line}} \u00b7 {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.score.summary_slack}}\n\n{{vars.score.slack}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>",
+   "thread_only": false
+  },
+  {
+   "id": "w_late",
+   "into": "late",
+   "type": "wait_for_event",
+   "about": "contact",
+   "event": "appointment.booked",
+   "match": {
+    "and": [
+     {
+      "eq": [
+       "{{vars.late.appointment.booking_source}}",
+       "setter"
+      ]
+     },
+     {
+      "lte": [
+       "{{vars.late.appointment.booked_at | date:X}}",
+       "{{recording.set_until | date:X}}"
+      ]
+     }
+    ]
+   },
+   "since": "{{vars.convo.first.started_at}}",
+   "title": "Until the Set window closes (the company's 30 minutes after hang-up): a booking through a setter link makes it Set",
+   "until": {
+    "tz": "company",
+    "anchor": "recording.set_until",
+    "offset": "+0m"
+   },
+   "only_if": {
+    "and": [
+     {
+      "eq": [
+       "{{vars.classify.call_type}}",
+       "setting"
+      ]
+     },
+     {
+      "neq": [
+       "{{vars.result}}",
+       "set"
+      ]
+     }
+    ]
+   },
+   "respect_send_window": false
+  },
+  {
+   "id": "l_now2",
+   "into": "convo_now",
+   "type": "lookup",
+   "query": "call_conversation",
+   "title": "Has a later part of this conversation come in meanwhile?",
+   "params": {
+    "gap_min": "{{setting.calls.conversation_gap_min}}",
+    "recording_id": "{{recording.id}}"
+   }
+  },
+  {
+   "id": "c_latest2",
+   "type": "check",
+   "when": {
+    "eq": [
+     "{{vars.convo_now.later_ready}}",
+     0
+    ]
+   },
+   "title": "A later part's run has the whole conversation (its post, its record, its question)",
+   "else_exit": "read_with_a_later_part"
+  },
+  {
+   "id": "b_late",
+   "type": "branch",
+   "title": "Did a booking through a setter link land in the Set window?"
+  },
+  {
+   "id": "lt_res",
+   "key": "result",
+   "type": "set_var",
+   "value": "set"
+  },
+  {
+   "id": "lt_by",
+   "key": "decided_by",
+   "type": "set_var",
+   "value": "booking"
+  },
+  {
+   "id": "lt_agree",
+   "key": "jev_agreed",
+   "type": "set_var",
+   "when": {
+    "eq": [
+     "{{vars.classify.result}}",
+     "set"
+    ]
+   },
+   "value": true,
+   "else_value": false
+  },
+  {
+   "id": "lt_ask",
+   "key": "asking",
+   "type": "set_var",
+   "value": false
+  },
+  {
+   "id": "lt_words",
+   "key": "result_words",
+   "type": "set_var",
+   "value": "Set"
+  },
+  {
+   "id": "lt_line",
+   "key": "outcome_line",
+   "type": "set_var",
+   "value": "Set \u2014 booked through a setter link after the call (Jev read: {{vars.classify.result | words}}, {{vars.jev_confidence}}% sure)"
+  },
+  {
+   "id": "rec_late",
+   "data": {
+    "parts": "{{vars.convo.count}}",
+    "digest": "{{vars.score.summary | default:}}",
+    "result": "set",
+    "setter": "{{recording.caller.name | default:}}",
+    "booked_at": "{{vars.late.appointment.booked_at | default:}}",
+    "call_type": "{{vars.classify.call_type}}",
+    "dq_domain": "setter_dq_reason",
+    "dq_reason": "{{vars.classify.dq_reason | default:}}",
+    "predicted": "{{vars.classify.result}}",
+    "decided_by": "booking",
+    "jev_agreed": "{{vars.jev_agreed}}",
+    "external_id": "{{vars.convo.key}}",
+    "top_guesses": "{{vars.jev_guesses}}",
+    "recording_id": "{{vars.convo.first.id}}",
+    "set_by_booking": "true",
+    "predicted_confidence": "{{vars.jev_confidence}}",
+    "fit": "{{vars.score.fit_text | default:}}",
+    "tier": "{{vars.score.tier | default:}}"
+   },
+   "type": "record",
+   "event": "setter_call.result",
+   "title": "Log the result again: Set by the booking"
+  },
+  {
+   "as": {
+    "icon": [
+     ":telephone_receiver:",
+     ":speech_balloon:",
+     ":headphones:"
+    ],
+    "name": "Setter call"
+   },
+   "id": "s_late",
+   "tag": "setter-call:{{vars.convo.key}}",
+   "edit": true,
+   "type": "slack_post",
+   "label": "mode",
+   "title": "Edit the post to Set",
+   "channel": "{{slack.channel.setter_calls}}",
+   "template": "*Setter call with:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}> \u00b7 {{vars.classify.call_type}}\n*Setter:* {{recording.caller.name | default:unknown}} \u00b7 *Length:* {{vars.convo.total_min}} min{{vars.parts_line}} \u00b7 {{recording.direction}}\n*Outcome:* {{vars.outcome_line}}\n\n{{vars.score.summary_slack}}\n\n{{vars.score.slack}}\n\n<{{recording.share_url | default:}}|Open the conversation in GHL>",
+   "thread_only": false
+  },
+  {
+   "id": "x1",
+   "type": "exit",
+   "reason": "posted"
+  },
+  {
+   "id": "s_tx",
+   "type": "slack_post",
+   "title": "The transcript in the post's thread",
+   "channel": "{{slack.channel.setter_calls}}",
+   "thread_of": "tag:setter-call:{{vars.convo.key}}",
+   "thread_only": true,
+   "as": {
+    "icon": [
+     ":telephone_receiver:",
+     ":speech_balloon:",
+     ":headphones:"
+    ],
+    "name": "Setter call"
+   },
+   "label": "mode",
+   "template": "*Transcript*{{vars.parts_line}}\n{{vars.convo.transcript_text | truncate:38000}}"
+  },
+  {
+   "id": "n_note",
+   "type": "note",
+   "title": "The same recap as a note on the GHL contact (plain text)",
+   "template": "Setter call scored {{vars.convo.first.started_at | date_company}}\n\nSetter call with: {{contact.name | default:Unknown}} \u00b7 {{vars.classify.call_type}}\nSetter: {{recording.caller.name | default:unknown}} \u00b7 Length: {{vars.convo.total_min}} min{{vars.parts_line}} \u00b7 {{recording.direction}}\nOutcome: {{vars.outcome_line}}{{vars.score.summary | line:}}\n\n{{vars.score.plain}}"
+  }
+ ],
+ "schema": 1,
+ "premise": {
+  "check": "contact_exists"
+ },
+ "reentry": "always"
+}

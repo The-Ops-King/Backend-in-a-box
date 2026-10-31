@@ -43,7 +43,7 @@ export function kindOf(n: Node): ChartKind {
     case "check": return "check";
     case "tags": case "set_tag": case "remove_tag": return "tag";
     case "slack_post": return "slack";
-    case "classify": case "analyze": return "ai";
+    case "classify": case "analyze": case "score_call": return "ai";
     case "exit": return "end";
     case "update_contact": case "update_appointment": case "update_opportunity": case "pipeline_card": case "crm_record": case "create_task": case "record_outcome": case "note": case "ensure_contact": return "crm";
     case "record": return "other";
@@ -217,6 +217,7 @@ function generic(def: Definition, n: Node, nm: Namer): { title: string; meta?: s
       const q = (n.question ?? humanWords(n.domain)).replace(/\?$/, "").replace(/^./, (c) => c.toLowerCase());
       return { title: `Jev: ${keys.length && keys.length <= 4 ? `${keys.slice(0, -1).join(", ")}${keys.length > 1 ? " or " : ""}${keys.at(-1)}` : q.length <= 40 || !keys.length ? q : `${keys.slice(0, 3).join(", ")} or ${keys.length - 3} more`}?` };
     }
+    case "score_call": return { title: "Score the call (Jev decides, the AI writes the lines)" };
     case "analyze": { const w: Record<string, string> = { classify: "is it a sales call?", notes: "call notes", rubric: "scorecard", objections: "objections", cheer: "a line of congratulations" }; const keys = Array.isArray(n.into) ? n.into : [n.into]; return { title: `AI: ${keys.map((k) => w[k] ?? humanWords(k)).join(" and ")}` }; }
     case "update_contact": {
       const fields = n.fields.map((f) => nm.field(f.id)), cleared = n.clear.map((id) => nm.field(id));
@@ -275,7 +276,7 @@ export function logoOf(n: Node, bookingSource: "ghl" | "calendly" = "ghl"): stri
     case "send_email": return "email";
     case "slack_post": case "notify_owner": return "slack";
     case "classify": return "jev";
-    case "analyze": return "ai";
+    case "analyze": case "score_call": return "ai";
     case "wait": return "clock";
     case "wait_for_reply": return "reply";
     case "wait_for_reaction": return "slack";

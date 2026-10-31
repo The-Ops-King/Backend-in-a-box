@@ -161,6 +161,8 @@ export const Node = z.discriminatedUnion("type", [
   // json: the answer is parsed and its fields are addressable ({{vars.notes.summary}}); text: stored as a string.
   // optional: decoration (a congratulations line); when the AI cannot run the step is skipped and the run goes on without the value
   z.object({ ...base, type: z.literal("analyze"), prompt: z.string(), input: z.string().default("{{recording.transcript_text}}"), into: z.union([z.string(), z.array(z.string().min(1)).min(2)]), format: z.enum(["json", "text"]).default("json"), max_tokens: z.number().int().positive().optional(), model: z.string().regex(/^claude-[a-z0-9.-]+$/).optional(), optional: z.boolean().default(false) }),   // model (D271): this step's Claude model, else the engine's   // into: one var, or the keys of one object the prompt returns (`["notes", "rubric"]` → vars.notes, vars.rubric from one read)
+  // D272: a call scored against the offer's rubric (Jev decides, code counts, Claude writes the lines); the rubric and the prompt are the offer's settings
+  z.object({ ...base, type: z.literal("score_call"), rubric: z.string(), prompt: z.string(), input: z.string().default("{{vars.convo.transcript_text}}"), about: z.string().default(""), into: z.string().min(1).default("score"), model: z.string().regex(/^claude-[a-z0-9.-]+$/).optional() }),
   // Writes the appointment's outcome on OUR row (showed / noshow / …), the same path the closer's disposition form takes; call.held follows a show.
   // source (D88): "engine" (a fact the engine saw, a recording) or "disposition" (a person's answer: filed as the form files it, so Call outcome filed runs);
   // user: who answered (a roster user id, templated); via: what filed it, kept on the submission ("card_moved"), so the end-of-day form can say so
@@ -248,7 +250,7 @@ export function extractManifest(def: Definition): { bindings: ManifestEntry[] } 
   };
   walk(def.nodes); walk(def.edges);
   // an analyze node needs the company's Anthropic key even though no template mentions it
-  if (def.nodes.some((n) => n.type === "analyze")) { refs.add("secret.anthropic_key"); bare.add("secret.anthropic_key"); }
+  if (def.nodes.some((n) => n.type === "analyze" || n.type === "score_call")) { refs.add("secret.anthropic_key"); bare.add("secret.anthropic_key"); }
   // a notify_owner node posts to Slack even without a channel binding (it DMs), so slack.channel.alerts is only the fallback; nothing to add
   const out = new Map<string, ManifestEntry>();
   for (const ref of refs) {

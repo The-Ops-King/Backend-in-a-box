@@ -6845,3 +6845,28 @@ PMU's copy changes by name with a dry run.
   playbook's `review`); its unused `recordedDispositions` is gone. Not a sales call: nothing posts (the Zap posted "N/A"). Nobody
   matched: the Unmatched recording post with its Link button. A GHL dialer call Jev reads as a closing call comes in through Setter
   call logged, which hands it to this review (as before).
+
+## D272. A setter call is scored as PMU's Zap scored it: the offer's rubric, Jev decides, the engine counts, the AI writes (2026-10-31)
+
+Tyler: "update the claude to do the 8 category score, dq and academy tags. transcript and GHL note." The Zap's setter call digest
+scored each call on eight categories; the engine's Setter call logged had one 1-10 number from the AI.
+
+- A new step, `score_call`, scores a call against a rubric that is the offer's setting (`prompt.setter_call_rubric`, JSON), never
+  words in code. Jev makes every decision (did each category come up, its 0-2 level, the disqualifier and tag questions), the
+  engine does the arithmetic (normalised to /10 over the categories scored), the AI writes the summary and one line under each
+  score from the offer's prompt (`prompt.setter_call_score`) and never sets a score.
+- As the Zap: a category never discussed is N/A and leaves the denominator; a gate the setter never asked scores 1 and is flagged
+  ("Needs review"); a gate at 0 is "Gate failed" and its DQ reason; fewer evidenced categories than `min_scored` is "Insufficient
+  data to score". The form fills a category only when the call did not cover it (revenue read in code against the rubric's cutoffs,
+  the struggle read by Jev); Behavior/Engagement is the form's answers (both 2, one 1, none N/A).
+- The form answers are read live from the contact in GHL, by the fields the offer bound (`crm.field_contact_<name>`), as the
+  Zap read them: never the engine's copy. `GET /api/admin/ghl/setup` now lists the location's contact fields (id, name), so a
+  field is bound by the id GHL gives it.
+- Jev or the AI down never loses the call: the post says "Scoring unavailable" or "Summary step failed". Like analyze, the step is
+  not a CRM write, so it runs in ghost.
+- PMU's Setter call logged (its own copy, v4): the score replaces the AI notes; the transcript goes in the post's thread; the same
+  recap goes on the GHL contact as a plain-text note once the outcome is final (after the Set window); the Discovery Call is still
+  made for each setting call, so the setter owes the end of day on it (Tyler: "yes the setter should owe the eod"). Outcome words
+  stay the engine's (Set / Follow up / DQ / Not interested); which calls post stays the engine's (no voicemails, wrong numbers or
+  closing calls). No other offer changes: the step is new and only PMU's copy uses it.
+

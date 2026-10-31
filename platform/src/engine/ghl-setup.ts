@@ -21,7 +21,7 @@ type Pipeline = { id: string; name: string; stages: { id: string; name: string; 
 type ObjField = { fieldKey: string; name: string; dataType?: string; options?: { key: string; label?: string }[] | null };
 export async function readGhl(c: PoolClient, slug: string) {
   const co = await company(c, slug); if (!co) return null;
-  const [p, ob] = await Promise.all([co.http("GET", `/opportunities/pipelines?locationId=${co.loc}`), co.http("GET", `/objects/?locationId=${co.loc}`)]);
+  const [p, ob, cf] = await Promise.all([co.http("GET", `/opportunities/pipelines?locationId=${co.loc}`), co.http("GET", `/objects/?locationId=${co.loc}`), co.http("GET", `/locations/${co.loc}/customFields?model=contact`)]);
   const custom = ((ob.objects ?? []) as { key: string; labels?: { singular?: string } }[]).filter((o) => o.key.startsWith("custom_objects."));
   const objects = await Promise.all(custom.map(async (o) => {
     const f = await co.http("GET", `/custom-fields/object-key/${o.key}?locationId=${co.loc}`);
@@ -29,7 +29,9 @@ export async function readGhl(c: PoolClient, slug: string) {
   }));
   const pipelines = ((p.pipelines ?? []) as Pipeline[]).map((x) => ({ id: x.id, name: x.name, stages: [...x.stages].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map((s) => ({ id: s.id, name: s.name })) }));
   const crm = Object.fromEntries(Object.entries(co.bindings).filter(([k]) => (k.startsWith("crm.") || k.startsWith("sales_call.")) && !k.startsWith("secret.")));
-  return { location: co.loc, pipelines, objects, settings: crm };
+  // D272: the contact fields by name, so a field is bound by the id GHL gives it (crm.field_contact_<name>), never guessed
+  const contactFields = ((cf.customFields ?? []) as { id: string; name: string; fieldKey?: string; dataType?: string }[]).map((f) => ({ id: f.id, name: f.name, key: f.fieldKey, type: f.dataType }));
+  return { location: co.loc, pipelines, objects, contactFields, settings: crm };
 }
 
 const EMPTY: Omit<Setup, "pipelines" | "objects"> = { prefix: "", timezone: "", team: [], hours: { days: [], open: "09:00", close: "17:00" }, contactFields: [], opportunityFields: [], associations: [], calendars: [], install: {} };

@@ -12,6 +12,7 @@ import { computeWaitUntil, deferIntoWindow, pullBackIntoWindow, timeParam } from
 import type { CompanyRow, RunRow } from "./context";
 import { followMerge } from "./merge";
 import { TEST_CHANNEL_KEY, slackLiveSet, type Effective, type Mode } from "./mode";
+import { parseRubric, scoreCall } from "./score-call";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { raise } from "./alerts";
 import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
@@ -858,6 +859,30 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       return { status: "ok", next, result: { task_id: w.id, title, due: dueAt.toISOString(), assignedUserId, ...(w.reused ? { reused: true } : {}) } };
     }
     case "update_opportunity": return updateOpportunity(d, node, next);
+    case "score_call": {
+      // D272: like analyze, not a CRM write, so it runs in ghost too (seeing how a call would score is the point of ghost)
+      const parsed = parseRubric(render(node.rubric, d.ctx, env(d)));
+      if (!parsed.ok) return { status: "failed", error: `score_call ${node.id}: ${parsed.why}` };
+      const prompt = render(node.prompt, d.ctx, env(d)).trim();
+      if (!prompt) return { status: "failed", error: `score_call ${node.id}: prompt rendered empty (is the prompt.* binding set?)` };
+      const transcript = render(node.input, d.ctx, env(d)).trim();
+      if (!transcript) return { status: "skipped", next, result: { kind: "noop", why: "nothing to score: input rendered empty (no transcript?)" } };
+      // the form answers the rubric names, by their bound contact field (crm.field_contact_<name>), read live from the CRM (the
+      // replica keeps only what it was bound to keep when the contact last changed); a CRM that cannot be read is the failure policy's
+      const names = new Set([...Object.keys(parsed.rubric.form_fields ?? {}), ...parsed.rubric.categories.flatMap((c) => [...(c.form ? [c.form.field] : []), ...(c.answered_of ?? [])])]);
+      const ghlId = (d.ctx.contact as { ghl_contact_id?: string | null } | undefined)?.ghl_contact_id;
+      const live = ghlId && names.size ? (await d.adapters.read.getContact(d.adapterCompany, ghlId))?.customFields ?? {} : {};
+      const said = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v ?? "")).trim();
+      const form = Object.fromEntries([...names].map((f) => { const id = d.bindings[`crm.field_contact_${f}`]; return [f, id ? said(live[id]) : ""]; }));
+      const r = await scoreCall({ classifier: d.adapters.classifier, analyst: d.adapters.analyst, jevKey: d.bindings["secret.jev_key"] || process.env.JEV_API_KEY, anthropicKey: d.bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY },
+        { rubric: parsed.rubric, prompt, transcript, form, about: render(node.about, d.ctx, env(d)).trim(), model: node.model });
+      setPath(d.ctx, `vars.${node.into}`, r);
+      const recId = (d.ctx.recording as { id?: string } | undefined)?.id;
+      const kept = { ...r, slack: undefined, plain: undefined };   // the ledger keeps the scores and the words, not the post twice over
+      if (recId) await d.c.query("update recordings set analysis = analysis || $2::jsonb where id=$1", [recId, JSON.stringify({ [node.into]: kept })]);
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "call.analyzed", source: "engine", data: { node: node.id, into: node.into, kind: "score", fit: r.fit, tier: r.tier, scored: r.scored, dq: r.dq, tags: r.tags, recording_id: recId, ...(r.jev_error ? { jev_error: r.jev_error } : {}), ...(r.ai_error ? { ai_error: r.ai_error } : {}) } });
+      return { status: "ok", next, result: { into: node.into, fit: r.fit, tier: r.tier, scored: `${r.scored} of ${r.total}`, dq: r.dq, tags: r.tags, ...(r.why ? { why: r.why } : {}), ...(r.ai_error ? { ai_error: r.ai_error } : {}) } };
+    }
     case "analyze": {
       // not a CRM write, so it runs in ghost too: seeing what the AI would say about a call is the point of ghost
       const apiKey = d.bindings["secret.anthropic_key"] || process.env.ANTHROPIC_API_KEY;
