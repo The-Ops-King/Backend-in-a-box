@@ -6817,3 +6817,6 @@ should be checking GHL in all cases", "DUPLICATES ARE STORED IN AND CHECKED AGAI
   after later ones never counts what came after it. GHL unread is a retry, never a guess.
 - A payment record is checked against GHL before it is made: `crm_record` `match_on: transaction_id` updates the record GHL already
   has for the transaction (the Zap's) instead of making a second.
+- `event.full_reason`: whether the payment's billing reason is one the offer counts (`payments.full_reasons`). PMU tags
+  payment-received on a payment in full, or on a balance that clears the price after only a deposit, paid for a counted reason
+  (Tyler, 2026-10-31: a $250 deposit then the $9,750 is paid in full).

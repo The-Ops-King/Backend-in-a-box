@@ -266,7 +266,9 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
   const type = payment.status === "succeeded" ? "payment.received" : payment.status === "refunded" ? "payment.refunded" : "payment.failed";
   const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: type, source: "whop", occurred_at: payment.paid_at,
     data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, prior_non_deposit_total: priorPaid, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id,
-      customer_phone: payment.customer_phone ?? null, billing_reason: reasonOf(payment.raw), full_price: fullPrice } });
+      customer_phone: payment.customer_phone ?? null, billing_reason: reasonOf(payment.raw), full_price: fullPrice,
+      // D270: whether its billing reason is one the offer counts for a purchase in full (a deposit's balance paid up front, not a renewal)
+      full_reason: ruled ? fullReason(reasonOf(payment.raw), rules) : null } });
   if (payment.status === "succeeded") {
     // D88 (A9): the opportunity is won by Payment recorded's update_opportunity step, where the company decides on which payment
     if (isCleared) {
