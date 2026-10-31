@@ -7025,6 +7025,38 @@ offer's Typeform token, read only. The UTM backfill (D281) takes `answers` (ques
 those empty fields from each person's latest answer. PMU's VSL A and B ask the same two questions (biggest struggle; average monthly
 revenue over 90 days) and no ad budget, so ad budget has nothing in Typeform to fill from.
 
+
+## D283. The onboarding page shows each person's booking links (2026-10-31)
+
+Tyler: closers use their own two links (a 15-minute triage, a 45-minute closing call for a follow-up or a self-set); setters book
+through links tagged with their name; "the calendar list should stay active on the dating-nelly/onboarding?role=setter and
+?role=closer so that at any time they can see their own calendar link and their own setter links, their own RR links".
+
+- The offer's setting `team.links` names the round robin's triage and closing calendars and each closer's own two
+  (`{ rr: { triage, closing }, closers: [{ email, triage, closing }] }`, by the booking tool's calendar id or a watched calendar's
+  name). The setters are the roster's active setters. A link is the one the engine keeps for a watched calendar.
+- "Your links" on `/<offer>/onboarding`, read live (the page is no longer built only at deploy): ?role=closer shows each closer's
+  Triage and Closing; ?role=setter shows each setter's round robin Triage and Closing and every closer's two, each tagged
+  `utm_medium=setter&utm_content=<first name>` (their email when someone else active shares the first name, D153); a manager sees
+  both. `&name=jake` shows only that person's. Without `team.links`, or if the engine cannot be read, the page shows no links.
+- A calendar's booking mode can be changed (`POST /api/admin/calendars/booking`, dry run first, audited), so a triage calendar
+  can read a setter's tag (`utm`: through a tagged link, set by that setter; otherwise as before, the closer's own or direct).
+
+## D284. A closing call for someone whose closing call was already held is a follow-up (2026-10-31)
+
+Tyler: "if the closing call was already held it is a follow up for sure ... if the call already has a setter, it shouldn't overwrite
+the setter"; "new record for follow up. we want to see if they close on the first call or the follow up". Closers use one closing
+link for a follow-up and a self-set alike, so the engine tells them apart.
+
+- The run context has `appointment.follow_up`: the person has an earlier closing call (closing or follow_up type, not cancelled)
+  that was held, marked showed or with a sales recording linked to it (on Nelly the recording is usually the only sign). Additive.
+- Dating Nelly's Closing call booked asks it first, ahead of the setter-or-self fork. A follow-up: the post says "Follow-up on an
+  earlier call" and who set them first; the tags `stat-follow-up-booked` (never stat-set or stat-self-booked); the closer card back to
+  Scheduled with its name kept and no setter field written; the old slot's Sales Call logged rescheduled on a reschedule; and the
+  call's own Sales Call, call type `follow_up` (a new option, "Follow-up"), carrying the contact's setter. The setter card, the
+  contact's Setter field and its followers are left alone, and there is no video task.
+- Other offers get it only when Tyler asks, one at a time.
+
 ## D285. PMU's booking card is filled in once the Typeform answers land (2026-10-31)
 
 Tyler: "the calls booked still come through without the monthly budget and the revenue and qualified" (Gina McBroom). On PMU the
