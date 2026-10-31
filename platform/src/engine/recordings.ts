@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { DateTime } from "luxon";
 import { many, one } from "@/db/client";
+import type { Adapters, Company } from "@/adapters/types";
 import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
 import { normEmail } from "./identity";
 import { raise } from "./alerts";
@@ -464,6 +465,22 @@ export const isConnected = (r: Pick<RecordingRow, "raw">) => r.raw.call_status =
 /** Whether the recording has a transcript to read: settled with one (D87: the row keeps only that fact), or one is held. */
 // "at_source": a recording read back from the recorder's history (D115), whose transcript is read from it when needed
 export const hasTranscript = (r: Pick<RecordingRow, "raw" | "transcript">) => r.raw.transcript_status === "ready" || r.raw.transcript_status === "at_source" || !!r.transcript?.length;
+/**
+ * D275: these calls as GHL has them now (status and length), read through each person's threads, one read per person. GHL refuses
+ * the single-message read (/conversations/messages/<id>) to a private integration token, so the thread is the read.
+ */
+export async function callsNow(c: PoolClient, adapters: Adapters, ac: Company, rows: RecordingRow[]): Promise<Map<string, { status: string; durationSec?: number }>> {
+  const out = new Map<string, { status: string; durationSec?: number }>();
+  if (!adapters.read.contactCalls || !rows.length) return out;
+  const ids = [...new Set(rows.map((r) => r.contact_id).filter((x): x is string => !!x))];
+  const people = await many<{ id: string; ghl_contact_id: string | null }>(c, "select id, ghl_contact_id from contacts where id = any($1::uuid[])", [ids]);
+  const want = new Set(rows.map((r) => r.external_id));
+  for (const p of people) {
+    if (!p.ghl_contact_id) continue;
+    for (const m of await adapters.read.contactCalls(ac, p.ghl_contact_id)) if (want.has(m.id)) out.set(m.id, { status: m.call?.status ?? m.status ?? "", durationSec: m.call?.durationSec });
+  }
+  return out;
+}
 /** D275: calls first seen before they ended, still waiting for GHL's final status. */
 export const unfinishedPhoneCalls = (c: PoolClient, companyId: string, limit = 100) => many<RecordingRow>(c, "select * from recordings where company_id=$1 and provider='ghl' and raw->>'transcript_status'='unfinished' order by started_at limit $2", [companyId, limit]);
 /**

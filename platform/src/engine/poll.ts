@@ -7,7 +7,7 @@ import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecycle";
 import { simTag, simulate } from "./simulate";
-import { callOutcome, finishPhoneCall, meetingKey, pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, unfinishedPhoneCalls, UNFINISHED_CALL, type RecordingRow } from "./recordings";
+import { callOutcome, callsNow, finishPhoneCall, meetingKey, pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, unfinishedPhoneCalls, UNFINISHED_CALL, type RecordingRow } from "./recordings";
 import { callSetting } from "./call-settings";
 import { applyDocument, facts as agreementFacts, isSigned } from "./agreements";
 import { foldCard } from "./cards";
@@ -391,8 +391,10 @@ async function settleCall(c: PoolClient, r: RecordingRow, media: Awaited<ReturnT
  */
 async function pollUnfinishedCalls(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
   const waitMs = callSetting(bindings, "calls.transcript_wait_min") * 60e3;
-  for (const r of await unfinishedPhoneCalls(c, co.id)) {
-    const now = adapters.read.callNow ? await adapters.read.callNow(ac, r.external_id) : null;
+  const rows = await unfinishedPhoneCalls(c, co.id);
+  const latest = await callsNow(c, adapters, ac, rows);
+  for (const r of rows) {
+    const now = latest.get(r.external_id) ?? null;
     const done = !!now && !UNFINISHED_CALL.has(callOutcome(now.status));
     if (!done) {
       if (Date.now() - r.started_at.getTime() <= waitMs) continue;
