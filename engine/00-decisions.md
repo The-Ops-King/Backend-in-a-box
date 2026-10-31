@@ -6963,7 +6963,7 @@ task for now"; "we should be watching jose and minerva. jose's is a triage". PMU
 - Minerva's "Beauty Mogules Assessment" is watched as a Follow-up call (closing, like Jose's "Beauty Moguls Strategy"; Tyler: "like a
   follow up call"), owned by Minerva.
 
-## D276. A read-only probe of what GHL answers for a call's recording and transcript (2026-10-31)
+## D280. A read-only probe of what GHL answers for a call's recording and transcript (2026-10-31)
 
 Tyler: "can you check that we had calls in GHL and that they're not getting the call recording right? what do i need to do?" Dating's
 155 connected dialer calls since Oct 19 never came back with a transcript; PMU's do. `GET /api/admin/recordings/probe?company=<slug>`
@@ -6993,3 +6993,19 @@ link"). A move made any other way after the start, such as a drag in Google Cale
 the start it is suggested as rescheduled on the call, and later as showed with the new time a follow-up. That is not built until a
 Google Calendar drag has been tested, since nobody knows yet how Calendly reports one. PMU's round-robin event types keep the
 original host on a reschedule (Calendly's "Use same hosts as original meeting", set by Tyler).
+
+## D279. PMU's UTM fields, and a contact field is always a setting an offer may bind (2026-10-31)
+
+Tyler, on the booking card saying "Source: zapier": "The source shouldn't be zapier. It should be meta or Facebook", then "can you add a
+\"UTM\" section which has all these and a lead source" (Typeform A's hidden fields: utm_source, utm_medium, utm_campaign, utm_content,
+utm_term). PMU's GHL had no lead-source or UTM field and its bookings carry no UTMs, so a contact's source fell back to GHL's
+attribution, the channel that made the contact: Zapier (the Typeform Zap).
+
+- Made in PMU's GHL (the setup's additive apply, on Tyler's word): a contact-field folder "UTM" with Lead Source, UTM Source, UTM
+  Medium, UTM Campaign, UTM Content and UTM Term (TEXT), bound as `crm.field_contact_lead_source`, `..._utm_source`, `..._utm_medium`,
+  `..._utm_campaign`, `..._utm_content`, `..._utm_term`. The engine's source order already reads the lead-source field first, then
+  the UTM Source field (lead-source.ts), so once the Zap fills them the card says the ad's source.
+- The bindings route takes any `crm.field_contact_<name>` (its GHL field id), and the Settings page always offers the lead-source and
+  UTM Source fields the engine's source order reads: a contact field is how a workflow reads a person, not something only a workflow
+  that names it may bind.
+
