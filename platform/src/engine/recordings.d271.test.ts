@@ -64,20 +64,25 @@ describe.skipIf(!process.env.DATABASE_URL)("D271: recordings for PMU's call revi
     expect(off.match).toMatchObject({ contactId: ana, by: "email", placed: "held_late", appointmentId: appt });
   });
 
-  it("the invite gives way when someone else booked then plainly spoke (D227's Beth on Corina's invite)", async () => {
+  it("D273: the invite's email wins over who spoke (Tyler: \"if it's shay's email then keep it shay\"), and the difference is the operator's to see", async () => {
     const at = nextDay(), cori = await person("Corina", "Raduc", "cori@x.com"), beth = await person("Beth", "Huff");
-    await book(cori, "C-1", at); const bethAt = await book(beth, "B-1", at);
-    const r = await asOperator((c) => resolveRecording(c, co, rec("cb", { startedAt: new Date(at.getTime() + 60e3), invitees: [{ email: "cori@x.com", isExternal: true }], transcript: [{ speaker: "Beth Huff", text: "hello" }, { speaker: "Carly Vu", text: "hi" }] })));
-    expect(r.match).toEqual({ contactId: beth, by: "speaker", appointmentId: bethAt });
+    const coriAt = await book(cori, "C-1", at); await book(beth, "B-1", at);
+    const said = rec("cb", { startedAt: new Date(at.getTime() + 60e3), title: "Corina Raduc and Carly Vu", invitees: [{ email: "cori@x.com", isExternal: true }], transcript: [{ speaker: "Beth Huff", text: "hello" }, { speaker: "Carly Vu", text: "hi" }] });
+    const r = await asOperator((c) => resolveRecording(c, co, said));
+    expect(r).toMatchObject({ match: { contactId: cori, by: "email", appointmentId: coriAt }, conflict: expect.stringMatching(/the invite's email is Corina Raduc, but Beth Huff spoke, who is Beth Huff in the CRM/) });
+    const kept = await asOperator((c) => recordRecording(c, co, said));
+    expect(kept).toMatchObject({ outcome: "linked", recording: { contact_id: cori } });
+    expect(await asOperator((c) => one<{ level: string; text: string }>(c, "select level, text from alerts where company_id=$1 and key=$2", [co, `recording:conflict:${kept.recording.id}`]))).toMatchObject({ level: "warning", text: expect.stringMatching(/Linked by the invite's email; check it\. "Corina Raduc and Carly Vu", recorded by carly@co\.com on/) });
   });
 
-  it("then the meeting's own Zoom id, then the title, each held to the time", async () => {
+  it("then the appointment's time (its Zoom id, the recorder's booking), then the name on the call or in the title", async () => {
     const at = nextDay(), zed = await person("Zed", "Moss"), zAt = await book(zed, "Z-1", at, "8881234567");
     const z = await asOperator((c) => resolveRecording(c, co, rec("z1", { startedAt: new Date(at.getTime() + 60e3), meetingUrl: "https://us02web.zoom.us/j/8881234567?pwd=x" })));
     expect(z.match).toEqual({ contactId: zed, by: "meeting", appointmentId: zAt });
     const at2 = nextDay(), shay = await person("Shay", "Lin"), sAt = await book(shay, "S-1", at2);
-    const t = await asOperator((c) => resolveRecording(c, co, rec("t1", { startedAt: new Date(at2.getTime() + 60e3), title: "Shay and Carly Vu" })));
-    expect(t.match).toEqual({ contactId: shay, by: "title", appointmentId: sAt });
+    expect((await asOperator((c) => resolveRecording(c, co, rec("t0", { startedAt: new Date(at2.getTime() + 60e3), title: "Shay and Carly Vu" })))).match).toEqual({ contactId: shay, by: "time", appointmentId: sAt });   // the recorder's booking then
+    const t = await asOperator((c) => resolveRecording(c, co, rec("t1", { startedAt: new Date(at2.getTime() + 60e3), title: "Shay and Carly Vu", recordedBy: { email: "admin@co.com" } })));
+    expect(t.match).toEqual({ contactId: shay, by: "title", appointmentId: sAt });   // not the recorder's booking: the title's name decides
     const later = await asOperator((c) => resolveRecording(c, co, rec("t2", { startedAt: new Date(at2.getTime() + 4 * 3600e3), title: "Shay and Carly Vu" })));
     expect(later.match).toBeNull();   // the title names her, but no booking of hers fits that time
   });

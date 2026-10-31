@@ -6878,3 +6878,32 @@ scored each call on eight categories; the engine's Setter call logged had one 1-
   stay the engine's (Set / Follow up / DQ / Not interested); which calls post stays the engine's (no voicemails, wrong numbers or
   closing calls). No other offer changes: the step is new and only PMU's copy uses it.
 
+## D273. Which person a recording is: email, then the appointment's time, then the last name; a difference is told (2026-10-31)
+
+Tyler, on D271's matching: "email wins, then appointment time, then last name"; "if Jacklyn spoke, and if it's a new email, then yeah.
+that's fine, but if it's shay's email then keep it shay"; "if there's a difference, alert me with the details". Engine code, every offer.
+This replaces D271's matching order and D227's "the closer's calendar alone never links".
+
+1. **The invite's email**, when that contact has a booking the call fits: theirs, whoever spoke.
+2. **The appointment's time**: the booking whose own meeting link (Zoom id) the call used; else the one person the recorder had
+   booked then. An invited contact with nothing booked then gives way to this (D227: Corina's stale invite on Beth's booked call).
+3. **The invite's email** with nothing booked then: still theirs (D236 places it).
+4. **The last name**: who spoke, then the meeting's title, agreeing with a booked person; else the one contact with that full name
+   (or the address they joined with).
+5. An invitee's name one contact has, booked then.
+
+A **difference** (a different known client spoke: their full name is one contact's, or they joined with an address of theirs, and
+nobody who spoke is the matched person): the operator gets an engine alert with both names, the recording's title, who recorded it,
+when, and its link (`recording:conflict:<id>`). An email match stays linked ("check it"); a time match is not made, and the team is
+asked through the Unmatched recording post's Link button. Nobody known speaking ("iPhone", "Zoom user", no transcript) is no difference.
+
+PMU's 2026-10-14 11:18 PM "Impromptu Zoom Meeting" (Carly, only her on the invite, 33 minutes after Shay Cox's booking ended) was put
+on Shay by the old calendar rule; Jacklyn Kieu spoke on it. By these rules it is Jacklyn's.
+
+## D274. A recording moved as a backfill starts no workflow (2026-10-31)
+
+Tyler, on moving PMU's 2026-10-14 call from Shay Cox to Jacklyn Kieu: "backfill first, then we can turn it on for the future".
+Engine code, every offer. The relink (D227) takes `backfill: true`. The wrong person is put back as before, and the right person
+gets the recording and its call filed on their booking (or placed, D236), but no workflow starts: there's no late AI review, Slack
+post or GHL note for an old call. The dry run says which (`workflows: "start" | "none"`), and the audit keeps it. Without the flag a
+relink runs the right person's workflows as before, so calls matched from now on are reviewed live.
