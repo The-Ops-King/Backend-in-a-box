@@ -7,7 +7,7 @@ import { loadCompany, type CompanyRow } from "./context";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecycle";
 import { simTag, simulate } from "./simulate";
-import { meetingKey, pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, type RecordingRow } from "./recordings";
+import { callOutcome, finishPhoneCall, meetingKey, pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, unfinishedPhoneCalls, UNFINISHED_CALL, type RecordingRow } from "./recordings";
 import { callSetting } from "./call-settings";
 import { applyDocument, facts as agreementFacts, isSigned } from "./agreements";
 import { foldCard } from "./cards";
@@ -373,6 +373,7 @@ async function applyCall(c: PoolClient, co: CompanyRow, ac: Company, adapters: A
     conversationUrl: `https://app.gohighlevel.com/v2/location/${ac.locationId}/conversations/conversations/${m.contactId}` });
   if (!isNew) return;
   rep.calls++;
+  if (recording.raw.transcript_status === "unfinished") return;   // D273: still ringing; pollUnfinishedCalls reads it again until GHL has its end
   if (recording.raw.transcript_status === "pending") {
     const media = await adapters.read.callMedia(ac, m.id);
     if (!media?.transcript && !isBaseline) return;   // stays pending; the calls poll settles it when the transcript lands or the wait runs out
@@ -382,6 +383,29 @@ async function applyCall(c: PoolClient, co: CompanyRow, ac: Company, adapters: A
 async function settleCall(c: PoolClient, r: RecordingRow, media: Awaited<ReturnType<Adapters["read"]["callMedia"]>>, contactId: string, silent: boolean, rep: PollReport) {
   const { recording, event } = await settlePhoneCall(c, r, media, { silent });
   if (event) rep.eventsDispatched += (await dispatchEvent(c, event, { contact: { id: contactId }, recording: { id: recording.id, ...phoneFacts(recording) } })).length;
+}
+/**
+ * D273: calls first seen while they were still ringing, read again each tick until GHL has their final status and length; then they
+ * settle as any call does (a connected one waits for its transcript). One GHL never finishes is settled as it stands once
+ * `calls.transcript_wait_min` has passed since it started, so nothing waits for ever.
+ */
+async function pollUnfinishedCalls(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
+  const waitMs = callSetting(bindings, "calls.transcript_wait_min") * 60e3;
+  for (const r of await unfinishedPhoneCalls(c, co.id)) {
+    const now = adapters.read.callNow ? await adapters.read.callNow(ac, r.external_id) : null;
+    const done = !!now && !UNFINISHED_CALL.has(callOutcome(now.status));
+    if (!done) {
+      if (Date.now() - r.started_at.getTime() <= waitMs) continue;
+      await settleCall(c, await one<RecordingRow>(c, "update recordings set raw = raw || '{\"transcript_status\":\"none\"}'::jsonb where id=$1 returning *", [r.id]) as RecordingRow, null, r.contact_id!, false, rep);
+      continue;
+    }
+    const row = await finishPhoneCall(c, r, now!);
+    if (row.raw.transcript_status === "pending") {
+      const media = await adapters.read.callMedia(ac, row.external_id);
+      if (!media?.transcript) continue;   // the calls poll settles it when the transcript lands or the wait runs out
+      await settleCall(c, row, media, row.contact_id!, false, rep);
+    } else await settleCall(c, row, null, row.contact_id!, false, rep);
+  }
 }
 /**
  * Connected calls still waiting for a transcript: re-read each tick (every minute; it costs nothing), settled the minute one is
@@ -500,6 +524,7 @@ export async function pollCompany(adapters: Adapters, companyId: string, rep: Po
     ["contacts", pollContacts],
     ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.external_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.external_id)]),
     ["conversations", pollInbound],
+    ["unfinished calls", pollUnfinishedCalls],
     ["calls", pollPendingCalls],
     ["setters", async (c, co, ac, adapters) => { await settleSetterAlerts(c, co, ac, adapters); }],   // D121, after the calls: a dial just logged can name the setter
     // D241: the minute tick reads GHL's documents every five minutes; the ten-second documents job (D202) covers an offer waiting on a signature
