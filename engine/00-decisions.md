@@ -6971,3 +6971,18 @@ takes the offer's latest connected calls of a minute or more and shows, for each
 transcript (status and the start of the body), read only: a recording with no transcript is GHL's transcription off; no recording is
 call recording off; a 401/403 is the token's scopes.
 
+## D279. PMU's UTM fields, and a contact field is always a setting an offer may bind (2026-10-31)
+
+Tyler, on the booking card saying "Source: zapier": "The source shouldn't be zapier. It should be meta or Facebook", then "can you add a
+\"UTM\" section which has all these and a lead source" (Typeform A's hidden fields: utm_source, utm_medium, utm_campaign, utm_content,
+utm_term). PMU's GHL had no lead-source or UTM field and its bookings carry no UTMs, so a contact's source fell back to GHL's
+attribution, the channel that made the contact: Zapier (the Typeform Zap).
+
+- Made in PMU's GHL (the setup's additive apply, on Tyler's word): a contact-field folder "UTM" with Lead Source, UTM Source, UTM
+  Medium, UTM Campaign, UTM Content and UTM Term (TEXT), bound as `crm.field_contact_lead_source`, `..._utm_source`, `..._utm_medium`,
+  `..._utm_campaign`, `..._utm_content`, `..._utm_term`. The engine's source order already reads the lead-source field first, then
+  the UTM Source field (lead-source.ts), so once the Zap fills them the card says the ad's source.
+- The bindings route takes any `crm.field_contact_<name>` (its GHL field id), and the Settings page always offers the lead-source and
+  UTM Source fields the engine's source order reads: a contact field is how a workflow reads a person, not something only a workflow
+  that names it may bind.
+
