@@ -320,7 +320,7 @@ export async function recordPayment(c: PoolClient, companyId: string, input: Pay
     return { outcome: "linked", payment: (await one<PaymentRow>(c, "select * from payments where id=$1", [inserted.id]))!, event, contactId: match.contactId, healed };
   }
   const ev = await emitEvent(c, { company_id: companyId, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "payment.unlinked", source: "whop", occurred_at: input.paidAt,
-    data: { payment_id: inserted.id, provider_payment_id: input.providerPaymentId, amount: input.amount, currency: inserted.currency, status: input.status, customer_email: email ?? null, customer_phone: phone, whop_member_id: input.memberId ?? null } });
+    data: { payment_id: inserted.id, provider_payment_id: input.providerPaymentId, amount: input.amount, currency: inserted.currency, status: input.status, customer_email: email ?? null, customer_phone: phone, whop_member_id: input.memberId ?? null, paid_at: input.paidAt.toISOString() } });   // D270: paid_at for the UNLINKED record
   return { outcome: "unlinked", payment: inserted, event: ev };
 }
 
