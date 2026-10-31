@@ -512,7 +512,7 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     expect(await digestOf(r.id)).toContain("*Outcome:* Follow up (Jev is 88% sure)");
   });
 
-  it("a Fathom transcript arrives once, in the webhook: held only until the closer workflow has read it (kept while the read fails), then cleared; once cleared a step reads it from Fathom again; the safety sweep clears anything held 48 hours after its run ended", async () => {
+  it("a Fathom transcript arrives once, in the webhook: held while the closer workflow reads it (kept while the read fails), and until the sweep (D271: a later part of the call reads it); once cleared a step reads it from Fathom again; the safety sweep clears anything held 48 hours after its run ended", async () => {
     const who = await newLead(companyId);
     const input = { provider: "fathom", externalId: `fx-${who.ghl}`, startedAt: new Date(Date.now() - 200 * 864e5), endedAt: new Date(Date.now() - 200 * 864e5 + 1800e3),   // D227: clear of the other leads' bookings with James durationMin: 30, recordedBy: { name: "James Closer", email: "james@x.com" },
       invitees: [{ name: "Lead", email: `${who.ghl.toLowerCase()}@x.com`, isExternal: true }], transcript: [{ speaker: "James Closer", text: CLOSING }, { speaker: `${who.ghl.toLowerCase()}@x.com`, text: "Let's do it." }], summary: "A summary nobody reads" };
@@ -527,7 +527,8 @@ describe.skipIf(!HAS_DB)("D87: one setter result, posted when the booking lands;
     await wakeAt(r.id); await run(fake, companyId, DateTime.now().plus({ minutes: 2 }));
     r = (await runOf(who.contactId, "call-recorded"))!;
     expect(r).toMatchObject({ status: "completed", exit_reason: "recorded" });
-    expect(await held()).toMatchObject({ transcript: null, summary: null, raw: { transcript_status: "ready" } });
+    expect((await held()).transcript).toHaveLength(2);   // D271: a meeting's is kept until the sweep, for a later part of the same call
+    await asOperator((c) => c.query("update recordings set transcript=null where id=$1", [rec.id]));   // as the sweep leaves it, 48 hours on
     // a later read (the recording linked again by hand, a rerun) asks Fathom for it
     await asOperator((c) => c.query("insert into bindings (company_id, key, kind, value) values ($1,'secret.fathom_api_key','secret',$2) on conflict (company_id, key) do update set value=excluded.value", [companyId, encrypt("fathom-key")]));
     const nFathom = fathomReads.length;
