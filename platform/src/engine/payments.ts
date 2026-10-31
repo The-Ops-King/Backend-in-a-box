@@ -194,10 +194,21 @@ export async function resolvePayerGhl(c: PoolClient, companyId: string, g: GhlPa
   }
   return (await inScope(c, contactId, await companyScopeTag(c, companyId))) ? { contactId, ghlId, by } : null;
 }
-/** What this person paid before, from the offer's payment records in GHL (theirs by contact, Whop user or email), this transaction left out; refunds are negative rows. */
-export function priorFromCash(cash: ObjectRecord[], who: { ghlId: string; memberId?: string | null; email?: string | null }, transactionId: string): { total: number; nonDeposit: number } {
+/**
+ * What this person paid before, from the offer's payment records in GHL (theirs by contact, Whop user or email), this transaction left
+ * out; refunds are negative rows. "Before" is before `paidAt` (the record's `occurred_at`, else its `paid_date`): a payment that arrives
+ * late or is linked after later ones (D229) never counts what came after it. A record with no date counts.
+ */
+export function priorFromCash(cash: ObjectRecord[], who: { ghlId: string; memberId?: string | null; email?: string | null }, transactionId: string, paidAt?: Date): { total: number; nonDeposit: number } {
   const email = normEmail(who.email ?? undefined);
-  const mine = cash.filter((r) => prop(r, "transaction_id") !== transactionId && (prop(r, "contact_id") === who.ghlId || (!!who.memberId && prop(r, "whop_user_id") === who.memberId) || (!!email && normEmail(prop(r, "customer_email")) === email)));
+  const earlier = (r: ObjectRecord) => {
+    if (!paidAt) return true;
+    const at = Date.parse(prop(r, "occurred_at"));
+    if (Number.isFinite(at)) return at < paidAt.getTime();
+    const day = prop(r, "paid_date");
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day < paidAt.toISOString().slice(0, 10) : true;
+  };
+  const mine = cash.filter((r) => prop(r, "transaction_id") !== transactionId && earlier(r) && (prop(r, "contact_id") === who.ghlId || (!!who.memberId && prop(r, "whop_user_id") === who.memberId) || (!!email && normEmail(prop(r, "customer_email")) === email)));
   const amt = (r: ObjectRecord) => { const v = r.properties.amount as unknown; const n = typeof v === "object" && v !== null ? Number((v as { value?: unknown }).value) : Number(v); return Number.isFinite(n) ? n : 0; };
   return { total: money(mine.reduce((s, r) => s + amt(r), 0)), nonDeposit: money(mine.filter((r) => prop(r, "type") !== "deposit").reduce((s, r) => s + amt(r), 0)) };
 }
@@ -315,7 +326,7 @@ export async function recordPayment(c: PoolClient, companyId: string, input: Pay
   const match = forceContactId ? { contactId: forceContactId, by: "known" } : (await refundedPayer(c, companyId, provider, input)) ?? (cash ? viaGhl : await resolvePayer(c, companyId, input));
   if (match) {
     const ghlId = viaGhl?.contactId === match.contactId ? viaGhl.ghlId : (await one<{ g: string | null }>(c, "select ghl_contact_id as g from contacts where id=$1", [match.contactId]))?.g;
-    const ghlPrior = cash && ghlId ? priorFromCash(cash, { ghlId, memberId: input.memberId, email: input.email }, input.providerPaymentId) : undefined;
+    const ghlPrior = cash && ghlId ? priorFromCash(cash, { ghlId, memberId: input.memberId, email: input.email }, input.providerPaymentId, input.paidAt) : undefined;
     const { event, healed } = await settle(c, companyId, match.contactId, inserted, match.by, opts.dispatch ?? true, ghlPrior);
     return { outcome: "linked", payment: (await one<PaymentRow>(c, "select * from payments where id=$1", [inserted.id]))!, event, contactId: match.contactId, healed };
   }

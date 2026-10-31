@@ -1,6 +1,6 @@
 /** D270: what a payment is, by the offer's own settings; nothing is the engine's own number or word. */
 import { describe, it, expect } from "vitest";
-import { deriveKind, fullPriceFor, fullPriceOf, namedDeposit, payRulesOf, listSetting } from "./payments";
+import { deriveKind, fullPriceFor, fullPriceOf, namedDeposit, payRulesOf, listSetting, priorFromCash } from "./payments";
 
 // PMU's settings as Tyler gave them (2026-10-30)
 const PMU = payRulesOf({ "payments.full_prices": "[10000, 12000]", "payments.price_slack": "3", "payments.deposit_under": "500", "payments.deposit_words": "deposit", "payments.full_reasons": "one_time, subscription_create" });
@@ -43,5 +43,13 @@ describe("D270: payment rules are the offer's settings", () => {
   it("an offer with no full prices set goes by its rules from before (D119)", () => {
     expect(deriveKind(250, 0, 10000, "succeeded", false, undefined)).toBe("installment");
     expect(deriveKind(10000, 0, 10000, "succeeded", false, undefined)).toBe("paid_in_full");
+  });
+
+  it("what was paid before is GHL's Cash records dated before this payment: a deposit linked after its balance never counts the balance", () => {
+    const rec = (id: string, amount: number, extra: Record<string, unknown>) => ({ id, createdAt: "", properties: { transaction_id: id, amount, contact_id: "G-JEN", ...extra } });
+    const cash = [rec("dep", 250, { type: "deposit", occurred_at: "2026-10-22T19:25:41Z" }), rec("bal", 9750, { occurred_at: "2026-10-23T00:04:34Z" }), rec("old", 100, { paid_date: "2026-10-01" }), rec("undated", 50, {})];
+    expect(priorFromCash(cash, { ghlId: "G-JEN" }, "dep", new Date("2026-10-22T19:25:41Z"))).toEqual({ total: 150, nonDeposit: 150 });
+    expect(priorFromCash(cash, { ghlId: "G-JEN" }, "bal", new Date("2026-10-23T00:04:34Z"))).toEqual({ total: 400, nonDeposit: 150 });
+    expect(priorFromCash(cash, { ghlId: "G-JEN" }, "dep")).toEqual({ total: 9900, nonDeposit: 9900 });   // no time given: every other record
   });
 });
