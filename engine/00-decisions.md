@@ -7009,3 +7009,11 @@ attribution, the channel that made the contact: Zapier (the Typeform Zap).
   UTM Source fields the engine's source order reads: a contact field is how a workflow reads a person, not something only a workflow
   that names it may bind.
 
+## D281. The UTMs backfilled from Typeform (2026-10-31)
+
+Tyler: "can you backfill from typeform all the utm stuff?" `POST /api/admin/contact/utm-backfill` (dry run first): each person who
+answered the named forms gets the UTMs their first response carried (Typeform's hidden utm_source, utm_medium, utm_campaign,
+utm_content, utm_term; blanks and unfilled placeholders left out) in the offer's UTM fields, and the lead source: the utm_source in the
+words `sourceNames` gives it (`{"fb": "Meta"}`), else as it came. Only an empty field is filled, never one the Zap or a person wrote.
+A person GHL does not have is listed, not made. The dry run lists every utm_source seen, so the names are chosen from the data. Audited.
+
