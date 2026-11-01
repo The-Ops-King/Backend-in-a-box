@@ -52,7 +52,7 @@ async function salesCallMakerMode(c: PoolClient, company: CompanyRow): Promise<M
   return rows.map((r) => runMode(company.mode as Mode, r.own)).sort((a, b) => MODES.indexOf(b) - MODES.indexOf(a))[0] ?? "ghost";
 }
 /** `runId`: the health step's run, which the effects ledger records CRM writes against; without one, no CRM write is made. */
-export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Company, bindings: Record<string, string>, reads: GhlReads, _adapters: Adapters, _runId: string | undefined, now: DateTime = DateTime.now(), opts: { days?: number; pollLagMin?: number } = {}): Promise<Finding[]> {
+export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Company, bindings: Record<string, string>, reads: GhlReads, adapters: Adapters, runId: string | undefined, now: DateTime = DateTime.now(), opts: { days?: number; pollLagMin?: number } = {}): Promise<Finding[]> {
   const check = "ledger_drift", days = opts.days ?? DRIFT_DAYS;
   const from = now.minus({ days }).toJSDate(), to = now.minus({ minutes: opts.pollLagMin ?? POLL_LAG_MIN }).toJSDate();
   const { emitEvent, dispatchEvent } = await import("./dispatch");
@@ -75,6 +75,9 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   const audit = (target: string, id: string, before: unknown, after: Record<string, unknown>) =>
     c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'health.repaired',$2,$3,$4,$5)", [company.id, target, id, before === null ? null : JSON.stringify(before), JSON.stringify(after)]);
   const fixedPeople = new Set<string>();
+  // D291, D293: the Sales Call repairs are the sweep's own GHL writes (audited) when what makes the offer's Sales Calls writes to GHL
+  // (its Call booked, or its own Closing call booked, live or quiet) and the sweep has a run to record them against; else each is a question
+  const repairsWrite = !!runId && ["quiet", "live"].includes(await salesCallMakerMode(c, company));
   const repaired = (item: string, text: string, detail: Record<string, unknown>, who?: string, kind = "repaired") => { fixedPeople.add(who ?? item); out.push({ check, item: `repair:${item}`, ok: true, level: "warning", text: `Repaired: ${text}.`, detail }); note(kind, detail); };
   const ask = (kind: string, data: Record<string, unknown>) => { left.push({ kind, ...data }); note(kind, data); };
   /** A write the Ledger drift workflow is already making for this record (a run still going) is not asked for again. */
@@ -223,7 +226,17 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     }
     // D289: a record for a time the booking has moved away from, never marked (a move while the workflow that marks it was off):
     // its call never happened at that time, so it is not the closer's to file, and the end of day would ask for it for ever
-    if (!k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000) { ask("moved_not_marked", { label, now_at: DateTime.fromJSDate(new Date(a.starts_at)).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mm a"), record_id: k.id }); continue; }
+    if (!k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000) {
+      const nowAt = DateTime.fromJSDate(new Date(a.starts_at)).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mm a");
+      const value = Object.entries(cfg!.outcomes).find(([, m]) => m === "rescheduled")?.[0];
+      if (repairsWrite && value) await guarded(async () => {
+        await adapters.write.updateRecord(ac, cfg!.object, k.id, { outcome: value });
+        await audit("sales_call", k.id, { outcome: null }, { repair: "moved_marked", outcome: value, appointment_id: a.id, now_at: a.starts_at });
+        repaired(`${k.id}:moved`, `${label}: the call moved to ${nowAt}; its Sales Call at the old time is marked rescheduled`, { sales_call: k.id, label, outcome: value }, k.ghl || k.id, "moved_marked");
+      }, (e) => ask("moved_not_marked", { label, now_at: nowAt, record_id: k.id, why: why(e) }));
+      else ask("moved_not_marked", { label, now_at: nowAt, record_id: k.id });
+      continue;
+    }
     if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), ledgerFailed); }
     await guarded(() => followResult(k), ledgerFailed);
     if (!k.filed && a.outcome && k.cls === "missing") ask("ghl_unfiled", { label, has: WORDS[a.outcome] ?? a.outcome, record_id: k.id });
@@ -243,14 +256,14 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     // fix it"): when what makes the offer's Sales Calls writes to GHL (its Call booked, or its own Closing call booked, live or quiet),
     // the sweep makes the missing record itself, as the Sales Call backfill writes one (D115: from the evidence; the outcome blank when
     // nothing says it, so the closer files it on the end of day). Otherwise, or when the write fails, it is asked about as before.
-    const writes = !!_runId && ["quiet", "live"].includes(await salesCallMakerMode(c, company));
+    const writes = repairsWrite;
     for (const b of due.filter((x) => !matched.has(x.id))) {
       const when = DateTime.fromJSDate(b.starts_at).setZone(company.timezone);
       const label = `${b.name ?? "Someone"}, ${when.toFormat("ccc LLL d")} at ${when.toFormat("h:mm a")}`;
       if (writes && b.closer_email) {
         try {
           const { backfillSalesCalls } = await import("./sales-call-backfill");
-          const r = await backfillSalesCalls(c, { row: company, adapterCompany: ac, bindings }, _adapters, { from: new Date(b.starts_at.getTime() - 60_000), to: new Date(b.starts_at.getTime() + 60_000), closer: b.closer_email, dryRun: false, now: now.toJSDate() });
+          const r = await backfillSalesCalls(c, { row: company, adapterCompany: ac, bindings }, adapters, { from: new Date(b.starts_at.getTime() - 60_000), to: new Date(b.starts_at.getTime() + 60_000), closer: b.closer_email, dryRun: false, now: now.toJSDate() });
           const made = r.rows.find((x) => x.appointment_id === b.id);
           if (made?.written) {
             await audit("appointment", b.id, null, { repair: "sales_call_made", by: "health check" });

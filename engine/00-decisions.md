@@ -7158,3 +7158,12 @@ silent baseline, D215), and two held ones with no Sales Call.
   text) starts at that first wait, so nothing goes out late; one that waits first, or forks first, starts as usual.
 - Its calls already held are the health check's: their Sales Calls are made within the hour (D291).
 - An install's own first read stays silent (no mark).
+
+## D293. The hourly sweep marks a Sales Call left on a moved call's old time rescheduled (2026-11-01)
+
+Tyler: "It should compare GHL with calendar for booked calls every hour and if the call didn't get recorded it should. We shouldn't ever
+miss a call in the first place." D291 (the same day, the other session) has the sweep make a missing Sales Call itself when what makes
+the offer's Sales Calls writes to GHL. Under that same rule, the sweep now also sets a Sales Call left on the time its call moved away
+from (D289's `moved_not_marked`, Carly's Quentin Thomas Oct 27) to the offer's rescheduled outcome, audited and logged as a repair; on a
+rehearsal rung, or with no rescheduled outcome mapped (sales_call.outcomes), it stays a question.
+
