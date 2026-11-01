@@ -658,6 +658,12 @@ async function applyRows(c: PoolClient, co: LoadedCompany, adapters: Adapters, r
         if (ghlContact && !(await adapters.read.getContact(co.adapterCompany, ghlContact))) throw new Error(`${row.contact.name ?? "the contact"} is gone from GHL (merged or deleted): no Sales Call made`);
         crmId = (await adapters.write.createRecord(co.adapterCompany, w.object, props)).id; record = "created"; existing.set(w.key, { id: crmId, createdAt: new Date().toISOString(), properties: props });
       }
+      // D296: read back: in the object meant, under its key; a miss is this row's error, never "written"
+      if (adapters.read.objectRecord) {
+        const back = await adapters.read.objectRecord(co.adapterCompany, w.object, crmId).catch(() => undefined);
+        if (back === null) throw new Error(`the write did not land: GHL has no record ${crmId} in ${w.object}`);
+        if (back && props.external_id !== undefined && String(back.properties.external_id ?? "").trim() !== String(props.external_id).trim()) throw new Error(`the write did not land as written: record ${crmId} in ${w.object} has key ${JSON.stringify(back.properties.external_id ?? null)}`);
+      }
       // D222: the engine owns the record from the moment it exists, so a link that fails below never leaves one it cannot see
       await c.query(`insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
         on conflict (company_id, object_key, record_key) do update set ghl_record_id=coalesce(crm_records.ghl_record_id, excluded.ghl_record_id), properties=crm_records.properties || excluded.properties, updated_at=now()`,
