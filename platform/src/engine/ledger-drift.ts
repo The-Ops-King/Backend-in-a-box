@@ -26,6 +26,8 @@ import { carriesTag, scopeTag } from "./scope";
  * (`kind`, `items`). What it cannot repair is one alert, its questions as lists by kind in the alert's detail; the Health check
  * workflow words them (D88). A read that did not happen decides nothing: whatever was open stays open.
  */
+/** D294: how far back a past closing call with no Sales Call is looked for (a month's wrap-up reads every call of the month). */
+const NO_RECORD_DAYS = 35;
 /** The defaults of the health_check step's drift settings (D88): `drift_days` looked back over, `poll_lag_min` the poll has not reached. */
 export const DRIFT_DAYS = 7;
 export const POLL_LAG_MIN = 30;
@@ -75,7 +77,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   const audit = (target: string, id: string, before: unknown, after: Record<string, unknown>) =>
     c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'health.repaired',$2,$3,$4,$5)", [company.id, target, id, before === null ? null : JSON.stringify(before), JSON.stringify(after)]);
   const fixedPeople = new Set<string>();
-  // D291, D293: the Sales Call repairs are the sweep's own GHL writes (audited) when what makes the offer's Sales Calls writes to GHL
+  // D291, D294: the Sales Call repairs are the sweep's own GHL writes (audited) when what makes the offer's Sales Calls writes to GHL
   // (its Call booked, or its own Closing call booked, live or quiet) and the sweep has a run to record them against; else each is a question
   const repairsWrite = !!runId && ["quiet", "live"].includes(await salesCallMakerMode(c, company));
   const repaired = (item: string, text: string, detail: Record<string, unknown>, who?: string, kind = "repaired") => { fixedPeople.add(who ?? item); out.push({ check, item: `repair:${item}`, ok: true, level: "warning", text: `Repaired: ${text}.`, detail }); note(kind, detail); };
@@ -246,12 +248,27 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   // has a Sales Call in GHL, or the end of day never asks for it (Minerva's Oct 30 calls, booked while Call booked ran in ghost).
   // A booking cancelled before its start, a test booking or contact, and one the poll may not have reached yet are left out.
   if (cfg && Object.keys(cfg.outcomes).length) {
+    // D294: a whole month back (a month's wrap-up reads every call of it), not the sweep's week; a call older than the week is matched to
+    // GHL's own records (the week's calls do not reach it): one under its booking's key, or for the same person at the same minute (a
+    // record made outside the engine, a Zap's, counts)
+    const recordFrom = now.minus({ days: NO_RECORD_DAYS }).toJSDate();
     const matched = new Set(calls.filter((k) => k.match === "one").map((k) => k.appt!.id));
+    let older: { id: string; key: string; ghl: string | null; at: Date }[] = [];
+    try {
+      older = await many<{ id: string; key: string; ghl: string | null; at: Date }>(c, `select a.id::text as id, coalesce(a.slot_key, a.external_id) as key, ct.ghl_contact_id as ghl, a.starts_at as at
+        from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term where a.company_id=$1 and t.category='closing' and a.starts_at >= $2 and a.starts_at < $3`, [company.id, recordFrom, from]);
+      if (older.length) {
+        const recs = await reads.objectRecords(ac, cfg.object);
+        const keys = new Set(recs.map((r) => String(r.properties.external_id ?? "").trim()).filter(Boolean));
+        const at = new Set(recs.map((r) => { const t = Date.parse(String(r.properties.scheduled_at ?? "")); return isNaN(t) ? "" : `${String(r.properties.contact_id ?? "").trim()}@${Math.floor(t / 60_000)}`; }).filter(Boolean));
+        for (const o of older) if (keys.has(o.key) || (o.ghl && at.has(`${o.ghl}@${Math.floor(o.at.getTime() / 60_000)}`))) matched.add(o.id);
+      }
+    } catch { for (const o of older) matched.add(o.id); }   // GHL unread: an older call is not called missing on a read that did not happen
     const due = await many<{ id: string; starts_at: Date; name: string | null; closer: string | null; closer_email: string | null }>(c, `select a.id::text as id, a.starts_at, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, u.name as closer, u.email as closer_email
       from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
       where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.starts_at >= $2 and a.starts_at <= $3
         and not (a.status='cancelled' and coalesce(a.source_updated_at, a.starts_at) < a.starts_at) and not ${testContactSql("ct", "$4")}
-      order by a.starts_at`, [company.id, from, to, testDomains(bindings)]);
+      order by a.starts_at`, [company.id, recordFrom, to, testDomains(bindings)]);
     // D291 (Tyler: "the health check should have found that it was missed, and added it and tracked it. I shouldn't have to go in and
     // fix it"): when what makes the offer's Sales Calls writes to GHL (its Call booked, or its own Closing call booked, live or quiet),
     // the sweep makes the missing record itself, as the Sales Call backfill writes one (D115: from the evidence; the outcome blank when

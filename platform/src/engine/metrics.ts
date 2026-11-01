@@ -139,7 +139,7 @@ export type SetterStats = {
   talk_sec: number;              // seconds on connected calls
   contacts_reached: number;      // distinct people behind the connected calls
   leads_dialled_first: number;   // period leads whose first outbound dial was theirs (speed to lead is measured on these)
-  stl_median_min: number | null; // minutes from contacts.ghl_added_at to that first dial, median
+  stl_median_min: number | null; // minutes from contacts.ghl_added_at to that first dial, median (D294: a lead who booked before it is left out)
   stl_avg_min: number | null;    // the same, mean
   bookings: number;              // appointments booked in the period stamped set_by with their name, or within a day after one of their dials to that person
 };
@@ -192,7 +192,10 @@ export async function setterMetrics(c: PoolClient, companyId: string, period: { 
   for (const r of await many<{ id: string | null; name: string | null; is_total: number; n: number; median: string | null; avg: string | null }>(c, `
     with lead as (select ct.id, ct.ghl_added_at, d.started_at, d.caller from contacts ct
       join lateral (select r.started_at, r.raw->>'caller_ghl_user_id' as caller from recordings r where r.company_id=ct.company_id and r.contact_id=ct.id and ${OUTBOUND_DIAL} and r.started_at>=ct.ghl_added_at order by r.started_at limit 1) d on true
-      where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3 ${notTest("ct", 4)})
+      where ct.company_id=$1 and ct.merged_into is null and ct.ghl_added_at>=$2 and ct.ghl_added_at<$3 ${notTest("ct", 4)}
+        -- D294: a lead who booked a call before anyone dialled them is not a speed-to-lead case (Nelly's applicants book a triage call from
+        -- the form and are rung at its time, days later)
+        and not exists (select 1 from appointments ba where ba.company_id=ct.company_id and ba.contact_id=ct.id and ba.source<>'test' and ba.booked_at <= d.started_at))
     select u.id::text as id, u.name, grouping(u.id, u.name) as is_total, count(*)::int as n,
            percentile_cont(0.5) within group (order by extract(epoch from (lead.started_at - lead.ghl_added_at))/60)::text as median,
            avg(extract(epoch from (lead.started_at - lead.ghl_added_at))/60)::text as avg
