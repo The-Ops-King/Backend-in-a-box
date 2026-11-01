@@ -13,7 +13,7 @@ create table companies (
   sms_enabled       boolean not null default true,      -- false when the sub-account has no number; SMS nodes skip
   mode              text not null default 'ghost' check (mode in ('ghost','test','quiet','live')),  -- the ladder (D52, D132): ghost runs everyone and writes nothing; test = sys-test contacts and test-domain emails only, everything real for them; quiet = the CRM written for everyone, nothing reaching a contact, Slack only to test channels; live = everyone
   status            text not null default 'active'
-                    check (status in ('onboarding','active','hosted','archived','template')),   -- template: a playbook's template business (D178), never run
+                    check (status in ('onboarding','active','hosted','archived','template','paused')),   -- template: a playbook's template business (D178), never run
   archived_at       timestamptz,
   -- D88: an opportunity is won and lost by workflow steps (update_opportunity in Payment recorded and Call outcome filed), not by settings here
   reached_seconds   int not null default 60,            -- a connected dial at least this long counts as the lead being reached (speed to lead)

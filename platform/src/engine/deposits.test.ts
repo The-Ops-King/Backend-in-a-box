@@ -387,7 +387,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D119: deposits guessed from the amou
     await asOperator(async (c) => {
       for (const co of [a, b]) await c.query("insert into payments (company_id, whop_payment_id, amount, status, kind, paid_at, link_status) values ($1,'old-dep',750,'succeeded','deposit',now(),'unlinked')", [co]);
       await c.query("delete from engine_state where key='d119_deposit_kinds'");
-      await c.query("delete from schema_migrations where id='0001-baseline'");   // D200: the baseline runs once; this asks it to run again
+      await c.query("delete from schema_migrations where id = any($1)", [["0001-baseline", "0014-company-paused"]]);   // D200: the baseline runs once; this asks it to run again (and 0014 after it, which widens a constraint the baseline sets)
     });
     await migrate();
     expect([await kindOf(a, "old-dep"), await kindOf(b, "old-dep")]).toEqual(["installment", "deposit"]);
