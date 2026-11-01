@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { asOperator, db, many, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
-import { fakeAdapters } from "@/engine/test-install";
+import { fakeAdapters, fakeProbes } from "@/engine/test-install";
 import { raise } from "@/engine/alerts";
 import { acquireTickLock, companyLock, LEGACY_LOCK, releaseTickLock } from "./lock";
 import { companyClock, STALE_KEY, tickCompany, tickEngine, tickEveryone, type CompanyClock } from "./ticks";
@@ -38,7 +38,7 @@ describe.skipIf(!process.env.DATABASE_URL)("each company ticks on its own (D98)"
         await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [co.id]);
         await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
         for (const t of ["alerts", "sends", "runs", "events", "contact_identifiers", "contacts", "workflow_triggers", "workflows", "calendars", "bindings", "poll_cursors", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [co.id]);
-        await c.query("delete from engine_state where key = any($1)", [[`scheduler:${co.id}`, `alerts_cursor:${co.id}`, `tick_lock:${co.id}`]]);
+        await c.query("delete from engine_state where key = any($1)", [[`scheduler:${co.id}`, `alerts_cursor:${co.id}`, `tick_lock:${co.id}`, `ghl_sync:${co.id}`]]);
         await c.query("delete from companies where id=$1", [co.id]);
       }
       const mk = async (slug: string, status = "active") => {
@@ -105,6 +105,18 @@ describe.skipIf(!process.env.DATABASE_URL)("each company ticks on its own (D98)"
     const legacy = await acquireTickLock(60, LEGACY_LOCK);
     try { expect(await tickCompany(adapters, B)).toMatchObject({ busy: true, why: expect.stringMatching(/older deployment/) }); }
     finally { await releaseTickLock(legacy!, LEGACY_LOCK); }
+  });
+
+  it("D297: GHL is compared every 10 minutes in the company's own tick, not every minute", async () => {
+    let reads = 0;
+    const ghl = { contactsAdded: async () => { reads++; return []; }, wonCards: async () => [], objectRecords: async () => [], cards: async () => [], pipelines: async () => [], users: async () => [], getContact: async () => null, recordContact: async () => null, fieldCatalog: async () => [] };
+    const probes = { ...fakeProbes, ghl } as typeof fakeProbes;
+    await asOperator((c) => c.query("delete from engine_state where key=$1", [`ghl_sync:${B}`]));
+    await tickCompany(adapters, B, { probes }); await tickCompany(adapters, B, { probes });
+    expect(reads).toBe(1);
+    await asOperator((c) => c.query("update engine_state set updated_at = now() - interval '11 minutes' where key=$1", [`ghl_sync:${B}`]));
+    await tickCompany(adapters, B, { probes });
+    expect(reads).toBe(2);
   });
 
   it("a company that is not active does not tick", async () => {

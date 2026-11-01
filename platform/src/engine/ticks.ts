@@ -8,7 +8,8 @@ import { dispatchSchedules, type ClockReport } from "./clock";
 import { announceDue, collectThisTick, ENGINE_SCOPE, raise, resolve } from "./alerts";
 import { purgeOld } from "./retention";
 import { companyLock, ENGINE_LOCK, LEGACY_LOCK, tickLockHeld, withTickLock } from "./lock";
-import type { HealthProbes } from "./health";
+import { liveProbes, syncFromGhl, SYNC_EVERY_MIN, type HealthProbes } from "./health";
+import { loadCompany } from "./context";
 import { runningSql } from "./running";
 
 /**
@@ -48,6 +49,13 @@ export async function tickCompany(adapters: Adapters, companyId: string, opts: {
     const clock: ClockReport = await asOperator((c) => dispatchSchedules(c, DateTime.now(), companyId)).catch((e) => ({ started: [], errors: [{ company: co.slug, workflow: "*", error: msg(e) }] }));
     const schedules_ms = Date.now() - t;
     const errors = [...poll.errors.map((e) => `poll ${e.entity}: ${e.error.slice(0, 160)}`), ...clock.errors.map((e) => `schedule ${e.workflow}: ${e.error.slice(0, 160)}`)];
+    // D297: GHL compared and the engine brought into line every 10 minutes, quietly; a failure never fails the tick
+    t = Date.now();
+    await asOperator(async (c) => {
+      const due = await one<{ ok: boolean }>(c, `insert into engine_state (key, value, updated_at) values ($1, '{}'::jsonb, now()) on conflict (key) do update set updated_at=now()
+        where engine_state.updated_at <= now() - make_interval(mins => $2) returning true as ok`, [`ghl_sync:${companyId}`, SYNC_EVERY_MIN]);
+      if (due) await syncFromGhl(c, (await loadCompany(c, companyId)).row, adapters, opts.probes ?? liveProbes);
+    }).catch((e) => errors.push(`ghl sync: ${msg(e)}`));
     let runs: TickReport;
     t = Date.now();
     try { runs = await tick(adapters, DateTime.now(), companyId, opts.probes, key); } catch (e) { runs = emptyTick(); errors.push(`runs: ${msg(e)}`); }

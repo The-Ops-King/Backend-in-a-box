@@ -442,10 +442,10 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the drift sweep's findings are 
   const sweepWith = async (patch?: (d: Definition) => void) => {
     const { fakeProbes } = await import("@/engine/test-install");
     await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
-    const wf = await install("health-check", (d) => { const n = d.nodes.find((x) => x.type === "health_check")!; if (n.type === "health_check") n.checks = Object.fromEntries(["ghl_token", "ghl_calendars", "ghl_pipelines", "ghl_fields", "ghl_users", "slack", "steps", "urls", "anthropic", "duplicates"].map((k) => [k, false])); patch?.(d); });
-    const { fireNow } = await import("@/engine/clock");
-    await asOperator((c) => fireNow(c, companyId, wf));
-    await tick(fake, undefined, companyId, { ...fakeProbes, ghl });
+    await install("health-check", (d) => { const n = d.nodes.find((x) => x.type === "health_check")!; if (n.type === "health_check") n.checks = Object.fromEntries(["ghl_token", "ghl_calendars", "ghl_pipelines", "ghl_fields", "ghl_users", "slack", "steps", "urls", "anthropic", "duplicates"].map((k) => [k, false])); patch?.(d); });
+    // D297: GHL is compared by the 10-minute sync, which takes the window from the offer's Health check step
+    const { syncFromGhl } = await import("@/engine/health");
+    await asOperator(async (c) => syncFromGhl(c, (await loadCompany(c, companyId)).row, fake, { ...fakeProbes, ghl }));
     const { announceDue } = await import("@/engine/alerts");
     await asOperator((c) => announceDue(c, fake, new Date(), companyId)); await tick(fake, undefined, companyId, { ...fakeProbes, ghl });
     return asOperator((c) => many<{ kind: string; count: number }>(c, "select data->>'kind' as kind, (data->>'count')::int as count from events where company_id=$1 and event_type='drift.found' order by id", [companyId]));

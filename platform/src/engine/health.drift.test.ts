@@ -11,7 +11,7 @@ import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { loadCompany } from "@/engine/context";
-import { runHealthStep, type Finding, type HealthProbes } from "@/engine/health";
+import { runHealthStep, syncFromGhl, type Finding, type HealthProbes } from "@/engine/health";
 import { announceDue, openAlerts } from "@/engine/alerts";
 import { tick } from "@/engine/runner";
 import { fakeAdapters, fakeProbes, installTemplateForTest } from "@/engine/test-install";
@@ -52,7 +52,8 @@ const fake: Adapters = { ...base, notifier: { ...base.notifier, post: async (_t,
 
 let companyId: string, runId: string;
 const sc = (id: string, ext: string, contact: string, at: DateTime, outcome: string): GhlObjectRecord => ({ id, createdAt: ago({ days: 9 }).toISO()!, properties: { external_id: ext, contact_id: contact, scheduled_at: at.toUTC().toISO(), outcome, closer: "Cara Closer" } });
-const sweep = (opts: { run?: boolean } = {}) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return runHealthStep(c, row, fake, probes, { checks: {}, min_slots: 0, slots_days: 7, run_id: opts.run === false ? undefined : runId }); });
+// D297: the comparison with GHL is the 10-minute sync's (syncFromGhl), no longer the hourly health check's
+const sweep = (opts: { run?: boolean } = {}) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return (await syncFromGhl(c, row, fake, probes, DateTime.now(), { runId: opts.run === false ? null : runId }))!; });
 const drift = (fs: Finding[]) => fs.filter((f) => f.check === "ledger_drift");
 /** D88: the Ledger drift workflow makes the GHL writes the sweep hands it, on the next tick. */
 const run = () => tick(fake, undefined, companyId, probes);

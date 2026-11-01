@@ -7214,3 +7214,15 @@ ghost held back, paused offers silent; the engine keeps where each person is and
 - The Sales Call backfill (operator plans, the health check's repair) does the same: a write not in its object, or under another key,
   is the row's error and never "written".
 - Ghost and test still write nothing to GHL (Tyler: "we don't want to write tags and stuff and opportunity spots if we're just testing").
+
+## D297. GHL is compared every 10 minutes, quietly (2026-11-01)
+
+Tyler: "Maybe we just increase the drift check to every 10 minutes ... instead of alerting me every single time that there's an issue,
+they could just say, 'Oh, the contact changed. Here's the new information.'" and "keep it quiet".
+
+- The comparison with GHL (the ledger drift sweep) runs in each company's own minute every 10 minutes (`syncFromGhl`, `ghl_sync:<company>`),
+  not inside the hourly health check. GHL wins: a contact added, changed or gone, an outcome filed, a Sales Call missing or left on a
+  moved call's time is taken from GHL or mended, logged in the audit and said to no one. Only what a person must decide stays an alert
+  (`health:ledger_drift`), raised and cleared by the sync; the hourly health check no longer touches it.
+- The window and the poll's lag stay each offer's own, on its Health check step (D88). A GHL read that fails changes nothing and is
+  read again next time; a failure never fails the tick. No summary is posted.

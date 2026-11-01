@@ -752,11 +752,33 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
 /** The health_check step: run the checks (availability is its own step), remember the result, turn failures into alerts and clear the ones that passed. */
 export async function runHealthStep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, cfg: HealthConfig & { as_name?: string | null; as_icon?: string | null }, now = DateTime.now()): Promise<{ findings: Finding[]; raised: number; resolved: number }> {
   await ensureHealth(c, company.id);
-  const findings = (await sweep(c, company, adapters, probes, { ...cfg, checks: { ...cfg.checks, availability: false } }, now)).filter((f) => f.check !== "availability");
+  // D297: GHL is compared every 10 minutes in the company's own tick (syncFromGhl), not here; its alert is that sweep's to keep
+  const findings = (await sweep(c, company, adapters, probes, { ...cfg, checks: { ...cfg.checks, availability: false, ledger_drift: false } }, now)).filter((f) => f.check !== "availability" && f.check !== "ledger_drift");
   const prev = (await one<{ last_result: Finding[] }>(c, "select last_result from health_checks where company_id=$1", [company.id]))?.last_result ?? [];
   await c.query("update health_checks set last_run_at=$2, last_result=$3, channel=$4, as_name=$5, as_icon=$6 where company_id=$1", [company.id, now.toJSDate(), JSON.stringify([...findings, ...prev.filter((f) => f.check === "availability")]), cfg.channel ?? null, cfg.as_name ?? null, cfg.as_icon ?? null]);
   const present = findings.filter((f) => !f.ok).map((f) => toAlert(company, f));
-  const r = await reconcile(c, company.id, "health", present, now.toJSDate(), undefined, "health:availability");
+  const r = await reconcile(c, company.id, "health", present, now.toJSDate(), undefined, ["health:availability", "health:ledger_drift"]);
+  return { findings, ...r };
+}
+
+/** D297: how often GHL is compared with the engine and the engine brought into line, in each company's own minute. */
+export const SYNC_EVERY_MIN = 10;
+/**
+ * D297 (Tyler: "Maybe we just increase the drift check to every 10 minutes ... instead of alerting me every single time that there's
+ * an issue, they could just say, 'Oh, the contact changed. Here's the new information.'", and keep it quiet). GHL is the record: every
+ * 10 minutes the engine reads it and takes what it says (a contact added, changed or gone, an outcome filed, a Sales Call missing or
+ * moved), logged in the audit and said to no one. Only what a person must decide stays an alert (`health:ledger_drift`, kept and
+ * cleared here, no longer by the hourly health check). A read that fails changes nothing and is read again next time.
+ */
+export async function syncFromGhl(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, now = DateTime.now(), opts: { runId?: string | null } = {}): Promise<{ findings: Finding[]; raised: number; resolved: number } | null> {
+  if (!probes.ghl) return null;
+  const { adapterCompany: ac, bindings } = await loadCompany(c, company.id);
+  // the window and the poll's lag stay the offer's own, on its Health check step (D88)
+  const step = (await many<{ n: { drift_days?: number; poll_lag_min?: number } }>(c, `select n as n from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version,
+      jsonb_array_elements(v.definition->'nodes') n where w.company_id=$1 and w.enabled and n->>'type'='health_check' limit 1`, [company.id]))[0]?.n ?? {};
+  const findings = await ledgerDrift(c, company, ac, bindings, probes.ghl, adapters, opts.runId === null ? undefined : opts.runId ?? "sync", now, { days: step.drift_days, pollLagMin: step.poll_lag_min });
+  const present = findings.filter((f) => !f.ok).map((f) => toAlert(company, f));
+  const r = await reconcile(c, company.id, "health", present, now.toJSDate(), "health:ledger_drift");
   return { findings, ...r };
 }
 
