@@ -7201,3 +7201,16 @@ Tyler: "What's going on with these alerts". Found by reading every alert of the 
 - **Calendly refusing one availability read** (every calendar of PMU and Hair at 13:00, of Nelly at 17:00, each fine the hour after)
   is a note; the same calendar refused `alerts.poll_failures` (2) sweeps running is the alert. A Calendly error now says Calendly's
   reason first (title, message, the parameter it names), not the request's long URL that cut it off.
+
+## D296. Every record the engine writes to GHL is read back (2026-11-01)
+
+Tyler: "how can we make sure these type of errors don't happen? What do we need to do to make sure this is bullet proof?" The first of
+five changes he agreed (read-back; GHL changes synced quietly every 10 minutes; a setup check on every deploy; going live writes what
+ghost held back, paused offers silent; the engine keeps where each person is and whether a message went, not its text).
+
+- A workflow's record step reads the record straight back after it writes it: it must be in the object the step meant, carry the key
+  the engine stamped on it, and hold each option field as written. A miss is an engine fault, raised at once (`readback:<workflow>:<step>`,
+  error) with what GHL holds; the run goes on, and the next good write of that step clears it. A read that fails says unverified.
+- The Sales Call backfill (operator plans, the health check's repair) does the same: a write not in its object, or under another key,
+  is the row's error and never "written".
+- Ghost and test still write nothing to GHL (Tyler: "we don't want to write tags and stuff and opportunity spots if we're just testing").

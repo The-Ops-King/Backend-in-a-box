@@ -14,7 +14,7 @@ import { followMerge } from "./merge";
 import { TEST_CHANNEL_KEY, slackLiveSet, type Effective, type Mode } from "./mode";
 import { parseRubric, rubricFields, scoreCall } from "./score-call";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { raise } from "./alerts";
+import { raise, resolve as resolveAlert } from "./alerts";
 import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
@@ -770,6 +770,8 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         if (ghlId) await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, { ...properties, ...cleared }, owner);
         else { ghlId = (await d.adapters.write.createRecord(d.adapterCompany, objectKey, properties, owner)).id; await done(d, node, "record", ghlId); }
       }
+      // D296: what was written is read back: the record is in the object the step meant, under its key, its options as written
+      const checked = !ghost(d) && ghlId ? await readBack(d, node.id, objectKey, ghlId, properties, known) : null;
       const updating = !!(existing || matched);
       if (updating) Object.assign(properties, cleared);
       const row = await one<{ id: string }>(d.c, `insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
@@ -777,7 +779,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
       d.ctx.record = { id: ghlId ?? "", key, object: objectKey, properties };
       const related = await relate(d, node);
-      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), ...(recoveredHow ? { recovered: recoveredHow } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
+      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...(checked ?? {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), ...(recoveredHow ? { recovered: recoveredHow } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
     }
     case "update_contact": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
@@ -1083,6 +1085,34 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       return started ? { status: "exit", reason: `started:${node.workflow}`, result: { run_id: started } } : { status: "exit", reason: `handoff_suppressed:${node.workflow}`, result: { why: "target disabled or re-entry blocked" } };
     }
   }
+}
+
+/**
+ * D296 (Tyler: "how can we make sure these type of errors don't happen?"): a record written to the CRM is read straight back. It must be
+ * in the object the step meant (the backfill once wrote Sales Calls into the Discovery Call object for a day and called it repaired),
+ * carry the key the engine stamped on it, and hold each option field as written. A miss is an engine fault, raised at once; a read
+ * that fails says unverified and raises nothing (the next write is checked again).
+ */
+async function readBack(d: ExecDeps, nodeId: string, objectKey: string, id: string, written: Record<string, unknown>, known: Map<string, string | undefined> | null): Promise<Record<string, unknown>> {
+  if (!d.adapters.read.objectRecord) return {};
+  let rec: Awaited<ReturnType<NonNullable<typeof d.adapters.read.objectRecord>>>;
+  try { rec = await d.adapters.read.objectRecord(d.adapterCompany, objectKey, id); } catch (e) { return { verified: false, unverified: String((e as Error).message).slice(0, 120) }; }
+  const norm = (v: unknown) => (Array.isArray(v) ? v.map(String).join(",") : v === null || v === undefined ? "" : String(v)).trim().toLowerCase();
+  const wrong: string[] = [];
+  if (!rec) wrong.push(`GHL has no record ${id} in ${objectKey}`);
+  else {
+    if (written.external_id !== undefined && norm(rec.properties.external_id) !== norm(written.external_id)) wrong.push(`its key reads ${JSON.stringify(rec.properties.external_id ?? null)}, not ${JSON.stringify(written.external_id)}`);
+    for (const [k, v] of Object.entries(written)) {
+      const type = String(known?.get(k) ?? "").toUpperCase();
+      if (!/OPTIONS|RADIO|CHECKBOX/.test(type) || v === null || v === "") continue;
+      if (norm(rec.properties[k]) !== norm(v)) wrong.push(`${k} reads ${JSON.stringify(rec.properties[k] ?? null)}, not ${JSON.stringify(v)}`);
+    }
+  }
+  if (!wrong.length) { await resolveAlert(d.c, d.company.id, `readback:${d.run.workflow_id}:${nodeId}`); return { verified: true }; }
+  await raise(d.c, { companyId: d.company.id, key: `readback:${d.run.workflow_id}:${nodeId}`, level: "error", source: "engine", href: `/app/c/${d.company.slug}/runs/${d.run.id}`,
+    text: `An engine write to GHL did not land as written (${objectKey}, step ${nodeId}): ${wrong.join("; ")}. This is an engine fault: the run went on, the record needs a look.`,
+    detail: { object: objectKey, record_id: id, node: nodeId, run_id: d.run.id, wrong } });
+  return { verified: false, verify_failed: wrong };
 }
 
 /**
