@@ -56,7 +56,7 @@ export type SalesCallExclusion = { email: string; why: string };
 export type SalesCallOptions = { from: Date; to: Date; closer?: string; dryRun?: boolean; eodObject?: string; budgetMs?: number; now?: Date; concurrency?: number; decide?: SalesCallDecision[]; exclude?: SalesCallExclusion[];
   /** where a pass that ran out of time stopped: the window (and what a decision may name) stays from `from` */
   resumeFrom?: Date;
-  /** D290: only these bookings (appointment ids), each written as Call booked's own step writes it and nothing more: no evidence read,
+  /** D293: only these bookings (appointment ids), each written as Call booked's own step writes it and nothing more: no evidence read,
    * no outcome (the closer files it), no slot a call moved away from. The hourly drift sweep's repair of a booking with no Sales Call. */
   blank?: string[] };
 export type LoadedCompany = { row: CompanyRow; adapterCompany: Company; bindings: Record<string, string> };
@@ -235,7 +235,7 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
   for (let i = first < 0 ? slots.length : first; i < slots.length; i += width) {
     if (Date.now() - started > budget) { report.complete = false; report.resume_from = slots[i].startsAt.toISOString(); break; }
     const batch = slots.slice(i, i + width);
-    // D290: blank, Call booked's own fields only (the closer files the outcome); else the evidence for every field
+    // D293: blank, Call booked's own fields only (the closer files the outcome); else the evidence for every field
     const one_ = (s: Slot) => (opts.blank ? (async () => {
       const row = blankRow(shared, s);
       const ct = s.contactId ? await one<{ ghl: string | null; name: string | null; email: string | null }>(c, `select ghl_contact_id as ghl, nullif(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')),'') as name,

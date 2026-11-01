@@ -68,7 +68,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   const audit = (target: string, id: string, before: unknown, after: Record<string, unknown>) =>
     c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'health.repaired',$2,$3,$4,$5)", [company.id, target, id, before === null ? null : JSON.stringify(before), JSON.stringify(after)]);
   const fixedPeople = new Set<string>();
-  // D290: the Sales Call repairs are written by the sweep itself (its own GHL writes, audited) when Ledger drift runs live or quiet and
+  // D293: the Sales Call repairs are written by the sweep itself (its own GHL writes, audited) when Ledger drift runs live or quiet and
   // the sweep has a run to record them against; on a rehearsal rung (or none) each is a question, as before
   const repairsWrite = !!runId && ["live", "quiet"].includes(await handlerMode(c, company.id, "drift.sales_call_unlinked"));
   const repaired = (item: string, text: string, detail: Record<string, unknown>, who?: string, kind = "repaired") => { fixedPeople.add(who ?? item); out.push({ check, item: `repair:${item}`, ok: true, level: "warning", text: `Repaired: ${text}.`, detail }); note(kind, detail); };
@@ -247,7 +247,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       order by a.starts_at`, [company.id, from, to, testDomains(bindings)]);
     const lacking = due.filter((x) => !matched.has(x.id));
     const labelOf = (b: (typeof due)[number]) => { const when = DateTime.fromJSDate(b.starts_at).setZone(company.timezone); return `${b.name ?? "Someone"}, ${when.toFormat("ccc LLL d")} at ${when.toFormat("h:mm a")}`; };
-    // D290 (Tyler: "if the call didn't get recorded it should. We shouldn't ever miss a call"): made, blank, as Call booked's own step
+    // D293 (Tyler: "if the call didn't get recorded it should. We shouldn't ever miss a call"): made, blank, as Call booked's own step
     // makes it, so the closer's end of day asks for it; what could not be made stays a question
     let made = new Map<string, { record?: string; error?: string; skipped?: string }>();
     if (repairsWrite && lacking.length) await guarded(async () => {

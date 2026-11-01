@@ -7125,3 +7125,15 @@ ever). "go for it". Three guards:
 Found while checking every offer: Hair's end of day and Call outcome filed are live while its Call booked runs in test, and its last
 Sales Call in GHL is Oct 17: told to Tyler, nothing changed.
 
+## D293. The hourly sweep makes a missing Sales Call itself, and marks a moved one rescheduled (2026-11-01)
+
+Tyler: "It should compare GHL with calendar for booked calls every hour and if the call didn't get recorded it should. We shouldn't ever
+miss a call in the first place." The drift sweep (Health check, hourly) no longer only asks (D289): where Ledger drift runs live or quiet,
+- a closing booking whose time has passed with no Sales Call in GHL gets one, blank: the offer's own Call booked step's fields (the
+  Sales Call backfill's new `blank` mode: those bookings only, no evidence read, no outcome, no left slots), related as Call booked
+  relates it, kept as the engine's record, so the closer's end of day asks for it;
+- a Sales Call left on the time its call moved away from is set to the offer's rescheduled outcome.
+Both are the sweep's own GHL writes, audited and logged as repairs (repairs are not announced; one that fails stays a question). On a
+rehearsal rung (PMU's Ledger drift runs in test) each stays a question, as before. First line of defence remains Call booked making the
+record at booking, and the go-live guard (D289) keeps the end of day off live without it; this is the backstop, an hour at most.
+

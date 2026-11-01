@@ -46,7 +46,7 @@ const base = fakeAdapters();
 const linkWrites: { id: string; props: Record<string, unknown> }[] = [], relations: string[] = [];
 const posts: { channel: string; text: string }[] = [];
 const created: { object: string; props: Record<string, unknown> }[] = [];
-let made30 = false;   // D290: GHL still has the person whose missing Sales Call the sweep makes
+let made30 = false;   // D293: GHL still has the person whose missing Sales Call the sweep makes
 const fake: Adapters = { ...base, read: { ...base.read, getContact: async (c, id) => (id === "G-K1" && made30 ? { id, firstName: id, tags: [], customFields: {}, dateAdded: "", dateUpdated: "" } : base.read.getContact(c, id)) }, notifier: { ...base.notifier, post: async (_t, channel, text) => { posts.push({ channel, text }); return { ts: `ts${posts.length}` }; } }, write: { ...base.write, createRecord: async (_c, object, props) => { created.push({ object, props }); return { id: `MADE-${created.length}` }; }, relateRecords: async (_c, a, f, t) => { relations.push(`${a}:${f}>${t}`); }, updateRecord: async (_c, _key, id, props) => {
   if (!("outcome" in props)) { linkWrites.push({ id, props }); const r = records.find((x) => x.id === id); if (r) Object.assign(r.properties, props); return; }
   if (refuse) throw Object.assign(new Error("GHL 422 on /objects: bad value"), { status: 422 });
@@ -309,7 +309,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     }
   });
 
-  it("D290: with Ledger drift live, the sweep makes the missing Sales Call (blank, as Call booked makes it) and marks the moved one rescheduled, and says each as a repair, not a question", async () => {
+  it("D293: with Ledger drift live, the sweep makes the missing Sales Call (blank, as Call booked makes it) and marks the moved one rescheduled, and says each as a repair, not a question", async () => {
     await asOperator(async (c) => {
       const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
