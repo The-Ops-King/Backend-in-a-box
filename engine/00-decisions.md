@@ -7167,3 +7167,20 @@ the offer's Sales Calls writes to GHL. Under that same rule, the sweep now also 
 from (D289's `moved_not_marked`, Carly's Quentin Thomas Oct 27) to the offer's rescheduled outcome, audited and logged as a repair; on a
 rehearsal rung, or with no rescheduled outcome mapped (sales_call.outcomes), it stays a question.
 
+
+## D294. The wrap-up's numbers from GHL: show rate on filed calls, bookings from GHL's records, speed to lead without self-bookers (2026-11-01)
+
+Tyler, on October's wrap-up: "I keep having to tell you not to use the engines numbers. Use GHL". Four lines were wrong or misleading.
+
+- **Show rate** is of the calls with a known outcome (the registry's `show_rate`, as `/show-rate` says it): a call nobody filed was
+  counted as not showing (12 of 24 = 50% when 12 of 13 filed had shown). The unfiled ones stay listed ("Calls with no EOD outcome").
+- **Bookings**: "Consultations booked" and "by setters" are GHL's (`consults_booked`, `consults_booked_set`: each person's first Sales
+  Call record, by when it was booked, its creation or its call time when earlier; a follow-up's record and test contacts out; by
+  setters, its booking source). "Triage booked (Calendly)" is the booking source's (`triage_booked`): GHL holds no record of a triage
+  booking alone (Discovery Calls are also made for dials). "New bookings" mixed 143 triage calls with 35 consultations.
+- **Speed to lead** leaves out a lead who booked a call before anyone dialled them: Nelly's applicants book a triage call from the form
+  and are rung at its time, days later (149 hours).
+- **Missing Sales Calls** are looked for 35 days back, not the sweep's 7, so a month's wrap-up never reads a call with no record (Celine
+  Adran and Olivia Villa, Oct 15). A call older than the week counts as having one when GHL holds a record under its key or for the
+  same person at the same minute (one made outside the engine counts); GHL unread, none is called missing.
+- The shipped wrap-up layouts say so (and "From GHL"); each offer's own wrap-ups take the words on Tyler's word (all three offers).

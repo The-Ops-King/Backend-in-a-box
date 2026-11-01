@@ -343,7 +343,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day reminder's days 
 describe("D88: the wrap-up's words are the template's (A8)", () => {
   const day = { start: "2026-10-10", end: "2026-10-10" };
   const facts = (over: Partial<Parameters<typeof reportFacts>[0]> = {}) => reportFacts({ kind: "daily", period: day, tz: "UTC", toDate: false, numbers: { leads: 3, booked: 0 }, calls: null, said: [], readAt: new Date("2026-10-10T19:00:00Z"), ...over });
-  const FOOT = "\n\n_From GHL and the engine, read 7:00 PM UTC_";
+  const FOOT = "\n\n_From GHL, read 7:00 PM UTC_";
   const body = (f: ReturnType<typeof reportFacts>, layout = shippedLayout(f.kind)) => renderLayout(layout, f, {}, { tz: "UTC", companyTz: "UTC" });
 
   it("as shipped: what they said, the top four answers each, the rest counted, long answers cut", () => {

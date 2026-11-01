@@ -307,7 +307,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     }
   });
 
-  it("D293: when what makes the offer's Sales Calls writes to GHL, a Sales Call left on a moved call's old time is marked rescheduled and said as a repair; while it runs in test it only asks", async () => {
+  it("D294: when what makes the offer's Sales Calls writes to GHL, a Sales Call left on a moved call's old time is marked rescheduled and said as a repair; while it runs in test it only asks", async () => {
     const wf = await asOperator(async (c) => {
       const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
