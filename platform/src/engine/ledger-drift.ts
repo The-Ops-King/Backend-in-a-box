@@ -197,10 +197,15 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     await audit("sales_call", k.id, null, { repair: "linked", by: "workflow", ...data });
     repaired(`${k.id}:links`, `${label}: the Ledger drift workflow links the Sales Call to ${[needContact ? "its contact" : "", card ? "the closer card" : ""].filter(Boolean).join(" and ")}`, { sales_call: k.id, label, ...data }, k.ghl || k.id, "link_requested");
   };
+  const providers = (await many<{ p: string }>(c, "select distinct provider as p from recordings where company_id=$1", [company.id])).map((r) => r.p.toLowerCase());
+  const recordingKey = (ext: string) => providers.some((p) => ext.toLowerCase().startsWith(`${p}-`));
   for (const k of calls) {
     const label = callLabel(k);
     // D76: a slot a call moved away from keeps its own record, logged as rescheduled; it matches no booking by design
     if (k.match === "none" && k.filed === "rescheduled") continue;
+    // D295: a call recorded with no booking behind it (Sales call recorded keys its record by the recording, "fathom-…") matches no
+    // booking by design; asked every hour, it was noise (Nelly's call with Anya)
+    if (k.match === "none" && recordingKey(k.ext)) continue;
     if (k.match === "none") { ask("unmatched", { label, booking_source: k.booking_source || null, record_id: k.id }); continue; }
     if (k.match === "many") { ask("ambiguous", { label, record_id: k.id }); continue; }
     const a = k.appt!;

@@ -179,6 +179,21 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect((await counts()).runs).toBe(0);
   });
 
+  it("D295: the Sales Call object, never a Discovery Call one: a triage call's booked workflow writing its own record under the same key is not the Sales Call step", async () => {
+    const wf = await asOperator(async (c) => {
+      const nodes = [{ id: "t1", type: "trigger", event: "appointment.booked" }, { id: "d1", type: "crm_record", object: "{{crm.object_discovery_call | default:custom_objects.discovery_call}}", key: "{{appointment.slot_key}}", properties: { outcome: "scheduled" } }, { id: "x1", type: "exit", reason: "done" }];
+      const def = parseDefinition({ schema: 1, reentry: "always", premise: { check: "none" }, nodes, edges: [{ from: "t1", to: "d1" }, { from: "d1", to: "x1" }] });
+      const w = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, created_at) values ($1,'Triage call booked','always',true, now() - interval '400 days') returning id", [companyId]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [w.id, def, extractManifest(def)]);
+      return w.id;
+    });
+    try {
+      const r = await run({ dryRun: true });
+      const objects = [...new Set(r.rows.map((x) => x.write?.object).filter(Boolean))];
+      expect(objects).toEqual(["custom_objects.sales_call"]);
+    } finally { await asOperator(async (c) => { await c.query("delete from workflow_versions where workflow_id=$1", [wf]); await c.query("delete from workflows where id=$1", [wf]); }); }
+  });
+
   it("a dry run reads every field from evidence, says what it cannot know, and writes nothing", async () => {
     const before = await counts();
     dry = await run({ dryRun: true });
@@ -297,5 +312,20 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     const later = await pass([{ slot: "evt-E", fields: { outcome: "showed" }, why: "x" }], [], H.toJSDate());
     expect(later.from).toBe(r.from);
     expect(later.rows.map((x) => x.slot_key).sort()).toEqual(["evt-H", "evt-I", "evt-J", "evt-M1"]);
+  });
+
+  it("D295: a record the engine remembers that GHL has deleted is made again, not updated for ever", async () => {
+    const gone = world.records.findIndex((r) => r.properties.external_id === "evt-A");
+    const oldId = world.records[gone].id;
+    world.records.splice(gone, 1);
+    const a = adapters();
+    a.write.updateRecord = async (_c, _o, id) => { if (!world.records.some((x) => x.id === id)) throw new Error(`GHL 404 on /objects/custom_objects.sales_call/records/${id}: not found`); };
+    const r = await asOperator(async (c) => backfillSalesCalls(c, await loadCompany(c, companyId), a, { ...window(), closer: "carly@x.com", dryRun: false, eodObject: "custom_objects.closer_eod" }));
+    const rowA = r.rows.find((x) => x.slot_key === "evt-A")!;
+    expect(rowA.error).toBeUndefined();
+    expect(rowA.written).toMatchObject({ record: "created" });
+    expect(rowA.written!.crm_id).not.toBe(oldId);
+    expect(world.records.filter((x) => x.properties.external_id === "evt-A")).toHaveLength(1);
+    expect(await asOperator((c) => one(c, "select ghl_record_id from crm_records where company_id=$1 and record_key='evt-A'", [companyId]))).toEqual({ ghl_record_id: rowA.written!.crm_id });
   });
 });

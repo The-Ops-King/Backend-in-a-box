@@ -7184,3 +7184,20 @@ Tyler, on October's wrap-up: "I keep having to tell you not to use the engines n
   Adran and Olivia Villa, Oct 15). A call older than the week counts as having one when GHL holds a record under its key or for the
   same person at the same minute (one made outside the engine counts); GHL unread, none is called missing.
 - The shipped wrap-up layouts say so (and "From GHL"); each offer's own wrap-ups take the words on Tyler's word (all three offers).
+
+## D295. The repairs write the right object, stop asking what is fine, and a vendor's one bad hour is not an alert (2026-11-01)
+
+Tyler: "What's going on with these alerts". Found by reading every alert of the last hours:
+
+- **The Sales Call backfill wrote into the Discovery Call object.** It takes the object from the offer's booked-call step keyed by the
+  slot, and Dating Nelly's Triage call booked (a Discovery Call keyed the same way) came first. Alia Besharat's, Jayne Clark's,
+  Celine Adran's and Olivia Villa's "Sales Calls" (the operator's plan on Oct 31, then the health check's D291 repair, every hour)
+  went to Discovery Call records; the call stayed with no Sales Call and the sweep repaired it again each hour. Now only a step that
+  writes the Sales Call object (`crm.object_sales_call`) is taken.
+- **A record GHL deleted is made again.** The engine remembered PMU's ALma Saucedo and Renee G records that GHL no longer has; each
+  repair updated them and got a 404, every hour. Now a 404 on a record GHL lists nowhere under the key drops the memory and makes it.
+- **A call recorded with no booking** (Sales call recorded keys its record by the recording, "fathom-…": Nelly's call with Anya) is
+  not "a Sales Call with no booking": it matches none by design. No longer asked.
+- **Calendly refusing one availability read** (every calendar of PMU and Hair at 13:00, of Nelly at 17:00, each fine the hour after)
+  is a note; the same calendar refused `alerts.poll_failures` (2) sweeps running is the alert. A Calendly error now says Calendly's
+  reason first (title, message, the parameter it names), not the request's long URL that cut it off.
