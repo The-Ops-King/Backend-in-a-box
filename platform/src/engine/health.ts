@@ -4,6 +4,7 @@ import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { reconcile, type AlertInput, type Level } from "./alerts";
+import { POLL_FAILURES } from "./setting-defaults";
 import { slackLiveSet, TEST_CHANNEL_KEY } from "./mode";
 import { followMerge } from "./merge";
 import { missingSources } from "./readiness";
@@ -555,7 +556,17 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       // the API wants a start in the future and a window of at most 7 days: a minute from now, (days - 1) days and 23 hours long
       const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: days - 1, hours: 23 }).toJSDate());
       if (r.ok) known.set(cal.external_id, r.times);
-      if (!r.ok) bad("calendly_calendars", "error", `Event type "${cal.name}": availability cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
+      // D295: one read Calendly refuses is the vendor blinking (every calendar of PMU at 13:00, of Nelly at 17:00, each fine the hour
+      // after); it is a problem when the calendar fails `alerts.poll_failures` (2) sweeps in a row, said with Calendly's own reason
+      const failKey = `calendly_read_fail:${company.id}:${cal.external_id}`;
+      if (r.ok) await c.query("delete from engine_state where key=$1", [failKey]);
+      if (!r.ok) {
+        const times = Number((await one<{ n: number }>(c, `insert into engine_state (key, value, updated_at) values ($1, '{"n":1}'::jsonb, now())
+          on conflict (key) do update set value = jsonb_build_object('n', coalesce((engine_state.value->>'n')::int, 0) + 1), updated_at=now() returning (value->>'n')::int as n`, [failKey]))?.n ?? 1);
+        const limit = Math.max(1, Number(bindings["alerts.poll_failures"]) || POLL_FAILURES);
+        if (times >= limit) bad("calendly_calendars", "error", `Event type "${cal.name}": Calendly would not give its availability ${times} hours running: ${r.error}`, cal.external_id, undefined, link(cal));
+        else ok("calendly_calendars", `"${cal.name}": Calendly would not give its availability this hour (${r.error}); checked again next hour.`, cal.external_id, undefined, link(cal));
+      }
       else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id, { repeat: false }, link(cal));
       else { const len = await probes.calendlyEventTypeHosts(token, `https://api.calendly.com/event_types/${cal.external_id}`, ac.booking.source === "calendly" ? ac.booking.organization || undefined : undefined);
         const n = bookable([...new Set(r.times.map(ms))].map((start) => ({ start, minutes: (len.ok && len.duration) || DEFAULT_CALL_MINUTES }))).length;   // D267: calls that fit, not start times

@@ -112,7 +112,10 @@ async function loadSetup(c: PoolClient, co: LoadedCompany, adapters: Adapters): 
     .map((r) => { try { return parseDefinition(r.definition); } catch { return null; } }).filter((d): d is Definition => !!d);
   const shipped = (slug: string) => parseDefinition(JSON.parse(JSON.stringify(templates.find((t) => t.slug === slug)!.definition)));
   const listens = (d: Definition, ev: string) => d.nodes.some((n) => n.type === "trigger" && n.event === ev);
-  const slotStep = (d: Definition) => d.nodes.find((n): n is Extract<Node, { type: "crm_record" }> => n.type === "crm_record" && (n.key ?? "").replace(/\s+/g, "") === "{{appointment.slot_key}}");
+  // D295: the step that writes the Sales Call object (crm.object_sales_call): a triage call's booked workflow writes a Discovery Call
+  // under the same key (Dating Nelly's Triage call booked), and taking it wrote Sales Calls into the Discovery Call object
+  const salesObject = (n: Extract<Node, { type: "crm_record" }>) => /object_sales_call/.test(n.object) || (!!co.bindings["crm.object_sales_call"] && n.object.trim() === co.bindings["crm.object_sales_call"]);
+  const slotStep = (d: Definition) => d.nodes.find((n): n is Extract<Node, { type: "crm_record" }> => n.type === "crm_record" && (n.key ?? "").replace(/\s+/g, "") === "{{appointment.slot_key}}" && salesObject(n));
   const callBooked = defs.find((d) => listens(d, "appointment.booked") && slotStep(d)) ?? shipped("call-booked");
   const k4 = slotStep(callBooked); if (!k4) throw new Error("no Call booked step writes a Sales Call keyed by the call slot");
   const recorded = defs.find((d) => listens(d, "recording.received")) ?? shipped("call-recorded");
@@ -638,9 +641,18 @@ async function applyRows(c: PoolClient, co: LoadedCompany, adapters: Adapters, r
         const amount = (x: unknown) => String((x as { value?: unknown } | null)?.value ?? x);   // a money field reads back as { currency, value }
         if (!blank && JSON.stringify(cur) !== JSON.stringify(v) && amount(cur) !== amount(v)) { kept.push(`${k} (GHL has ${JSON.stringify(cur)})`); delete props[k]; }
       }
-      let record: "created" | "updated";
-      if (crmId) { if (Object.keys(props).length) await adapters.write.updateRecord(co.adapterCompany, w.object, crmId, props); record = "updated"; }
-      else {
+      let record: "created" | "updated" = "updated";
+      if (crmId) {
+        try { if (Object.keys(props).length) await adapters.write.updateRecord(co.adapterCompany, w.object, crmId, props); }
+        catch (e) {
+          // D295: the record the engine remembers is gone from GHL (deleted there, and GHL lists none under the key): made again, not
+          // updated for ever (PMU's ALma Saucedo and Renee G, each a 404 an hour)
+          if (inCrm || !/\b404\b|not found/i.test(String((e as Error).message))) throw e;
+          await c.query("delete from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [co.row.id, w.object, w.key]);
+          crmId = null;
+        }
+      }
+      if (!crmId) {
         // D222: a new record only for a person GHL still has; one it merged away or deleted would be made attached to no one
         const ghlContact = row.contact.ghl_contact_id;
         if (ghlContact && !(await adapters.read.getContact(co.adapterCompany, ghlContact))) throw new Error(`${row.contact.name ?? "the contact"} is gone from GHL (merged or deleted): no Sales Call made`);

@@ -1,7 +1,7 @@
 const BASE = "https://api.calendly.com";
 
 export class CalendlyError extends Error {
-  constructor(public status: number, public body: string, public path: string) { super(`Calendly ${status} on ${path}: ${body.slice(0, 300)}`); this.name = "CalendlyError"; }
+  constructor(public status: number, public body: string, public path: string) { super(`Calendly ${status}: ${calendlyReason(body)} (on ${path.split("?")[0]})`); this.name = "CalendlyError"; }
 }
 
 /** Personal access token or OAuth token; read scopes are enough for polling. 500 requests/minute per token (verified). */
@@ -39,3 +39,13 @@ export async function calendlyAll<T>(token: string, path: string, cap = 1000): P
 export const uuidOf = (uri: string | null | undefined) => (uri ? uri.split("/").filter(Boolean).pop() ?? "" : "");
 /** An invitee URI is /scheduled_events/{event}/invitees/{invitee}; the event is the second-to-last segment. */
 export const eventUuidOfInvitee = (uri: string | null | undefined) => { const parts = (uri ?? "").split("/").filter(Boolean); const i = parts.indexOf("scheduled_events"); return i >= 0 ? parts[i + 1] ?? "" : ""; };
+
+/** D295: what Calendly said, first and short: its message and the details it lists (a long request URL used to push them out of view). */
+export function calendlyReason(body: string): string {
+  try {
+    const j = JSON.parse(body) as { message?: string; title?: string; details?: { parameter?: string; message?: string }[] };
+    const parts = [j.title, j.message, ...(j.details ?? []).map((d) => [d.parameter, d.message].filter(Boolean).join(": "))].filter(Boolean);
+    if (parts.length) return parts.join(" · ").slice(0, 300);
+  } catch { /* not JSON */ }
+  return body.slice(0, 300);
+}
