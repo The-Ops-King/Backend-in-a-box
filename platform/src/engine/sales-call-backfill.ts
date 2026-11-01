@@ -55,7 +55,10 @@ export type SalesCallDecision = { slot: string; fields: Record<string, string | 
 export type SalesCallExclusion = { email: string; why: string };
 export type SalesCallOptions = { from: Date; to: Date; closer?: string; dryRun?: boolean; eodObject?: string; budgetMs?: number; now?: Date; concurrency?: number; decide?: SalesCallDecision[]; exclude?: SalesCallExclusion[];
   /** where a pass that ran out of time stopped: the window (and what a decision may name) stays from `from` */
-  resumeFrom?: Date };
+  resumeFrom?: Date;
+  /** D290: only these bookings (appointment ids), each written as Call booked's own step writes it and nothing more: no evidence read,
+   * no outcome (the closer files it), no slot a call moved away from. The hourly drift sweep's repair of a booking with no Sales Call. */
+  blank?: string[] };
 export type LoadedCompany = { row: CompanyRow; adapterCompany: Company; bindings: Record<string, string> };
 
 const RECORD_ID = "(this record)";   // stands in for the CRM id the write gets back
@@ -148,17 +151,17 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
   const calendars = await many<{ id: string; external_id: string; name: string; term_name: string; self_booked: boolean | null }>(c,
     "select cal.id, cal.external_id, cal.name, t.name as term_name, cal.self_booked from calendars cal join company_terms t on t.id=cal.appointment_term where cal.company_id=$1 and cal.source=$2 and cal.active and t.category='closing'", [co.row.id, co.adapterCompany.booking.source]);
 
-  const ledger = await many<LedgerAppt>(c, `select a.id, a.contact_id, a.external_id, coalesce(a.slot_key, a.external_id) as slot_key, a.starts_at, a.status, a.self_booked, a.set_by, a.assigned_user_id,
+  const ledger = (await many<LedgerAppt>(c, `select a.id, a.contact_id, a.external_id, coalesce(a.slot_key, a.external_id) as slot_key, a.starts_at, a.status, a.self_booked, a.set_by, a.assigned_user_id,
       t.name as term_name, cal.name as cal_name, u.email as closer_email, u.name as closer_name, ot.category as outcome, cot.category as call_outcome
     from appointments a join company_terms t on t.id=a.appointment_term left join calendars cal on cal.id=a.calendar_id left join users u on u.id=a.assigned_user_id
       left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
     where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.starts_at >= $2 and a.starts_at <= $3 ${closer ? "and a.assigned_user_id=$4" : ""} order by a.starts_at`,
-    closer ? [co.row.id, opts.from, opts.to, closer.id] : [co.row.id, opts.from, opts.to]);
+    closer ? [co.row.id, opts.from, opts.to, closer.id] : [co.row.id, opts.from, opts.to])).filter((a) => !opts.blank || opts.blank.includes(a.id));
 
   // the booking source's own account of each call: who cancelled and when, a move, a no-show mark (the ledger keeps only the latest slot of a moved call)
   const snaps = new Map<string, AppointmentSnapshot>();
   const calOf = new Map(calendars.map((x) => [x.external_id, x]));
-  for (const cal of calendars) for (const s of await bookingFor(adapters, co.adapterCompany).appointmentsInWindow(co.adapterCompany, cal.external_id, opts.from, opts.to)) snaps.set(s.id, s);
+  if (!opts.blank) for (const cal of calendars) for (const s of await bookingFor(adapters, co.adapterCompany).appointmentsInWindow(co.adapterCompany, cal.external_id, opts.from, opts.to)) snaps.set(s.id, s);
   const userOf = (s: AppointmentSnapshot) => users.find((u) => (s.assignedUserEmail && u.email.toLowerCase() === s.assignedUserEmail) || (s.assignedUserId && u.ghl_user_id === s.assignedUserId)) ?? null;
 
   const slots: Slot[] = [];
@@ -198,7 +201,7 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
   }
   // a move the engine itself saw (a GHL calendar keeps the booking's id; the poll logs the slot it left and its time before the move)
   const seen = new Set(slots.map((x) => x.key));
-  const moves = await many<{ data: { slot?: { from?: string }; starts_at?: { from?: string; to?: string } }; occurred_at: Date; appointment_id: string }>(c, `select e.data, e.occurred_at, e.appointment_id from events e
+  const moves = opts.blank ? [] : await many<{ data: { slot?: { from?: string }; starts_at?: { from?: string; to?: string } }; occurred_at: Date; appointment_id: string }>(c, `select e.data, e.occurred_at, e.appointment_id from events e
     join appointments a on a.id=e.appointment_id join company_terms t on t.id=a.appointment_term
     where e.company_id=$1 and e.event_type='appointment.rescheduled' and t.category='closing' and e.data->'slot'->>'from' is not null and e.data->'starts_at'->>'from' is not null ${closer ? "and a.assigned_user_id=$2" : ""} order by e.occurred_at`,
     closer ? [co.row.id, closer.id] : [co.row.id]);
@@ -221,10 +224,10 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
     decide: new Map((opts.decide ?? []).map((d) => [d.slot, d])), exclude: opts.exclude ?? [],
   };
   for (const s of slots) { const k = `${s.closer?.id ?? ""}:${local(s.startsAt, tz).toISODate()}`; shared.daySlots.set(k, [...(shared.daySlots.get(k) ?? []), s]); }
-  for (const u of new Set(slots.map((s) => s.closer).filter((x): x is Closer => !!x))) { const cov = await recordingCoverage(c, co.row.id, u, opts.to, shared.domains); if (cov) shared.coverage.set(u.id, cov); }
+  if (!opts.blank) for (const u of new Set(slots.map((s) => s.closer).filter((x): x is Closer => !!x))) { const cov = await recordingCoverage(c, co.row.id, u, opts.to, shared.domains); if (cov) shared.coverage.set(u.id, cov); }
   for (const r of await adapters.read.objectRecords(co.adapterCompany, setup.objectKey)) { const ext = String(r.properties.external_id ?? "").trim(); if (ext && !shared.existing.has(ext)) shared.existing.set(ext, r); }
   const eodObject = opts.eodObject ?? co.bindings["crm.object_closer_eod"];
-  if (eodObject) { try { shared.eods = await adapters.read.objectRecords(co.adapterCompany, eodObject); } catch (e) { report.errors.push(`end-of-day reports could not be read: ${String((e as Error).message).slice(0, 200)}`); } }
+  if (eodObject && !opts.blank) { try { shared.eods = await adapters.read.objectRecords(co.adapterCompany, eodObject); } catch (e) { report.errors.push(`end-of-day reports could not be read: ${String((e as Error).message).slice(0, 200)}`); } }
 
   // which slots this pass reads: in order, a few at a time, until the time budget is spent (the rest are the next call's, from resume_from)
   const budget = opts.budgetMs ?? 240_000, width = Math.max(1, opts.concurrency ?? 4);
@@ -232,7 +235,16 @@ export async function backfillSalesCalls(c: PoolClient, co: LoadedCompany, adapt
   for (let i = first < 0 ? slots.length : first; i < slots.length; i += width) {
     if (Date.now() - started > budget) { report.complete = false; report.resume_from = slots[i].startsAt.toISOString(); break; }
     const batch = slots.slice(i, i + width);
-    rows.push(...await Promise.all(batch.map((s) => readSlot(shared, s).catch((e): SalesCallRow => ({ ...blankRow(shared, s), error: String((e as Error).message).slice(0, 300) })))));
+    // D290: blank, Call booked's own fields only (the closer files the outcome); else the evidence for every field
+    const one_ = (s: Slot) => (opts.blank ? (async () => {
+      const row = blankRow(shared, s);
+      const ct = s.contactId ? await one<{ ghl: string | null; name: string | null; email: string | null }>(c, `select ghl_contact_id as ghl, nullif(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')),'') as name,
+        (select value from contact_identifiers i where i.contact_id=contacts.id and i.kind='email' limit 1) as email from contacts where id=$1`, [s.contactId]) : null;
+      row.contact = { ...row.contact, ghl_contact_id: ct?.ghl ?? null, name: ct?.name ?? null, email: ct?.email ?? row.contact.email };
+      if (!row.contact.ghl_contact_id) { row.skipped = "the person has no GHL id"; return row; }
+      row.write = await writeFor(shared, s, row, null); return row;
+    })() : readSlot(shared, s));
+    rows.push(...await Promise.all(batch.map((s) => one_(s).catch((e): SalesCallRow => ({ ...blankRow(shared, s), error: String((e as Error).message).slice(0, 300) })))));
   }
   report.rows = rows;
   if (dryRun) {

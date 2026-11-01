@@ -45,7 +45,7 @@ const why = (e: unknown) => String((e as Error).message).slice(0, 160);
 const callLabel = (k: SalesCall) => `${k.name.split(" · ")[0].trim() || k.name}, ${k.at.toFormat("ccc LLL d")}${k.at.hour || k.at.minute ? ` at ${k.at.toFormat("h:mm a")}` : ""}`;
 
 /** `runId`: the health step's run, which the effects ledger records CRM writes against; without one, no CRM write is made. */
-export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Company, bindings: Record<string, string>, reads: GhlReads, _adapters: Adapters, _runId: string | undefined, now: DateTime = DateTime.now(), opts: { days?: number; pollLagMin?: number } = {}): Promise<Finding[]> {
+export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Company, bindings: Record<string, string>, reads: GhlReads, adapters: Adapters, runId: string | undefined, now: DateTime = DateTime.now(), opts: { days?: number; pollLagMin?: number } = {}): Promise<Finding[]> {
   const check = "ledger_drift", days = opts.days ?? DRIFT_DAYS;
   const from = now.minus({ days }).toJSDate(), to = now.minus({ minutes: opts.pollLagMin ?? POLL_LAG_MIN }).toJSDate();
   const { emitEvent, dispatchEvent } = await import("./dispatch");
@@ -68,6 +68,9 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
   const audit = (target: string, id: string, before: unknown, after: Record<string, unknown>) =>
     c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'health.repaired',$2,$3,$4,$5)", [company.id, target, id, before === null ? null : JSON.stringify(before), JSON.stringify(after)]);
   const fixedPeople = new Set<string>();
+  // D290: the Sales Call repairs are written by the sweep itself (its own GHL writes, audited) when Ledger drift runs live or quiet and
+  // the sweep has a run to record them against; on a rehearsal rung (or none) each is a question, as before
+  const repairsWrite = !!runId && ["live", "quiet"].includes(await handlerMode(c, company.id, "drift.sales_call_unlinked"));
   const repaired = (item: string, text: string, detail: Record<string, unknown>, who?: string, kind = "repaired") => { fixedPeople.add(who ?? item); out.push({ check, item: `repair:${item}`, ok: true, level: "warning", text: `Repaired: ${text}.`, detail }); note(kind, detail); };
   const ask = (kind: string, data: Record<string, unknown>) => { left.push({ kind, ...data }); note(kind, data); };
   /** A write the Ledger drift workflow is already making for this record (a run still going) is not asked for again. */
@@ -216,7 +219,17 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     }
     // D289: a record for a time the booking has moved away from, never marked (a move while the workflow that marks it was off):
     // its call never happened at that time, so it is not the closer's to file, and the end of day would ask for it for ever
-    if (!k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000) { ask("moved_not_marked", { label, now_at: DateTime.fromJSDate(new Date(a.starts_at)).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mm a"), record_id: k.id }); continue; }
+    if (!k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000) {
+      const nowAt = DateTime.fromJSDate(new Date(a.starts_at)).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mm a");
+      const value = Object.entries(cfg!.outcomes).find(([, m]) => m === "rescheduled")?.[0];
+      if (repairsWrite && value) await guarded(async () => {
+        await adapters.write.updateRecord(ac, cfg!.object, k.id, { outcome: value });
+        await audit("sales_call", k.id, { outcome: null }, { repair: "moved_marked", outcome: value, appointment_id: a.id, now_at: a.starts_at });
+        repaired(`${k.id}:moved`, `${label}: the call moved to ${nowAt}; its Sales Call at the old time is marked rescheduled`, { sales_call: k.id, label, outcome: value }, k.ghl || k.id, "moved_marked");
+      }, (e) => ask("moved_not_marked", { label, now_at: nowAt, record_id: k.id, why: why(e) }));
+      else ask("moved_not_marked", { label, now_at: nowAt, record_id: k.id });
+      continue;
+    }
     if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), ledgerFailed); }
     await guarded(() => followResult(k), ledgerFailed);
     if (!k.filed && a.outcome && k.cls === "missing") ask("ghl_unfiled", { label, has: WORDS[a.outcome] ?? a.outcome, record_id: k.id });
@@ -232,9 +245,20 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.starts_at >= $2 and a.starts_at <= $3
         and not (a.status='cancelled' and coalesce(a.source_updated_at, a.starts_at) < a.starts_at) and not ${testContactSql("ct", "$4")}
       order by a.starts_at`, [company.id, from, to, testDomains(bindings)]);
-    for (const b of due.filter((x) => !matched.has(x.id))) {
-      const when = DateTime.fromJSDate(b.starts_at).setZone(company.timezone);
-      ask("no_record", { label: `${b.name ?? "Someone"}, ${when.toFormat("ccc LLL d")} at ${when.toFormat("h:mm a")}`, closer: b.closer ?? "no closer", appointment_id: b.id });
+    const lacking = due.filter((x) => !matched.has(x.id));
+    const labelOf = (b: (typeof due)[number]) => { const when = DateTime.fromJSDate(b.starts_at).setZone(company.timezone); return `${b.name ?? "Someone"}, ${when.toFormat("ccc LLL d")} at ${when.toFormat("h:mm a")}`; };
+    // D290 (Tyler: "if the call didn't get recorded it should. We shouldn't ever miss a call"): made, blank, as Call booked's own step
+    // makes it, so the closer's end of day asks for it; what could not be made stays a question
+    let made = new Map<string, { record?: string; error?: string; skipped?: string }>();
+    if (repairsWrite && lacking.length) await guarded(async () => {
+      const { backfillSalesCalls } = await import("./sales-call-backfill");
+      const r = await backfillSalesCalls(c, { row: company, adapterCompany: ac, bindings }, adapters, { from, to, blank: lacking.map((b) => b.id), dryRun: false, now: now.toJSDate() });
+      made = new Map(r.rows.map((x) => [x.appointment_id ?? "", { record: x.written?.crm_id ?? undefined, error: x.error, skipped: x.skipped }]));
+    }, (e) => { for (const b of lacking) made.set(b.id, { error: why(e) }); });
+    for (const b of lacking) {
+      const m = made.get(b.id);
+      if (m?.record) repaired(`${b.id}:made`, `${labelOf(b)} (${b.closer ?? "no closer"}): it had no Sales Call in GHL; made, blank, so the end of day asks for it`, { appointment_id: b.id, sales_call: m.record, label: labelOf(b), closer: b.closer }, b.id, "record_made");
+      else ask("no_record", { label: labelOf(b), closer: b.closer ?? "no closer", appointment_id: b.id, ...(m?.error || m?.skipped ? { why: m.error ?? m.skipped } : {}) });
     }
   }
 

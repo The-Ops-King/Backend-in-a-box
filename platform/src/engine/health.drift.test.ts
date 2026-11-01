@@ -45,7 +45,9 @@ let refuse = false;
 const base = fakeAdapters();
 const linkWrites: { id: string; props: Record<string, unknown> }[] = [], relations: string[] = [];
 const posts: { channel: string; text: string }[] = [];
-const fake: Adapters = { ...base, notifier: { ...base.notifier, post: async (_t, channel, text) => { posts.push({ channel, text }); return { ts: `ts${posts.length}` }; } }, write: { ...base.write, relateRecords: async (_c, a, f, t) => { relations.push(`${a}:${f}>${t}`); }, updateRecord: async (_c, _key, id, props) => {
+const created: { object: string; props: Record<string, unknown> }[] = [];
+let made30 = false;   // D290: GHL still has the person whose missing Sales Call the sweep makes
+const fake: Adapters = { ...base, read: { ...base.read, getContact: async (c, id) => (id === "G-K1" && made30 ? { id, firstName: id, tags: [], customFields: {}, dateAdded: "", dateUpdated: "" } : base.read.getContact(c, id)) }, notifier: { ...base.notifier, post: async (_t, channel, text) => { posts.push({ channel, text }); return { ts: `ts${posts.length}` }; } }, write: { ...base.write, createRecord: async (_c, object, props) => { created.push({ object, props }); return { id: `MADE-${created.length}` }; }, relateRecords: async (_c, a, f, t) => { relations.push(`${a}:${f}>${t}`); }, updateRecord: async (_c, _key, id, props) => {
   if (!("outcome" in props)) { linkWrites.push({ id, props }); const r = records.find((x) => x.id === id); if (r) Object.assign(r.properties, props); return; }
   if (refuse) throw Object.assign(new Error("GHL 422 on /objects: bad value"), { status: 422 });
   writes.push({ id, outcome: props.outcome }); const r = records.find((x) => x.id === id); if (r) r.properties.outcome = props.outcome; } } };
@@ -304,6 +306,40 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     } finally {
       records.splice(records.findIndex((r) => r.id === "R21"), 1);
       await asOperator((c) => c.query("delete from appointments where company_id=$1 and external_id in ('AP20','AP21')", [companyId]));
+    }
+  });
+
+  it("D290: with Ledger drift live, the sweep makes the missing Sales Call (blank, as Call booked makes it) and marks the moved one rescheduled, and says each as a repair, not a question", async () => {
+    await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      const appt = (ext: string, starts: DateTime) => c.query("insert into appointments (company_id, contact_id, source, external_id, slot_key, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly',$3,$3,$4,$5,$5,$6,'confirmed')",
+        [companyId, k1, ext, closing, starts.toJSDate(), ago({ days: 6 }).toJSDate()]);
+      await appt("AP30", ago({ days: 2, hours: 7 }).startOf("minute"));
+      await appt("AP31", ago({ days: 1, hours: 7 }).startOf("minute"));
+      await c.query("update workflows set mode='live' where company_id=$1 and name='Ledger drift'", [companyId]);
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.assoc_sales_call_contact','id',$2),($1,'crm.assoc_sales_call_opportunity','id',$3) on conflict do nothing", [companyId, Buffer.from("ASSOC-SC"), Buffer.from("ASSOC-SCO")]);
+      await c.query("update bindings set value=$2 where company_id=$1 and key='sales_call.outcomes'", [companyId, Buffer.from(JSON.stringify({ showed: "showed", no_show: "noshow", cancelled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" }))]);
+    });
+    records.push({ ...sc("R31", "AP31", "G-K1", ago({ days: 3, hours: 7 }).startOf("minute"), ""), properties: { external_id: "AP31", contact_id: "G-K1", scheduled_at: ago({ days: 3, hours: 7 }).startOf("minute").toUTC().toISO(), closer: "Cara Closer" } });
+    const n = created.length, w = writes.length; made30 = true;
+    try {
+      const fs = drift((await sweep()).findings);
+      expect(fs.filter((f) => f.ok).map((f) => f.item)).toEqual(expect.arrayContaining([expect.stringMatching(/:made$/), "repair:R31:moved"]));
+      expect(asked(fs).filter((q) => q.kind === "no_record" || q.kind === "moved_not_marked")).toEqual([]);
+      const made = created.slice(n);
+      expect(made).toHaveLength(1);
+      expect(made[0].props).toMatchObject({ external_id: "AP30", contact_id: "G-K1" });
+      expect(made[0].props).not.toHaveProperty("outcome");   // blank: the closer files it
+      expect(writes.slice(w)).toEqual([{ id: "R31", outcome: "rescheduled" }]);
+      expect(await asOperator((c) => one(c, "select 1 from crm_records where company_id=$1 and record_key='AP30' and ghl_record_id='MADE-1'", [companyId]))).toBeTruthy();
+    } finally {
+      made30 = false;
+      records.splice(records.findIndex((r) => r.id === "R31"), 1);
+      await asOperator(async (c) => {
+        await c.query("delete from appointments where company_id=$1 and external_id in ('AP30','AP31')", [companyId]);
+        await c.query("update workflows set mode=null where company_id=$1 and name='Ledger drift'", [companyId]);
+      });
     }
   });
 });
