@@ -168,6 +168,26 @@ describe.skipIf(!process.env.DATABASE_URL)("D123: Dating (Nelly)'s two booked-ca
     expect(cards.slice(before).filter((k) => k.contact === fay.ghl).map((k) => k.pipeline)).not.toContain("P-S");   // the setter card is not touched
   });
 
+  it("D288: in any order and before anything says it was held: a closing call booked on (or just after) an earlier one is a follow-up; one booked a day later with nothing said, or after a no-show, is a new booking", async () => {
+    const earlier = async (who: Who, ext: string, startedAgoMin: number, status = "confirmed") => asOperator(async (c) => {
+      const cal = (await one<{ id: string; term: string }>(c, "select id, appointment_term as term from calendars where company_id=$1 and external_id=$2", [co, CONSULT]))!;
+      await c.query("insert into appointments (company_id, contact_id, calendar_id, source, external_id, starts_at, ends_at, booked_at, status, appointment_term) values ($1,$2,$3,'calendly',$4,now()-make_interval(mins => $5),now()-make_interval(mins => $5)+interval '45 minutes',now()-interval '5 days',$6,$7)", [co, who.ct, cal.id, ext, startedAgoMin, status, cal.term]);
+    });
+    const kindOf = async (who: Who, ext: string) => records(who).find((r) => r.external_id === ext)?.call_type;
+    // booked on the call: it started 40 minutes ago, no recording or outcome yet
+    const gia = await person("Gia"); await earlier(gia, "EV-G0", 40);
+    await poll(event(gia, "EV-G1", CONSULT, AT.plus({ hours: 5 }))); await run();
+    expect(await kindOf(gia, "EV-G1")).toBe("follow_up");
+    // a day later, nothing said about the earlier call: a new booking
+    const hal = await person("Hal"); await earlier(hal, "EV-H0", 26 * 60);
+    await poll(event(hal, "EV-H1", CONSULT, AT.plus({ hours: 6 }))); await run();
+    expect(await kindOf(hal, "EV-H1")).toBe("closing");
+    // on the call's time but it was a no-show: a new booking
+    const ivy = await person("Ivy"); await earlier(ivy, "EV-I0", 40, "noshow");
+    await poll(event(ivy, "EV-I1", CONSULT, AT.plus({ hours: 7 }))); await run();
+    expect(await kindOf(ivy, "EV-I1")).toBe("closing");
+  });
+
   it("a reschedule runs the same one again (the slot left logged rescheduled); a closing call's cancel runs Call cancelled on its Sales Call", async () => {
     await poll(event(sara, "EV-S1", STRATEGY, AT.plus({ days: 1 })));
     await run();

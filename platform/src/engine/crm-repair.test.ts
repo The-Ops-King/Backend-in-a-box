@@ -74,7 +74,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D137: record repair", () => {
     expect(await asOperator((c) => many(c, "select record_key, ghl_record_id from crm_records where company_id=$1 and object_key='custom_objects.cash'", [co]))).toEqual([{ record_key: "pay_250", ghl_record_id: "NEW-1" }]);
     expect(await go({ create, properties: { amount: 250 } })).toMatchObject({ ok: false, status: 409 });
   });
-  it("D287: a ghost run's would-be record (a row with no CRM id) does not block the record being made: the row takes the id", async () => {
+  it("D288: a ghost run's would-be record (a row with no CRM id) does not block the record being made: the row takes the id", async () => {
     const typed: Adapters = { ...fake, read: { ...fake.read, objectFields: async () => [{ key: "outcome", type: "TEXT" }] as never }, write: { ...fake.write, createRecord: async () => ({ id: "NEW-GHOST" }), relateRecords: async () => {} } };
     await asOperator((c) => c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id) values ($1,'custom_objects.sales_call','slot-ghost',null)", [co]));
     expect(await asOperator((c) => repairRecord(c, typed, { company: SLUG, object: "custom_objects.sales_call", why: "test", dryRun: false, record_id: "", create: { key: "slot-ghost" }, properties: {} }))).toMatchObject({ ok: true, record: { id: "NEW-GHOST" } });
