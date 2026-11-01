@@ -7125,15 +7125,45 @@ ever). "go for it". Three guards:
 Found while checking every offer: Hair's end of day and Call outcome filed are live while its Call booked runs in test, and its last
 Sales Call in GHL is Oct 17: told to Tyler, nothing changed.
 
-## D293. The hourly sweep makes a missing Sales Call itself, and marks a moved one rescheduled (2026-11-01)
+
+## D290. A late pre-call starts at its first reminder, never at the booking text (2026-11-01)
+
+Tyler: run booked for Taylor's 12 bookings the engine took in as a baseline, "but make sure no late texts go out". A pre-call's
+booking text has no limit but the call itself (15 minutes before), so a booking handed on days after it was made would get
+"you're booked" days late. Changing the pre-call's text step would lock its sends (D151).
+
+- `replayBookings` (and `POST /api/admin/replay-bookings`) take `start_at` with a `workflow`: each run starts at that step
+  instead of the first. The step must be the workflow's own and not a send (or the trigger). The audit records it.
+- The waits and sends after it keep their own limits: a reminder whose time has passed is skipped (on_stale), as always.
+
+## D291. The health check makes a missing Sales Call itself (2026-11-01)
+
+Tyler, on Taylor's Oct 30 calls having no Sales Call: "that REALLY pisses me off. it really should have caught that. and the health
+check should have found that it was missed, and added it and tracked it. I shouldn't have to go in and fix it."
+
+- D289's hourly `no_record` finding (a closing call whose time has passed, with no Sales Call in GHL) is now repaired by the sweep when
+  what makes the offer's Sales Calls writes to GHL (its Call booked, or its own Closing call booked, enabled and live or quiet): the
+  record is written as the Sales Call backfill writes it (D115: from the evidence, the outcome blank when nothing says it, so the
+  closer files it on the end of day), audited (`health.repaired`, `sales_call_made`) and said as repaired.
+- While that workflow runs lower (ghost or test), the call has no closer, or the write fails, it is asked about as before, with why.
+
+## D292. A calendar watched once it already has bookings starts its calls still ahead (2026-11-01)
+
+Watching Taylor's two calendars after they had bookings left 12 upcoming calls with nothing started (the first read of a calendar is a
+silent baseline, D215), and two held ones with no Sales Call.
+
+- `calendarWatch` marks the calendar (`catch_up`). After its first, silent read the poll hands its calls still ahead, with no run, to
+  the booked-call workflows as bookings found late (`catchUpCalendar`), once; the mark comes off.
+- Found late (`replayBookings` `late`): a run whose one way on from its trigger sends before it first waits (a pre-call's booking
+  text) starts at that first wait, so nothing goes out late; one that waits first, or forks first, starts as usual.
+- Its calls already held are the health check's: their Sales Calls are made within the hour (D291).
+- An install's own first read stays silent (no mark).
+
+## D293. The hourly sweep marks a Sales Call left on a moved call's old time rescheduled (2026-11-01)
 
 Tyler: "It should compare GHL with calendar for booked calls every hour and if the call didn't get recorded it should. We shouldn't ever
-miss a call in the first place." The drift sweep (Health check, hourly) no longer only asks (D289): where Ledger drift runs live or quiet,
-- a closing booking whose time has passed with no Sales Call in GHL gets one, blank: the offer's own Call booked step's fields (the
-  Sales Call backfill's new `blank` mode: those bookings only, no evidence read, no outcome, no left slots), related as Call booked
-  relates it, kept as the engine's record, so the closer's end of day asks for it;
-- a Sales Call left on the time its call moved away from is set to the offer's rescheduled outcome.
-Both are the sweep's own GHL writes, audited and logged as repairs (repairs are not announced; one that fails stays a question). On a
-rehearsal rung (PMU's Ledger drift runs in test) each stays a question, as before. First line of defence remains Call booked making the
-record at booking, and the go-live guard (D289) keeps the end of day off live without it; this is the backstop, an hour at most.
+miss a call in the first place." D291 (the same day, the other session) has the sweep make a missing Sales Call itself when what makes
+the offer's Sales Calls writes to GHL. Under that same rule, the sweep now also sets a Sales Call left on the time its call moved away
+from (D289's `moved_not_marked`, Carly's Quentin Thomas Oct 27) to the offer's rescheduled outcome, audited and logged as a repair; on a
+rehearsal rung, or with no rescheduled outcome mapped (sales_call.outcomes), it stays a question.
 
