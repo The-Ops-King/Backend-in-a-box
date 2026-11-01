@@ -65,7 +65,7 @@ async function typedProperties(adapters: Adapters, ac: Company, object: string, 
 }
 
 /** D233: a record the engine should have made and did not (Jennyfer Cantrell's $250 Cash record): made under its key, kept as the engine's, related, audited. Refused when the engine already has a record under that key in GHL; a ghost run's
- * would-be row (no CRM id, D287) is filled with the record made. */
+ * would-be row (no CRM id, D288) is filled with the record made. */
 async function createRecordFor(c: PoolClient, adapters: Adapters, companyId: string, ac: Company, bindings: Record<string, string>, object: string, b: RecordRepair): Promise<RepairResult> {
   const cr = b.create!;
   if (!cr.key?.trim()) return { ok: false, status: 400, error: "create needs a key" };

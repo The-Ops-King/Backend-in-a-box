@@ -137,10 +137,16 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
                 from appointments tb join company_terms tbt on tbt.id=tb.appointment_term join users tu on tu.id=tb.assigned_user_id
                 where tb.company_id=a.company_id and tb.contact_id=a.contact_id and tb.id<>a.id and tbt.category='first_call' and ${standsSql("tb")} and tb.starts_at <= coalesce(a.booked_at, a.starts_at) + interval '1 hour' and tu.active
                 order by tb.starts_at desc limit 1) as triager,
-             -- D284: a closing call for someone whose earlier closing call was held (marked showed, or its sales recording linked to it) is a follow-up
-             exists (select 1 from appointments fb join company_terms fbt on fbt.id=fb.appointment_term
-                where fb.company_id=a.company_id and fb.contact_id=a.contact_id and fb.id<>a.id and fbt.category in ('closing','follow_up') and fb.starts_at < a.starts_at and fb.status<>'cancelled'
-                  and (fb.status='showed' or exists (select 1 from company_terms fo where fo.id=fb.outcome_term and fo.category='showed') or exists (select 1 from recordings fr where fr.appointment_id=fb.id))) as follow_up,
+             -- D284, D288: a closing call (any closing type: a consultation, a demo, a closer's follow-up call, in any order) for someone
+             -- whose earlier one was held is a follow-up. Held: marked showed, or its sales recording linked to it; or (D288) this call was
+             -- booked from when that one started until its transcript could have come (calls.transcript_wait_min after it ended) and it
+             -- is not marked a no-show, cancelled or rescheduled: a closer books the follow-up on the call, before anything says it was held
+             exists (select 1 from appointments fb join company_terms fbt on fbt.id=fb.appointment_term left join company_terms fo on fo.id=fb.outcome_term
+                where fb.company_id=a.company_id and fb.contact_id=a.contact_id and fb.id<>a.id and fbt.category in ('closing','follow_up') and fb.starts_at < a.starts_at
+                  and fb.status not in ('cancelled','invalid')
+                  and (fb.status='showed' or fo.category='showed' or exists (select 1 from recordings fr where fr.appointment_id=fb.id)
+                    or (fb.status<>'noshow' and coalesce(fo.category,'') not in ('noshow','rescheduled','cancelled')
+                      and coalesce(a.booked_at, now()) >= fb.starts_at and coalesce(a.booked_at, now()) <= coalesce(fb.ends_at, fb.starts_at) + make_interval(mins => $2::int)))) as follow_up,
              -- D278: the calendar it was booked on; personal = one closer's own (it has an owner), not a pool
              (select json_build_object('name', cl.name, 'personal', cl.default_user_id is not null) from calendars cl where cl.id=a.calendar_id) as calendar,
              -- D278: they had a closing call that happened before this one was booked (a later one with the same person is a follow-up)
@@ -150,7 +156,7 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
              ot.category as outcome, cot.category as call_outcome
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
-      where a.id=$1`, [run.appointment_id]);
+      where a.id=$1`, [run.appointment_id, callSetting(bindings, "calls.transcript_wait_min")]);
     if (a) ctx.appointment = { ...a, starts_at: (a.starts_at as Date).toISOString(), ends_at: (a.ends_at as Date).toISOString(), reassigned_at: a.reassigned_at ? (a.reassigned_at as Date).toISOString() : null, started: (a.starts_at as Date).getTime() <= Date.now() };   // started: the call's time has come (D88)
   }
   if (run.opportunity_id) ctx.opportunity = await one(c, "select id, status, contract_value, opened_at from opportunities where id=$1", [run.opportunity_id]);
