@@ -7135,3 +7135,26 @@ booking text has no limit but the call itself (15 minutes before), so a booking 
 - `replayBookings` (and `POST /api/admin/replay-bookings`) take `start_at` with a `workflow`: each run starts at that step
   instead of the first. The step must be the workflow's own and not a send (or the trigger). The audit records it.
 - The waits and sends after it keep their own limits: a reminder whose time has passed is skipped (on_stale), as always.
+
+## D291. The health check makes a missing Sales Call itself (2026-11-01)
+
+Tyler, on Taylor's Oct 30 calls having no Sales Call: "that REALLY pisses me off. it really should have caught that. and the health
+check should have found that it was missed, and added it and tracked it. I shouldn't have to go in and fix it."
+
+- D289's hourly `no_record` finding (a closing call whose time has passed, with no Sales Call in GHL) is now repaired by the sweep when
+  what makes the offer's Sales Calls writes to GHL (its Call booked, or its own Closing call booked, enabled and live or quiet): the
+  record is written as the Sales Call backfill writes it (D115: from the evidence, the outcome blank when nothing says it, so the
+  closer files it on the end of day), audited (`health.repaired`, `sales_call_made`) and said as repaired.
+- While that workflow runs lower (ghost or test), the call has no closer, or the write fails, it is asked about as before, with why.
+
+## D292. A calendar watched once it already has bookings starts its calls still ahead (2026-11-01)
+
+Watching Taylor's two calendars after they had bookings left 12 upcoming calls with nothing started (the first read of a calendar is a
+silent baseline, D215), and two held ones with no Sales Call.
+
+- `calendarWatch` marks the calendar (`catch_up`). After its first, silent read the poll hands its calls still ahead, with no run, to
+  the booked-call workflows as bookings found late (`catchUpCalendar`), once; the mark comes off.
+- Found late (`replayBookings` `late`): a run whose one way on from its trigger sends before it first waits (a pre-call's booking
+  text) starts at that first wait, so nothing goes out late; one that waits first, or forks first, starts as usual.
+- Its calls already held are the health check's: their Sales Calls are made within the hour (D291).
+- An install's own first read stays silent (no mark).

@@ -283,7 +283,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     }
   });
 
-  it("D290: a closing booking whose time has passed with no Sales Call in GHL, and a Sales Call left on its old time after its call moved, are each asked about, one line each", async () => {
+  it("D289: a closing booking whose time has passed with no Sales Call in GHL, and a Sales Call left on its old time after its call moved, are each asked about, one line each", async () => {
     await asOperator(async (c) => {
       const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
@@ -306,5 +306,35 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await asOperator((c) => c.query("delete from appointments where company_id=$1 and external_id in ('AP20','AP21')", [companyId]));
     }
   });
-});
 
+  it("D291: when what makes the offer's Sales Calls writes to GHL, the sweep makes a missing one itself (blank, for the end of day) and says it repaired it; while it runs in test it only asks", async () => {
+    const created: Record<string, unknown>[] = [];
+    const before = fake.write.createRecord;
+    fake.write.createRecord = async (_c, _o, props) => { created.push(props); return { id: `NEW-${created.length}` }; };
+    const wf = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      const u = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role) values ($1,'dee@drift.test','Dee Closer','closer') on conflict do nothing returning id", [companyId]))?.id
+        ?? (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='dee@drift.test'", [companyId]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status, assigned_user_id) values ($1,$2,'calendly','AP30',$3,$4,$4,$5,'confirmed',$6)",
+        [companyId, k1, closing, ago({ days: 2, hours: 3 }).startOf("minute").toJSDate(), ago({ days: 6 }).toJSDate(), u]);
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'crm.assoc_sales_call_contact','id','A-SC'),($1,'crm.assoc_sales_call_opportunity','id','A-SO') on conflict (company_id, key) do nothing", [companyId]);
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, mode) values ($1,'Closing call booked','always',true,'test') returning id", [companyId]))!.id;
+    });
+    try {
+      // its maker runs in test: asked, nothing made
+      expect(asked((await sweep()).findings).filter((x) => x.kind === "no_record" && String(x.label).includes("G-K1"))).toHaveLength(1);
+      expect(created).toEqual([]);
+      // live: made, said as repaired, not asked
+      await asOperator((c) => c.query("update workflows set mode='live' where id=$1", [wf]));
+      const fs = (await sweep()).findings;
+      expect(created).toEqual([expect.objectContaining({ external_id: "AP30", contact_id: "G-K1" })]);
+      expect(created[0]).not.toHaveProperty("outcome", "showed");
+      expect(fs.some((f) => f.ok && String(f.item).endsWith(":sales_call") && /the health check made it/.test(f.text))).toBe(true);
+      expect(asked(fs).filter((x) => x.kind === "no_record")).toEqual([]);
+    } finally {
+      fake.write.createRecord = before;
+      await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id='AP30'", [companyId]); await c.query("delete from workflows where id=$1", [wf]); await c.query("delete from crm_records where company_id=$1", [companyId]); await c.query("delete from bindings where company_id=$1 and key in ('crm.assoc_sales_call_contact','crm.assoc_sales_call_opportunity')", [companyId]); });
+    }
+  });
+});

@@ -305,6 +305,20 @@ async function raiseMeetingFailed(c: PoolClient, co: CompanyRow, appointmentId: 
     detail: { appointment_id: appointmentId, host, host_email: a?.host_email ?? s.assignedUserEmail ?? null, conferencing: s.meetingFailed } });
 }
 
+/**
+ * D292: a calendar watched once it already had bookings (calendarWatch marks it `catch_up`): after its first, silent read, the calls
+ * still ahead are handed to the booked-call workflows as new ones found late (a pre-call starts at its first wait, never its booking
+ * text, replay.ts `late`). Calls already held are the health check's (a missing Sales Call made, D291). Once only: the mark comes off.
+ */
+export async function catchUpCalendar(c: PoolClient, companyId: string, calendarExternalId: string): Promise<number> {
+  const cal = await one<{ id: string }>(c, "select id from calendars where company_id=$1 and external_id=$2 and active and (config->>'catch_up')::boolean is true", [companyId, calendarExternalId]);
+  if (!cal) return 0;
+  const ids = (await many<{ id: string }>(c, "select a.id from appointments a where a.calendar_id=$1 and a.source<>'test' and a.starts_at > now() and a.status<>'cancelled' and not exists (select 1 from runs r where r.appointment_id=a.id)", [cal.id])).map((r) => r.id);
+  if (ids.length) { const { replayBookings } = await import("./replay"); await replayBookings(c, companyId, ids, { dryRun: false, baseline: true, late: true }); }
+  await c.query("update calendars set config = config - 'catch_up' where id=$1", [cal.id]);
+  return ids.length;
+}
+
 async function pollCalendar(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, calendarId: string) {
   const entity = `appointments:${calendarId}`;
   const from = DateTime.now().minus({ days: 2 }).toJSDate(), to = DateTime.now().plus({ days: 60 }).toJSDate();
@@ -319,6 +333,8 @@ async function pollCalendar(c: PoolClient, co: CompanyRow, ac: Company, adapters
   await c.query("insert into engine_state (key, value, updated_at) values ($1,$2,now()) on conflict (key) do update set value=$2, updated_at=now()",
     [stateKey, { full_at: full ? new Date().toISOString() : prior?.full_at, events: delta.seen }]);
   await saveCursor(c, co.id, entity, DateTime.now().toISO()!, true);
+  // D292: a calendar watched once it already had bookings: after its first, silent read, its calls still ahead are started
+  if (isBaseline) await catchUpCalendar(c, co.id, calendarId);
 }
 
 async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {

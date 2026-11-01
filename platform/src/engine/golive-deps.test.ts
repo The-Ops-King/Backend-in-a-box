@@ -1,4 +1,4 @@
-/** D290: a workflow that relies on what another makes does not go live without it; going live clears its ghost runs' would-be records. */
+/** D289: a workflow that relies on what another makes does not go live without it; going live clears its ghost runs' would-be records. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, many, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -18,7 +18,7 @@ const blockersFor = async (name: string, mode: Mode | null) => asOperator(async 
   return relianceBlockers(c, co, [w], afterOwn(company, w, mode), "/app/c/x");
 });
 
-describe("D290: what a provider named outside the engine is", () => {
+describe("D289: what a provider named outside the engine is", () => {
   it("a JSON list or words with commas, any case", () => {
     expect(outsideOf('["Call booked"]')).toEqual(["call booked"]);
     expect(outsideOf("call-booked, setter-call-logged")).toEqual(["call-booked", "setter-call-logged"]);
@@ -26,10 +26,10 @@ describe("D290: what a provider named outside the engine is", () => {
   });
 });
 
-describe.skipIf(!HAS_DB)("D290: going live checks what a workflow relies on", () => {
+describe.skipIf(!HAS_DB)("D289: going live checks what a workflow relies on", () => {
   beforeAll(async () => {
     await migrate();
-    co = (await installCompany({ name: "D290", slug: SLUG, timezone: "America/New_York", locationId: "LOC", pit: "pit-fake", calendars: {}, templates: ["call-booked", "eod-reminder", "call-outcome"], enable: true }, fakeAdapters())).companyId;
+    co = (await installCompany({ name: "D289", slug: SLUG, timezone: "America/New_York", locationId: "LOC", pit: "pit-fake", calendars: {}, templates: ["call-booked", "eod-reminder", "call-outcome"], enable: true }, fakeAdapters())).companyId;
     await asOperator(async (c) => { await c.query("update companies set mode='ghost' where id=$1", [co]); await c.query("update workflows set enabled=true where company_id=$1", [co]); });
   }, 180000);
 

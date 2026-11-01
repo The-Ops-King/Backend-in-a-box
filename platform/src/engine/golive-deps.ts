@@ -4,7 +4,7 @@ import { MODES, runMode, type Mode } from "./mode";
 import type { Issue } from "./readiness";
 
 /**
- * D290 (Tyler: "how can we make sure this doesn't happen again?"). PMU's end of day went live reading GHL's Sales Calls while Call
+ * D289 (Tyler: "how can we make sure this doesn't happen again?"). PMU's end of day went live reading GHL's Sales Calls while Call
  * booked, which makes them, still ran in ghost and the Zap that had made them was off: calls were booked with no record and the end
  * of day never asked for them. A workflow that relies on what another makes cannot go live (or quiet) unless that one runs at least
  * as high, or the offer says it is made outside the engine (`golive.outside`: the workflow's name or slug, set on Tyler's word, e.g. a
