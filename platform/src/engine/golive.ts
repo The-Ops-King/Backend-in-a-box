@@ -19,10 +19,10 @@ const rank = (m: Mode) => MODES.indexOf(m);
 /** The runs a move up to `to` leaves behind: born on a rung below it. */
 const bornBelow = (to: Mode) => MODES.filter((m) => rank(m) < rank(to));
 /** `periods`: scheduled reports' runs kept as closed-out markers, so the period they ran in is not run again (D201) */
-export type Cleared = { runs: number; steps: number; sends: number; events: number; appointments: number; periods?: number; /** D289: the ghost runs' would-be records it made (no CRM id) */ leftovers?: number };
+export type Cleared = { runs: number; steps: number; sends: number; events: number; appointments: number; periods?: number; /** D290: the ghost runs' would-be records it made (no CRM id) */ leftovers?: number };
 
 /**
- * D289: the records a workflow's ghost runs would have made: rows with no CRM id, of the objects its record steps write. Nothing was
+ * D290: the records a workflow's ghost runs would have made: rows with no CRM id, of the objects its record steps write. Nothing was
  * made in GHL; left, they only stand in a repair's way (Johanny Restrepo's Sales Call, 2026-10-31). Cleared when it goes up.
  */
 export async function clearGhostRecords(c: PoolClient, companyId: string, workflowId: string): Promise<number> {
@@ -117,7 +117,7 @@ export async function setCompanyMode(c: PoolClient, companyId: string, to: Mode,
   const up = WRITES_FOR_ALL.includes(to) && rank(to) > rank(co.mode);
   if (up) {
     const blockers = (await companyReadiness(c, companyId, slugPrefix)).issues.filter((i) => i.level === "blocker");
-    // D289: every enabled workflow that will run on the new rung, against what it relies on, as the rungs will stand after the move
+    // D290: every enabled workflow that will run on the new rung, against what it relies on, as the rungs will stand after the move
     const ids = (await many<{ id: string }>(c, "select id from workflows where company_id=$1 and enabled", [companyId])).map((w) => w.id);
     blockers.push(...(await relianceBlockers(c, companyId, ids, (w) => runMode(to, w.own), slugPrefix)));
     if (blockers.length) return { ok: false, blockers };
@@ -147,13 +147,13 @@ export async function setWorkflowMode(c: PoolClient, workflowId: string, mode: M
   const up = WRITES_FOR_ALL.includes(to) && rank(to) > rank(from);
   if (up) {
     const blockers = await workflowLiveBlockers(c, w.company_id, workflowId, `/app/c/${w.slug}`);
-    blockers.push(...(await relianceBlockers(c, w.company_id, [workflowId], afterOwn(w.company, workflowId, mode), `/app/c/${w.slug}`)));   // D289
+    blockers.push(...(await relianceBlockers(c, w.company_id, [workflowId], afterOwn(w.company, workflowId, mode), `/app/c/${w.slug}`)));   // D290
     if (blockers.length) return { ok: false, status: 409, error: `${w.name} is not ready to go ${to}: ${blockers.map((b) => b.text).join(" ")}`, blockers };
   }
   await c.query("begin");
   try {
     const cleared = up ? await clearRehearsalRuns(c, w.company_id, workflowId, to) : undefined;
-    if (cleared) cleared.leftovers = await clearGhostRecords(c, w.company_id, workflowId);   // D289
+    if (cleared) cleared.leftovers = await clearGhostRecords(c, w.company_id, workflowId);   // D290
     await c.query("update workflows set mode=$2 where id=$1", [workflowId, mode]);
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.mode','workflow',$2,$3,$4)",
       [w.company_id, workflowId, { mode: w.own, runs_in: from }, { mode, runs_in: to, by, via, ...(cleared ? { cleared } : {}) }]);

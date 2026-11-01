@@ -15,17 +15,27 @@ export type ReplayRow = { appointment_id: string; who: string; starts_at: string
  * `force` (D200) with `again`: what the earlier runs already sent the person is sent again; without it, it is not.
  * `workflowId` (D195): hand each booking to that one workflow only (its pre-call, when its sends are unlocked): a booking that has a run
  * of it still going is skipped; its other workflows' runs (the booked card, the records) are never started again.
+ * `startAt` (D290, with `workflowId`): its run starts at that step instead of the first, so a pre-call handed a booking days after it
+ * was made begins at its first reminder's wait and never reaches the booking text, which would land late. The step must be the
+ * workflow's and not a send.
  * `restart` (D210, with `workflowId` and named bookings): a run of that workflow still going is stopped (exited, `restarted by the operator`,
  * its re-entry key freed) and the booking handed to the workflow afresh, so it starts from its first step again (a booking text a lock
  * held back goes now).
  */
-export async function replayBookings(c: PoolClient, companyId: string, appointmentIds: string[], opts: { dryRun: boolean; baseline?: boolean; again?: boolean; force?: boolean; workflowId?: string; restart?: boolean }): Promise<ReplayRow[]> {
+export async function replayBookings(c: PoolClient, companyId: string, appointmentIds: string[], opts: { dryRun: boolean; baseline?: boolean; again?: boolean; force?: boolean; workflowId?: string; restart?: boolean; startAt?: string }): Promise<ReplayRow[]> {
   const rows = await many<{ id: string; contact_id: string; starts_at: Date; status: string; self_booked: boolean | null; set_by: string | null; calendar_external: string | null; term_name: string; term_category: string; who: string; runs: number; live: number; event_id: string | null }>(c, `
     select a.id, a.contact_id, a.starts_at, a.status, a.self_booked, a.set_by, cal.external_id as calendar_external, t.name as term_name, t.category as term_category,
       trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as who, (select count(*)::int from runs r where r.appointment_id=a.id and ($3::uuid is null or r.workflow_id=$3)) as runs, (select count(*)::int from runs r where r.appointment_id=a.id and r.status not in ('completed','exited','failed') and ($3::uuid is null or r.workflow_id=$3)) as live,
       (select e.id::text from events e where e.appointment_id=a.id and e.event_type='appointment.booked' order by e.occurred_at desc limit 1) as event_id
     from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term left join calendars cal on cal.id=a.calendar_id
     where a.company_id=$1 and a.id = any($2::uuid[]) order by a.starts_at`, [companyId, appointmentIds, opts.workflowId ?? null]);
+  if (opts.startAt) {
+    if (!opts.workflowId) throw new Error("startAt needs the one workflow it starts at");
+    const def = (await one<{ definition: { nodes: { id: string; type: string }[] } }>(c, "select v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.id=$1", [opts.workflowId]))?.definition;
+    const at = def?.nodes.find((n) => n.id === opts.startAt);
+    if (!at) throw new Error(`startAt: the workflow has no step ${opts.startAt}`);
+    if (["send_sms", "send_email", "send_document", "webhook", "trigger"].includes(at.type)) throw new Error(`startAt: ${opts.startAt} is a ${at.type}; start at the step before what should go`);
+  }
   const out: ReplayRow[] = [];
   for (const a of rows) {
     const base = { appointment_id: a.id, who: a.who, starts_at: a.starts_at.toISOString(), call_type: a.term_name, event: a.event_id };
@@ -48,7 +58,8 @@ export async function replayBookings(c: PoolClient, companyId: string, appointme
     const oppId = await ensureOpportunityForBooking(c, companyId, a.contact_id, a.id, ev);
     const ctx = { contact: { id: a.contact_id }, appointment: { id: a.id, starts_at: a.starts_at.toISOString(), term: { name: a.term_name, category: a.term_category }, status: a.status, self_booked: a.self_booked, set_by: a.set_by }, opportunity: { id: oppId } };
     const started = await dispatchEvent(c, { ...ev, opportunity_id: oppId || null }, ctx, opts.workflowId ? { workflowId: opts.workflowId } : undefined);
-    await c.query("insert into audit_log (company_id, action, target_type, after) values ($1,'booking.replayed','appointment',$2)", [companyId, { appointment: a.id, event: ev.id, runs: started.length, baseline: !a.event_id, ...(a.runs > 0 ? { again: true } : {}), ...(opts.workflowId ? { workflow: opts.workflowId } : {}), ...(restarting ? { restarted: true } : {}) }]);
+    if (opts.startAt && started.length) await c.query("update runs set current_node=$2 where id = any($1::uuid[]) and workflow_id=$3", [started, opts.startAt, opts.workflowId]);
+    await c.query("insert into audit_log (company_id, action, target_type, after) values ($1,'booking.replayed','appointment',$2)", [companyId, { appointment: a.id, event: ev.id, runs: started.length, baseline: !a.event_id, ...(opts.startAt ? { start_at: opts.startAt } : {}), ...(a.runs > 0 ? { again: true } : {}), ...(opts.workflowId ? { workflow: opts.workflowId } : {}), ...(restarting ? { restarted: true } : {}) }]);
     out.push({ ...base, would: restarting ? "restart" : "replay", runs_started: started.length });
   }
   return out;
