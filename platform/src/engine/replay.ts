@@ -18,11 +18,14 @@ export type ReplayRow = { appointment_id: string; who: string; starts_at: string
  * `startAt` (D290, with `workflowId`): its run starts at that step instead of the first, so a pre-call handed a booking days after it
  * was made begins at its first reminder's wait and never reaches the booking text, which would land late. The step must be the
  * workflow's and not a send.
+ * `late` (D292: a booking the engine found after it was made, a calendar watched once it already had bookings): each run whose way
+ * from its trigger sends something before it first waits (a pre-call's booking text) starts at that first wait instead, so nothing
+ * goes out late; a run that waits first, or forks before it sends, starts as usual.
  * `restart` (D210, with `workflowId` and named bookings): a run of that workflow still going is stopped (exited, `restarted by the operator`,
  * its re-entry key freed) and the booking handed to the workflow afresh, so it starts from its first step again (a booking text a lock
  * held back goes now).
  */
-export async function replayBookings(c: PoolClient, companyId: string, appointmentIds: string[], opts: { dryRun: boolean; baseline?: boolean; again?: boolean; force?: boolean; workflowId?: string; restart?: boolean; startAt?: string }): Promise<ReplayRow[]> {
+export async function replayBookings(c: PoolClient, companyId: string, appointmentIds: string[], opts: { dryRun: boolean; baseline?: boolean; again?: boolean; force?: boolean; workflowId?: string; restart?: boolean; startAt?: string; late?: boolean }): Promise<ReplayRow[]> {
   const rows = await many<{ id: string; contact_id: string; starts_at: Date; status: string; self_booked: boolean | null; set_by: string | null; calendar_external: string | null; term_name: string; term_category: string; who: string; runs: number; live: number; event_id: string | null }>(c, `
     select a.id, a.contact_id, a.starts_at, a.status, a.self_booked, a.set_by, cal.external_id as calendar_external, t.name as term_name, t.category as term_category,
       trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as who, (select count(*)::int from runs r where r.appointment_id=a.id and ($3::uuid is null or r.workflow_id=$3)) as runs, (select count(*)::int from runs r where r.appointment_id=a.id and r.status not in ('completed','exited','failed') and ($3::uuid is null or r.workflow_id=$3)) as live,
@@ -59,8 +62,30 @@ export async function replayBookings(c: PoolClient, companyId: string, appointme
     const ctx = { contact: { id: a.contact_id }, appointment: { id: a.id, starts_at: a.starts_at.toISOString(), term: { name: a.term_name, category: a.term_category }, status: a.status, self_booked: a.self_booked, set_by: a.set_by }, opportunity: { id: oppId } };
     const started = await dispatchEvent(c, { ...ev, opportunity_id: oppId || null }, ctx, opts.workflowId ? { workflowId: opts.workflowId } : undefined);
     if (opts.startAt && started.length) await c.query("update runs set current_node=$2 where id = any($1::uuid[]) and workflow_id=$3", [started, opts.startAt, opts.workflowId]);
+    if (opts.late && started.length) {
+      for (const r of await many<{ id: string; definition: { nodes: { id: string; type: string }[]; edges: { from: string; to: string }[] } }>(c, `select r.id, v.definition from runs r join workflows w on w.id=r.workflow_id
+          join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where r.id = any($1::uuid[])`, [started])) {
+        const at = lateStart(r.definition); if (at) await c.query("update runs set current_node=$2 where id=$1", [r.id, at]);
+      }
+    }
     await c.query("insert into audit_log (company_id, action, target_type, after) values ($1,'booking.replayed','appointment',$2)", [companyId, { appointment: a.id, event: ev.id, runs: started.length, baseline: !a.event_id, ...(opts.startAt ? { start_at: opts.startAt } : {}), ...(a.runs > 0 ? { again: true } : {}), ...(opts.workflowId ? { workflow: opts.workflowId } : {}), ...(restarting ? { restarted: true } : {}) }]);
     out.push({ ...base, would: restarting ? "restart" : "replay", runs_started: started.length });
   }
   return out;
+}
+
+const SENDS = new Set(["send_sms", "send_email", "send_document", "webhook"]);
+/** D292: where a run of a booking found late starts: when the one way on from its trigger sends before it first waits, that first wait; else nowhere new. */
+export function lateStart(def: { nodes: { id: string; type: string }[]; edges: { from: string; to: string }[] }): string | undefined {
+  const byId = new Map(def.nodes.map((n) => [n.id, n]));
+  const trigger = def.nodes.find((n) => n.type === "trigger" && def.edges.some((e) => e.from === n.id)); if (!trigger) return undefined;
+  let sent = false, cur = trigger.id;
+  for (let i = 0; i < 50; i++) {
+    const outs = def.edges.filter((e) => e.from === cur); if (outs.length !== 1) return undefined;   // a fork: its way is decided as it runs
+    const n = byId.get(outs[0].to); if (!n) return undefined;
+    if (n.type === "wait") return sent ? n.id : undefined;
+    if (SENDS.has(n.type)) sent = true;
+    cur = n.id;
+  }
+  return undefined;
 }

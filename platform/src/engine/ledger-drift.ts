@@ -5,7 +5,8 @@ import type { Adapters, Company, ContactSnapshot } from "@/adapters/types";
 import type { GhlReads } from "@/adapters/ghl/metrics";
 import type { CompanyRow } from "./context";
 import type { Finding } from "./health";
-import { effectiveMode, handlerMode, isTestContact, testContactSql, testDomains } from "./mode";
+import { effectiveMode, handlerMode, isTestContact, testContactSql, testDomains, MODES, runMode, type Mode } from "./mode";
+import { RELIES } from "./golive-deps";
 import { paymentRecords, salesCallConfig, salesCallsFor, type Payment, type SalesCall } from "./ghl-metrics";
 import { carriesTag, scopeTag } from "./scope";
 
@@ -44,6 +45,12 @@ const why = (e: unknown) => String((e as Error).message).slice(0, 160);
 /** "German Arellano, Mon Oct 5 at 10:00 AM": the record's own label carries the time after a dot; the person is what comes first. */
 const callLabel = (k: SalesCall) => `${k.name.split(" · ")[0].trim() || k.name}, ${k.at.toFormat("ccc LLL d")}${k.at.hour || k.at.minute ? ` at ${k.at.toFormat("h:mm a")}` : ""}`;
 
+/** D291: the rung of what makes the offer's Sales Calls (its Call booked, or its own Closing call booked): the highest enabled one, ghost when none. */
+async function salesCallMakerMode(c: PoolClient, company: CompanyRow): Promise<Mode> {
+  const rows = await many<{ own: Mode | null }>(c, "select w.mode as own from workflows w left join workflow_templates t on t.id=w.template_id where w.company_id=$1 and w.enabled and (t.slug = any($2::text[]) or lower(w.name) = any($3::text[]))",
+    [company.id, RELIES["call-outcome"].on, RELIES["call-outcome"].on.map((x) => x.toLowerCase())]);
+  return rows.map((r) => runMode(company.mode as Mode, r.own)).sort((a, b) => MODES.indexOf(b) - MODES.indexOf(a))[0] ?? "ghost";
+}
 /** `runId`: the health step's run, which the effects ledger records CRM writes against; without one, no CRM write is made. */
 export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Company, bindings: Record<string, string>, reads: GhlReads, _adapters: Adapters, _runId: string | undefined, now: DateTime = DateTime.now(), opts: { days?: number; pollLagMin?: number } = {}): Promise<Finding[]> {
   const check = "ledger_drift", days = opts.days ?? DRIFT_DAYS;
@@ -214,7 +221,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       if (a.outcome !== "cancelled") await guarded(() => setLedgerOutcome(k, "cancelled", "booking_cancelled"), ledgerFailed);
       continue;
     }
-    // D290: a record for a time the booking has moved away from, never marked (a move while the workflow that marks it was off):
+    // D289: a record for a time the booking has moved away from, never marked (a move while the workflow that marks it was off):
     // its call never happened at that time, so it is not the closer's to file, and the end of day would ask for it for ever
     if (!k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000) { ask("moved_not_marked", { label, now_at: DateTime.fromJSDate(new Date(a.starts_at)).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mm a"), record_id: k.id }); continue; }
     if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), ledgerFailed); }
@@ -222,19 +229,39 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     if (!k.filed && a.outcome && k.cls === "missing") ask("ghl_unfiled", { label, has: WORDS[a.outcome] ?? a.outcome, record_id: k.id });
   }
 
-  // D290 (Tyler: "how can we make sure this doesn't happen again?"): the other way round. Every closing booking whose time has passed
+  // D289 (Tyler: "how can we make sure this doesn't happen again?"): the other way round. Every closing booking whose time has passed
   // has a Sales Call in GHL, or the end of day never asks for it (Minerva's Oct 30 calls, booked while Call booked ran in ghost).
   // A booking cancelled before its start, a test booking or contact, and one the poll may not have reached yet are left out.
   if (cfg && Object.keys(cfg.outcomes).length) {
     const matched = new Set(calls.filter((k) => k.match === "one").map((k) => k.appt!.id));
-    const due = await many<{ id: string; starts_at: Date; name: string | null; closer: string | null }>(c, `select a.id::text as id, a.starts_at, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, u.name as closer
+    const due = await many<{ id: string; starts_at: Date; name: string | null; closer: string | null; closer_email: string | null }>(c, `select a.id::text as id, a.starts_at, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, u.name as closer, u.email as closer_email
       from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
       where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.starts_at >= $2 and a.starts_at <= $3
         and not (a.status='cancelled' and coalesce(a.source_updated_at, a.starts_at) < a.starts_at) and not ${testContactSql("ct", "$4")}
       order by a.starts_at`, [company.id, from, to, testDomains(bindings)]);
+    // D291 (Tyler: "the health check should have found that it was missed, and added it and tracked it. I shouldn't have to go in and
+    // fix it"): when what makes the offer's Sales Calls writes to GHL (its Call booked, or its own Closing call booked, live or quiet),
+    // the sweep makes the missing record itself, as the Sales Call backfill writes one (D115: from the evidence; the outcome blank when
+    // nothing says it, so the closer files it on the end of day). Otherwise, or when the write fails, it is asked about as before.
+    const writes = !!_runId && ["quiet", "live"].includes(await salesCallMakerMode(c, company));
     for (const b of due.filter((x) => !matched.has(x.id))) {
       const when = DateTime.fromJSDate(b.starts_at).setZone(company.timezone);
-      ask("no_record", { label: `${b.name ?? "Someone"}, ${when.toFormat("ccc LLL d")} at ${when.toFormat("h:mm a")}`, closer: b.closer ?? "no closer", appointment_id: b.id });
+      const label = `${b.name ?? "Someone"}, ${when.toFormat("ccc LLL d")} at ${when.toFormat("h:mm a")}`;
+      if (writes && b.closer_email) {
+        try {
+          const { backfillSalesCalls } = await import("./sales-call-backfill");
+          const r = await backfillSalesCalls(c, { row: company, adapterCompany: ac, bindings }, _adapters, { from: new Date(b.starts_at.getTime() - 60_000), to: new Date(b.starts_at.getTime() + 60_000), closer: b.closer_email, dryRun: false, now: now.toJSDate() });
+          const made = r.rows.find((x) => x.appointment_id === b.id);
+          if (made?.written) {
+            await audit("appointment", b.id, null, { repair: "sales_call_made", by: "health check" });
+            repaired(`${b.id}:sales_call`, `${label}: GHL had no Sales Call for it; the health check made it (${b.closer ?? "no closer"} files it on the end of day)`, { appointment_id: b.id, label, closer: b.closer }, b.id, "sales_call_made");
+            continue;
+          }
+          ask("no_record", { label, closer: b.closer ?? "no closer", appointment_id: b.id, tried: r.errors.map((e) => JSON.stringify(e)).join("; ").slice(0, 200) || (made ? `the backfill wrote nothing for it${made.skipped ? `: ${made.skipped}` : ""}${made.error ? `: ${made.error}` : ""}` : "the backfill did not find it") });
+          continue;
+        } catch (e) { ask("no_record", { label, closer: b.closer ?? "no closer", appointment_id: b.id, tried: why(e) }); continue; }
+      }
+      ask("no_record", { label, closer: b.closer ?? "no closer", appointment_id: b.id });
     }
   }
 

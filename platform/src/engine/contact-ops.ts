@@ -278,6 +278,8 @@ export async function calendarWatch(c: PoolClient, adapters: Adapters, a: { comp
   const m = { term: a.term, ...(a.name?.trim() ? { name: a.name.trim() } : {}), ...(a.owner ? { owner: a.owner.trim() } : {}), ...(a.booking ? { booking: a.booking } : {}) };
   if (a.dryRun !== false || was === "watched") return { ok: true, dryRun: a.dryRun !== false, calendar: k.name, id: k.id, was, maps: was === "watched" ? "already watched: nothing changed" : JSON.stringify(m) };
   const maps = await watchCalendar(c, co.id, ac.booking.source, k, m, terms);
+  // D292: its bookings already there are read silently first; the calls still ahead are then started as new ones (poll.ts)
+  await c.query("update calendars set config = config || '{\"catch_up\": true}'::jsonb where company_id=$1 and external_id=$2", [co.id, k.id]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calendar.watched','calendar',$2,$3)", [co.id, k.id, { ...m, maps, why: a.why }]);
   return { ok: true, dryRun: false, calendar: k.name, id: k.id, was, maps };
 }
