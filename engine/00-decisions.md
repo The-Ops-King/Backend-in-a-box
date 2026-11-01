@@ -7091,6 +7091,21 @@ the two made blank, so Minerva files them in her end of day; Carly's two marked 
   id: nothing was made in GHL) blocked it (Johanny's). Now such a row is filled with the record made; a row with a CRM id still refuses.
   Live steps already treated a row with no CRM id as no record.
 
+
+## D288. A follow-up is told apart in any order, and before anything says the first call was held (2026-11-01)
+
+Tyler: "This needs to be super flexible. Sometimes the consultation will come first, sometimes it won't. We just need to figure
+it out. Make sure it's good."
+
+- Any closing-type call counts as the first one, whichever was held first: a consultation, a demo (PMU), a closer's own follow-up
+  call. Every closing booking after a held one is a follow-up (D284).
+- Held: marked showed, or a sales recording linked to it; and, because a closer books the follow-up on the call, before the
+  recording or the end of day can say so: the booking was made between the earlier call's start and its transcript wait after it
+  ended (`calls.transcript_wait_min`, each offer's own), and the earlier call is not marked a no-show, cancelled or rescheduled.
+- So a no-show who rebooks, or someone booking a day later when nothing says the first call happened, is a new booking.
+- What a booking was decided as is fixed when it runs: a recording that arrives later does not turn an earlier new booking into a
+  follow-up.
+
 ## D289. So a workflow never goes live without what it relies on, and a missing Sales Call is said within the hour (2026-11-01)
 
 Tyler: "how can we make sure this doesn't happen again?" (PMU's end of day went live reading GHL's Sales Calls while Call booked, which
