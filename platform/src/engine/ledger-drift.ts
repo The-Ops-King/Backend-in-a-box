@@ -214,9 +214,28 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       if (a.outcome !== "cancelled") await guarded(() => setLedgerOutcome(k, "cancelled", "booking_cancelled"), ledgerFailed);
       continue;
     }
+    // D288: a record for a time the booking has moved away from, never marked (a move while the workflow that marks it was off):
+    // its call never happened at that time, so it is not the closer's to file, and the end of day would ask for it for ever
+    if (!k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000) { ask("moved_not_marked", { label, now_at: DateTime.fromJSDate(new Date(a.starts_at)).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mm a"), record_id: k.id }); continue; }
     if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), ledgerFailed); }
     await guarded(() => followResult(k), ledgerFailed);
     if (!k.filed && a.outcome && k.cls === "missing") ask("ghl_unfiled", { label, has: WORDS[a.outcome] ?? a.outcome, record_id: k.id });
+  }
+
+  // D288 (Tyler: "how can we make sure this doesn't happen again?"): the other way round. Every closing booking whose time has passed
+  // has a Sales Call in GHL, or the end of day never asks for it (Minerva's Oct 30 calls, booked while Call booked ran in ghost).
+  // A booking cancelled before its start, a test booking or contact, and one the poll may not have reached yet are left out.
+  if (cfg && Object.keys(cfg.outcomes).length) {
+    const matched = new Set(calls.filter((k) => k.match === "one").map((k) => k.appt!.id));
+    const due = await many<{ id: string; starts_at: Date; name: string | null; closer: string | null }>(c, `select a.id::text as id, a.starts_at, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, u.name as closer
+      from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
+      where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.starts_at >= $2 and a.starts_at <= $3
+        and not (a.status='cancelled' and coalesce(a.source_updated_at, a.starts_at) < a.starts_at) and not ${testContactSql("ct", "$4")}
+      order by a.starts_at`, [company.id, from, to, testDomains(bindings)]);
+    for (const b of due.filter((x) => !matched.has(x.id))) {
+      const when = DateTime.fromJSDate(b.starts_at).setZone(company.timezone);
+      ask("no_record", { label: `${b.name ?? "Someone"}, ${when.toFormat("ccc LLL d")} at ${when.toFormat("h:mm a")}`, closer: b.closer ?? "no closer", appointment_id: b.id });
+    }
   }
 
   // 4. D75: a won closer card and the money GHL holds for that person should agree; asked only once Payment records exist at all

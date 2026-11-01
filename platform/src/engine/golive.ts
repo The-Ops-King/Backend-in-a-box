@@ -2,6 +2,9 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { companyReadiness, workflowLiveBlockers, type Issue } from "./readiness";
 import { MODES, runMode, testContactSql, testDomains, TEST_DOMAINS_KEY, type Mode } from "./mode";
+import { afterOwn, relianceBlockers } from "./golive-deps";
+import { parseDefinition } from "./definition";
+import { render } from "./template";
 
 /**
  * Go live (D51), and D132's go quiet: the two rungs that write the CRM for everyone. Moving up into one is refused while readiness
@@ -16,7 +19,23 @@ const rank = (m: Mode) => MODES.indexOf(m);
 /** The runs a move up to `to` leaves behind: born on a rung below it. */
 const bornBelow = (to: Mode) => MODES.filter((m) => rank(m) < rank(to));
 /** `periods`: scheduled reports' runs kept as closed-out markers, so the period they ran in is not run again (D201) */
-export type Cleared = { runs: number; steps: number; sends: number; events: number; appointments: number; periods?: number };
+export type Cleared = { runs: number; steps: number; sends: number; events: number; appointments: number; periods?: number; /** D288: the ghost runs' would-be records it made (no CRM id) */ leftovers?: number };
+
+/**
+ * D288: the records a workflow's ghost runs would have made: rows with no CRM id, of the objects its record steps write. Nothing was
+ * made in GHL; left, they only stand in a repair's way (Johanny Restrepo's Sales Call, 2026-10-31). Cleared when it goes up.
+ */
+export async function clearGhostRecords(c: PoolClient, companyId: string, workflowId: string): Promise<number> {
+  const v = await one<{ definition: unknown }>(c, "select v.definition from workflow_versions v join workflows w on w.id=v.workflow_id and w.current_version=v.version where w.id=$1", [workflowId]);
+  if (!v) return 0;
+  let objects: string[] = [];
+  try {
+    const crm = Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key like 'crm.%'", [companyId])).map((b) => [b.key.slice(4), b.value.toString("utf8")]));
+    objects = parseDefinition(v.definition).nodes.flatMap((n) => (n.type === "crm_record" ? [render(n.object, { crm }, { tz: "UTC" } as never).trim()] : [])).filter((o) => o && !o.includes("{{"));
+  } catch { return 0; }
+  if (!objects.length) return 0;
+  return (await c.query("delete from crm_records where company_id=$1 and ghl_record_id is null and object_key = any($2::text[])", [companyId, [...new Set(objects)]])).rowCount ?? 0;
+}
 /**
  * The clean slate (item 9): every run not born live, and every synthetic appointment the test harness made, with what pointed at them. Real CRM facts (contacts, their tags, real appointments) stay: the CRM is the truth about those.
  * D92: for the company, only the runs of workflows that will run live (those on their own lower rung keep rehearsing); for one workflow going live on its own, only its runs, and the synthetic bookings stay for the rest.
@@ -98,6 +117,9 @@ export async function setCompanyMode(c: PoolClient, companyId: string, to: Mode,
   const up = WRITES_FOR_ALL.includes(to) && rank(to) > rank(co.mode);
   if (up) {
     const blockers = (await companyReadiness(c, companyId, slugPrefix)).issues.filter((i) => i.level === "blocker");
+    // D288: every enabled workflow that will run on the new rung, against what it relies on, as the rungs will stand after the move
+    const ids = (await many<{ id: string }>(c, "select id from workflows where company_id=$1 and enabled", [companyId])).map((w) => w.id);
+    blockers.push(...(await relianceBlockers(c, companyId, ids, (w) => runMode(to, w.own), slugPrefix)));
     if (blockers.length) return { ok: false, blockers };
   }
   await c.query("begin");
@@ -125,11 +147,13 @@ export async function setWorkflowMode(c: PoolClient, workflowId: string, mode: M
   const up = WRITES_FOR_ALL.includes(to) && rank(to) > rank(from);
   if (up) {
     const blockers = await workflowLiveBlockers(c, w.company_id, workflowId, `/app/c/${w.slug}`);
+    blockers.push(...(await relianceBlockers(c, w.company_id, [workflowId], afterOwn(w.company, workflowId, mode), `/app/c/${w.slug}`)));   // D288
     if (blockers.length) return { ok: false, status: 409, error: `${w.name} is not ready to go ${to}: ${blockers.map((b) => b.text).join(" ")}`, blockers };
   }
   await c.query("begin");
   try {
     const cleared = up ? await clearRehearsalRuns(c, w.company_id, workflowId, to) : undefined;
+    if (cleared) cleared.leftovers = await clearGhostRecords(c, w.company_id, workflowId);   // D288
     await c.query("update workflows set mode=$2 where id=$1", [workflowId, mode]);
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.mode','workflow',$2,$3,$4)",
       [w.company_id, workflowId, { mode: w.own, runs_in: from }, { mode, runs_in: to, by, via, ...(cleared ? { cleared } : {}) }]);
