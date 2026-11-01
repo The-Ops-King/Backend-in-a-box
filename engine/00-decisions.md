@@ -7125,3 +7125,13 @@ ever). "go for it". Three guards:
 Found while checking every offer: Hair's end of day and Call outcome filed are live while its Call booked runs in test, and its last
 Sales Call in GHL is Oct 17: told to Tyler, nothing changed.
 
+
+## D290. A late pre-call starts at its first reminder, never at the booking text (2026-11-01)
+
+Tyler: run booked for Taylor's 12 bookings the engine took in as a baseline, "but make sure no late texts go out". A pre-call's
+booking text has no limit but the call itself (15 minutes before), so a booking handed on days after it was made would get
+"you're booked" days late. Changing the pre-call's text step would lock its sends (D151).
+
+- `replayBookings` (and `POST /api/admin/replay-bookings`) take `start_at` with a `workflow`: each run starts at that step
+  instead of the first. The step must be the workflow's own and not a send (or the trigger). The audit records it.
+- The waits and sends after it keep their own limits: a reminder whose time has passed is skipped (on_stale), as always.

@@ -214,7 +214,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       if (a.outcome !== "cancelled") await guarded(() => setLedgerOutcome(k, "cancelled", "booking_cancelled"), ledgerFailed);
       continue;
     }
-    // D289: a record for a time the booking has moved away from, never marked (a move while the workflow that marks it was off):
+    // D290: a record for a time the booking has moved away from, never marked (a move while the workflow that marks it was off):
     // its call never happened at that time, so it is not the closer's to file, and the end of day would ask for it for ever
     if (!k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000) { ask("moved_not_marked", { label, now_at: DateTime.fromJSDate(new Date(a.starts_at)).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mm a"), record_id: k.id }); continue; }
     if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), ledgerFailed); }
@@ -222,7 +222,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     if (!k.filed && a.outcome && k.cls === "missing") ask("ghl_unfiled", { label, has: WORDS[a.outcome] ?? a.outcome, record_id: k.id });
   }
 
-  // D289 (Tyler: "how can we make sure this doesn't happen again?"): the other way round. Every closing booking whose time has passed
+  // D290 (Tyler: "how can we make sure this doesn't happen again?"): the other way round. Every closing booking whose time has passed
   // has a Sales Call in GHL, or the end of day never asks for it (Minerva's Oct 30 calls, booked while Call booked ran in ghost).
   // A booking cancelled before its start, a test booking or contact, and one the poll may not have reached yet are left out.
   if (cfg && Object.keys(cfg.outcomes).length) {

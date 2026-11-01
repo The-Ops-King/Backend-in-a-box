@@ -78,6 +78,25 @@ describe.skipIf(!process.env.DATABASE_URL)("D138: replaying bookings", () => {
     expect(await live()).toEqual([{ status: "exited", exit_reason: "restarted by the operator" }, { status: "active", exit_reason: null }]);
   });
 
+  it("D290: started at a step: a late pre-call begins at its reminder's wait and never reaches its booking text; a send or a step it lacks is refused", async () => {
+    const pre = await asOperator(async (c) => {
+      const nodes = [{ id: "t1", type: "trigger", event: "appointment.booked" }, { id: "s1", type: "send_sms", template: "you're booked", kind: "transactional" }, { id: "w1", type: "wait", rule: { anchor: "appointment.starts_at", offset: "-1h" } }, { id: "x1", type: "exit", reason: "done" }];
+      const def = parseDefinition({ schema: 1, reentry: "once_per_appointment", reentry_key: "{{appointment.starts_at}}", premise: { check: "none" }, nodes, edges: [{ from: "t1", to: "s1" }, { from: "s1", to: "w1" }, { from: "w1", to: "x1" }] });
+      const wf = (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled) values ($1,'Late pre-call','once_per_appointment',true) returning id", [co]))!;
+      await c.query("insert into workflow_versions (workflow_id, version, definition, manifest) values ($1,1,$2,$3)", [wf.id, def, extractManifest(def)]);
+      await syncTriggers(c, co, wf.id, def);
+      return wf.id;
+    });
+    const a = await appt(50);
+    await expect(asOperator((c) => replayBookings(c, co, [a], { dryRun: false, workflowId: pre, startAt: "s1" }))).rejects.toThrow(/s1 is a send_sms/);
+    await expect(asOperator((c) => replayBookings(c, co, [a], { dryRun: false, workflowId: pre, startAt: "nope" }))).rejects.toThrow(/has no step nope/);
+    expect(await asOperator((c) => replayBookings(c, co, [a], { dryRun: false, workflowId: pre, startAt: "w1" }))).toMatchObject([{ would: "replay", runs_started: 1 }]);
+    expect(await asOperator((c) => one(c, "select current_node from runs where appointment_id=$1 and workflow_id=$2", [a, pre]))).toEqual({ current_node: "w1" });
+    await tick(fakeAdapters(), undefined, co);
+    expect(await asOperator((c) => many(c, "select s.node_id from run_steps s join runs r on r.id=s.run_id where r.appointment_id=$1 and r.workflow_id=$2 and s.node_id='s1'", [a, pre]))).toEqual([]);
+    expect(await asOperator((c) => many(c, "select 1 from sends where company_id=$1 and appointment_id=$2", [co, a])).catch(() => [])).toEqual([]);
+  });
+
   it("D200: handed on again, what the earlier run already emailed them is not emailed again; force sends it; one only held in quiet still goes", async () => {
     const sent: string[] = [];
     const adapters = fakeAdapters();
