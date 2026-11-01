@@ -34,7 +34,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D296: a write to the CRM is read bac
       await syncTriggers(c, co, wf.id, def);
     });
   });
-  const fire = async (k: string) => { await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: co, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "engine", data: { k, outcome: "scheduled" } }))); await tick(fake, undefined, co); };
+  const fire = async (k: string) => { await asOperator(async (c) => dispatchEvent(c, await emitEvent(c, { company_id: co, contact_id: null, opportunity_id: null, appointment_id: null, event_type: "lead.created", source: "engine", data: { k, outcome: "scheduled" } }), {})); await tick(fake, undefined, co); };
   const step = (k: string) => asOperator((c) => one<{ result: Record<string, unknown> }>(c, "select s.result from run_steps s join runs r on r.id=s.run_id where r.company_id=$1 and s.node_id='r1' and r.context->'event'->>'k'=$2 order by s.started_at desc limit 1", [co, k]));
   const alert = () => asOperator((c) => one<{ text: string; resolved_at: Date | null }>(c, "select text, resolved_at from alerts where company_id=$1 and key like 'readback:%' order by last_seen desc limit 1", [co]));
 
