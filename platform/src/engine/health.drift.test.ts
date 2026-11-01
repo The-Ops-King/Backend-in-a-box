@@ -282,4 +282,29 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1 and key='sales_call.dispositions'", [companyId]); await c.query("delete from audit_log where company_id=$1", [companyId]); await c.query("delete from appointments where company_id=$1 and external_id in ('AP8','AP9','AP10','AP11','AP12')", [companyId]); await c.query("delete from company_terms where company_id=$1 and name='Financing denied'", [companyId]); await c.query("delete from payments where company_id=$1 and whop_payment_id='pay-k3'", [companyId]); await c.query("delete from agreements where company_id=$1 and external_id='DOC-K3'", [companyId]); });
     }
   });
+
+  it("D289: a closing booking whose time has passed with no Sales Call in GHL, and a Sales Call left on its old time after its call moved, are each asked about, one line each", async () => {
+    await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      const appt = (ext: string, starts: DateTime) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly',$3,$4,$5,$5,$6,'confirmed')",
+        [companyId, k1, ext, closing, starts.toJSDate(), ago({ days: 6 }).toJSDate()]);
+      await appt("AP20", ago({ days: 2, hours: 5 }).startOf("minute"));   // no record at all: booked while the workflow that makes it was off
+      await appt("AP21", ago({ days: 1, hours: 5 }).startOf("minute"));   // moved here; its record still sits at the old time
+    });
+    records.push({ ...sc("R21", "AP21", "G-K1", ago({ days: 3, hours: 5 }).startOf("minute"), ""), properties: { external_id: "AP21", contact_id: "G-K1", scheduled_at: ago({ days: 3, hours: 5 }).startOf("minute").toUTC().toISO(), closer: "Cara Closer" } });
+    try {
+      const fs = (await sweep()).findings;
+      const q = asked(fs);
+      expect(q.filter((x) => x.kind === "no_record")).toEqual([expect.objectContaining({ kind: "no_record", label: expect.stringMatching(/^G-K1, /) })]);
+      expect(q.filter((x) => x.kind === "moved_not_marked")).toEqual([expect.objectContaining({ kind: "moved_not_marked", label: expect.stringMatching(/^G-K1, /) })]);
+      const text = await worded();
+      expect(text).toContain("the call has passed and GHL has no Sales Call for it, so the end of day never asks for it.");
+      expect(text).toContain("but this Sales Call was never marked rescheduled, so the end of day keeps asking for it. Mark it rescheduled?");
+    } finally {
+      records.splice(records.findIndex((r) => r.id === "R21"), 1);
+      await asOperator((c) => c.query("delete from appointments where company_id=$1 and external_id in ('AP20','AP21')", [companyId]));
+    }
+  });
 });
+

@@ -7105,3 +7105,23 @@ it out. Make sure it's good."
 - So a no-show who rebooks, or someone booking a day later when nothing says the first call happened, is a new booking.
 - What a booking was decided as is fixed when it runs: a recording that arrives later does not turn an earlier new booking into a
   follow-up.
+
+## D289. So a workflow never goes live without what it relies on, and a missing Sales Call is said within the hour (2026-11-01)
+
+Tyler: "how can we make sure this doesn't happen again?" (PMU's end of day went live reading GHL's Sales Calls while Call booked, which
+makes them, ran in ghost: Minerva's Oct 30 calls had no record and were never asked for; moved calls kept a "scheduled" record owed for
+ever). "go for it". Three guards:
+- The drift sweep (Health check, hourly) asks the other way round too: a closing booking whose time has passed with no Sales Call in GHL
+  (`no_record`: cancelled before its start, test bookings and contacts, and the poll's lag left out), and a Sales Call left on the time
+  its call moved away from, never marked (`moved_not_marked`). Health check words both ("Make the record (blank, so the closer files
+  it)?", "Mark it rescheduled?"); each offer's copy of Health check takes the wording on Tyler's word, one at a time with a dry run.
+- Going live or quiet (a workflow, or the company) refuses a workflow that relies on what another makes unless one of its providers is
+  enabled and runs at least as high (golive-deps.ts RELIES: the end of day, Call outcome filed and Sales call recorded on Call booked or
+  an offer's own "Closing call booked"; Setter call filed on Setter call logged), or the offer names the provider outside the engine
+  (`golive.outside`, e.g. a Zap that still makes the Sales Calls, set on Tyler's word).
+- Going up clears the records a workflow's ghost runs would have made (rows with no CRM id, of the objects its record steps write):
+  nothing was made in GHL, and left they only stand in a repair's way. The calls it missed while in ghost are the drift sweep's
+  `no_record` within the hour.
+Found while checking every offer: Hair's end of day and Call outcome filed are live while its Call booked runs in test, and its last
+Sales Call in GHL is Oct 17: told to Tyler, nothing changed.
+
