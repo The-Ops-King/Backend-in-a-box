@@ -7226,3 +7226,16 @@ they could just say, 'Oh, the contact changed. Here's the new information.'" and
   (`health:ledger_drift`), raised and cleared by the sync; the hourly health check no longer touches it.
 - The window and the poll's lag stay each offer's own, on its Health check step (D88). A GHL read that fails changes nothing and is
   read again next time; a failure never fails the tick. No summary is posted.
+
+## D298. An offer can be paused (2026-11-01)
+
+Tyler: "Hair is paused as I've said." Until now the only ways to stop an offer were archiving it, which is the wrong meaning, or leaving it
+running, which kept polling and alerting.
+
+- `paused` is a company status (migration 0014). The engine runs only active and hosted offers (running.ts), so a paused one gets no
+  polls, ticks, schedules, runs, checks or alerts.
+- `POST /api/admin/company/pause {company, paused, why, dryRun}`: dry run by default, `why` required, one offer per call, audited
+  (`company.paused` / `company.unpaused`). Only an active or hosted offer can be paused, and only a paused one unpaused (to active).
+- Pausing closes the offer's open alerts quietly.
+- Unpausing clears its poll cursors, so the first read of GHL and Calendly is a silent baseline: nothing booked or changed while it was
+  paused starts a workflow or sends a text late. The 10-minute sync (D297) then brings it into line with GHL.
