@@ -1,3 +1,4 @@
+import { withButtons } from "./slack-blocks";
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { asCompany, asOperator, many, one } from "@/db/client";
@@ -112,6 +113,11 @@ export async function handleMessage(deps: BotDeps, companyId: string, ev: SlackM
     replyThread = ev.threadTs; key = ev.threadTs; history = t;
   }
   if (!question) return { ignored: "empty" };
+  if (MISSING_EOD_WORDS.test(question)) {
+    const body = await shortcutBody(deps, companyId, { shortcut: "missing-eod", title: "Missing EODs" }, ev.user);
+    await deps.adapters.notifier.post(ctx.token, ev.channel, body, undefined, replyThread, missingEodBlocks(body));
+    return { answered: "answer", channel: ev.channel, thread: replyThread };
+  }
   await deps.adapters.notifier.react(ctx.token, ev.channel, ev.ts, "eyes").catch(() => false);
   const asker = await resolveAsker(deps, ctx, ev.user);
   const out = await converse(deps, ctx, { question, history, asker, slackUser: ev.user });
@@ -405,6 +411,11 @@ export function planCommand(cmd: SlashCommand, tz: string, now: DateTime = DateT
 
 // people, calls, deals (D73) and cash (D75) from GHL
 const SUMMARY = ["leads", "mqls", "calls_booked_due", "show_rate", "close_rate", "deposits", "deposit_cash", "cash_collected"];   // D119: deposits on their own lines, never a close
+/** D303: a missing-EOD answer that names anyone carries the File my EOD button: each person who presses gets their own links, only they see them. */
+export const missingEodBlocks = (body: string) => (body.startsWith("⚠️") ? withButtons(body, [{ text: "File my EOD", action: "eod_open", value: "open", style: "primary" }]) : undefined);
+/** D303: "missing eod" said to the bot is the /missing-eod shortcut, answered the same way, not a question for the AI. */
+export const MISSING_EOD_WORDS = /^\/?missing[\s-]*eods?[.!?]*$/i;
+
 /** The body of a shortcut: deterministic, from the registry alone. */
 export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan, askedBy?: string): Promise<string> {
   const now = deps.now ?? DateTime.now();
@@ -413,7 +424,7 @@ export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan,
     const { missingEods, formatMissingEods } = await import("./missing-eods");
     const { loadCompany } = await import("./context");
     // D303: names and days only, wherever it is asked (an admin link in a channel asked people for a password); a closer opens their own form from the File my EOD button
-    return asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return formatMissingEods(await missingEods(c, row, now as DateTime<true>, 14, deps.ghl ?? (await import("./owed")).readsFrom(deps.adapters)), row.name); });
+    return asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return formatMissingEods(await missingEods(c, row, now as DateTime<true>, 14, deps.ghl ?? (await import("./owed")).readsFrom(deps.adapters)), row.name, undefined, true); });
   }
   if (plan.shortcut === "availability") return `📊 ${formatAvailability(await asOperator((c) => getAvailability(c, companyId, deps.probes ?? liveProbes, plan.days ?? 7, now)), foot)}`;
   const reads = memoReads(deps.ghl ?? liveGhlReads);
@@ -464,10 +475,11 @@ export async function runCommand(deps: BotDeps, companyId: string, cmd: SlashCom
   const text = escalated ? `📊 *${plan.title}* — asked by <@${cmd.userId}>\n${body}` : body;
   const dm = cmd.channelId.startsWith("D") || cmd.channelName === "directmessage";
   let posted: { ts: string; channel?: string } | null = null, where = cmd.channelId;
-  try { posted = await deps.adapters.notifier.post(ctx.token, where, text); }
+  const blocks = !escalated && plan.shortcut === "missing-eod" ? missingEodBlocks(text) : undefined;
+  try { posted = await deps.adapters.notifier.post(ctx.token, where, text, undefined, undefined, blocks); }
   catch (e) {
     // a DM between two people the bot is not part of, or a channel it was never invited to: the asker's own DM with the bot, else just to them
-    if (dm) { where = cmd.userId; posted = await deps.adapters.notifier.post(ctx.token, where, text).catch(() => null); }
+    if (dm) { where = cmd.userId; posted = await deps.adapters.notifier.post(ctx.token, where, text, undefined, undefined, blocks).catch(() => null); }
     if (!posted) {
       if (cmd.responseUrl && deps.respond) await deps.respond(cmd.responseUrl, { response_type: "ephemeral", text: `I'm not in this conversation, so only you can see this. Invite me to the channel to answer where everyone can follow up.\n\n${text}` });
       return { failed: String((e as Error).message) };

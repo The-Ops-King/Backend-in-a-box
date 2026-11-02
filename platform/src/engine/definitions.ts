@@ -1,3 +1,4 @@
+import { unsetReads, type UnsetRead } from "./unset-vars";
 import type { PoolClient } from "pg";
 import type { ZodIssue } from "zod";
 import { many, one } from "@/db/client";
@@ -112,7 +113,7 @@ const isEmpty = (d: DefinitionDiff) => !d.nodes.added.length && !d.nodes.removed
 
 export type SaveDefinitionResult =
   | { ok: true; saved: boolean; dryRun: boolean; from: number; version: number; diff: DefinitionDiff; missing: string[]; warnings: string[]; layout: Layout }
-  | { ok: false; status: number; why: string; problems?: string[]; missing?: string[] };
+  | { ok: false; status: number; why: string; problems?: string[]; missing?: string[]; unset?: UnsetRead[] };
 
 /**
  * D111: refused when no layout draws the workflow exactly (it never happens: the plain graph draws any graph, and says so
@@ -139,6 +140,13 @@ export async function saveDefinition(c: PoolClient, args: { workflowId: string; 
     return { ok: true, saved: false, dryRun: !!args.dryRun, version: w.current_version, ...base };
   }
   if (w.enabled && v.missing.length) return { ok: false, status: 409, why: `it is ON and would be missing ${v.missing.join(", ")}: bind them first, or turn it off and save`, missing: v.missing };
+  // D304: a step that reads a remembered value some path to it never sets fails every run down that path ("unknown path"): a save
+  // that adds one is refused, naming the step and the path; one the saved copy already had is said (a warning) but does not block
+  // an unrelated change
+  const had = new Set((before.success ? unsetReads(before.data) : []).map((u) => `${u.node}:${u.var}`));
+  const unset = unsetReads(v.def), added = unset.filter((u) => !had.has(`${u.node}:${u.var}`));
+  if (added.length) return { ok: false, status: 422, why: `${added.map((u) => `${u.title ?? u.node} reads vars.${u.var}, which the path through ${u.missing_on} never sets`).join("; ")}: set it on that path, or give it a fallback ({{vars.${added[0].var} | default:…}})`, unset: added };
+  for (const u of unset) base.warnings = [...base.warnings, `${u.title ?? u.node} reads vars.${u.var}, which the path through ${u.missing_on} never sets (already so before this change)`];
   if (args.dryRun) return { ok: true, saved: false, dryRun: true, version: w.current_version + 1, ...base };
   const next = w.current_version + 1;
   await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [w.id, next, v.def, v.manifest, args.note.trim()]);
