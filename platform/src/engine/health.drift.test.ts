@@ -363,4 +363,32 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id='AP30'", [companyId]); await c.query("delete from workflows where id=$1", [wf]); await c.query("delete from crm_records where company_id=$1", [companyId]); await c.query("delete from bindings where company_id=$1 and key in ('crm.assoc_sales_call_contact','crm.assoc_sales_call_opportunity')", [companyId]); });
     }
   });
+
+  it("D295: a call still ahead with no Sales Call gets one before the call (scheduled, for its closer); one booked inside the last half hour is Call booked's, left alone", async () => {
+    const created: Record<string, unknown>[] = [];
+    const before = fake.write.createRecord;
+    fake.write.createRecord = async (_c, _o, props) => { created.push(props); return { id: `UP-${created.length}` }; };
+    const wf = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      const u = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role) values ($1,'dee@drift.test','Dee Closer','closer') on conflict do nothing returning id", [companyId]))?.id
+        ?? (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='dee@drift.test'", [companyId]))!.id;
+      const appt = (ext: string, starts: DateTime, booked: DateTime) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status, assigned_user_id) values ($1,$2,'calendly',$3,$4,$5,$5,$6,'confirmed',$7)",
+        [companyId, k1, ext, closing, starts.toJSDate(), booked.toJSDate(), u]);
+      await appt("AP40", NOW.plus({ days: 2 }).startOf("minute"), ago({ hours: 3 }));     // booked three hours ago, its record never made
+      await appt("AP41", NOW.plus({ days: 3 }).startOf("minute"), ago({ minutes: 5 }));   // just booked: Call booked's to make
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'crm.assoc_sales_call_contact','id','A-SC'),($1,'crm.assoc_sales_call_opportunity','id','A-SO') on conflict (company_id, key) do nothing", [companyId]);
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, mode) values ($1,'Closing call booked','always',true,'live') returning id", [companyId]))!.id;
+    });
+    try {
+      const fs = (await sweep()).findings;
+      expect(created).toEqual([expect.objectContaining({ external_id: "AP40", contact_id: "G-K1" })]);
+      expect(fs.some((f) => f.ok && String(f.item).endsWith(":sales_call"))).toBe(true);
+      expect(asked(fs).filter((x) => x.kind === "no_record")).toEqual([]);
+    } finally {
+      fake.write.createRecord = before;
+      await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id in ('AP40','AP41')", [companyId]); await c.query("delete from workflows where id=$1", [wf]); await c.query("delete from crm_records where company_id=$1", [companyId]); });
+    }
+  });
 });
+
