@@ -7260,3 +7260,14 @@ had only bulk doors: `cards/reassign` moves every open card on a person (Carly h
 
 - Both take `contacts` (GHL contact ids): only those people's cards, or those contacts, move. `contact/reassign` takes a tag or
   contacts, not both. Each is still read live before it is written, dry run first, audited.
+
+## D301. A wrap-up can tag who owes an end of day (2026-11-02)
+
+Tyler: "fix the EOD to post in the EOD slack channel instead of the ops and it should tag the closers with missing info. @Jose is
+missing eod for X ... same with the weekly wrapup and monthly wrapup as well." A wrap-up's `report.missing_eods` had one line per person
+by name, each day linked through the operator's sign-in, which a closer cannot use.
+
+- `report.missing_eods.people`: each person who owes a day (the same list as `lines`, D246/D264, read from GHL), with `mention`
+  (<@their Slack id>, their name when they have none) and `days` ("Mon Oct 26 (Tommy Arakilian), Tue Oct 27 (Kimberly C)"), no links.
+  `lines` is unchanged, so no saved layout words anything differently until it is saved to use `people`.
+- GHL unread: no one is tagged; `lines` says it could not be read, as before.

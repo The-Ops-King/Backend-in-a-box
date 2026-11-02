@@ -47,7 +47,10 @@ export type Layout = { heading: Record<string, string>; sections: { title: strin
 export type ReportFacts = { kind: ReportKind; to_date: boolean; start: string; end: string; read_at: string; period: Period; n: Numbers; raw: Record<string, number>; calls: Record<keyof CallsSeen, number | null> | null; rates: { show_rate: number | null; close_rate: number | null; pitch_rate: number | null; pitched_close_rate: number | null }; money_moved: true | null;
   said: { label: string; answered: number; top: { answer: string; count: number }[]; rest: number; rest_kinds: number }[]; by: { closer: Breakdown[]; setter: Breakdown[] }; ghl_error: string | null; nothing: true | null;
   /** D246: who owes an end of day, one line each ("Jose P: Mon Oct 26 (Tommy Arakilian)"); count null when no one does */
-  missing_eods: { count: number | null; lines: string[] } };
+  missing_eods: { count: number | null; lines: string[]; people: MissingEodPerson[] } };
+/** D301: one person who owes an end of day, for a layout that tags them in Slack: `mention` is <@their Slack id> (their name when they have
+ * none), `days` the days owed with the calls ("Mon Oct 26 (Tommy Arakilian), Tue Oct 27 (Kimberly C)"); no links (each form is private). */
+export type MissingEodPerson = { name: string; mention: string; days: string };
 
 /** D124: nothing happened in the period, from the numbers (never the words): see `ReportFacts.nothing`. A GHL read that failed is not nothing: what it would have said is not known. */
 export function nothingHappened(a: { numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] } }): true | null {
@@ -74,7 +77,7 @@ export async function whatTheySaid(c: PoolClient, companyId: string, period: Per
 }
 
 /** The facts a layout reads, from the period's numbers. Pure. */
-export function reportFacts(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; showRate?: number | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] }; readAt?: Date; missingEods?: string[] }): ReportFacts {
+export function reportFacts(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; showRate?: number | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] }; readAt?: Date; missingEods?: string[]; missingPeople?: MissingEodPerson[] }): ReportFacts {
   const { numbers } = args, k = args.calls ?? null;
   const v = (key: string) => numbers[key] ?? 0, nz = (x: number | null | undefined) => (x ? x : null);
   const pct = (a: number, of: number) => (a > 0 && of > 0 ? Math.round((a / of) * 100) : null);
@@ -90,7 +93,7 @@ export function reportFacts(args: { kind: ReportKind; period: Period; tz: string
     said: args.said.slice(0, 10).map((q) => ({ label: q.label, answered: q.answered, top: q.top.map(([a, n]) => ({ answer: a.length > 62 ? `${a.slice(0, 59)}…` : a, count: n })), rest: q.rest, rest_kinds: q.restKinds })),
     by: args.by ?? { closer: [], setter: [] }, ghl_error: args.ghlError ?? null,
     nothing: nothingHappened(args),
-    missing_eods: { count: args.missingEods?.length || null, lines: args.missingEods ?? [] },
+    missing_eods: { count: args.missingEods?.length || null, lines: args.missingEods ?? [], people: args.missingPeople ?? [] },
   };
 }
 
@@ -146,13 +149,14 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   // breakdowns: per closer and per setter from the ledger's rollups, for a layout that words them (D29: totals by default, per person switchable)
   const want = new Set(opts.breakdowns ?? []);
   // D246: who owes an end of day, as the wrap-up is read (a layout that does not word it says nothing about it)
-  const { missingEods, missingLines } = await import("./missing-eods");
+  const { missingEods, missingLines, missingPeople: peopleOwing } = await import("./missing-eods");
   const goBase = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
   // D264: read from GHL; GHL unread, the wrap-up still posts and says the missing EODs could not be read rather than that nobody owes one
-  const missing = await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>, 14, opts.reads)
-    .then((l) => missingLines(l, goBase ? `${goBase}/go/eod/${company.slug}` : undefined))
-    .catch((e: Error) => [`Missing EODs couldn't be read from GHL (${String(e.message).slice(0, 120)})`]);
-  const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, showRate, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now, missingEods: missing });
+  const owing = await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>, 14, opts.reads).catch((e: Error) => e);
+  const missing = owing instanceof Error ? [`Missing EODs couldn't be read from GHL (${String(owing.message).slice(0, 120)})`] : missingLines(owing, goBase ? `${goBase}/go/eod/${company.slug}` : undefined);
+  // D301: the same people, to be tagged; unread, the one line above says so and no one is tagged
+  const missingPeople = owing instanceof Error ? [] : peopleOwing(owing);
+  const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, showRate, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now, missingEods: missing, missingPeople });
   const body = renderLayout(opts.layout ?? shippedLayout(kind), facts, opts.ctx ?? {}, { tz: company.timezone, companyTz: company.timezone });
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers) values ($1,$2,$3,$4,$5,$6,$7) returning id",
     [company.id, kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers, registry: numbers }]);
