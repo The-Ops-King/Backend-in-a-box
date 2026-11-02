@@ -34,9 +34,9 @@ export async function missingEods(c: PoolClient, company: CompanyRow, now = Date
   return [...by.values()].filter((p) => p.days.length).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** One line per person: "Jose P is missing EOD for <Mon Oct 26> (Tommy Arakilian), <Tue Oct 27> (Kimberly C)", each day a link through `go` when given. */
-export const missingLines = (list: MissingPerson[], go?: string): string[] =>
-  list.map((p) => `${p.name} is missing EOD for ${p.days.map((d) => `${go && p.user_id ? `<${go}/${p.user_id}/${d.day}|${d.label}>` : d.label}${d.names.length ? ` (${d.names.join(", ")})` : ` (${d.calls} call${d.calls === 1 ? "" : "s"})`}`).join(", ")}`);
+/** One line per person: "Jose P is missing EOD for <Mon Oct 26> (Tommy Arakilian), <Tue Oct 27> (Kimberly C)", each day a link through `go` when given; `tag` (D303) names each by their Slack mention when they have one. */
+export const missingLines = (list: MissingPerson[], go?: string, tag = false): string[] =>
+  list.map((p) => `${tag && p.slack_user_id ? `<@${p.slack_user_id}>` : p.name} is missing EOD for ${p.days.map((d) => `${go && p.user_id ? `<${go}/${p.user_id}/${d.day}|${d.label}>` : d.label}${d.names.length ? ` (${d.names.join(", ")})` : ` (${d.calls} call${d.calls === 1 ? "" : "s"})`}`).join(", ")}`);
 
 /** D301: each person to tag: `mention` <@their Slack id> (their name when they have none), `days` the days owed with the calls, no links. */
 export const missingPeople = (list: MissingPerson[]) => list.map((p) => ({ name: p.name, mention: p.slack_user_id ? `<@${p.slack_user_id}>` : p.name,
@@ -46,9 +46,9 @@ export const missingPeople = (list: MissingPerson[]) => list.map((p) => ({ name:
  * The Slack answer: "Jose P is missing EOD for <Mon Oct 26> (Tommy Arakilian), <Tue Oct 27> (Kimberly C)", each day a link through the
  * operator's sign-in to that day's form (`go`: the base of /go/eod/<slug>; none, plain days). The closers' private links are never in it.
  */
-export function formatMissingEods(list: MissingPerson[], companyName: string, go?: string): string {
+export function formatMissingEods(list: MissingPerson[], companyName: string, go?: string, tag = false): string {
   if (!list.length) return `✅ *Missing EODs · ${companyName}*\nEveryone is filed up to yesterday.`;
   const n = list.reduce((s, p) => s + p.days.length, 0);
-  return [`⚠️ *Missing EODs · ${companyName}* (${n} day${n === 1 ? "" : "s"})`, ...missingLines(list, go).map((l, i) => `• ${l}${list[i].today.length ? `; today so far: ${list[i].today.join(", ")}` : ""}`), "_From the Sales Calls in GHL: a call that has passed with no outcome is owed._"].join("\n");
+  return [`⚠️ *Missing EODs · ${companyName}* (${n} day${n === 1 ? "" : "s"})`, ...missingLines(list, go, tag).map((l, i) => `• ${l}${list[i].today.length ? `; today so far: ${list[i].today.join(", ")}` : ""}`), `_From the Sales Calls in GHL: a call that has passed with no outcome is owed.${tag ? " Press File my EOD to open your form (only you see your link)." : ""}_`].join("\n");
 }
 

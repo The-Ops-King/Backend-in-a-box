@@ -7297,3 +7297,21 @@ day for whoever has it, so it is never posted where others can see it (it goes t
   today's. Someone not on the team, or GHL unread, is told so plainly; no one can open another person's form from a channel.
 - The `/missing-eod` answer and a wrap-up's `report.missing_eods.lines` no longer link each day through the operator's sign-in
   (`/go/eod/...`): names and days only, on every offer (Slack works the same everywhere). The route stays for the dashboard.
+
+## D304. A value a path never sets is found at save; "missing eod" tags everyone with the File my EOD button (2026-11-02)
+
+Tyler: "every time we fix the alert we should be making a fix that makes sure that alert doesn't need to happen in the future", and
+on the /missing-eod answer: "it still doesn't tag the person, or give the link ... the goal is that i can say 'missing eod' and have
+it just send every eod that's missing".
+
+- PMU's Call booked v15 (D286's follow-up path) went straight to the booking card without the steps that set its headline; every
+  follow-up booking failed with "unknown path {{vars.head}}" (Tanganyika Brewer). PMU v16 sends that path through the headline
+  steps (they already had "Follow-up booked"); her booking was run again and its card posted.
+- The kind of fault is now found when a workflow is saved (`unsetReads`, unset-vars.ts): a step that reads `vars.X` with no
+  fallback, on a path from a trigger that never sets X. A save that adds one is refused, naming the step and the path; one the saved
+  copy already had is a warning and does not block an unrelated change. Not counted: a condition (an absent value compares empty), a
+  "may be absent" pipe (default, prefix, line, link, bullets, oneof, each), a record step (absent lands as null), an exists guard.
+  Every shipped template passes it (a test); the setter template's late-booking line read the Jev confidence on a path that never
+  sets it and now says it only when there is one. The live copies on PMU, Dating and Hair still have that line: theirs to change.
+- `/missing-eod`, and "missing eod" said to the bot, answer with each person tagged (their Slack mention, the name when they have
+  none) and the File my EOD button (D303) when anyone owes a day.

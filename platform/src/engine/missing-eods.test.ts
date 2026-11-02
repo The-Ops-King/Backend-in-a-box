@@ -5,7 +5,7 @@ import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { loadCompany } from "./context";
 import { missingEods, missingLines, missingPeople, formatMissingEods } from "./missing-eods";
-import { planCommand } from "./bot";
+import { planCommand, MISSING_EOD_WORDS, missingEodBlocks } from "./bot";
 import { encrypt } from "./crypto";
 import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
 
@@ -36,6 +36,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D246: missing EODs", () => {
     expect(missingLines(list)[1]).toMatch(/^Jose P is missing EOD for \w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
     expect(formatMissingEods(list, "PMU")).toMatch(/^⚠️ \*Missing EODs · PMU\* \(4 days\)\n• Carly V is missing EOD for \w{3} \w{3} \d+ \(Jonelle\)\n• Jose P is missing EOD for .*\(Kimberly\); today so far: Elizabeth\n• Mitch S .*\(Pia\)\n_From the Sales Calls in GHL/);
     expect(formatMissingEods([], "PMU")).toMatch(/Everyone is filed/);
+    // D303: the /missing-eod answer tags each person by their Slack id (the name when they have none) and carries the File my EOD button
+    const tagged = formatMissingEods(list.map((p) => (p.name === "Jose P" ? { ...p, slack_user_id: "UJOSE" } : p)), "PMU", undefined, true);
+    expect(tagged).toMatch(/\n• <@UJOSE> is missing EOD for /);
+    expect(tagged).toMatch(/\n• Carly V is missing EOD for /);
+    expect(tagged).not.toMatch(/https?:/);
+    expect(JSON.stringify(missingEodBlocks(tagged))).toContain('"action_id":"eod_open"');
+    expect(missingEodBlocks(formatMissingEods([], "PMU", undefined, true))).toBeUndefined();
+    expect(["missing eod", "Missing EODs", "missing-eod", "/missing-eod", "missing eod?"].every((t) => MISSING_EOD_WORDS.test(t))).toBe(true);
+    expect(MISSING_EOD_WORDS.test("who is missing eod for monday")).toBe(false);
     // D301: to tag in Slack: their Slack id when they have one, else the name; the days with the calls, no links
     const tag = missingPeople(list.map((p) => (p.name === "Jose P" ? { ...p, slack_user_id: "UJOSE" } : p)));
     expect(tag.map((p) => p.mention)).toEqual(["Carly V", "<@UJOSE>", "Mitch S"]);
