@@ -248,7 +248,9 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     }
     if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), ledgerFailed); }
     await guarded(() => followResult(k), ledgerFailed);
-    if (!k.filed && a.outcome && k.cls === "missing") ask("ghl_unfiled", { label, has: WORDS[a.outcome] ?? a.outcome, record_id: k.id });
+    // D302 (Tyler: "it shouldn't alert me that there's an issue if we've planned for it. like the eod"): a Sales Call with no outcome in
+    // GHL is the end of day's to file; the end of day asks the closer for it, tags them when it is a day late and lists it in the
+    // wrap-ups (D301). It is no longer a drift question (the engine's own guess from the recording is not GHL's answer).
   }
 
   // D289 (Tyler: "how can we make sure this doesn't happen again?"): the other way round. Every closing booking whose time has passed

@@ -244,7 +244,7 @@ describe.skipIf(!HAS_DB)("a failed step is retried in place (D66)", () => {
     await tickAt(DateTime.now());
     expect(await run(runId)).toMatchObject({ status: "paused", current_node: "n1", step_error: expect.stringContaining('"errorCode":"duplicate_record"') });
     const a = await asOperator((c) => one<{ text: string; detail: { error: string } }>(c, "select text, detail from alerts where company_id=$1 and key=$2", [companyId, `run:${runId}:paused`]));
-    expect(a!.text).toBe("Call booked couldn't create the Sales Call record for Tyler Retry: GHL says a record with the same value for External ID - test-20254447 already exists. Retry or skip it on the run page.");
+    expect(a!.text).toBe("Call booked couldn't save the Sales Call record for Tyler Retry: GHL says a record with the same value for External ID - test-20254447 already exists. Retry or skip it on the run page.");
     expect(a!.detail.error).toContain('"errorCode":"duplicate_record"');
   });
 

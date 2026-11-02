@@ -727,6 +727,8 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // D245: GHL refuses an empty money field ("Cash Collected is missing a currency code") and with it the whole write (Renee G's
       // no-show, 2026-10-26); a money field is emptied as no money, which it takes
       for (const k of Object.keys(cleared)) if (MONEY_TYPES.has(String(known?.get(k) ?? "").toUpperCase())) (cleared as Record<string, unknown>)[k] = { currency: "default", value: 0 };
+      // D302: a value its choice field does not offer is left out, so the rest of the record is still written
+      const notAnOption = offOptions(properties, fieldOptions(d, objectKey));
       if (dropped.length && !Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: `nothing to write: the ${objectKey} object has no ${dropped.join(", ")} field yet`, not_on_object: dropped } };
       if (byId) return recordById(d, node, next, objectKey, key, byId, properties, cleared, owner, dropped);
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
@@ -779,7 +781,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
       d.ctx.record = { id: ghlId ?? "", key, object: objectKey, properties };
       const related = await relate(d, node);
-      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...(checked ?? {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), ...(recoveredHow ? { recovered: recoveredHow } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
+      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...(checked ?? {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), ...(recoveredHow ? { recovered: recoveredHow } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}), ...(notAnOption.length ? { not_an_option: notAnOption } : {}) } };
     }
     case "update_contact": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
@@ -1361,13 +1363,41 @@ async function waitForEvent(d: ExecDeps, node: Extract<Node, { type: "wait_for_e
  * (with no readable time, the same day). Never by name; a record already tied to another booking is not a candidate.
  */
 /** The object's own property keys and each one's type, read from the CRM at most every ten minutes per company; null when it cannot be read (the write goes as is). */
-const objectFieldCache = new Map<string, { at: number; fields: Map<string, string | undefined> }>();
+const objectFieldCache = new Map<string, { at: number; fields: Map<string, string | undefined>; options: Map<string, { key: string; label?: string }[]> }>();
 async function objectFields(d: ExecDeps, objectKey: string): Promise<Map<string, string | undefined> | null> {
   if (!objectKey.startsWith("custom_objects.") || !d.adapters.read.objectFields) return null;
   const k = `${d.company.id}:${objectKey}`, hit = objectFieldCache.get(k);
   if (hit && Date.now() - hit.at < 10 * 60e3) return hit.fields;
-  try { const fields = new Map((await d.adapters.read.objectFields(d.adapterCompany, objectKey)).map((f) => [f.key, f.type] as const)); if (!fields.size) return null; objectFieldCache.set(k, { at: Date.now(), fields }); return fields; }
+  try {
+    const all = await d.adapters.read.objectFields(d.adapterCompany, objectKey);
+    const fields = new Map(all.map((f) => [f.key, f.type] as const)); if (!fields.size) return null;
+    objectFieldCache.set(k, { at: Date.now(), fields, options: new Map(all.filter((f) => f.options?.length).map((f) => [f.key, f.options!] as const)) });
+    return fields;
+  }
   catch { return null; }
+}
+
+/** D302: a choice field's options as the CRM has them (read with the fields, same cache); none known, nothing is checked. */
+const fieldOptions = (d: ExecDeps, objectKey: string) => objectFieldCache.get(`${d.company.id}:${objectKey}`)?.options ?? null;
+/**
+ * D302 (Tyler: "it should have created the 2 sales call records anyway"): a value a choice field does not offer makes the CRM refuse the
+ * whole write (PMU's Next Step, Jennifer Rouwhorst's and Kealey Corey's calls, 2026-11-02). Such a value is left out and named; the rest
+ * is written. A value that is an option's key or label (any case) is written as it was, so nothing the CRM took before changes.
+ */
+export function offOptions(properties: Record<string, unknown>, options: Map<string, { key: string; label?: string }[]> | null): { field: string; value: string }[] {
+  if (!options) return [];
+  const off: { field: string; value: string }[] = [];
+  for (const [k, v] of Object.entries(properties)) {
+    const opts = options.get(k); if (!opts?.length || v === null || v === undefined) continue;
+    const ok = (x: unknown) => { const t = String(x).trim().toLowerCase(); return opts.some((o) => o.key.toLowerCase() === t || (o.label ?? "").trim().toLowerCase() === t); };
+    if (Array.isArray(v)) {
+      const keep = v.filter(ok), bad = v.filter((x) => !ok(x));
+      if (!bad.length) continue;
+      for (const x of bad) off.push({ field: k, value: String(x) });
+      if (keep.length) properties[k] = keep; else delete properties[k];
+    } else if (typeof v === "string" && !ok(v)) { off.push({ field: k, value: v }); delete properties[k]; }
+  }
+  return off;
 }
 
 async function bookingRecord(d: ExecDeps, objectKey: string): Promise<{ id: string } | { why: string }> {

@@ -7271,3 +7271,17 @@ by name, each day linked through the operator's sign-in, which a closer cannot u
   (<@their Slack id>, their name when they have none) and `days` ("Mon Oct 26 (Tommy Arakilian), Tue Oct 27 (Kimberly C)"), no links.
   `lines` is unchanged, so no saved layout words anything differently until it is saved to use `people`.
 - GHL unread: no one is tagged; `lines` says it could not be read, as before.
+
+## D302. A value a choice field does not offer is left out, not the whole record; the end of day's work is not a drift question (2026-11-02)
+
+Tyler, on two alerts: "it should have created the 2 sales call records anyway" and "it shouldn't alert me that there's an issue if
+we've planned for it. like the eod". PMU's Sales call recorded (v7, D271) wrote the AI's next step, a sentence, into the Sales Call's
+Next Step, a dropdown (follow_up_booked, sending_info, nurture, dead). GHL refused the whole write for Jennifer Rouwhorst's and Kealey
+Corey's calls: recording link, date, length and objection never landed, and the step was given up as permanent.
+
+- `crm_record` reads each choice field's options with the object's fields (same cache). A value a field does not offer (not one of its
+  keys or labels, any case) is left out and named in the step's result (`not_an_option`); the rest is written. A value it does offer
+  is written as it was, so nothing the CRM took before changes. Options not known, nothing is checked.
+- A step that may make the record is said to "save" it, not "create" it (it often updates).
+- The drift sweep no longer asks about a Sales Call with no outcome in GHL whose booking the engine has a guess for (`ghl_unfiled`):
+  filing it is the end of day's job, which asks the closer, tags them a day late (D301) and lists it in the wrap-ups.

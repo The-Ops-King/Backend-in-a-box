@@ -59,6 +59,6 @@ describe("blocking steps (D77)", () => {
     expect(doingWords(n({ type: "tags", add: ["a"], remove: ["b"] }))).toBe("add the tag “a” and take off “b”");
     expect(doingWords(n({ type: "send_sms", template: "Hi" }))).toBe("send the text");
     expect(doingWords(n({ type: "slack_post", channel: "C", template: "x", title: "React 👻 on the booking post" }))).toBe("react 👻 on the booking post");
-    expect(doingWords(n({ type: "crm_record", object: "custom_objects.sales_call", key: "k", properties: {} }))).toBe("create the Sales Call record");
+    expect(doingWords(n({ type: "crm_record", object: "custom_objects.sales_call", key: "k", properties: {} }))).toBe("save the Sales Call record");
   });
 });
