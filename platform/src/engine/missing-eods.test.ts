@@ -4,7 +4,7 @@ import { DateTime } from "luxon";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { loadCompany } from "./context";
-import { missingEods, missingLines, formatMissingEods } from "./missing-eods";
+import { missingEods, missingLines, missingPeople, formatMissingEods } from "./missing-eods";
 import { planCommand } from "./bot";
 import { encrypt } from "./crypto";
 import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
@@ -36,6 +36,11 @@ describe.skipIf(!process.env.DATABASE_URL)("D246: missing EODs", () => {
     expect(missingLines(list)[1]).toMatch(/^Jose P is missing EOD for \w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
     expect(formatMissingEods(list, "PMU")).toMatch(/^⚠️ \*Missing EODs · PMU\* \(4 days\)\n• Carly V is missing EOD for \w{3} \w{3} \d+ \(Jonelle\)\n• Jose P is missing EOD for .*\(Kimberly\); today so far: Elizabeth\n• Mitch S .*\(Pia\)\n_From the Sales Calls in GHL/);
     expect(formatMissingEods([], "PMU")).toMatch(/Everyone is filed/);
+    // D301: to tag in Slack: their Slack id when they have one, else the name; the days with the calls, no links
+    const tag = missingPeople(list.map((p) => (p.name === "Jose P" ? { ...p, slack_user_id: "UJOSE" } : p)));
+    expect(tag.map((p) => p.mention)).toEqual(["Carly V", "<@UJOSE>", "Mitch S"]);
+    expect(tag[1].days).toMatch(/^\w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
+    expect(JSON.stringify(tag)).not.toMatch(/http/);
     // each day links through the operator's sign-in to that day's form; someone off the team has no form, so no link; the closers' private links are never in it
     const linked = formatMissingEods(list, "PMU", "https://biab.test/go/eod/pmu");
     expect(linked).toMatch(new RegExp(`<https://biab\\.test/go/eod/pmu/${list[1].user_id}/\\d{4}-\\d{2}-\\d{2}\\|\\w{3} \\w{3} \\d+> \\(Tommy\\)`));

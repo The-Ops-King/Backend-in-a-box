@@ -38,6 +38,10 @@ export async function missingEods(c: PoolClient, company: CompanyRow, now = Date
 export const missingLines = (list: MissingPerson[], go?: string): string[] =>
   list.map((p) => `${p.name} is missing EOD for ${p.days.map((d) => `${go && p.user_id ? `<${go}/${p.user_id}/${d.day}|${d.label}>` : d.label}${d.names.length ? ` (${d.names.join(", ")})` : ` (${d.calls} call${d.calls === 1 ? "" : "s"})`}`).join(", ")}`);
 
+/** D301: each person to tag: `mention` <@their Slack id> (their name when they have none), `days` the days owed with the calls, no links. */
+export const missingPeople = (list: MissingPerson[]) => list.map((p) => ({ name: p.name, mention: p.slack_user_id ? `<@${p.slack_user_id}>` : p.name,
+  days: p.days.map((d) => `${d.label}${d.names.length ? ` (${d.names.join(", ")})` : ` (${d.calls} call${d.calls === 1 ? "" : "s"})`}`).join(", ") }));
+
 /**
  * The Slack answer: "Jose P is missing EOD for <Mon Oct 26> (Tommy Arakilian), <Tue Oct 27> (Kimberly C)", each day a link through the
  * operator's sign-in to that day's form (`go`: the base of /go/eod/<slug>; none, plain days). The closers' private links are never in it.
