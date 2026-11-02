@@ -412,7 +412,8 @@ export async function shortcutBody(deps: BotDeps, companyId: string, plan: Plan,
   if (plan.shortcut === "missing-eod") {
     const { missingEods, formatMissingEods } = await import("./missing-eods");
     const { loadCompany } = await import("./context");
-    return asOperator(async (c) => { const { row } = await loadCompany(c, companyId); const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, ""); return formatMissingEods(await missingEods(c, row, now as DateTime<true>, 14, deps.ghl ?? (await import("./owed")).readsFrom(deps.adapters)), row.name, base ? `${base}/go/eod/${row.slug}` : undefined); });
+    // D303: names and days only, wherever it is asked (an admin link in a channel asked people for a password); a closer opens their own form from the File my EOD button
+    return asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return formatMissingEods(await missingEods(c, row, now as DateTime<true>, 14, deps.ghl ?? (await import("./owed")).readsFrom(deps.adapters)), row.name); });
   }
   if (plan.shortcut === "availability") return `📊 ${formatAvailability(await asOperator((c) => getAvailability(c, companyId, deps.probes ?? liveProbes, plan.days ?? 7, now)), foot)}`;
   const reads = memoReads(deps.ghl ?? liveGhlReads);
