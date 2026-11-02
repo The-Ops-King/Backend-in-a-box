@@ -46,6 +46,18 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     expect(await asOperator((c) => contactsReassign(c, fake, { ...args, to: "nobody@x.com" }))).toMatchObject({ ok: false, status: 404 });
   });
 
+  it("D300: contacts named by GHL id instead of a tag: only those move, whatever their tags; a tag and contacts together is refused", async () => {
+    writes.length = 0;
+    crm.set("C", snap("C", "GM", ["other"]));
+    const args = { company: SLUG, from: "mitch@x.com", to: "nonie@x.com", contacts: ["C"], why: "test" };
+    expect(await asOperator((c) => contactsReassign(c, fake, args))).toMatchObject({ ok: true, dryRun: true, count: 1, contacts: ["C"] });
+    expect(writes).toEqual([]);
+    expect(await asOperator((c) => contactsReassign(c, fake, { ...args, dryRun: false }))).toMatchObject({ ok: true, moved: 1, contacts: ["C"], skipped: [] });
+    expect(writes).toEqual([["C", "GN"]]);
+    expect(await asOperator((c) => contactsReassign(c, fake, { ...args, tag: "dating" }))).toMatchObject({ ok: false, status: 400 });
+    writes.length = 0;
+  });
+
   it("everyone's but Nelly's (no owner included): Nelly's and the new owner's own are left; each still checked live", async () => {
     await asOperator(async (c) => {
       for (const [id, owner] of [["G", null], ["H", "GL"], ["I", "GM"]] as const)

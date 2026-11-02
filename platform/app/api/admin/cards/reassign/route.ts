@@ -9,11 +9,12 @@ export const dynamic = "force-dynamic"; export const maxDuration = 120;
  * D260: POST { company, from: <GHL user id or email>, to: <email of someone on the roster>, why, dryRun = true }: every open card the
  * replica has on `from` is assigned to `to` in GHL (a person whose GHL user was replaced: Jassie's AOL user, removed, for her
  * nellysudri one). Each card is read live first and moved only if GHL still has it on `from`; the rest are said. Audited.
+ * D300: `contacts` (GHL contact ids) moves only those people's cards.
  * Authorization: Bearer $CRON_SECRET.
  */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const b = (await req.json().catch(() => null)) as { company?: string; from?: string; to?: string; why?: string; dryRun?: boolean } | null;
+  const b = (await req.json().catch(() => null)) as { company?: string; from?: string; to?: string; why?: string; contacts?: string[]; dryRun?: boolean } | null;
   if (!b?.company || !b.from || !b.to || !b.why?.trim()) return NextResponse.json({ error: "company, from, to and why are required" }, { status: 400 });
   return asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [b.company]); if (!co) return NextResponse.json({ error: "no such company" }, { status: 404 });
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
     if (!to?.ghl_user_id) return NextResponse.json({ error: "to: no active roster member with that email and a GHL user" }, { status: 404 });
     if (from.ghl_user_id === to.ghl_user_id) return NextResponse.json({ error: "from and to are the same GHL user" }, { status: 400 });
     const cards = await many<{ id: string; ghl_opportunity_id: string; name: string; contact_id: string; ghl_contact_id: string | null }>(c, `select p.id, p.ghl_opportunity_id, p.name, p.contact_id, ct.ghl_contact_id from pipeline_cards p join contacts ct on ct.id=p.contact_id
-      where p.company_id=$1 and p.status='open' and p.assigned_user_id=$2 and p.ghl_opportunity_id is not null order by p.name`, [co.id, from.id]);
+      where p.company_id=$1 and p.status='open' and p.assigned_user_id=$2 and p.ghl_opportunity_id is not null and ($3::text[] is null or ct.ghl_contact_id = any($3::text[])) order by p.name`, [co.id, from.id, b.contacts?.length ? b.contacts : null]);
     const { adapterCompany: ac } = await loadCompany(c, co.id);
     const out: { card: string; name: string; now?: string; done?: boolean; skipped?: string; error?: string }[] = [];
     for (const k of cards) {
