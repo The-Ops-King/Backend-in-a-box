@@ -7251,3 +7251,12 @@ the closer had already gone without it.
   (the workflow that makes the offer's Sales Calls runs quiet or live), audited.
 - A booking inside the poll's lag (`poll_lag_min`, 30 by default) is left to Call booked, which makes the record as the booking lands.
 - A call ahead that was cancelled is not owed a record. Nothing about passed calls changes.
+
+## D300. A handover can name its people (2026-11-02)
+
+Tyler, on Carly's two calls still ahead after she left (Ikeybra Byrd Nov 16, Alysha Ajanon Dec 15): "let's assign them to minerva for
+now ... assign them to her in GHL". The calls' closer moved with D218 (`/api/admin/appointments/closer`). The card and contact owner
+had only bulk doors: `cards/reassign` moves every open card on a person (Carly has 39) and `contact/reassign` every contact with a tag.
+
+- Both take `contacts` (GHL contact ids): only those people's cards, or those contacts, move. `contact/reassign` takes a tag or
+  contacts, not both. Each is still read live before it is written, dry run first, audited.

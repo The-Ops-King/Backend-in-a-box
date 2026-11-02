@@ -78,9 +78,9 @@ export async function contactTags(c: PoolClient, adapters: Adapters, a: { compan
  * instead. Had a call: a booking of theirs whose time has passed and was not cancelled (the replica's), or a call in their GHL
  * conversations that connected for more than 0 seconds (read live, the dry run too, since the replica's history starts later).
  */
-export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from?: string; except?: string[]; to: string; calledTo?: string; tag: string; why: string; dryRun?: boolean }):
+export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from?: string; except?: string[]; to: string; calledTo?: string; tag?: string; contacts?: string[]; why: string; dryRun?: boolean }):
   Promise<{ ok: true; dryRun: boolean; from: string; to: string; count: number; byOwner: Record<string, number>; moved: number; contacts: string[]; skipped: { who: string; why: string }[]; called?: { to: string; count: number; contacts: string[] } } | Fail> {
-  if ((!a.from && !a.except?.length) || (a.from && a.except?.length) || !a.to || !a.tag?.trim() || !a.why?.trim()) return { ok: false, status: 400, error: "to, tag, why, and one of from (an owner) or except (owners to leave alone) are required" };
+  if ((!a.from && !a.except?.length) || (a.from && a.except?.length) || !a.to || !a.why?.trim() || (!a.tag?.trim() === !a.contacts?.length)) return { ok: false, status: 400, error: "to, why, one of tag or contacts (GHL contact ids), and one of from (an owner) or except (owners to leave alone) are required" };
   const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
   const who = (email: string) => one<{ name: string; ghl_user_id: string | null }>(c, "select name, ghl_user_id from users where company_id=$1 and lower(email)=lower($2)", [co.id, email.trim()]);
   const to = await who(a.to);
@@ -93,7 +93,8 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
   const matches = (owner: string | null | undefined) => (from ? owner === from.ghl_user_id : !keep.includes(owner ?? ""));
   const list = (await many<{ id: string; ghl_contact_id: string; who: string; owner: string | null; owner_name: string | null }>(c, `select ct.id, ct.ghl_contact_id, coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), ct.ghl_contact_id) as who,
       ct.assigned_ghl_user_id as owner, u.name as owner_name from contacts ct left join users u on u.company_id=ct.company_id and u.ghl_user_id=ct.assigned_ghl_user_id
-    where ct.company_id=$1 and $2 = any(ct.tags) and ct.ghl_contact_id is not null and ct.gone_at is null and ct.merged_into is null order by who`, [co.id, a.tag.trim()]))
+    where ct.company_id=$1 and (case when $3::text[] is null then $2 = any(ct.tags) else ct.ghl_contact_id = any($3::text[]) end) and ct.ghl_contact_id is not null and ct.gone_at is null and ct.merged_into is null order by who`,
+      [co.id, a.tag?.trim() ?? null, a.contacts?.length ? a.contacts.map((x) => x.trim()) : null]))
     .filter((x) => matches(x.owner));
   const byOwner: Record<string, number> = {};
   for (const x of list) { const k = x.owner_name ?? (x.owner ? `someone not on the roster (${x.owner})` : "no owner"); byOwner[k] = (byOwner[k] ?? 0) + 1; }
@@ -128,7 +129,7 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
       if (!live) { skipped.push({ who: x.who, why: "gone from GHL" }); continue; }
       if (live.assignedTo === p.target.ghl_user_id) { skipped.push({ who: x.who, why: `already ${p.target.name}'s` }); continue; }
       if (!matches(live.assignedTo)) { skipped.push({ who: x.who, why: live.assignedTo === to.ghl_user_id ? `already ${to.name}'s` : live.assignedTo ? "owned by someone else now" : "has no owner now" }); continue; }
-      if (!live.tags.includes(a.tag.trim())) { skipped.push({ who: x.who, why: `no longer tagged ${a.tag}` }); continue; }
+      if (a.tag?.trim() && !live.tags.includes(a.tag.trim())) { skipped.push({ who: x.who, why: `no longer tagged ${a.tag}` }); continue; }
       await adapters.write.updateContact(ac, x.ghl_contact_id, { assignedUserId: p.target.ghl_user_id });
       // each contact committed on its own (D204: one transaction held across hundreds of GHL calls collided with the contacts poll
       // and lost every replica write at the end; the poll reads the owner back from GHL anyway)
