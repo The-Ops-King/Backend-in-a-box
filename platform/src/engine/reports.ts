@@ -150,10 +150,9 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   const want = new Set(opts.breakdowns ?? []);
   // D246: who owes an end of day, as the wrap-up is read (a layout that does not word it says nothing about it)
   const { missingEods, missingLines, missingPeople: peopleOwing } = await import("./missing-eods");
-  const goBase = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
   // D264: read from GHL; GHL unread, the wrap-up still posts and says the missing EODs could not be read rather than that nobody owes one
   const owing = await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>, 14, opts.reads).catch((e: Error) => e);
-  const missing = owing instanceof Error ? [`Missing EODs couldn't be read from GHL (${String(owing.message).slice(0, 120)})`] : missingLines(owing, goBase ? `${goBase}/go/eod/${company.slug}` : undefined);
+  const missing = owing instanceof Error ? [`Missing EODs couldn't be read from GHL (${String(owing.message).slice(0, 120)})`] : missingLines(owing);   // D303: no admin links in a channel
   // D301: the same people, to be tagged; unread, the one line above says so and no one is tagged
   const missingPeople = owing instanceof Error ? [] : peopleOwing(owing);
   const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, showRate, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now, missingEods: missing, missingPeople });

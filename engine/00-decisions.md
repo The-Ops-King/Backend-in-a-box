@@ -7285,3 +7285,15 @@ Corey's calls: recording link, date, length and objection never landed, and the 
 - A step that may make the record is said to "save" it, not "create" it (it often updates).
 - The drift sweep no longer asks about a Sales Call with no outcome in GHL whose booking the engine has a guess for (`ghl_unfiled`):
   filing it is the end of day's job, which asks the closer, tags them a day late (D301) and lists it in the wrap-ups.
+
+## D303. File my EOD: a button, never a link, in a shared channel (2026-11-02)
+
+Tyler, on a missing-EOD post whose day links asked for a password: "why ... is there an admin link in the public channel?! ... when an
+EOD form gets posted it should give the link that closers can click to fill out their eod." A closer's own link files their end of
+day for whoever has it, so it is never posted where others can see it (it goes to them by DM).
+
+- A slack_post can carry a "File my EOD" button (`buttons`, action `eod_open`). A press says who pressed; the answer is that person's
+  own link, shown only to them (ephemeral): one line per day they still owe (read from GHL, D264, the same list the post tags) and
+  today's. Someone not on the team, or GHL unread, is told so plainly; no one can open another person's form from a channel.
+- The `/missing-eod` answer and a wrap-up's `report.missing_eods.lines` no longer link each day through the operator's sign-in
+  (`/go/eod/...`): names and days only, on every offer (Slack works the same everywhere). The route stays for the dashboard.
