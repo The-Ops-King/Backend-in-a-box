@@ -31,7 +31,7 @@ const NO_RECORD_DAYS = 35;
 /** The defaults of the health_check step's drift settings (D88): `drift_days` looked back over, `poll_lag_min` the poll has not reached. */
 export const DRIFT_DAYS = 7;
 export const POLL_LAG_MIN = 30;
-/** D295: how far ahead a booked call is checked for its Sales Call */
+/** D299: how far ahead a booked call is checked for its Sales Call */
 export const UPCOMING_DAYS = 90;
 const NAMES = 10;
 
@@ -259,7 +259,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     // GHL's own records (the week's calls do not reach it): one under its booking's key, or for the same person at the same minute (a
     // record made outside the engine, a Zap's, counts)
     const recordFrom = now.minus({ days: NO_RECORD_DAYS }).toJSDate();
-    // D295 (Tyler, Jennifer Rouwhorst's call that afternoon had no Sales Call: "You said the health check should catch shit like this"):
+    // D299 (Tyler, Jennifer Rouwhorst's call that afternoon had no Sales Call: "You said the health check should catch shit like this"):
     // a call still ahead is checked too, so its record is there before the call, not made after it; a booking gets the poll's lag first
     // (Call booked makes the record as the booking lands)
     const upcomingTo = now.plus({ days: UPCOMING_DAYS }).toJSDate();
