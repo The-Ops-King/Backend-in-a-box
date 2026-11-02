@@ -107,7 +107,7 @@ export function doingWords(n: Node): string {
     case "send_document": return "send the agreement for signature";
     case "slack_post": return n.title ? lower(n.title) : n.thread_of ? "reply in the Slack thread" : `post to ${pathWords(n.channel)} in Slack`;
     case "pipeline_card": return `move the ${boardWords(n.pipeline)} card${n.title ? ` (${n.title})` : ""}`;
-    case "crm_record": return `${n.if_missing === "create" && !n.record_id ? "create" : "update"} the ${humanWords((/^\{\{\s*crm\.object_([a-z0-9_]+)/.exec(n.object)?.[1] ?? n.object).replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
+    case "crm_record": return `${n.if_missing === "create" && !n.record_id ? "save" : "update"} the ${humanWords((/^\{\{\s*crm\.object_([a-z0-9_]+)/.exec(n.object)?.[1] ?? n.object).replace(/^custom_objects\./, "")).replace(/\b[a-z]/g, (c) => c.toUpperCase())} record`;
     case "update_appointment": return "update the booking in the CRM";
     case "webhook": return `call ${n.url.replace(/^https?:\/\//, "").split(/[/?]/)[0] || "the webhook"}`;
     default: return lower(n.title ?? describeNode(n).title);
