@@ -7239,3 +7239,15 @@ running, which kept polling and alerting.
 - Pausing closes the offer's open alerts quietly.
 - Unpausing clears its poll cursors, so the first read of GHL and Calendly is a silent baseline: nothing booked or changed while it was
   paused starts a workflow or sends a text late. The 10-minute sync (D297) then brings it into line with GHL.
+
+## D299. The GHL sweep checks a call still ahead for its Sales Call (2026-11-02)
+
+Tyler, after Jennifer Rouwhorst's call that afternoon had no Sales Call: "You said the health check should catch shit like this." The
+sweep (D289, D291, D297) only looked at calls that had passed, so a booking whose Sales Call never got made was found after the call, when
+the closer had already gone without it.
+
+- The sweep now also takes booked calls up to `UPCOMING_DAYS` (90) ahead. A call ahead with no Sales Call in GHL (by its booking's key, or
+  the same person at the same minute) gets one made by the same repair as D291: scheduled, for its closer, under the same write rule
+  (the workflow that makes the offer's Sales Calls runs quiet or live), audited.
+- A booking inside the poll's lag (`poll_lag_min`, 30 by default) is left to Call booked, which makes the record as the booking lands.
+- A call ahead that was cancelled is not owed a record. Nothing about passed calls changes.

@@ -31,6 +31,8 @@ const NO_RECORD_DAYS = 35;
 /** The defaults of the health_check step's drift settings (D88): `drift_days` looked back over, `poll_lag_min` the poll has not reached. */
 export const DRIFT_DAYS = 7;
 export const POLL_LAG_MIN = 30;
+/** D299: how far ahead a booked call is checked for its Sales Call */
+export const UPCOMING_DAYS = 90;
 const NAMES = 10;
 
 /** D69: ask the CRM before saying a record is gone. A "not found" in any shape is gone; anything else that fails is unknown. */
@@ -257,11 +259,16 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     // GHL's own records (the week's calls do not reach it): one under its booking's key, or for the same person at the same minute (a
     // record made outside the engine, a Zap's, counts)
     const recordFrom = now.minus({ days: NO_RECORD_DAYS }).toJSDate();
+    // D299 (Tyler, Jennifer Rouwhorst's call that afternoon had no Sales Call: "You said the health check should catch shit like this"):
+    // a call still ahead is checked too, so its record is there before the call, not made after it; a booking gets the poll's lag first
+    // (Call booked makes the record as the booking lands)
+    const upcomingTo = now.plus({ days: UPCOMING_DAYS }).toJSDate();
     const matched = new Set(calls.filter((k) => k.match === "one").map((k) => k.appt!.id));
     let older: { id: string; key: string; ghl: string | null; at: Date }[] = [];
     try {
       older = await many<{ id: string; key: string; ghl: string | null; at: Date }>(c, `select a.id::text as id, coalesce(a.slot_key, a.external_id) as key, ct.ghl_contact_id as ghl, a.starts_at as at
-        from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term where a.company_id=$1 and t.category='closing' and a.starts_at >= $2 and a.starts_at < $3`, [company.id, recordFrom, from]);
+        from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term where a.company_id=$1 and t.category='closing'
+          and ((a.starts_at >= $2 and a.starts_at < $3) or (a.starts_at > $4 and a.starts_at <= $5))`, [company.id, recordFrom, from, to, upcomingTo]);
       if (older.length) {
         const recs = await reads.objectRecords(ac, cfg.object);
         const keys = new Set(recs.map((r) => String(r.properties.external_id ?? "").trim()).filter(Boolean));
@@ -271,9 +278,10 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     } catch { for (const o of older) matched.add(o.id); }   // GHL unread: an older call is not called missing on a read that did not happen
     const due = await many<{ id: string; starts_at: Date; name: string | null; closer: string | null; closer_email: string | null }>(c, `select a.id::text as id, a.starts_at, nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, u.name as closer, u.email as closer_email
       from appointments a join contacts ct on ct.id=a.contact_id join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
-      where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.starts_at >= $2 and a.starts_at <= $3
+      where a.company_id=$1 and t.category='closing' and a.source<>'test' and a.starts_at >= $2 and a.starts_at <= $5 and coalesce(a.booked_at, a.created_at) <= $3
+        and not (a.starts_at > $3 and a.starts_at <= $6) and a.status <> case when a.starts_at > $6 then 'cancelled' else '' end
         and not (a.status='cancelled' and coalesce(a.source_updated_at, a.starts_at) < a.starts_at) and not ${testContactSql("ct", "$4")}
-      order by a.starts_at`, [company.id, recordFrom, to, testDomains(bindings)]);
+      order by a.starts_at`, [company.id, recordFrom, to, testDomains(bindings), upcomingTo, now.toJSDate()]);
     // D291 (Tyler: "the health check should have found that it was missed, and added it and tracked it. I shouldn't have to go in and
     // fix it"): when what makes the offer's Sales Calls writes to GHL (its Call booked, or its own Closing call booked, live or quiet),
     // the sweep makes the missing record itself, as the Sales Call backfill writes one (D115: from the evidence; the outcome blank when
