@@ -47,3 +47,12 @@ table, column, constraint or data fix is a new entry at the end of `platform/src
 recorded in `schema_migrations`; never edit one that has reached production. Write it through the migrator (`c.query`, and `c.tx`
 for a group that must not be left half done, one table per group) so it gives way to the live engine. Keep `engine/schema.sql` in
 step (`pnpm -s schema:sync`): it is what an empty database starts from.
+
+## Every alert fix prevents the next one (Tyler, 2026-11-02)
+
+"Every time we fix the alert we should be making a fix that makes sure that alert doesn't need to happen in the future." Fixing an
+alert is two changes, never one: put right what it is about (the record, the run, the post), and change what let it happen so that
+kind of alert cannot come back (a check at save, a guard in the step, a test that fails first). Say both when reporting the fix. An
+alert the engine raised is already the ask: fix it without waiting to be told, within the rules above (one offer at a time, dry run
+first, nothing that unlocks sends).
+
