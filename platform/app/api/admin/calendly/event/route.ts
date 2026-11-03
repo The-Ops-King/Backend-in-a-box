@@ -39,7 +39,7 @@ export async function GET(req: Request) {
         }
         return NextResponse.json({ ok: true, user: { email: u.email, name: u.name ?? null }, from: f.toISOString(), to: t.toISOString(), events });
       }
-      const from = new Date(), to = new Date(Date.now() + 7 * 864e5);
+      const from = new Date(), to = new Date(Date.now() + 7 * 864e5 - 60_000);   // Calendly: the range must be under 7 days
       const r = await calendly<{ collection?: { type: string; start_time: string; end_time: string }[] }>(token, `/user_busy_times?user=${encodeURIComponent(u.uri)}&start_time=${encodeURIComponent(from.toISOString())}&end_time=${encodeURIComponent(to.toISOString())}`);
       const busy = (r.collection ?? []).map((b) => ({ type: b.type, start: b.start_time, end: b.end_time }));
       return NextResponse.json({ ok: true, user: { email: u.email, name: u.name ?? null, timezone: u.timezone ?? null }, days: 7, external_count: busy.filter((b) => b.type === "external").length, calendly_count: busy.filter((b) => b.type === "calendly").length, busy });

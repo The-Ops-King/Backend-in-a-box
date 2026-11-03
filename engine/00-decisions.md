@@ -7394,3 +7394,15 @@ be in passive voice ... really be ABOUT the prospect ... we can add a '12k pitch
   added up from the calls' answers, nothing typed, and the engine files them that way whatever a form sends.
 - PMU's call review (prompt.call_review): every line under notes is about the prospect, in passive voice or fragments, never what the
   closer did; the offer in shorthand. The coaching (rubric) stays about the closer.
+
+## D310. A new member's calendar is made by copying a teammate's (2026-11-03)
+
+Tyler: "can you create her a 15 and 45 min calendar in calendly". `POST /api/admin/calendly/event-type { company, from, owner, name,
+duration?, why, dryRun = true }` makes a one-person calendar for a member of the offer's Calendly organization, copied from `from`.
+Calendly's create endpoint only takes the owner, name, duration, description, locations, color and active, so that is what gets
+copied. The answer lists by name what still has to be set in Calendly: the booking questions on the source, buffers, notice,
+reminders, the link's slug, and availability (the owner's default working hours). A round robin is not copied. The new calendar is
+not watched; watching it is `calendars/watch`. Audited (`calendly.event_type_created`).
+
+Also: the member busy-times lookup asked Calendly for exactly 7 days and was refused (the range must be under 7 days); it now asks
+for one minute less.
