@@ -416,10 +416,13 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   const closer = await closerByToken(c, args.token); if (!closer || !closer.active || !closer.company_id) return { ok: false, why: "this link is not for anyone" };
   const { row: company, adapterCompany, bindings } = await loadCompany(c, closer.company_id);
   const fields = await loadEodForm(c, company.id);
+  // D305: a refused day is written down with its exact reason (the closer's own words for what they were told), so a closer who
+  // says it "won't go through" is never a guess; it is not an alert (they see the reason on the form)
+  const refused = async (why: string) => { await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'eod.refused','user',$2,$3)", [company.id, closer.id, { day: args.day, why, calls: args.answers.calls.length }]); return { ok: false as const, why }; };
   const missing = missingAnswers(fields, args.answers.calls, args.answers.day_answers ?? {});
-  if (missing.length) return { ok: false, why: `Still needed: ${missing.join("; ")}` };
-  const impossible = impossibleAnswers(args.answers.calls);
-  if (impossible.length) return { ok: false, why: `Check ${impossible.join("; ")}` };
+  if (missing.length) return refused(`Still needed: ${missing.join("; ")}`);
+  const impossible = impossibleAnswers(args.answers.calls, fields);
+  if (impossible.length) return refused(`Check ${impossible.join("; ")}`);
   const pre = await prefill(c, company, closer, args.day, DateTime.now());
   // a row that is not a booking (a "ghl:<record>" row from a form opened before D110) is dropped before anything is stored; D156: nor is
   // an outbound-call row the engine did not put on this day
@@ -435,8 +438,8 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   // D254: a call someone else took is handed to them (Reassign request) and is not filed here; it is theirs to file
   const team = new Set((await many<{ id: string }>(c, "select id from users where company_id=$1 and active and id<>$2", [company.id, closer.id])).map((u) => u.id));
   const taken = args.answers.calls.filter((x) => x.outcome === TAKEN && BOOKING_ID.test(x.appointment_id) && x.taken_by && team.has(x.taken_by));
-  if (taken.length && !(await reassignOn(c, company.id))) return { ok: false, why: "Handing a call to someone else isn't turned on for this offer yet; pick what happened on the call" };
-  if (args.answers.calls.some((x) => x.outcome === TAKEN && !taken.includes(x))) return { ok: false, why: "Check who took each call you marked as someone else's: they must be on the team" };
+  if (taken.length && !(await reassignOn(c, company.id))) return refused("Handing a call to someone else isn't turned on for this offer yet; pick what happened on the call");
+  if (args.answers.calls.some((x) => x.outcome === TAKEN && !taken.includes(x))) return refused("Check who took each call you marked as someone else's: they must be on the team");
   for (const x of taken) await requestReassign(c, company.id, { appointmentId: x.appointment_id, toUserId: x.taken_by!, via: "eod", by: closer.name, why: `${closer.name}'s end of day for ${args.day}` });
   let recorded = 0;
   for (const call of args.answers.calls.filter((x) => x.outcome !== TAKEN)) {

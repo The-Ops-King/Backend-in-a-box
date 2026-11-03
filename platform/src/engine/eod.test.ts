@@ -9,7 +9,7 @@ import { dispatchSchedules } from "@/engine/clock";
 import { tick } from "@/engine/runner";
 import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
-import { totalsOf, DQ_REASONS, mergeEodFields } from "@/engine/eod-form";
+import { totalsOf, DQ_REASONS, mergeEodFields, impossibleAnswers } from "@/engine/eod-form";
 import { loadCompany } from "@/engine/context";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
 /** D226: a call short of a close says whether they were pitched; these tests are about other answers, so yes */
@@ -152,6 +152,10 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     // more cash than revenue on one call can't be true: nothing is filed until it is fixed
     const over = { ...answers, calls: answers.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, cash: 5000 } : x)) };
     expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than revenue generated" });
+    // D305: the refusal is written down with its reason; a deposit (cash asked, revenue hidden) is never refused over a revenue left in the hidden box
+    expect(await asOperator((c) => one<{ after: { why: string } }>(c, "select after from audit_log where company_id=$1 and action='eod.refused' order by id desc limit 1", [companyId]))).toMatchObject({ after: { why: "Check Leo Ortiz: cash collected is more than revenue generated" } });
+    expect(impossibleAnswers([{ ...over.calls.find((x) => x.contact === "Leo Ortiz")!, outcome: "deposit", cash: 500, revenue: 0 }], mergeEodFields(undefined))).toEqual([]);
+    expect(impossibleAnswers([{ ...over.calls.find((x) => x.contact === "Leo Ortiz")!, outcome: "closed", cash: 500, revenue: 0 }], mergeEodFields(undefined))).toHaveLength(1);
     const changes = diffAnswers(pre, answers);
     expect(changes.map(changeLine)).toEqual(["calls today 2 → 3", "cash collected $1,500 → $2,000", "Leo Ortiz: cash collected $1,500 → $2,000"]);
     // a blank the closer fills in is their answer, not a correction; a date the engine had and they moved is

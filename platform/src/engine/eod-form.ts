@@ -208,7 +208,12 @@ export function missingAnswers(fields: EodField[], calls: CallEntry[], day: Reco
   return out;
 }
 
-/** Answers that can't both be true: more cash collected on a call than the revenue it generated (a typo, or revenue left low). */
-export function impossibleAnswers(calls: CallEntry[]): string[] {
-  return calls.filter((x) => x.cash != null && x.revenue != null && x.cash > x.revenue).map((x) => `${x.contact}: cash collected is more than revenue generated`);
+/**
+ * Answers that can't both be true: more cash collected on a call than the revenue it generated (a typo, or revenue left low).
+ * D305: only where the form asks for both on that call's outcome. A deposit asks for cash and hides revenue; a revenue the
+ * prefill or an earlier pick left in the hidden box refused the whole day with nothing the closer could see to fix.
+ */
+export function impossibleAnswers(calls: CallEntry[], fields?: EodField[]): string[] {
+  const asks = (x: CallEntry, key: string) => !fields || fieldsFor(fields, x.outcome, x.kind).some((f) => f.key === key);
+  return calls.filter((x) => x.cash != null && x.revenue != null && x.cash > x.revenue && asks(x, "cash") && asks(x, "revenue")).map((x) => `${x.contact}: cash collected is more than revenue generated`);
 }

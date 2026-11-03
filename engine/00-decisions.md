@@ -7315,3 +7315,14 @@ it just send every eod that's missing".
   sets it and now says it only when there is one. The live copies on PMU, Dating and Hair still have that line: theirs to change.
 - `/missing-eod`, and "missing eod" said to the bot, answer with each person tagged (their Slack mention, the name when they have
   none) and the File my EOD button (D303) when anyone owes a day.
+
+## D305. An end of day is never refused over a box the closer can't see; every refusal is written down (2026-11-03)
+
+Tyler: "someone is trying to submit their EOD but it's not going through even though she has filled everything out." A refused day
+left no trace, so the reason was a guess. One reason the form could give that the closer could not act on: "cash collected is more
+than revenue generated" was checked on every call, though a deposit asks for cash and hides revenue; a revenue the prefill (the
+call's contract value) or an earlier pick left in the hidden box refused the whole day.
+
+- Cash over revenue is checked only where the call's outcome asks for both.
+- Every refused end of day is written to the audit log (`eod.refused`: who, which day, the exact reason the form showed), so the next
+  "it won't go through" is read, not guessed. Not an alert: the closer sees the reason on the form.
