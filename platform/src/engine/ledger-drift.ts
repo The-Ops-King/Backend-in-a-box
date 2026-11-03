@@ -188,6 +188,23 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     let card: string | null = null;
     if (needCard) {
       const cards = await many<{ v: string }>(c, "select ghl_opportunity_id as v from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and ghl_opportunity_id is not null and status<>'gone'", [company.id, k.appt!.contact_id, closerBoard]);
+      // D311: no card on the closer board at all: the backfill makes it as Call booked's card step makes it and relates the Sales
+      // Call to it (once; a person with two cards is still a question: which one is a person's call)
+      if (!cards.length && repairsWrite) {
+        const b = await one<{ starts_at: Date; email: string | null }>(c, "select a.starts_at, u.email from appointments a left join users u on u.id=a.assigned_user_id where a.id=$1", [k.appt!.id]);
+        if (b?.email) {
+          try {
+            const { backfillSalesCalls } = await import("./sales-call-backfill");
+            const r = await backfillSalesCalls(c, { row: company, adapterCompany: ac, bindings }, adapters, { from: new Date(b.starts_at.getTime() - 60_000), to: new Date(b.starts_at.getTime() + 60_000), closer: b.email, dryRun: false, now: now.toJSDate() });
+            const done = r.rows.find((x) => x.appointment_id === k.appt!.id)?.written?.card;
+            if (done && /made|related/.test(done)) {
+              await audit("sales_call", k.id, null, { repair: "closer_card", by: "health check", card: done });
+              repaired(`${k.id}:card`, `${label}: no closer card; the health check ${/made/.test(done) ? "made one" : "found one"} and linked the Sales Call to it`, { sales_call: k.id, label, card: done }, k.ghl || k.id, "card_made");
+              return;
+            }
+          } catch { /* asked below */ }
+        }
+      }
       if (cards.length !== 1) { ask("link_card", { label, record_id: k.id, cards: cards.length }); return; }
       card = cards[0].v;
     }
