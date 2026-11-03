@@ -17,6 +17,7 @@ import { transcriptFor } from "./transcripts";
 import { outcomeTermFor } from "./disposition";
 import { rollupRange } from "./metrics";
 import { contactByEmail, contactByGhlId } from "./identity";
+import { foldCard } from "./cards";
 
 /**
  * D115: a closer's Sales Calls over a window, read back from the evidence and written the way Call booked writes them
@@ -32,6 +33,8 @@ export type SalesCallWrite = {
   object: string; key: string; properties: Record<string, unknown>; relate: { association: string; first: string; second: string }[];
   ledger: { appointment_id: string | null; outcome: string | null; call_outcome: string | null };
   link_contact: { contact_id: string; ghl_contact_id: string } | null;
+  /** D311: the closer card made for a person with none on the closer board, as Call booked's own card step makes it; the Sales Call is related to it */
+  card?: { pipelineId: string; stageId: string; stage: string; name: string; assignedUserId?: string };
 };
 export type SalesCallRow = {
   slot_key: string; kind: "booking" | "left_slot"; appointment_id: string | null;
@@ -44,7 +47,7 @@ export type SalesCallRow = {
   remarks: string[];
   write: SalesCallWrite | null;
   skipped?: string; error?: string;
-  written?: { record: "created" | "updated"; crm_id: string; related: string[]; ledger: string[]; kept: string[] };
+  written?: { record: "created" | "updated"; crm_id: string; related: string[]; ledger: string[]; kept: string[]; card?: string };
 };
 export type SalesCallReport = {
   company: string; from: string; to: string; closer: string | null; dry_run: boolean; complete: boolean; resume_from?: string; plan_id?: string;
@@ -59,6 +62,9 @@ export type SalesCallOptions = { from: Date; to: Date; closer?: string; dryRun?:
 export type LoadedCompany = { row: CompanyRow; adapterCompany: Company; bindings: Record<string, string> };
 
 const RECORD_ID = "(this record)";   // stands in for the CRM id the write gets back
+const CARD_ID = "(the new card)";     // D311: stands in for the closer card the write makes
+/** D311: the closer board's stage for what is known of a call: its result, else cancelled, else the card step's own (Scheduled). No-show has no stage of its own. */
+const CARD_STAGE_FOR: Record<string, string> = { closed: "closed_won", deposit: "deposit", follow_up: "follow_up", lost: "lost", unqualified: "disqualified" };
 const PAID_SHOWED_WITHIN_H = 48;     // a payment this soon after the call is that call held
 const CREDIT_DAYS = 30;              // a payment is the call's when no later call came first, up to this long after it
 const NOTES_BEFORE_H = 2, NOTES_AFTER_D = 3;
@@ -88,6 +94,8 @@ type Setup = {
   fields: Map<string, { type?: string; options?: { key: string; label?: string }[] }> | null;
   dispositions: { key: string; meaning: string; reason?: string }[]; outcomes: ReturnType<typeof salesCallValues>; sources: { setter: string; self: string };
   board?: string; stages: Map<string, string>;
+  /** D311: Call booked's step that makes a new closer card, and the card_suffix its two paths set (self-booked, setter-booked) */
+  cardStep?: Extract<Node, { type: "pipeline_card" }>; suffix: { self?: string; setter?: string };
 };
 type Closer = { id: string; name: string; email: string; ghl_user_id: string | null };
 type LedgerAppt = { id: string; contact_id: string; external_id: string; slot_key: string; starts_at: Date; status: string; self_booked: boolean | null; set_by: string | null; assigned_user_id: string | null; term_name: string; cal_name: string | null; closer_email: string | null; closer_name: string | null; outcome: string | null; call_outcome: string | null };
@@ -133,6 +141,7 @@ async function loadSetup(c: PoolClient, co: LoadedCompany, adapters: Adapters): 
     kindNode: recorded.nodes.find((n): n is Extract<Node, { type: "classify" }> => n.type === "classify" && n.domain === "recording_kind"),
     analyzeNode: recorded.nodes.find((n): n is Extract<Node, { type: "analyze" }> => n.type === "analyze"),
     fields, dispositions, outcomes: salesCallValues(co.bindings), sources: bookingSourceValues(co.bindings), board: co.bindings["crm.pipeline_closer"], stages,
+    ...closerCardStep(callBooked, ctx, co),
   };
 }
 
@@ -612,10 +621,41 @@ async function writeFor(sh: Shared, s: Slot, row: SalesCallRow, link: SalesCallW
   said("booking_source", "calendar", self === true ? `${s.calendar} is a self-booking calendar` : `${s.calendar} is a setter's calendar`);
   said("setter", "booking answer", "the setter named on the booking");
   if (self == null && setup.sources.self) row.unknown.push({ field: "booking_source", likely: "can't tell", why: "the calendar does not say whether a setter or the person booked it" });
+  // D311: no card on the closer board: one is made as Call booked's card step makes it, on the stage what is known of the call says
+  let card: SalesCallWrite["card"];
+  if (!cards.length && setup.board && setup.cardStep && row.contact.ghl_contact_id) {
+    const n = setup.cardStep;
+    (ctx.vars as Record<string, unknown>).card_suffix = self === false ? setup.suffix.setter ?? "" : setup.suffix.self ?? "";
+    const dispMeaningNow = row.fields.disposition !== undefined ? setup.dispositions.find((d) => d.key === row.fields.disposition)?.meaning ?? null : null;
+    const stageKey = (dispMeaningNow && CARD_STAGE_FOR[dispMeaningNow]) || (row.fields.outcome !== undefined && row.fields.outcome === setup.outcomes.cancelled ? "cancelled" : null);
+    // a step this offer cannot render (a stage it has not bound) makes no card; the Sales Call is written all the same and the row says why
+    let stageId = "", name = "", assignedUserId: string | undefined;
+    try {
+      stageId = (stageKey && co.bindings[`crm.stage_closer_${stageKey}`]) || render(n.stage ?? "", ctx, env).trim();
+      name = render(n.name ?? "", ctx, env).trim(); assignedUserId = render(n.assign_to ?? "", ctx, env).trim() || undefined;
+    } catch (e) { row.remarks.push(`no card on the closer board, and none can be made: ${String((e as Error).message).slice(0, 120)}`); }
+    if (stageId && name) {
+      card = { pipelineId: setup.board, stageId, stage: setup.stages.get(stageId) ?? stageId, name, ...(assignedUserId ? { assignedUserId } : {}) };
+      (ctx.cards as Record<string, unknown>).closer = { id: CARD_ID, stage: stageId, name };
+      row.remarks.push(`no card on the closer board: one is made, "${name}" on ${card.stage.replace(/_/g, " ")}`);
+    }
+  }
   const relate = setup.k4.relate.map((r) => { const rc = { ...ctx, record: { id: RECORD_ID } }; return { association: render(r.association, rc, env), first: render(r.first, rc, env), second: render(r.second, rc, env) }; }).filter((r) => r.association && r.first && r.second);
   const meaning = (a: unknown) => (a === undefined ? null : Object.entries({ showed: setup.outcomes.showed, noshow: setup.outcomes.noshow, cancelled: setup.outcomes.cancelled, rescheduled: setup.outcomes.rescheduled }).find(([, k]) => k === a)?.[0] ?? null);
   const dispMeaning = row.fields.disposition !== undefined ? setup.dispositions.find((d) => d.key === row.fields.disposition)?.meaning ?? null : null;
-  return { object: setup.objectKey, key: s.key, properties: out, relate, ledger: { appointment_id: s.kind === "booking" ? s.appt!.id : null, outcome: meaning(row.fields.outcome), call_outcome: dispMeaning }, link_contact: link };
+  return { object: setup.objectKey, key: s.key, properties: out, relate, ledger: { appointment_id: s.kind === "booking" ? s.appt!.id : null, outcome: meaning(row.fields.outcome), call_outcome: dispMeaning }, link_contact: link, ...(card ? { card } : {}) };
+}
+
+/**
+ * D311 (Tyler: "add them to a closer card, and make the change"): the step Call booked makes a new closer card with (on the closer
+ * board, not keeping a name), and the card_suffix its self-booked and setter-booked paths set (Dating: "Direct", "Setter Booked").
+ */
+function closerCardStep(d: Definition, ctx: Record<string, unknown>, co: LoadedCompany): Pick<Setup, "cardStep" | "suffix"> {
+  const board = co.bindings["crm.pipeline_closer"];
+  const cardStep = board ? d.nodes.find((n): n is Extract<Node, { type: "pipeline_card" }> => n.type === "pipeline_card" && !n.keep_name && !!n.name && !!n.stage && render(n.pipeline, ctx, { tz: co.row.timezone }) === board) : undefined;
+  const values = d.nodes.filter((n): n is Extract<Node, { type: "set_var" }> => n.type === "set_var" && n.key === "card_suffix").map((n) => String(n.value ?? ""));
+  const self = values.find((v) => /direct|self/i.test(v)), setter = values.find((v) => v !== self);
+  return { cardStep, suffix: { self, setter } };
 }
 
 /**
@@ -668,8 +708,27 @@ async function applyRows(c: PoolClient, co: LoadedCompany, adapters: Adapters, r
       await c.query(`insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
         on conflict (company_id, object_key, record_key) do update set ghl_record_id=coalesce(crm_records.ghl_record_id, excluded.ghl_record_id), properties=crm_records.properties || excluded.properties, updated_at=now()`,
         [co.row.id, w.object, w.key, crmId, row.contact.id, props]);
+      // D311: the closer card the plan makes, unless one is on the board by now (read again: never a second card)
+      let cardId: string | null = null, cardNote: string | undefined;
+      if (w.card && row.contact.ghl_contact_id) {
+        const now = (await adapters.read.openCards(co.adapterCompany, row.contact.ghl_contact_id)).filter((x) => x.pipelineId === w.card!.pipelineId);
+        if (now.length === 1) { cardId = now[0].id; cardNote = `card ${cardId} already on the closer board: related`; }
+        else if (now.length > 1) cardNote = `${now.length} cards on the closer board by now: none made, none related`;
+        else {
+          cardId = (await adapters.write.createOpportunity(co.adapterCompany, { contactId: row.contact.ghl_contact_id, pipelineId: w.card.pipelineId, stageId: w.card.stageId, name: w.card.name, status: "open", ...(w.card.assignedUserId ? { assignedUserId: w.card.assignedUserId } : {}) })).id;
+          cardNote = `card ${cardId} made: "${w.card.name}" on ${w.card.stage.replace(/_/g, " ")}`;
+          await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'card.created_by_backfill','opportunity',$2,$3)", [co.row.id, cardId, { ...w.card, sales_call: crmId, contact: row.contact.ghl_contact_id }]);
+          // the new card into the replica at once (folded as the poll folds it; a card the replica never had is no hand's move, so
+          // nothing is emitted), so the hourly link check never asks "which card?" about a card the CRM already has
+          if (row.contact.id) await foldCard(c, co.row.id, row.contact.id, { id: cardId, pipelineId: w.card.pipelineId, stageId: w.card.stageId, status: "open", name: w.card.name, ...(w.card.assignedUserId ? { assignedUserId: w.card.assignedUserId } : {}), updatedAt: new Date().toISOString() });
+        }
+      }
       const related: string[] = [];
-      for (const r of w.relate) { const first = r.first === RECORD_ID ? crmId : r.first, second = r.second === RECORD_ID ? crmId : r.second; await adapters.write.relateRecords(co.adapterCompany, r.association, first, second); related.push(`${first}→${second}`); }
+      for (const r of w.relate) {
+        if (r.second === CARD_ID && !cardId) continue;
+        const first = r.first === RECORD_ID ? crmId : r.first === CARD_ID ? cardId! : r.first, second = r.second === RECORD_ID ? crmId : r.second === CARD_ID ? cardId! : r.second;
+        await adapters.write.relateRecords(co.adapterCompany, r.association, first, second); related.push(`${first}→${second}`);
+      }
       const ledger: string[] = [];
       if (w.ledger.appointment_id) {
         const a = await one<{ outcome_term: string | null; call_outcome_term: string | null }>(c, "select outcome_term, call_outcome_term from appointments where id=$1 and company_id=$2", [w.ledger.appointment_id, co.row.id]);
@@ -682,7 +741,7 @@ async function applyRows(c: PoolClient, co: LoadedCompany, adapters: Adapters, r
           if (t) { await c.query("update appointments set call_outcome_term=$2 where id=$1", [w.ledger.appointment_id, t.id]); ledger.push(`call outcome ${w.ledger.call_outcome}`); }
         }
       }
-      row.written = { record, crm_id: crmId, related, ledger, kept };
+      row.written = { record, crm_id: crmId, related, ledger, kept, ...(cardNote ? { card: cardNote } : {}) };
     } catch (e) { row.error = String((e as Error).message).slice(0, 300); }
   }
   const tz = co.row.timezone;

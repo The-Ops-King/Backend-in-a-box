@@ -7406,3 +7406,23 @@ not watched; watching it is `calendars/watch`. Audited (`calendly.event_type_cre
 
 Also: the member busy-times lookup asked Calendly for exactly 7 days and was refused (the range must be under 7 days); it now asks
 for one minute less.
+
+## D311. A Sales Call the repairs write gets its closer card (2026-11-03)
+
+Tyler: "add them to a closer card, and make the change". Four Nelly Sales Calls made by the backfill (Celine Adran, Olivia Villa, Alia
+Besharat, Jayne Clark) were tied only to the person, because the person had no card on the closer board. The hourly link check then
+asked "which card?" with nothing to pick.
+
+- The Sales Call backfill, and so the health check that uses it for a missing Sales Call (D291), now makes the closer card when the
+  person has none on the closer board. It's made the way the offer's own Call booked card step makes it: that step's name ("<name>
+  -- Direct" / "-- Setter Booked" from the step's own `card_suffix` values) and assignee. The Sales Call is then related to it.
+- The stage follows what is known of the call: its result (closed won, deposit, follow up, lost, disqualified), else cancelled,
+  else the step's own stage (Scheduled). No-show has no closer stage on Nelly, so a no-show sits on Scheduled; Tyler: "for no-shows
+  we'll just have to not have the data for now".
+- The CRM is read again before making it, so a card made meanwhile is used and none is made twice. The new card goes into the
+  replica at once, without emitting anything, so no workflow starts and the link check sees it.
+- The hourly link check, finding a Sales Call whose person has no closer card at all, has the backfill make and link it instead of
+  asking. Two cards stay a question: which one is a person's call.
+- An offer whose card step cannot be rendered (a stage it has not bound) still gets its Sales Call; the row says why no card was made.
+
+Also: the provision test expected Nelly's setup file to list four closers; Judith was added to it (PR #142), so it lists five.

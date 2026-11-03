@@ -13,7 +13,7 @@ import { installCompany } from "@/engine/install";
 import { parseDefinition, extractManifest } from "@/engine/definition";
 import { syncTriggers } from "@/engine/install";
 import { fakeAdapters } from "@/engine/test-install";
-import type { Adapters, AppointmentSnapshot, ContactSnapshot, LiveCard, ObjectRecord } from "@/adapters/types";
+import type { Adapters, AppointmentSnapshot, ContactSnapshot, LiveCard, ObjectRecord, OpportunityWrite } from "@/adapters/types";
 
 const HAS_DB = !!process.env.DATABASE_URL;
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -59,6 +59,7 @@ const bookings: Record<string, AppointmentSnapshot[]> = {
 
 /** What the vendors hold, and every write the engine makes to them. */
 const world = {
+  made: [] as ({ id: string } & OpportunityWrite & { contactId: string })[],
   records: [] as ObjectRecord[], creates: 0, updates: [] as { id: string; properties: Record<string, unknown> }[], relations: [] as string[], jevAsked: [] as string[],
   cards: { GI: [{ id: "OPP-I", pipelineId: "P", stageId: "S-NS", status: "open", name: "Ivy", updatedAt: iso(I.plus({ hours: 2 })), stageChangedAt: iso(I.plus({ hours: 2 })) }], GA: [{ id: "OPP-A", pipelineId: "P", stageId: "S-FU", status: "open", name: "Ann", updatedAt: iso(A.plus({ days: 1 })), stageChangedAt: iso(A.plus({ days: 1 })) }],
     GN: [{ id: "OPP-N", pipelineId: "P", stageId: "S-FU", status: "open", name: "Nia", updatedAt: iso(N.plus({ days: 1 })), stageChangedAt: iso(N.plus({ days: 1 })) }],
@@ -86,6 +87,7 @@ function adapters(): Adapters {
       createRecord: async (_c, _o, properties) => { world.creates++; const id = `REC-${world.records.length + 1}`; world.records.push({ id, createdAt: new Date().toISOString(), properties }); return { id }; },
       updateRecord: async (_c, _o, id, properties) => { world.updates.push({ id, properties }); const r = world.records.find((x) => x.id === id); if (r) Object.assign(r.properties, properties); },
       relateRecords: async (_c, assoc, a, b) => { world.relations.push(`${assoc}:${a}→${b}`); },
+      createOpportunity: async (_c, o) => { const id = `OPP-NEW-${world.made.length + 1}`; world.made.push({ id, ...o }); (world.cards[o.contactId] ??= []).push({ id, pipelineId: o.pipelineId, stageId: o.stageId, status: "open", name: o.name, assignedUserId: o.assignedUserId, updatedAt: new Date().toISOString() }); return { id }; },
     },
     classifier: { choice: async (_state, input, options, _t, opts) => {
       world.jevAsked.push(opts?.question ?? "");
@@ -327,5 +329,29 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect(rowA.written!.crm_id).not.toBe(oldId);
     expect(world.records.filter((x) => x.properties.external_id === "evt-A")).toHaveLength(1);
     expect(await asOperator((c) => one(c, "select ghl_record_id from crm_records where company_id=$1 and record_key='evt-A'", [companyId]))).toEqual({ ghl_record_id: rowA.written!.crm_id });
+  });
+  it("D311: a person with no card on the closer board gets one, made as Call booked's card step makes it, and the Sales Call is related to it; once", async () => {
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.stage_closer_scheduled','id',$2)", [companyId, Buffer.from("S-SCH")]));
+    const before = await counts();
+    const r = await run({ dryRun: false });
+    const madeRows = r.rows.filter((x) => /made/.test(x.written?.card ?? ""));
+    expect(madeRows.length).toBeGreaterThan(0);
+    expect(world.made.length).toBe(madeRows.length);
+    for (const m of world.made) {
+      expect(m).toMatchObject({ pipelineId: "P", status: "open", name: expect.stringMatching(/ -- /) });
+      expect(["S-SCH", "S-FU", "S-LOST", "S-NS"]).toContain(m.stageId);
+    }
+    const row = madeRows[0], id = row.written!.card!.match(/OPP-NEW-\d+/)![0];
+    expect(world.relations).toContain(`AS-O:${row.written!.crm_id}→${id}`);
+    expect(await asOperator((c) => one(c, "select 1 from pipeline_cards where company_id=$1 and ghl_opportunity_id=$2 and ghl_pipeline_id='P' and status='open'", [companyId, id]))).toBeTruthy();
+    // a person who had a card gets none made (Ann's OPP-A)
+    expect(world.made.some((m) => m.contactId === "GA")).toBe(false);
+    const after = await counts();
+    expect(after.events).toBe(before.events);   // nothing emitted
+    expect(after.runs).toBe(0);
+    // a second pass finds the card it made: none made again
+    const n = world.made.length;
+    await run({ dryRun: false });
+    expect(world.made.length).toBe(n);
   });
 });
