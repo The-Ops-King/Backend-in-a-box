@@ -85,7 +85,8 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
   const indexed = calls.map((c, i) => ({ c, i }));
   const groups = [{ title: "Discovery calls", rows: indexed.filter((x) => isSetterCall(x.c.kind)) }, { title: "Closing calls", rows: indexed.filter((x) => !isSetterCall(x.c.kind)) }]
     .filter((g) => g.rows.length).map((g) => ({ ...g, left: g.rows.filter((x) => !complete(x.c)).length }));
-  return <form className="eodx-form" onSubmit={submit}>
+  // D305: every send reaches the engine (noValidate): it names what is missing on the form and logs it, so a closer is never stopped by the browser with no trace
+  return <form className="eodx-form" onSubmit={submit} noValidate>
     {err ? <div className="eodx-banner warn"><strong>That didn't save.</strong> {err}. Your answers are still here, so fix that and send it again.</div> : null}
     <section className="eodx-card">
       <h2 className="eodx-h2">Your numbers</h2>
