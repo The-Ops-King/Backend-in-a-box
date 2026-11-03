@@ -209,6 +209,9 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
       continue;
     }
     const rec = await one<{ share_url: string | null; analysis: Record<string, unknown> }>(c, "select share_url, analysis from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) order by started_at desc limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
+    // D308: what says the call happened: a meeting recording of it, or a phone call with them that day of 5 minutes or more (a dial that
+    // rang out or lasted seconds is not a held call)
+    const held = !!(await one(c, "select 1 from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) and (provider <> 'ghl' or coalesce(duration_min, 0) >= 5) limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]));
     const notes = (rec?.analysis?.notes ?? {}) as Record<string, unknown>;
     // D119: a day whose payments were all deposits pre-fills Deposit; the amount says nothing about it
     const win = moneyWindow.get(a.id) ?? { from: from.toJSDate(), to: to.toJSDate() };
@@ -226,22 +229,28 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     // (D236: the AI never pre-sets Closed: a close it hears is Pending until cash is collected or the closer files it)
     // the company's own answer for what the ledger holds (B6): each outcome is found by what it means, not by its key
     const byCall = a.call_outcome_cat ? v({ call_outcome: a.call_outcome_cat as CallMeaning }) || (a.call_outcome_cat === "deposit" ? v({ call_outcome: "closed" }) : "") : "";
-    const outcome: string = a.outcome_cat === "noshow" || a.status === "noshow" ? v({ attendance: "noshow" }) : a.outcome_cat === "rescheduled" ? v({ attendance: "rescheduled" })
+    let outcome: string = a.outcome_cat === "noshow" || a.status === "noshow" ? v({ attendance: "noshow" }) : a.outcome_cat === "rescheduled" ? v({ attendance: "rescheduled" })
       : byCall || (paid > 0 ? (pay?.all_deposit ? v({ call_outcome: "deposit" }) || v({ call_outcome: "closed" }) : v({ call_outcome: "closed" })) : won ? v({ call_outcome: "closed" })
       : disp === "closed_won" || disp === "close_pending" ? v({ call_outcome: "pending" }) || v({ call_outcome: "follow_up" }) : disp === "follow_up" ? v({ call_outcome: "follow_up" }) : disp === "lost" ? v({ call_outcome: "lost" }) : disp === "dq" ? v({ call_outcome: "unqualified" }) : "");
+    // D308 (Tyler: "Gina and Amber should have defaulted to 'no show'"): a call whose time has passed with nothing that says it happened
+    // starts as a no-show, said so on the form; the closer changes it if they showed
+    const noShowGuess = !outcome && over && !held ? v({ attendance: "noshow" }) : "";
+    if (noShowGuess) outcome = noShowGuess;
     const money = isMoney(outcome, fields), contracted = isRevenueOutcome(outcome, fields);
     // A1 (D88): a card dragged to Lost or Disqualified filed the outcome; the form says so and asks why
     const moved = a.via === "card_moved" && (a.call_outcome_cat === "lost" || a.call_outcome_cat === "unqualified") ? `${a.notes ?? "Moved in the CRM"}. Say why.` : "";
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
-      kind: "closing", outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
+      kind: "closing", outcome, ...(noShowGuess ? { hint: "No recording and no call of 5 minutes or more with them, so this is set as a no-show. Change it if they showed." } : over && !held && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
       next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {},
       // D226: what was filed, else the call review's read of the transcript (the closer confirms it)
       pitched: a.pitched === true ? "Yes" : a.pitched === false ? "No" : notes.pitched === true ? "Yes" : notes.pitched === false ? "No" : "",
       ...(str(aiDisp?.value) ? { ai_read: { read: str(aiDisp?.value), confidence: aiConf } } : {}) });
   }
   // D156: the setter's outbound calls with anyone who had no triage call with them that day, each a row; the answer filed before comes back
-  for (const r of reads.filter((x) => !triaged.has(x.contact_id))) {
+  // D308: a dial to someone with a closing call with this closer that day is part of that call (calling them to join), not its own row
+  const booked = new Set(appts.filter((a) => a.term_cat !== "first_call").map((a) => a.contact_id));
+  for (const r of reads.filter((x) => !triaged.has(x.contact_id) && !booked.has(x.contact_id))) {
     const d = (m: Parameters<typeof valueFor>[1]) => valueFor(fields, m, "dial");
     const said = r.filed ?? r.result, outcome = READ_MEANING[said] ? d({ call_outcome: READ_MEANING[said] }) : "";
     calls.push({ appointment_id: dialId(r.conversation), contact_id: r.contact_id, contact: r.contact, starts_at: r.started_at.toISOString(), href_contact: href(r.ghl_contact_id), recording_url: r.share_url,

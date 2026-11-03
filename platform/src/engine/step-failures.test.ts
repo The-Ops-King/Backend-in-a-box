@@ -101,7 +101,7 @@ const fake: Adapters = {
   },
   sender: { ...base.sender, sendSms: (_c, to, body) => send("sms", "sendSms", to, body), sendEmail: (_c, to, subject, html) => send("email", "sendEmail", to, `${subject}|${html}`) },
   // like the real classifier since D66: a plan with a status (401, 5xx) throws a VendorError; one without is a vague reply, "unclear, confidence 0"
-  classifier: { choice: async (): Promise<Classification> => { calls.set("classify", callsTo("classify") + 1); const p = plans.get("classify"); if (p && p.times > 0) { p.times--; if (p.status !== undefined) throw errorFor("classify", p); return { value: "unclear", confidence: 0, distribution: {}, unclear: true }; } return { value: "confirmed", confidence: 0.97, distribution: { confirmed: 0.97 }, unclear: false }; } },
+  classifier: { choice: async (_s, input): Promise<Classification> => { lastClassified = input; calls.set("classify", callsTo("classify") + 1); const p = plans.get("classify"); if (p && p.times > 0) { p.times--; if (p.status !== undefined) throw errorFor("classify", p); return { value: "unclear", confidence: 0, distribution: {}, unclear: true }; } return { value: "confirmed", confidence: 0.97, distribution: { confirmed: 0.97 }, unclear: false }; } },
   notifier: { ...base.notifier, post: async (_t, channel, text) => vendor("slackPost", () => { posts.push({ channel, text }); return { ts: `${posts.length}.000100` }; }) },
   analyst: { analyze: async () => vendor("analyze", () => ({ text: '{"summary":"fine"}', parsed: { summary: "fine" }, model: "fake", usage: { input: 1, output: 1, cacheRead: 0 } })) },
 };
@@ -110,6 +110,7 @@ const fake: Adapters = {
 const CRM = { pipeline_setter: "PIPE-SETTER", stage_setter_new_lead: "STAGE-NEW", field_opportunity_stage_entered: "CF-STAGE-DATE", pipeline_closer: "PIPE-CLOSER", stage_closer_scheduled: "STAGE-SCHED", default_closer: "U1" };
 const TABLES = ["alerts", "slack_posts", "sends", "runs", "events", "slack_connections", "workflow_triggers", "workflows", "messages", "crm_records", "payments", "appointments", "pipeline_cards", "opportunities", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "poll_cursors", "audit_log"];
 let companyId: string, closingTerm: string;
+let lastClassified = "";
 let wfNewLead: string, wfS2L: string, wfTag: string, wfTagHeld: string, wfCard: string, wfCardSkip: string, wfCardStatus: string, wfNote: string, wfTask: string, wfRecord: string, wfContact: string, wfSlack: string, wfNotify: string, wfClassify: string, wfAnalyze: string, wfAnalyzeOpt: string, wfAppt: string, wfBranch: string, wfRecordEv: string, wfCheck: string, wfRecordUpdate: string, wfCardMove: string, wfCardGuard: string;
 
 const wipe = (slug: string) => asOperator(async (c) => {
@@ -871,6 +872,17 @@ describe.skipIf(!HAS_DB)("step failures: every step, every error", () => {
       await tickOnce();
       expect(["waiting", "paused"]).toContain((await runRow(id)).status);
       expect((await runRow(id)).current_node).toBe("n1");
+    });
+
+    it("D308: a very long transcript is sent as its opening and its end, never refused for length (Insam Souidan's 111-minute call)", async () => {
+      const ct = await person("LONGCL");
+      const long = `OPENING ${"a".repeat(150_000)} ENDING`;
+      const id = await start(wfClassify, ct, { text: long });
+      await tickOnce();
+      expect(lastClassified.length).toBeLessThanOrEqual(60_010);
+      expect(lastClassified.startsWith("OPENING")).toBe(true);
+      expect(lastClassified.endsWith("ENDING")).toBe(true);
+      expect((await steps(id)).find((s) => s.node_id === "n1")).toMatchObject({ status: "ok" });
     });
 
     it("an empty transcript / reply: nothing to classify, the step is a noop and Jev is never asked — today Jev is asked about an empty text", async () => {

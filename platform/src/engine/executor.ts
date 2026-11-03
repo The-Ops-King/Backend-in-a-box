@@ -67,6 +67,9 @@ const NUMBER_TYPES = new Set(["NUMERICAL", "FLOAT", "NUMBER"]), MONEY_TYPES = ne
  * an array for a multi-option or checkbox field, text for the rest. With no type (the object's fields could not be read) the key's
  * name is the only hint. Never called with an empty value: an empty property is left out, never written as 0.
  */
+/** D308: the most of an input the classifier is sent (inputs to 77,000 characters were read fine; 137,000 were refused): the opening, then the end. */
+export const CLASSIFY_MAX_CHARS = 60_000, CLASSIFY_HEAD = 45_000;
+
 export function propertyValue(key: string, rendered: string, type: string | undefined): unknown {
   if (!type) return /^\[.*\]$/s.test(rendered) ? jsonArrayOr(rendered) : /^-?\d+(\.\d+)?$/.test(rendered) && /amount|total|count|score|duration|min$/i.test(key) ? Number(rendered) : rendered;
   const t = type.toUpperCase();
@@ -582,8 +585,11 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
     }
 
     case "classify": {
-      const input = render(node.input, d.ctx, env(d)); const state = node.state ? render(node.state, d.ctx, env(d)) : undefined;
-      if (!input.trim()) return { status: "skipped", next, result: { kind: "noop", why: "nothing to classify: input rendered empty" } };
+      const full = render(node.input, d.ctx, env(d)); const state = node.state ? render(node.state, d.ctx, env(d)) : undefined;
+      if (!full.trim()) return { status: "skipped", next, result: { kind: "noop", why: "nothing to classify: input rendered empty" } };
+      // D308: the classifier refuses a very long input (Insam Souidan's 111-minute call, 137,610 characters) and the refusal read as
+      // "unclear", so the call was dropped as not a sales call; it is sent the call's opening and its end, which say what it was
+      const input = full.length > CLASSIFY_MAX_CHARS ? `${full.slice(0, CLASSIFY_HEAD)}\n…\n${full.slice(-(CLASSIFY_MAX_CHARS - CLASSIFY_HEAD))}` : full;
       const options = (await many<{ value: string }>(d.c, "select value from core_categories where domain=$1 order by sort", [node.domain])).map((r) => r.value);
       const r = await d.adapters.classifier.choice(state, input, options, node.threshold, { apiKey: d.bindings["secret.jev_key"] || process.env.JEV_API_KEY, criteria: node.criteria, ambiguityMax: node.ambiguity_max, question: node.question });
       const top = Object.entries(r.distribution).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
@@ -596,7 +602,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         const merged = deepSet(prior, intoKey.slice(1), { value: r.value, confidence: r.confidence, ambiguity: r.ambiguity ?? null });
         await d.c.query("update recordings set analysis = jsonb_set(analysis, $2::text[], $3::jsonb, true) where id=$1", [recId, [intoKey[0]], JSON.stringify(merged)]);
       }
-      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, top_guesses: top || "none", ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(readsTranscript || readsReply ? { input_chars: input.length } : { input }) } });   // D87, D89: neither a transcript nor a reply's words are copied into the ledger; Jev's read is
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, top_guesses: top || "none", ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(readsTranscript || readsReply ? { input_chars: full.length, ...(input.length < full.length ? { sent_chars: input.length } : {}) } : { input }) } });   // D87, D89: neither a transcript nor a reply's words are copied into the ledger; Jev's read is
       return { status: "ok", next, result: { value: r.value, confidence: r.confidence, ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(r.unclear ? { why: r.confidence < node.threshold ? "not confident enough" : "a careful person would doubt it" } : {}) } };
     }
 
