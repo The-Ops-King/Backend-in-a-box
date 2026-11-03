@@ -3,10 +3,10 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, usePage } from "~/api";
 import type { CallEntry, EodField } from "@/engine/eod-form";
 type EodPrefill = { day: string; calls_count: number; closes: number; deposits: number; cash: number; revenue: number; calls: CallEntry[] };
-import { dayFields, fieldsFor, isSetterCall, outcomeLabel, totalsOf, valueOf, DIAL_OUTCOMES, TRIAGE_OUTCOMES, TAKEN, TAKEN_LABEL, type CallOutcome } from "@/engine/eod-form";
+import { choiceOf, dayFields, fieldsFor, isSetterCall, outcomeLabel, totalsOf, valueOf, DIAL_OUTCOMES, TRIAGE_OUTCOMES, TAKEN, TAKEN_LABEL, type CallOutcome } from "@/engine/eod-form";
 import { Skeleton } from "~/ui/pieces";
 
-type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; brand?: { name: string; logo_url: string | null; accent: string | null }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] ; team: { id: string; name: string }[] };
+type Page = { closer: { first_name: string; name: string }; company: { name: string; timezone: string }; brand?: { name: string; logo_url: string | null; accent: string | null }; day: string; is_today: boolean; prev: string; next: string; filed: { at: string; changes: number } | null; pre: EodPrefill; seen: { calls: number; cash: number }; fields: EodField[]; day_answers: Record<string, string>; outcomes: { value: string; label: string }[] ; team: { id: string; name: string }[]; totals_from_calls?: boolean };
 
 /**
  * The closer's end-of-day page (D34): bare, no nav, nothing but their day. One question per call first (what happened), then
@@ -90,7 +90,16 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
     {err ? <div className="eodx-banner warn"><strong>That didn't save.</strong> {err}. Your answers are still here, so fix that and send it again.</div> : null}
     <section className="eodx-card">
       <h2 className="eodx-h2">Your numbers</h2>
-      <div className="eodx-totals">
+      {d.totals_from_calls ? <div className="eodx-totals">
+        {/* D309: added up from the calls below, nothing to type */}
+        <label><span>Calls taken</span><b>{calls.filter((c) => !isSetterCall(c.kind) && choiceOf(c.outcome, d.fields, c.kind)?.attendance === "showed").length}</b><small>{d.seen.calls} on your calendar</small></label>
+        {closing ? <>
+        <label><span>Closes</span><b>{t.closes}</b><small>&nbsp;</small></label>
+        {t.deposits ? <label><span>Deposits</span><b>{t.deposits}</b><small>&nbsp;</small></label> : null}
+        <label><span>Cash collected</span><b>{"$" + t.cash.toLocaleString("en-US")}</b><small>{d.seen.cash ? `$${d.seen.cash.toLocaleString("en-US")} in payments today` : "No payments seen yet"}</small></label>
+        <label><span>Revenue</span><b>{"$" + t.revenue.toLocaleString("en-US")}</b><small>Total contract value</small></label>
+        </> : null}
+      </div> : <div className="eodx-totals">
         <label><span>Calls taken</span><input type="number" min={0} value={callsCount} onChange={(e) => setCallsCount(e.target.value)} /><small>{d.seen.calls} on your calendar</small></label>
         {closing ? <>
         <label><span>Closes</span><input type="number" min={0} value={touched.closes ?? String(t.closes)} onChange={(e) => setTouched((x) => ({ ...x, closes: e.target.value }))} /><small>&nbsp;</small></label>
@@ -98,7 +107,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
         <label><span>Cash collected</span><div className="eodx-money"><i>$</i><input type="text" inputMode="decimal" value={touched.cash ?? String(t.cash)} onChange={(e) => setTouched((x) => ({ ...x, cash: e.target.value }))} /></div><small>{d.seen.cash ? `$${d.seen.cash.toLocaleString("en-US")} in payments today` : "No payments seen yet"}</small></label>
         <label><span>Revenue</span><div className="eodx-money"><i>$</i><input type="text" inputMode="decimal" value={touched.revenue ?? String(t.revenue)} onChange={(e) => setTouched((x) => ({ ...x, revenue: e.target.value }))} /></div><small>Total contract value</small></label>
         </> : null}
-      </div>
+      </div>}
     </section>
     {/* Tyler: one person can set and close the same day; their calls come in two sections, "Discovery calls" and "Closing calls" */}
     {calls.length === 0 ? <><h2 className="eodx-h2 out">Your calls</h2><div className="eodx-empty">No calls on your calendar this day.</div></> : null}
