@@ -7326,3 +7326,22 @@ call's contract value) or an earlier pick left in the hidden box refused the who
 - Cash over revenue is checked only where the call's outcome asks for both.
 - Every refused end of day is written to the audit log (`eod.refused`: who, which day, the exact reason the form showed), so the next
   "it won't go through" is read, not guessed. Not an alert: the closer sees the reason on the form.
+
+## D306. A recording links on email, phone, Zoom link and time before any name (2026-11-03)
+
+Tyler, on Sales Calls marked lost or DQ with no video: "The engine should link on 4 things before linking on the name", and: "We
+should do a match in most unknown cases and only block very specific unknown cases ... if it's just 'iPhone' that shows up and speaks,
+but it's at the right time with the closer then it should be fine. Or if it's Mary's phone or Mary [new last name] ... The only time we
+should check is if the zoom link is different and the name is different. I.e. Mary had a call booked but Sally spoke."
+
+Found: 8 PMU Sales Calls with a Fathom recording the engine held but never put on the record (Jennyfer Cantrell x2, Jacklyn Kieu,
+Sash Pike, Renee G x2, Luz Aguilar, Elena Jocobi), written on Tyler's word; Renee's Oct 22 "no show" with a 64-minute recording set to
+showed. Luz joined Zoom as "Luz Mccullough" and Elena as "Elena's iPhone", with Kealey's cancelled booking counted beside Elena's.
+
+- The order: the invite's email (booked then), a phone a guest joined or dialled in with or an invitee's (booked then), the booking's
+  own Zoom/Meet link (whoever spoke), the recorder's own booking then (a cancelled one never counts; two then, the one whose first
+  name someone gave, "Elena's iPhone"), the email or phone with nothing booked then, then names as before.
+- A name stops the time match only when the call's link is not the booking's and a guest gave a real name that is not theirs; or,
+  with no link on one side to compare, when a different client the CRM knows by full name or email spoke (D273's difference, still
+  told to the operator). A device or phone label ("iPhone", "Mary's phone", "+1 480 …"), or their first name under another surname,
+  never stops it.

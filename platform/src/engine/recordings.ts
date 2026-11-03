@@ -1,3 +1,4 @@
+import { normPhone } from "./identity";
 import type { PoolClient } from "pg";
 import { DateTime } from "luxon";
 import { many, one } from "@/db/client";
@@ -13,6 +14,11 @@ import { standsSql } from "./held";
  * worthless"; "if the client doesn't join, we don't just link it to a random client"): a recording is linked only when WHO was on
  * it and WHEN it was agree.
  *
+ * - D306 (Tyler: "link on 4 things before linking on the name"): the invite's email, a phone, the booking's own Zoom link, the
+ *   recorder's own booking then (never a cancelled one; two then, the one whose first name someone gave), then names. A name stops a
+ *   time match only when the call's link is not the booking's and a guest gave a real name that is not theirs ("Mary had a call booked
+ *   but Sally spoke"), or, with no link to compare, a different client the CRM knows by full name spoke; a device ("iPhone"), a phone,
+ *   or their first name under another surname is still them. What follows is the order before D306.
  * - Who, in this order (D273, Tyler: "email wins, then appointment time, then last name"; "if it's shay's email then keep it shay"):
  *   the invite's email, when that contact is booked then (whoever spoke); the appointment's time: the booking whose own meeting link
  *   (Zoom id) the call used, else the one person the recorder had booked then; the invite's email with nothing booked then; the last
@@ -52,6 +58,9 @@ const BEFORE_MIN = 20;                 // D227: a call may start this long befor
 const SHORT_CALL_MIN = 15;             // …and until the booking ends; a booking with no length spans this much
 const MEETING_WINDOW_H = 24;           // a booking's meeting link counts for a recording this close to it (D102)
 const GENERIC_SPEAKER = /^(speaker|unknown|participant|guest|user)\b|^\d+$/i;   // a transcript label that names no one
+/** D306: a label that is a device or a phone, not a name ("iPhone", "Mary's phone", "Zoom user", "+1 480 555 0100"): never a different person. */
+const DEVICE_SPEAKER = /\b(i?phone|ipad|android|galaxy|pixel|samsung|mobile|cell|zoom user|macbook|laptop|desktop|pc)\b/i;
+const PHONE_LABEL = /^\+?[\d\s().-]{10,}$/;
 
 /**
  * D102: one meeting, one key, whichever side reports it: a Zoom meeting id (`/j/<digits>`), a Google Meet code, otherwise the
@@ -89,13 +98,13 @@ export async function prospectsOnCall(c: PoolClient, companyId: string, input: P
 
 /** D236: where a call with no booking that fits is put: a client's call; their closing call held late; a follow-up on a sale already held; none of those. */
 export type Placed = "client" | "held_late" | "follow_up" | "unbooked" | "no_booking";
-export type Match = { contactId: string; by: "email" | "meeting" | "time" | "name" | "speaker" | "title"; appointmentId?: string; placed?: Placed };
+export type Match = { contactId: string; by: "email" | "phone" | "meeting" | "time" | "name" | "speaker" | "title"; appointmentId?: string; placed?: Placed };
 /** `conflict` (D273, Tyler: "if there's a difference, alert me with the details"): the signals disagreed; the operator is told what each said. */
 export type Resolution = { match: Match | null; reason?: string; internal?: boolean; conflict?: string };
-type Fit = { id: string; contact_id: string; name: string; first: string | null; last: string | null; assigned_user_id: string | null; meeting_key: string | null; starts_at: Date };
+type Fit = { id: string; contact_id: string; name: string; first: string | null; last: string | null; assigned_user_id: string | null; meeting_key: string | null; starts_at: Date; status: string };
 
 /** D227: the live bookings a recording starting at `at` fits: it starts no more than BEFORE_MIN before one, and before it ends. */
-const FIT_SQL = `select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as name, ct.first_name as first, ct.last_name as last, a.assigned_user_id, a.meeting_key, a.starts_at
+const FIT_SQL = `select a.id, a.contact_id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as name, ct.first_name as first, ct.last_name as last, a.assigned_user_id, a.meeting_key, a.starts_at, a.status
   from appointments a join contacts ct on ct.id=a.contact_id
   where a.company_id=$1 and ${standsSql("a")} and ct.merged_into is null
     and $2::timestamptz >= a.starts_at - make_interval(mins => ${BEFORE_MIN})
@@ -245,20 +254,48 @@ async function matchRecording(c: PoolClient, companyId: string, input: Recording
   const emailThen = uniq([...fits.filter((f) => byEmail.has(f.contact_id)), ...(room && byEmail.has(room.contact_id) ? [{ contact_id: room.contact_id } as Fit] : [])]);
   if (emailThen.length === 1) return matched(emailThen[0], "email", await differs(emailThen[0], "the invite's email is"));
 
-  // 2. the appointment's time: the booking whose own meeting link (Zoom id) the call used; else the one person the recorder had booked then.
-  //    An invited contact with nothing booked then gives way to it (D227: Corina's stale invite on Beth's booked call)
-  //    A different known client who spoke is a difference: linked to no one, the operator is told, the team is asked (the Link button)
-  const mine = fits.filter(theirs), mineThen = uniq(mine);
-  const byTime = room?.contact_id ?? (mineThen.length === 1 ? mineThen[0] : null);
-  if (byTime) {
-    const d = await differs(byTime, room ? "the call used the meeting link of the booking of" : "the recorder's booking then is");
-    if (d) return { match: null, reason: d, conflict: d };
-    return matched(byTime, room ? "meeting" : "time");
-  }
-  // 3. the invite's email with no booking then: still theirs (where it goes is placed by D236)
-  if (byEmail.size === 1) { const id = [...byEmail][0]; return matched(id, "email", await differs(id, "the invite's email is")); }
+  // D306 (Tyler: "the engine should link on 4 things before linking on the name": email, phone, Zoom link, time)
+  // 2. a phone: one a guest joined or dialled in with, or an invitee's, that is one contact's, booked then
+  const phones = [...new Set([...[...spoke.values()].map((p) => p.name), ...names].filter((n) => PHONE_LABEL.test(n.trim())).map((n) => normPhone(n)).filter((x): x is string => !!x))];
+  const byPhone = new Set<string>();
+  for (const ph of phones) { const r = await many<{ contact_id: string }>(c, "select distinct i.contact_id from contact_identifiers i join contacts ct on ct.id=i.contact_id where i.company_id=$1 and i.kind='phone' and i.value=$2 and ct.merged_into is null", [companyId, ph]); if (r.length === 1) byPhone.add(r[0].contact_id); }
+  const phoneThen = uniq([...fits.filter((f) => byPhone.has(f.contact_id)), ...(room && byPhone.has(room.contact_id) ? [{ contact_id: room.contact_id } as Fit] : [])]);
+  if (phoneThen.length === 1) return matched(phoneThen[0], "phone");
 
-  // 4. last name: who spoke, then the meeting's title ("Shay and Carly Vu"): the one booked person the name agrees with, else the one
+  // 3. the Zoom link: the one booking whose own meeting link the call used is that person's, whoever spoke
+  if (room) return matched(room.contact_id, "meeting");
+
+  // 4. the time: the recorder's own booking then (a cancelled one never counts). Two then: the one whose first name someone on the call
+  //    gave ("Elena's iPhone" for Elena). A name only stops it when the call's Zoom link is not that booking's AND a guest gave a real
+  //    name that is not theirs (Tyler: "Mary had a call booked but Sally spoke"); a device, a phone, or their first name with another
+  //    surname ("Mary's phone", "Mary Smith") is still them
+  const firstFits = (label: string, f: Fit) => { const ff = tokens(f.first)[0]; return !!ff && tokens(label).some((x) => x === ff || (x.length >= 3 && ff.length >= 3 && (x.startsWith(ff) || ff.startsWith(x)))); };
+  const realNames = named.filter((p) => !DEVICE_SPEAKER.test(p.name) && !PHONE_LABEL.test(p.name.trim()));
+  const mine = fits.filter((f) => theirs(f) && f.status !== "cancelled");
+  let mineThen = uniq(mine), told = false;
+  if (mineThen.length > 1) {
+    const heard = [...named.map((p) => p.name), ...titleNames(input.title, staffNames)];
+    const byFirst = uniq(mine.filter((f) => heard.some((h) => firstFits(h, f))));
+    if (byFirst.length === 1) { mineThen = byFirst; told = true; }
+  }
+  if (mineThen.length === 1) {
+    const f = mine.find((x) => x.contact_id === mineThen[0])!;
+    const otherLink = !!key && !!f.meeting_key && key !== f.meeting_key, noLink = !key || !f.meeting_key;
+    const someoneElse = realNames.length > 0 && !realNames.some((p) => firstFits(p.name, f));
+    // a different link and a different name; or, with no link to compare, a different client the CRM knows by full name (Sally Smith)
+    const known = someoneElse && noLink ? await otherSpoke(f.contact_id) : null;
+    if ((otherLink && someoneElse) || known) {
+      const d = known ? `the recorder's booking then is ${await named_(f.contact_id)}, but ${known.said} spoke, who is ${await named_(known.id)} in the CRM`
+        : `the recorder's booking then is ${await named_(f.contact_id)}, but the call used a different meeting link and ${realNames.map((p) => p.name).join(", ")} spoke`;
+      return { match: null, reason: d, conflict: d };
+    }
+    return matched(f.contact_id, told ? "speaker" : "time");
+  }
+  // 5. the invite's email, or a phone, with no booking then: still theirs (where it goes is placed by D236)
+  if (byEmail.size === 1) { const id = [...byEmail][0]; return matched(id, "email", await differs(id, "the invite's email is")); }
+  if (byPhone.size === 1) return matched([...byPhone][0], "phone");
+
+  // 6. last name: who spoke, then the meeting's title ("Shay and Carly Vu"): the one booked person the name agrees with, else the one
   //    contact who has that full name (or joined with an address of theirs)
   const said = named.map((p) => p.name);
   const spoken = [...said, ...titleNames(input.title, staffNames)];
@@ -281,7 +318,7 @@ async function matchRecording(c: PoolClient, companyId: string, input: Recording
     if (people.size > 1) return { match: null, reason: `${spoken.join(", ")} on the call are ${people.size} different contacts: which one is a person's call` };
   }
 
-  // 5. an invitee's name exactly one contact has, booked then
+  // 7. an invitee's name exactly one contact has, booked then
   const notes: string[] = [];
   const byName = new Set<string>();
   for (const n of names.map(normName).filter((x): x is string => !!x)) {
