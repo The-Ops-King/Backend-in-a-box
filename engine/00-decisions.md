@@ -7364,3 +7364,20 @@ Why the 8 PMU recordings of D306 never reached their Sales Calls:
   theirs within that call's hours), a meeting recording or a dialled call of 5 minutes or more, the longest. GHL's empty field only,
   never one a person or a step filled; written quietly, audited (`recording_added`), only where what makes the offer's Sales Calls
   writes to GHL (live or quiet). A read that fails is tried again next sweep and asks no one.
+
+## D308. Minerva's Nov 2: a long call is read, a call with nothing to show for it starts as a no-show, a dial to a booked person is part of their call (2026-11-03)
+
+Tyler, on Minerva's end of day that "wouldn't let her submit": "Insam and Minerva didn't get connected / recorded ... there are 2
+for insam anyway, Gina and Amber should have defaulted to 'no show' and it says 6 calls on calendar, but i see only 5 calls".
+
+- Insam Souidan's 111-minute Fathom call was linked to her 8 PM booking, but the classifier refused its 137,610-character transcript
+  and the refusal read as "unclear", so Sales call recorded stopped at "not a sales call": nothing marked, no recording on her Sales
+  Call. The classify step now sends at most 60,000 characters (the call's opening and its end; inputs to 77,000 were read fine).
+  PMU's Sales call recorded (v9) also takes any recording linked to a closing or follow-up booking as a sales call, whatever the
+  classifier says.
+- A closer's dialer call to someone with a closing call with them that day (calling them to join) is part of that call, not a row of
+  its own: Insam's 3:08 PM dial was a required "Discovery call" row left on "Choose one", the likely reason the day would not send,
+  and the sixth "call on your calendar".
+- Supersedes D80's "no presumption": a closing call whose time has passed with no meeting recording and no call with them of 5 minutes
+  or more that day starts as a no-show, and the form says so ("Change it if they showed"). D80's worry (a failed recording or a call
+  taken by phone becoming a no-show) is why a phone call that long, or any recording, leaves it blank.
