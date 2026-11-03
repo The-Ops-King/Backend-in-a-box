@@ -253,6 +253,40 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     // wrap-ups (D301). It is no longer a drift question (the engine's own guess from the recording is not GHL's answer).
   }
 
+  // D307 (Tyler: "I want to know why these didn't get written automatically, and then I want them to be written automatically in the
+  // future"): a held Sales Call with no recording link gets the engine's recording of that call, however the recording came in (a
+  // call held while the workflow that writes it ran in rehearsal, a recorder connected later and its history read in quietly, a link
+  // made by hand or by a rule learned since). GHL's empty field only, never one a person or a step filled; quietly, audited.
+  if (repairsWrite && cfg) await guarded(async () => {
+    const showedKeys = new Set(Object.entries(cfg.outcomes).filter(([, cat]) => cat === "showed").map(([k]) => k));
+    if (!showedKeys.size) return;
+    const since = now.minus({ days: NO_RECORD_DAYS }).toMillis();
+    const records = (await reads.objectRecords(ac, cfg.object)).filter((r) => {
+      const p = r.properties as Record<string, unknown>, at = Date.parse(String(p.scheduled_at ?? p.call_date ?? ""));
+      return showedKeys.has(String(p.outcome ?? "").trim().toLowerCase()) && !String(p.recording_url ?? "").trim() && String(p.contact_id ?? "").trim() && at >= since;
+    });
+    for (const r of records) {
+      const p = r.properties as Record<string, unknown>;
+      const at = new Date(Date.parse(String(p.scheduled_at ?? `${p.call_date}T12:00:00Z`)));
+      // the booking: the one the engine keyed this record by, else this person's booking at the record's time
+      const appt = await one<{ id: string; contact_id: string; starts_at: Date }>(c, `select a.id, a.contact_id, a.starts_at from appointments a join contacts ct on ct.id=a.contact_id
+        where a.company_id=$1 and (coalesce(a.slot_key, a.external_id) = $2 or (ct.ghl_contact_id = $3 and abs(extract(epoch from (a.starts_at - $4::timestamptz))) <= 120))
+        order by (coalesce(a.slot_key, a.external_id) = $2) desc limit 1`, [company.id, String(p.external_id ?? ""), String(p.contact_id ?? ""), at]);
+      if (!appt) continue;
+      // the recording of that call: linked to the booking, else theirs within its hour; a meeting recording (or a dialled call of 5
+      // minutes or more), the longest
+      const rec = await one<{ id: string; share_url: string }>(c, `select id, share_url from recordings where company_id=$1 and link_status='linked' and share_url is not null
+        and (provider <> 'ghl' or coalesce(duration_min, 0) >= 5)
+        and (appointment_id = $2 or (contact_id = $3 and started_at between $4::timestamptz - interval '30 minutes' and $4::timestamptz + interval '3 hours'))
+        order by (appointment_id = $2) desc, coalesce(duration_min, 0) desc limit 1`, [company.id, appt.id, appt.contact_id, appt.starts_at]);
+      if (!rec) continue;
+      const label = String(p.display_label ?? r.id);
+      await adapters.write.updateRecord(ac, cfg.object, r.id, { recording_url: rec.share_url });
+      await audit("sales_call", r.id, { recording_url: null }, { repair: "recording_added", recording_url: rec.share_url, recording: rec.id, appointment_id: appt.id });
+      repaired(`${r.id}:recording`, `${label}: the call's recording was not on its Sales Call; added`, { sales_call: r.id, label, recording: rec.id }, r.id, "recording_added");
+    }
+  }, (e) => note("recording_link_failed", { why: why(e) }));   // read again next sweep; not a question for anyone
+
   // D289 (Tyler: "how can we make sure this doesn't happen again?"): the other way round. Every closing booking whose time has passed
   // has a Sales Call in GHL, or the end of day never asks for it (Minerva's Oct 30 calls, booked while Call booked ran in ghost).
   // A booking cancelled before its start, a test booking or contact, and one the poll may not have reached yet are left out.

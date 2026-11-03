@@ -7348,3 +7348,19 @@ showed. Luz joined Zoom as "Luz Mccullough" and Elena as "Elena's iPhone", with 
 - Addendum: the end-of-day form no longer lets the browser stop a send (`noValidate`). A required box left empty was refused by the
   browser before the engine heard of it, which left no trace; now every send reaches the engine, which names what is still needed on
   the form and writes the refusal down.
+
+## D307. A held Sales Call with no recording link gets the engine's recording of it (2026-11-03)
+
+Tyler: "I want to know why these didn't get written automatically, and then I want them to be written automatically in the future."
+Why the 8 PMU recordings of D306 never reached their Sales Calls:
+- Before Oct 30 PMU's Sales call recorded ran in rehearsal (ghost): it wrote nothing to GHL, and going live did not go back over the
+  calls held before (Jacklyn Kieu, Sash Pike, Elena Jocobi, Luz Aguilar).
+- JP's Fathom was connected on Oct 28 and its history read in quietly (D215: no event, no run), so nothing wrote his earlier calls'
+  recordings (Renee G x2, Jennyfer Cantrell x2).
+- Luz and Elena were not matched at all (D306).
+
+- The 10-minute GHL sync (D297) now fills a Sales Call of the last 35 days that GHL says showed and whose recording link is empty: the
+  booking (the one the engine keyed the record by, else this person's at the record's time), then the recording linked to it (else
+  theirs within that call's hours), a meeting recording or a dialled call of 5 minutes or more, the longest. GHL's empty field only,
+  never one a person or a step filled; written quietly, audited (`recording_added`), only where what makes the offer's Sales Calls
+  writes to GHL (live or quiet). A read that fails is tried again next sweep and asks no one.

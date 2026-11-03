@@ -364,6 +364,34 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     }
   });
 
+  it("D307: a held Sales Call with no recording link gets the engine's recording of that call; a link already there, or a call not held, is left alone", async () => {
+    const at = ago({ days: 2 }).startOf("minute"), url = "https://fathom.video/share/d307";
+    const wf = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      for (const ext of ["AP50", "AP51", "AP52"]) {
+        const a = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly',$3,$4,$5,$5,$6,'confirmed') returning id",
+          [companyId, k1, ext, closing, at.plus({ hours: ["AP50", "AP51", "AP52"].indexOf(ext) * 3 }).toJSDate(), ago({ days: 5 }).toJSDate()]))!.id;
+        await c.query("insert into recordings (company_id, contact_id, appointment_id, provider, external_id, started_at, duration_min, share_url, link_status, linked_by) values ($1,$2,$3,'fathom',$4,$5,40,$6,'linked','time')", [companyId, k1, a, `d307-${ext}`, at.plus({ hours: ["AP50", "AP51", "AP52"].indexOf(ext) * 3, minutes: 2 }).toJSDate(), `${url}-${ext}`]);
+      }
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, mode) values ($1,'Closing call booked','always',true,'live') returning id", [companyId]))!.id;
+    });
+    const mine = [sc("SC-R50", "AP50", "G-K1", at, "showed"), { ...sc("SC-R51", "AP51", "G-K1", at.plus({ hours: 3 }), "showed"), properties: { ...sc("SC-R51", "AP51", "G-K1", at.plus({ hours: 3 }), "showed").properties, recording_url: "https://kept" } }, sc("SC-R52", "AP52", "G-K1", at.plus({ hours: 6 }), "no_show")];
+    records.push(...mine);
+    const n = linkWrites.length;
+    try {
+      await sweep();
+      expect(linkWrites.slice(n).filter((w) => "recording_url" in w.props)).toEqual([{ id: "SC-R50", props: { recording_url: `${url}-AP50` } }]);
+      await sweep();   // filled once: GHL has it now
+      expect(linkWrites.slice(n).filter((w) => "recording_url" in w.props)).toHaveLength(1);
+      // the write is audited
+      expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and after->>'repair'='recording_added'", [companyId]))).toBeTruthy();
+    } finally {
+      records.splice(records.indexOf(mine[0]), 3);
+      await asOperator(async (c) => { await c.query("delete from recordings where company_id=$1 and external_id like 'd307-%'", [companyId]); await c.query("delete from appointments where company_id=$1 and external_id in ('AP50','AP51','AP52')", [companyId]); await c.query("delete from workflows where id=$1", [wf]); });
+    }
+  });
+
   it("D299: a call still ahead with no Sales Call gets one before the call (scheduled, for its closer); one booked inside the last half hour is Call booked's, left alone", async () => {
     const created: Record<string, unknown>[] = [];
     const before = fake.write.createRecord;
