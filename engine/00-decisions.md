@@ -7381,3 +7381,16 @@ for insam anyway, Gina and Amber should have defaulted to 'no show' and it says 
 - Supersedes D80's "no presumption": a closing call whose time has passed with no meeting recording and no call with them of 5 minutes
   or more that day starts as a no-show, and the form says so ("Change it if they showed"). D80's worry (a failed recording or a call
   taken by phone becoming a no-show) is why a phone call that long, or any recording, leaves it blank.
+
+## D309. An offer's end of day: a field made optional, the day's numbers added up from the calls (2026-11-03)
+
+Tyler: "Let's make the 'next follow up' not mandatory ... the calls taken we don't really need them to fill out. actually all of this
+here in the top row, doesn't need to be filled out manually, because all the info is in the per call section." And: the notes "should
+be in passive voice ... really be ABOUT the prospect ... we can add a '12k pitched, lowered to 10k'".
+
+- `GET/POST /api/admin/eod/form`: one offer's form; one field's "required" set on that offer only, dry run first, audited
+  (`eod.form_field`). What happened on the call is always asked. PMU: Next follow-up optional.
+- `eod.totals_from_calls` (a switch, off by default; PMU on): the day's numbers (calls held, closes, deposits, cash, revenue) are shown
+  added up from the calls' answers, nothing typed, and the engine files them that way whatever a form sends.
+- PMU's call review (prompt.call_review): every line under notes is about the prospect, in passive voice or fragments, never what the
+  closer did; the offer in shorthand. The coaching (rubric) stays about the closer.

@@ -6,6 +6,8 @@ import { loadCompany } from "@/engine/context";
 import { reassignOn } from "@/engine/reassign";
 import { closerByToken, loadEodForm, prefill, reportFor, submitEod, todayFor, DAY_FMT, type EodAnswers, type EodPrefill, type CallEntry } from "@/engine/eod";
 import { outcomesOf, dayFields, totalsOf, type CallOutcome } from "@/engine/eod-form";
+import { heldCount } from "@/engine/eod";
+import { switchOn } from "@/engine/setting-defaults";
 export const dynamic = "force-dynamic";
 
 /** The closer's day (D34): their standing link is the key. Today by default, prefilled, with what they already filed. */
@@ -21,7 +23,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     const shown: EodPrefill = filed?.answers ? { ...pre, ...pickAnswers(filed.answers, pre) } : pre;
     const d = DateTime.fromFormat(day, DAY_FMT, { zone: company.timezone });
     return { closer: { first_name: closer.name.split(" ")[0], name: closer.name }, company: { name: company.name, timezone: company.timezone }, brand: brandOf(bindings, company.name), day, is_today: day === todayFor(company.timezone), prev: d.minus({ days: 1 }).toFormat(DAY_FMT), next: d.plus({ days: 1 }).toFormat(DAY_FMT),
-      filed: filed?.submitted_at ? { at: filed.submitted_at, changes: filed.changes?.length ?? 0 } : null, pre: shown, seen: { calls: pre.calls_count, cash: pre.cash }, fields, day_answers: filed?.answers?.day_answers ?? {}, outcomes: outcomesOf(fields),
+      filed: filed?.submitted_at ? { at: filed.submitted_at, changes: filed.changes?.length ?? 0 } : null, pre: shown, seen: { calls: pre.calls_count, cash: pre.cash }, fields, day_answers: filed?.answers?.day_answers ?? {}, outcomes: outcomesOf(fields), totals_from_calls: switchOn(bindings, "eod.totals_from_calls"),
       // D254: who else could have taken a call ("Someone else took this call")
       team: !(await reassignOn(c, company.id)) ? [] : await many<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and active and id<>$2 and role<>'operator' order by name", [company.id, closer.id]) };
   });
@@ -44,7 +46,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const t = totalsOf(calls, fields);
     const dayKeys = dayFields(fields).map((f) => f.key);
     const day_answers = Object.fromEntries(Object.entries(body.day_answers ?? {}).filter(([k, v]) => dayKeys.includes(k) && String(v) !== "").map(([k, v]) => [k, String(v)]));
-    const answers: EodAnswers = { calls_count: num(body.calls_count) ?? 0, closes: num(body.closes) ?? t.closes, deposits: num(body.deposits) ?? t.deposits, cash: num(body.cash) ?? t.cash, revenue: num(body.revenue) ?? t.revenue, calls, day_answers };
+    // D309: an offer whose day's numbers come from the calls takes nothing typed for them: the calls held, and the calls' money added up
+    const fromCalls = switchOn((await loadCompany(c, closer.company_id)).bindings, "eod.totals_from_calls");
+    const answers: EodAnswers = fromCalls ? { calls_count: heldCount(calls, fields), closes: t.closes, deposits: t.deposits, cash: t.cash, revenue: t.revenue, calls, day_answers }
+      : { calls_count: num(body.calls_count) ?? 0, closes: num(body.closes) ?? t.closes, deposits: num(body.deposits) ?? t.deposits, cash: num(body.cash) ?? t.cash, revenue: num(body.revenue) ?? t.revenue, calls, day_answers };
     return submitEod(c, { token, day: body.day!, answers, adapters: liveAdapters });
   });
   return r.ok ? ok({ ok: true, recorded: r.recorded, changes: r.changes.length }) : fail(422, r.why);
