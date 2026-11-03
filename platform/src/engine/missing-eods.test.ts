@@ -14,7 +14,9 @@ const TZ = "America/New_York";
 let companyId = "";
 const at = (n: number, h = 11) => DateTime.now().setZone(TZ).minus({ days: n }).set({ hour: h, minute: 0, second: 0, millisecond: 0 });
 const rec = (id: string, closer: string, name: string, n: number, outcome = "scheduled") => ({ id, createdAt: "", properties: { closer, outcome, contact_id: `G-${id}`, call_date: at(n).toISODate(), scheduled_at: at(n).toISO(), display_label: `${name} — ${at(n).toISODate()}` } });
-const SALES = [rec("S1", "Jose P", "Tommy", 2), rec("S2", "Jose P", "Kimberly", 1), rec("S3", "Jose P", "Elizabeth", 0, ""), rec("S4", "Mel R", "Ana", 1, "showed"), rec("S5", "Carly V", "Jonelle", 3, ""), rec("S6", "Jose P", "Old", 30)];
+// today's call has already passed whenever the test runs (an 11 AM call is still ahead at 10 AM): a minute ago, never before today
+const passedToday = () => DateTime.max(DateTime.now().setZone(TZ).minus({ minutes: 1 }), DateTime.now().setZone(TZ).startOf("day").plus({ seconds: 1 }));
+const SALES = [rec("S1", "Jose P", "Tommy", 2), rec("S2", "Jose P", "Kimberly", 1), { ...rec("S3", "Jose P", "Elizabeth", 0, ""), properties: { ...rec("S3", "Jose P", "Elizabeth", 0, "").properties, scheduled_at: passedToday().toISO() } }, rec("S4", "Mel R", "Ana", 1, "showed"), rec("S5", "Carly V", "Jonelle", 3, ""), rec("S6", "Jose P", "Old", 30)];
 const TRIAGE = [{ id: "D1", createdAt: "", properties: { setter: "Mitch S", outcome: "scheduled", display_label: `Pia — ${at(1).toISODate()}`, occurred_at: `${at(1).toFormat("ccc LLL d")} · 9:00 AM` } }, { id: "D2", createdAt: "", properties: { setter: "Mitch S", outcome: "showed", display_label: `Omar — ${at(1).toISODate()}`, occurred_at: "9:30 AM" } }];
 const reads: GhlReads = { ...liveGhlReads, objectRecords: async (_c, object) => (object === "custom_objects.sales_call" ? SALES : TRIAGE), recordContact: async () => null };
 
