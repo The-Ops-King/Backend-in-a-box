@@ -7345,3 +7345,6 @@ showed. Luz joined Zoom as "Luz Mccullough" and Elena as "Elena's iPhone", with 
   with no link on one side to compare, when a different client the CRM knows by full name or email spoke (D273's difference, still
   told to the operator). A device or phone label ("iPhone", "Mary's phone", "+1 480 …"), or their first name under another surname,
   never stops it.
+- Addendum: the end-of-day form no longer lets the browser stop a send (`noValidate`). A required box left empty was refused by the
+  browser before the engine heard of it, which left no trace; now every send reaches the engine, which names what is still needed on
+  the form and writes the refusal down.
