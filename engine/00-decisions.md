@@ -7437,3 +7437,16 @@ them?" for every held call: nothing ever wrote Pitched on them. 13 of them have 
   up to 5 recordings, the read kept on the recording (analysis.notes, analysis.rubric) as the analyze step keeps it. Nothing is
   posted, nothing is written to the CRM; the dry run asks the AI nothing. Audited (`recording.reviewed`).
 - Pitched then goes on each Sales Call from that read (or the end of day's answer where one exists), by crm-record's dry run.
+## D313. A Sales Call on a booking that isn't a closing call is asked about, never repaired (2026-11-04)
+
+Isabel Vega's triage call (Oct 25) got a Sales Call before D255 stopped that. D255 fixed the workflow but never cleaned up the record
+it had already made, and nothing caught it, because the hourly check only matched a Sales Call to its booking, never checked the
+booking's kind. Tyler: "That should have been fixed a long time ago. I'm not sure why that didn't get caught."
+
+- Put right (Nelly): the call's notes (next step, payment terms, recording, 43 minutes, showed) moved onto her Discovery Call, then
+  the Sales Call was deleted. Both were dry-run first.
+- Prevented: the hourly check now looks at the kind of a Sales Call's booking. On any kind but a closing call, it does nothing as a
+  Sales Call: no closer card made (D311 would otherwise make one), no outcome carried either way. It asks instead (`not_closing`),
+  every hour until a person moves what the record holds and removes it. It is not deleted automatically: Isabel's held real notes.
+- The question's wording is in the shipped Health check template. An offer's saved Health check gets it only when Tyler brings it
+  there (D147); until then the question is counted in the alert but has no line of its own.

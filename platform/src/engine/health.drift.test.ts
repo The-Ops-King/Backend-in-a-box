@@ -418,5 +418,25 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id in ('AP40','AP41')", [companyId]); await c.query("delete from workflows where id=$1", [wf]); await c.query("delete from crm_records where company_id=$1", [companyId]); });
     }
   });
+  it("D313: a Sales Call on a booking that is not a closing call is asked about and never repaired as one (no card made, no outcome carried)", async () => {
+    const at = ago({ days: 2 }).startOf("hour");
+    await asOperator(async (c) => {
+      const triage = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='first_call'", [companyId]))!.id;
+      const ct = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, ghl_added_at) values ($1,'G-TRI','Isa',$2) returning id", [companyId, ago({ days: 3 }).toJSDate()]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly','EV-TRI',$3,$4,$4,$5,'confirmed')", [companyId, ct, triage, at.toJSDate(), ago({ days: 3 }).toJSDate()]);
+    });
+    records.push({ ...sc("R-TRI", "EV-TRI", "G-TRI", at, "showed") });
+    try {
+      const before = { links: linkWrites.length, rel: relations.length, out: writes.length };
+      const fs = await sweep();
+      expect(asked(fs.findings)).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "not_closing", record_id: "R-TRI" })]));
+      await run();
+      expect(linkWrites.slice(before.links).some((w) => w.id === "R-TRI")).toBe(false);
+      expect(relations.slice(before.rel).some((r) => r.includes("R-TRI"))).toBe(false);
+      expect(writes.slice(before.out).some((w) => w.id === "R-TRI")).toBe(false);
+      expect(await outcomeOf("EV-TRI")).toBeNull();   // GHL's "showed" is not carried onto the triage booking
+      expect(await worded()).toMatch(/Isa, .*: this Sales Call is on a .*, not a closing call, so the engine leaves it alone\./);
+    } finally { records.splice(records.findIndex((r) => r.id === "R-TRI"), 1); }
+  });
 });
 
