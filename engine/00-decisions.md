@@ -7426,3 +7426,14 @@ asked "which card?" with nothing to pick.
 - An offer whose card step cannot be rendered (a stage it has not bound) still gets its Sales Call; the row says why no card was made.
 
 Also: the provision test expected Nelly's setup file to list four closers; Judith was added to it (PR #142), so it lists five.
+
+## D312. A recording no workflow read can be reviewed on demand, silently (2026-11-04)
+
+Tyler: "there are 21 calls that don't have a pitched value. Can you figure out what that's about? Backfill as many as you can." All 21
+are PMU calls held Sep 24 to Oct 29, before Sales call recorded went live (Oct 30) and before the end of day asked "Did you pitch
+them?" for every held call: nothing ever wrote Pitched on them. 13 of them have a Fathom recording the call review never read.
+
+- `POST /api/admin/recordings/review { company, recordings, why, dryRun }`: the offer's own call review (prompt.call_review) run on
+  up to 5 recordings, the read kept on the recording (analysis.notes, analysis.rubric) as the analyze step keeps it. Nothing is
+  posted, nothing is written to the CRM; the dry run asks the AI nothing. Audited (`recording.reviewed`).
+- Pitched then goes on each Sales Call from that read (or the end of day's answer where one exists), by crm-record's dry run.
