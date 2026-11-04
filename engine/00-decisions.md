@@ -7426,3 +7426,17 @@ asked "which card?" with nothing to pick.
 - An offer whose card step cannot be rendered (a stage it has not bound) still gets its Sales Call; the row says why no card was made.
 
 Also: the provision test expected Nelly's setup file to list four closers; Judith was added to it (PR #142), so it lists five.
+
+## D312. A Sales Call on a booking that isn't a closing call is asked about, never repaired (2026-11-04)
+
+Isabel Vega's triage call (Oct 25) got a Sales Call before D255 stopped that. D255 fixed the workflow but never cleaned up the record
+it had already made, and nothing caught it, because the hourly check only matched a Sales Call to its booking, never checked the
+booking's kind. Tyler: "That should have been fixed a long time ago. I'm not sure why that didn't get caught."
+
+- Put right (Nelly): the call's notes (next step, payment terms, recording, 43 minutes, showed) moved onto her Discovery Call, then
+  the Sales Call was deleted. Both were dry-run first.
+- Prevented: the hourly check now looks at the kind of a Sales Call's booking. On any kind but a closing call, it does nothing as a
+  Sales Call: no closer card made (D311 would otherwise make one), no outcome carried either way. It asks instead (`not_closing`),
+  every hour until a person moves what the record holds and removes it. It is not deleted automatically: Isabel's held real notes.
+- The question's wording is in the shipped Health check template. An offer's saved Health check gets it only when Tyler brings it
+  there (D147); until then the question is counted in the alert but has no line of its own.
