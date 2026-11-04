@@ -29,8 +29,11 @@ export async function POST(req: Request) {
     const rows = await many<RecordingRow>(c, "select * from recordings where company_id=$1 and id = any($2::uuid[])", [co.id, b.recordings]);
     const out: Record<string, unknown>[] = [];
     for (const r of rows) {
-      const text = await transcriptFor({ adapters: liveAdapters, adapterCompany, bindings }, r).catch(() => "");
+      let text = "", readError: string | null = null;
+      try { text = await transcriptFor({ adapters: liveAdapters, adapterCompany, bindings }, r); } catch (e) { readError = String((e as Error).message).slice(0, 200); }
       const head = { recording: r.id, started_at: r.started_at, minutes: r.duration_min, transcript_chars: text.length };
+      // a source that refused (a rate limit, a key) is said as such, so it is tried again rather than taken for no transcript
+      if (readError) { out.push({ ...head, error: `the transcript could not be read: ${readError}` }); continue; }
       if (!text) { out.push({ ...head, skipped: "no transcript at its source" }); continue; }
       if (b.dryRun !== false) { out.push(head); continue; }
       try {
