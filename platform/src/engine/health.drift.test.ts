@@ -418,7 +418,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id in ('AP40','AP41')", [companyId]); await c.query("delete from workflows where id=$1", [wf]); await c.query("delete from crm_records where company_id=$1", [companyId]); });
     }
   });
-  it("D312: a Sales Call on a booking that is not a closing call is asked about and never repaired as one (no card made, no outcome carried)", async () => {
+  it("D313: a Sales Call on a booking that is not a closing call is asked about and never repaired as one (no card made, no outcome carried)", async () => {
     const at = ago({ days: 2 }).startOf("hour");
     await asOperator(async (c) => {
       const triage = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='first_call'", [companyId]))!.id;

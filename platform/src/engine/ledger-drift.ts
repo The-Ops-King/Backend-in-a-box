@@ -228,7 +228,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     if (k.match === "none") { ask("unmatched", { label, booking_source: k.booking_source || null, record_id: k.id }); continue; }
     if (k.match === "many") { ask("ambiguous", { label, record_id: k.id }); continue; }
     const a = k.appt!;
-    // D312: a Sales Call is for a closing call. One whose booking is another kind (Isabel Vega's triage call, made before D255) is
+    // D313: a Sales Call is for a closing call. One whose booking is another kind (Isabel Vega's triage call, made before D255) is
     // never repaired as a Sales Call (no closer card made, no outcome carried either way): it is asked about, every hour until a
     // person moves what it holds and removes it. The hourly check only matched a record to its booking, never its kind.
     const kind = await one<{ cat: string | null; name: string | null }>(c, "select t.category as cat, t.name from appointments x join company_terms t on t.id=x.appointment_term where x.id=$1", [a.id]);
