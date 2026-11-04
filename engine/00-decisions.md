@@ -7427,7 +7427,7 @@ asked "which card?" with nothing to pick.
 
 Also: the provision test expected Nelly's setup file to list four closers; Judith was added to it (PR #142), so it lists five.
 
-## D310. A recording no workflow read can be reviewed on demand, silently (2026-11-04)
+## D312. A recording no workflow read can be reviewed on demand, silently (2026-11-04)
 
 Tyler: "there are 21 calls that don't have a pitched value. Can you figure out what that's about? Backfill as many as you can." All 21
 are PMU calls held Sep 24 to Oct 29, before Sales call recorded went live (Oct 30) and before the end of day asked "Did you pitch

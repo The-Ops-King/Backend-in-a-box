@@ -8,7 +8,7 @@ import type { RecordingRow } from "@/engine/recordings";
 export const dynamic = "force-dynamic"; export const maxDuration = 300;
 
 /**
- * D310: POST { company, recordings: [ids], why, dryRun = true, model? }: the offer's own call review (prompt.call_review) run on
+ * D312: POST { company, recordings: [ids], why, dryRun = true, model? }: the offer's own call review (prompt.call_review) run on
  * recordings no workflow ever read (calls held while Sales call recorded ran in rehearsal, a recorder connected later), the read kept
  * on the recording as the analyze step keeps it (`analysis.notes`, `analysis.rubric`). Nothing is posted and nothing is written to the
  * CRM: what the read says is the caller's to use (e.g. Pitched on a Sales Call, by its own dry run). The dry run says which recordings
