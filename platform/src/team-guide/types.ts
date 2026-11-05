@@ -17,17 +17,23 @@ export type Block =
   | { steps: string[] }
   | { rows: [string, string][]; head?: [string, string] }
   | { note: string; tone?: "tip" | "important" }
-  | { video: Video };
+  | { video: Video }
+  /** D314: links to save in the bookmarks bar: [label, url, what it is for] */
+  | { bookmarks: [string, string, string][] }
+  /** D314: the person's own booking links, read live from the offer's team (D283) */
+  | { yourLinks: true };
 
 /** `for`: the roles the section is for; a manager sees every section. */
 export type Section = { id: string; title: string; for: Role[]; summary: string; blocks: Block[] };
 export type Part = { id: string; title: string; sections: Section[] };
+/** D314: the guide is read one page at a time (Tyler: "break it up into the pages"); the first is `/<offer>/onboarding`, the rest `/<offer>/onboarding/<id>`. */
+export type Page = { id: string; title: string; intro: string; parts: Part[] };
 export type Guide = {
   slug: string;
   brand: { name: string; accent: string; logoUrl?: string };
   title: string;
   intro: string;
-  parts: Part[];
+  pages: Page[];
 };
 
 export const sectionShows = (s: Section, role: Role) => role === "manager" || s.for.includes(role);
