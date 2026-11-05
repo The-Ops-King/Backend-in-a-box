@@ -11,17 +11,25 @@ const readRole = (): Role | null => {
   return ROLES.some((x) => x.id === r) ? (r as Role) : null;
 };
 
-export function GuideView({ guide, links }: { guide: Guide; links?: TeamLinks | null }) {
+/** D314: a page's own address: the first is the guide's, the rest under it by their id. */
+export const pageHref = (guide: Guide, id: string) => `/${guide.slug}/onboarding${guide.pages[0]?.id === id ? "" : `/${id}`}`;
+
+export function GuideView({ guide, links, pageId }: { guide: Guide; links?: TeamLinks | null; pageId: string }) {
   const [role, setRole] = useState<Role>("closer");
   // D283: &name=jake shows only that person's links
   const [name, setName] = useState("");
-  useEffect(() => { const r = readRole(); if (r) setRole(r); setName((new URLSearchParams(window.location.search).get("name") ?? "").trim().toLowerCase()); }, []);
+  // D314: Next and Back keep the role and the name in the link
+  const [query, setQuery] = useState("");
+  useEffect(() => { const r = readRole(); if (r) setRole(r); setName((new URLSearchParams(window.location.search).get("name") ?? "").trim().toLowerCase()); setQuery(window.location.search); }, []);
   const pick = (r: Role) => {
     setRole(r);
     const u = new URL(window.location.href); u.searchParams.set("role", r); u.hash = "";
-    window.history.replaceState(null, "", u);
+    window.history.replaceState(null, "", u); setQuery(u.search);
   };
-  const parts = guide.parts.map((p) => ({ ...p, sections: p.sections.filter((x) => sectionShows(x, role)) })).filter((p) => p.sections.length);
+  const at = Math.max(0, guide.pages.findIndex((p) => p.id === pageId)), page = guide.pages[at];
+  const prev = guide.pages[at - 1], next = guide.pages[at + 1];
+  const parts = page.parts.map((p) => ({ ...p, sections: p.sections.filter((x) => sectionShows(x, role)) })).filter((p) => p.sections.length);
+  const ctx = { links: links ?? null, role, name };
 
   return <div className={s.page} style={{ "--brand": guide.brand.accent } as React.CSSProperties}>
     <header className={s.top}>
@@ -31,13 +39,13 @@ export function GuideView({ guide, links }: { guide: Guide; links?: TeamLinks | 
       </div>
     </header>
     <main className={s.wrap}>
-      <h1 className={s.h1}>{guide.title}</h1>
-      <p className={s.intro}>{guide.intro}</p>
+      <p className={s.kicker}>Page {at + 1} of {guide.pages.length}</p>
+      <h1 className={s.h1}>{at === 0 ? guide.title : page.title}</h1>
+      <p className={s.intro}>{at === 0 ? `${guide.intro} ${page.intro}` : page.intro}</p>
       <div className={s.roles} role="tablist" aria-label="Your role">
         {ROLES.map((r) => <button key={r.id} role="tab" aria-selected={role === r.id} className={role === r.id ? `${s.role} ${s.on}` : s.role} onClick={() => pick(r.id)}>{r.label}</button>)}
       </div>
       <p className={s.roleAbout}>{ROLES.find((r) => r.id === role)!.about}</p>
-      {links ? <LinksView links={links} role={role} name={name} /> : null}
 
       <nav className={s.toc} aria-label="Contents">
         {parts.map((p, i) => <div key={p.id}>
@@ -54,15 +62,25 @@ export function GuideView({ guide, links }: { guide: Guide; links?: TeamLinks | 
             {x.for.length < ROLES.length ? <span className={s.tags}>{x.for.map((r) => <span key={r} className={s.tag}>{ROLES.find((y) => y.id === r)!.label}</span>)}</span> : null}
           </div>
           <p className={s.summary}>{x.summary}</p>
-          {x.blocks.map((b, j) => <BlockView key={j} b={b} />)}
+          {x.blocks.map((b, j) => <BlockView key={j} b={b} ctx={ctx} />)}
         </article>)}
       </section>)}
+      <nav className={s.pager} aria-label="Pages">
+        {prev ? <a className={s.back} href={`${pageHref(guide, prev.id)}${query}`}>Back: {prev.title}</a> : <span />}
+        {next ? <a className={s.next} href={`${pageHref(guide, next.id)}${query}`}>Next: {next.title}</a> : null}
+      </nav>
       <p className={s.foot}>Stuck on something here? Type <code>/support</code> in Slack and say what you were trying to do.</p>
     </main>
   </div>;
 }
 
-function BlockView({ b }: { b: Block }) {
+type Ctx = { links: TeamLinks | null; role: Role; name: string };
+function BlockView({ b, ctx }: { b: Block; ctx: Ctx }) {
+  if ("yourLinks" in b) return ctx.links ? <LinksView links={ctx.links} role={ctx.role} name={ctx.name} /> : null;
+  if ("bookmarks" in b) return <div className={s.tbl}><table>
+    <thead><tr><th>Bookmark</th><th>Link</th></tr></thead>
+    <tbody>{b.bookmarks.map(([label, url, what]) => <tr key={label}><td>{label}<div className={s.muted}>{what}</div></td><td><a href={url} target="_blank" rel="noreferrer">{url.replace(/^https:\/\//, "").replace(/\/v2\/location\/[^/]+/, "/…")}</a></td></tr>)}</tbody>
+  </table></div>;
   if ("p" in b) return <p className={s.p}>{b.p}</p>;
   if ("list" in b) return <ul className={s.list}>{b.list.map((t, i) => <li key={i}>{t}</li>)}</ul>;
   if ("steps" in b) return <ol className={s.steps}>{b.steps.map((t, i) => <li key={i}><span>{i + 1}</span><div>{t}</div></li>)}</ol>;
@@ -86,12 +104,12 @@ function LinksView({ links, role, name }: { links: TeamLinks; role: Role; name: 
   const mine = (n: string) => !name || n.toLowerCase() === name || n.toLowerCase().split(/\s+/)[0] === name;
   const groups = [...(role !== "setter" ? links.closers : []), ...(role !== "closer" ? links.setters : [])].filter((p) => mine(p.name) && p.links.length);
   if (!groups.length) return null;
-  return <article id="your-links" className={s.card}>
-    <div className={s.cardHd}><h3 className={s.h3}>Your links</h3></div>
+  return <div id="your-links">
+    <h4 className={s.h4}>Your booking links</h4>
     <p className={s.summary}>{role === "setter" ? "Book every call with one of these. Each link has your name in it, so the call is credited to you." : "Your booking links. Send the closing link for a follow-up or for a call you set yourself."}</p>
     {groups.map((p) => <div key={p.name} className={s.tbl}><table>
       <thead><tr><th colSpan={2}>{p.name}</th></tr></thead>
       <tbody>{p.links.map((l) => <tr key={l.label}><td>{l.label}</td><td><a href={l.url} target="_blank" rel="noreferrer">{l.url.replace(/^https:\/\//, "")}</a></td></tr>)}</tbody>
     </table></div>)}
-  </article>;
+  </div>;
 }

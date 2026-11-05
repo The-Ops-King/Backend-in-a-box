@@ -7450,3 +7450,22 @@ booking's kind. Tyler: "That should have been fixed a long time ago. I'm not sur
   every hour until a person moves what the record holds and removes it. It is not deleted automatically: Isabel's held real notes.
 - The question's wording is in the shipped Health check template. An offer's saved Health check gets it only when Tyler brings it
   there (D147); until then the question is counted in the alert but has no line of its own.
+
+## D314. The team onboarding is read one page at a time (2026-11-05)
+
+Tyler: "break it up into the pages". Nelly's onboarding is now pages, each at its own address, with Back and Next that keep the
+person's role and name in the link. The role from the link picks what shows; the tabs still let anyone look at the other role.
+
+1. Welcome (`/dating-nelly/onboarding`): a note from Nelly, who we are, and who applies. The figures are from the 364 VIP
+   Matchmaking Applications in GHL as of today.
+2. Your tech (`/onboarding/tech`): the @nellysudri.com address (sign-in details arrive in the person's personal email; every
+   other invite goes to the work address), a Chrome profile for work, the bookmarks bar, and the invites to accept (Calendly, Zoom
+   and Fathom for closers).
+3. Set up your tools (`/onboarding/setup`): Calendly (work then personal calendar, then Zoom), Fathom (desktop app, sign in,
+   connect Zoom), GHL (turn off "Notify me about all new conversations", connect calendar and email), then the bookmarks: GHL
+   Contacts and Smart Lists, Calendly, Fathom, Gmail, Google Calendar and the person's own booking links (read live, D283). The
+   end-of-day form is not listed: its link is private to each person, so the bot's Slack message is where they bookmark it.
+4. How the work runs: the earlier calls, end-of-day, Slack and manager sections, unchanged, until they are reworked.
+
+The page's sign-in door opens one level under `/onboarding` (a made-up page is a 404). A test keeps em and en dashes out of the
+first three pages' words.

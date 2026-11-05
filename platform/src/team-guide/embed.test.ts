@@ -13,13 +13,21 @@ describe("D263: the team onboarding page", () => {
     for (const bad of ["http://youtu.be/x", "https://vimeo.com/1", "not a link", "https://drive.google.com/drive/folders/x"]) expect(embedUrl(bad)).toBeNull();
   });
 
-  it("every guide is whole: unique ids, each section for at least one role, every role has something to read", () => {
+  it("every guide is whole: unique ids, each section for at least one role, every role has something to read on every page (D314)", () => {
     for (const g of Object.values(GUIDES)) {
-      const ids = g.parts.flatMap((p) => [p.id, ...p.sections.map((s) => s.id)]);
+      const parts = g.pages.flatMap((p) => p.parts);
+      const ids = [...g.pages.map((p) => `page:${p.id}`), ...parts.flatMap((p) => [p.id, ...p.sections.map((s) => s.id)])];
       expect(new Set(ids).size, g.slug).toBe(ids.length);
-      for (const s of g.parts.flatMap((p) => p.sections)) expect(s.for.length, s.id).toBeGreaterThan(0);
-      for (const r of ROLES) expect(g.parts.flatMap((p) => p.sections).filter((s) => sectionShows(s, r.id)).length, `${g.slug} ${r.id}`).toBeGreaterThan(0);
+      expect(g.pages.length, g.slug).toBeGreaterThan(0);
+      for (const s of parts.flatMap((p) => p.sections)) expect(s.for.length, s.id).toBeGreaterThan(0);
+      for (const page of g.pages) for (const r of ROLES) expect(page.parts.flatMap((p) => p.sections).filter((s) => sectionShows(s, r.id)).length, `${g.slug} ${page.id} ${r.id}`).toBeGreaterThan(0);
       expect(g.brand.accent).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+  });
+  it("D314: the guide's words carry no em or en dashes", () => {
+    for (const g of Object.values(GUIDES)) {
+      const words = JSON.stringify(g.pages.slice(0, 3));
+      expect(words).not.toMatch(/[\u2013\u2014]/);
     }
   });
 });
