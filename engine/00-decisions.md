@@ -7469,3 +7469,20 @@ person's role and name in the link. The role from the link picks what shows; the
 
 The page's sign-in door opens one level under `/onboarding` (a made-up page is a 404). A test keeps em and en dashes out of the
 first three pages' words.
+
+## D315. Paid in full can be told by the billing reason, not the price (2026-11-05)
+
+Tyler: "we're giving out links left and right, so it should be whether or not it's a one time payment or a subscription start."
+PMU's checkout links have their own prices ($10,000, $11,500, more to come), so a list of full prices can't say what a purchase
+in full is. Two new settings on the offer (an offer that sets neither works as it did):
+
+- `payments.full_by` = `billing_reason`: the first money beyond a deposit, with a billing reason in `payments.full_reasons`, is
+  the purchase in full at whatever it cost. With nothing paid before, it is `paid_in_full`; after a deposit, it is the `balance`.
+  The deal is then worth what was paid (the deposit included). A subscription start is a close, not a purchase in full (Tyler's
+  answer): with `full_reasons` = `one_time` it is the first installment, and it can be a balance only once money came before it.
+  A payment that names no billing reason (a Zap's, an old row's) still goes by `payments.full_prices`.
+- `payments.deposit_up_to`: a payment of this much or less is a deposit (PMU: 500, so the $500 "Beauty Moguls Method" link is a
+  deposit). `payments.deposit_under` still means strictly under.
+
+The webhook already sees every product on the offer's Whop company; nothing here filters by product. PMU set:
+`full_by` billing_reason, `full_reasons` one_time, `deposit_up_to` 500, `full_prices` [10000, 11500, 12000].
