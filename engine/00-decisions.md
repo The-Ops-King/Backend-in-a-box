@@ -7486,3 +7486,22 @@ in full is. Two new settings on the offer (an offer that sets neither works as i
 
 The webhook already sees every product on the offer's Whop company; nothing here filters by product. PMU set:
 `full_by` billing_reason, `full_reasons` one_time, `deposit_up_to` 500, `full_prices` [10000, 11500, 12000].
+
+## D316. Is someone fully in, or fully out: one check, read live (2026-11-06)
+
+Tyler: "I need you to actually look and see if Minerva is fully out and Mel is fully in ... I just need you to check those things
+instead of telling me to." `memberCheck` reads one person across every tool the engine can reach and says what it saw:
+
+- the engine: their role, upcoming calls, open cards, contacts owned, the calendars it watches as theirs, their Sales Call closer option
+- GHL: whether they are a user of the location
+- Calendly: membership, the calendars they host (and whether the engine watches each), whether they host the shared closing
+  calendars the others do, and the open times on their own calendar over the next 7 days
+- Slack: whether their account is active and linked, and whether they are in the role's channels (bookings, calls, end of day)
+- Fathom: whether they are on the team the offer's key reads, and their latest meeting that key can see
+
+A setter or closer is checked as in, anyone else as out. A read that fails says so; nothing is guessed and nothing is changed.
+Zoom has no API the engine holds, so it is not read: a booking without a Zoom link is what shows it. Ways in: Slack
+`/team check <email>`, and `GET /api/admin/team/check?company=&email=`.
+
+The same day, Mel's follow-up calendar was made as a copy of Jose's ("Beauty Moguls Strategy", 45 minutes, Zoom) and watched as
+his is: "Follow-up call", a closing-call type, self-booked, hers.
