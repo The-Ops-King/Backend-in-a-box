@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { usePage, type SetupPage } from "~/api";
+import { api, useAction, usePage, type SetupPage } from "~/api";
 import { Crumb, Empty, Fold, Ic, NameLine, Sec, Skeleton, Tag } from "~/ui/pieces";
 
 /** Everything this company's workflows need, read-only (D42); a Slack step's channel is picked on the workflow page (D106): what is set, what is missing, by name where the CRM can name it. */
@@ -9,7 +10,7 @@ export function Setup() {
   if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton lines={10} />;
   const d = q.data; const co = d.company;
   type Row = { key: string; label: string; set: boolean; value: string | null; name?: string | null; required: boolean; used_by: string[] };
-  const KV = ({ rows }: { rows: Row[] }) => rows.length ? <div className="rows">{rows.map((r) => <div key={r.key} className={`row ${r.set ? "" : "off"}`}><Ic state={r.set ? "ok" : r.required ? "warn" : "skip"} /><span className="mid"><span className="nm">{r.label}</span><span className="sub"><span className="mono">{r.key}</span>{r.used_by.length ? <span>· {r.used_by.join(", ")}</span> : null}</span></span><span className="d">{r.set ? (r.name ?? r.value) : r.required ? "missing" : "not set"}</span></div>)}</div> : <Empty>Nothing here.</Empty>;
+  const KV = ({ rows }: { rows: Row[] }) => rows.length ? <div className="rows">{rows.map((r) => <div key={r.key} className={`row ${r.set ? "" : "off"}`}><Ic state={r.set ? "ok" : r.required ? "warn" : "skip"} /><span className="mid"><span className="nm">{r.label}</span><span className="sub"><span className="mono">{r.key}</span>{r.used_by.length ? <span>· {r.used_by.join(", ")}</span> : null}</span></span><span className="d">{r.set ? (r.name ?? r.value) : r.required ? "missing" : "not set"}</span>{d.enterable.includes(r.key) ? <KeyForm k={r.key} set={r.set} /> : null}</div>)}</div> : <Empty>Nothing here.</Empty>;
   const kv = (pairs: [string, string | number | boolean | null | undefined][]) => <dl className="kv">{pairs.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => <div key={k} style={{ display: "contents" }}><dt>{k}</dt><dd>{typeof v === "boolean" ? (v ? "yes" : "no") : String(v)}</dd></div>)}</dl>;
   const blockers = d.readiness.issues.filter((i) => i.level === "blocker"), warnings = d.readiness.issues.filter((i) => i.level === "warning");
   return <>
@@ -65,3 +66,17 @@ export function Setup() {
     <Fold title={<>End-of-day form · {d.eod_form.length} questions</>}><div className="rows">{d.eod_form.map((f) => <div key={f.key} className="row noicon"><span className="mid"><span className="nm">{f.label}</span><span className="sub"><span>{f.type}</span><span>· {f.scope === "day" ? "once, for the day" : f.key === "outcome" ? "first, every call" : f.when ? `after ${f.when.join(", ")}` : "after any outcome"}</span>{f.required ? <span>· required</span> : null}{f.options?.length ? <span>· {f.options.join(" / ")}</span> : null}</span></span><span className="d">{f.builtin ? "built in" : ""}</span></div>)}</div></Fold>
   </>;
 }
+
+/** D319: add (or replace) a key the engine tests before keeping; the field is cleared and the key never shown again. */
+function KeyForm({ k, set }: { k: string; set: boolean }) {
+  const { slug = "" } = useParams();
+  const [value, setValue] = useState(""), [open, setOpen] = useState(!set);
+  const save = useAction<{ value: string }, { label: string }>((v) => api(`/api/v1/companies/${slug}/setup`, { method: "POST", json: { key: k, value: v.value } }), [["setup", slug]]);
+  if (!open) return <button className="btn" onClick={() => setOpen(true)}>Replace</button>;
+  return <form style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }} onSubmit={(e) => { e.preventDefault(); save.mutate({ value }, { onSuccess: () => { setValue(""); setOpen(false); } }); }}>
+    <input type="password" autoComplete="off" placeholder="Paste the key" value={value} onChange={(e) => setValue(e.target.value)} style={{ minWidth: 220 }} />
+    <button className="btn" type="submit" disabled={!value.trim() || save.isPending}>{save.isPending ? "Testing…" : "Test and save"}</button>
+    {save.error ? <span className="note" style={{ color: "var(--warn)" }}>{save.error.message}</span> : save.isSuccess ? <span className="note">Saved.</span> : null}
+  </form>;
+}
+

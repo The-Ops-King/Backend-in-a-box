@@ -11,6 +11,7 @@ import { companyLock, ENGINE_LOCK, LEGACY_LOCK, tickLockHeld, withTickLock } fro
 import { liveProbes, syncFromGhl, SYNC_EVERY_MIN, type HealthProbes } from "./health";
 import { loadCompany } from "./context";
 import { runningSql } from "./running";
+import { COMMAS_EVERY_MIN, COMMAS_KEY, syncCommas } from "./commas";
 
 /**
  * D98. Each company ticks on its own: its own lease, its own poll, schedules, runs and alerts, its own clock
@@ -56,6 +57,14 @@ export async function tickCompany(adapters: Adapters, companyId: string, opts: {
         where engine_state.updated_at <= now() - make_interval(mins => $2) returning true as ok`, [`ghl_sync:${companyId}`, SYNC_EVERY_MIN]);
       if (due) await syncFromGhl(c, (await loadCompany(c, companyId)).row, adapters, opts.probes ?? liveProbes);
     }).catch((e) => errors.push(`ghl sync: ${msg(e)}`));
+    // D319: an offer with a Commas key reads its payments every 10 minutes (a webhook is delivered at most once; the list is the record)
+    await asOperator(async (c) => {
+      if (!(await one(c, "select 1 from bindings where company_id=$1 and key=$2", [companyId, COMMAS_KEY]))) return;
+      const l = await loadCompany(c, companyId);
+      const due = await one<{ ok: boolean }>(c, `insert into engine_state (key, value, updated_at) values ($1, '{}'::jsonb, now()) on conflict (key) do update set updated_at=now()
+        where engine_state.updated_at <= now() - make_interval(mins => $2) returning true as ok`, [`commas_tick:${companyId}`, COMMAS_EVERY_MIN]);
+      if (due) await syncCommas(c, { row: l.row, adapterCompany: l.adapterCompany, bindings: l.bindings }, adapters);
+    }).catch((e) => errors.push(`commas: ${msg(e)}`));
     let runs: TickReport;
     t = Date.now();
     try { runs = await tick(adapters, DateTime.now(), companyId, opts.probes, key); } catch (e) { runs = emptyTick(); errors.push(`runs: ${msg(e)}`); }
