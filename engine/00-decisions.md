@@ -7505,3 +7505,15 @@ Zoom has no API the engine holds, so it is not read: a booking without a Zoom li
 
 The same day, Mel's follow-up calendar was made as a copy of Jose's ("Beauty Moguls Strategy", 45 minutes, Zoom) and watched as
 his is: "Follow-up call", a closing-call type, self-booked, hers.
+
+## D317. A payment recorded as the wrong kind can be put right; PMU's deposits are under $2,000 (2026-11-06)
+
+Carmen Thomas paid $1,000 one-time after her call with Jose. Under D315 (a one-time payment is the purchase in full) it was
+recorded as paid in full on a $1,000 deal. Tyler: it was a deposit on a $10,000 deal, and "under 2k should be a deposit".
+
+- The fix for what happened: `POST /api/admin/payments/kind` (dry run first, audited) sets one payment's kind and the deal's price.
+  It also puts right everything the engine keeps from it: the ledger, the deal (back to open when no money beyond a deposit is left
+  on it), the GHL Cash record (type, program price), and the closer card (stage Deposit or Purchase, and its value). Tags, contact
+  fields and the Sales Call go through their own routes.
+- So it doesn't happen again: PMU's `payments.deposit_under` is 2000. A one-time payment under $2,000 is a deposit; above that it
+  is paid in full at whatever price.
