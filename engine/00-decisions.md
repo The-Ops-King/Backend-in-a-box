@@ -7517,3 +7517,9 @@ recorded as paid in full on a $1,000 deal. Tyler: it was a deposit on a $10,000 
   fields and the Sales Call go through their own routes.
 - So it doesn't happen again: PMU's `payments.deposit_under` is 2000. A one-time payment under $2,000 is a deposit; above that it
   is paid in full at whatever price.
+
+## D318. What a contact was sent, and by which workflow (2026-11-06)
+
+Tyler: Carmen got the pre-first-call automations after booking a follow-up. The engine sent her nothing (its sends are Slack posts),
+so what reached her came from GHL. `GET /api/admin/contact/messages?company=&contact=` reads a contact's latest messages live,
+with the GHL workflow that sent each when GHL names it, so "what did they get, and from what" is read, not guessed.

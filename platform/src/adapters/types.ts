@@ -74,6 +74,8 @@ export interface CrmRead {
   callsBetween(c: Company, from: Date, to: Date): Promise<MessageSnapshot[]>;
   /** D204: every phone call in one contact's conversations, newest first (their whole history, not a window). Optional. */
   contactCalls?(c: Company, contactId: string): Promise<MessageSnapshot[]>;
+  /** D318: one contact's latest messages in the CRM, read live and only read (when, which way, what kind, who or which workflow sent it). Optional. */
+  contactMessages?(c: Company, contactId: string, limit?: number): Promise<{ id: string; at: string; channel: string; direction: string; source: string | null; workflow: string | null; subject: string | null; body: string }[]>;
   wonOpportunities(c: Company, from: Date, to: Date): Promise<WonOpportunity[]>;
   objectRecords(c: Company, objectKey: string): Promise<ObjectRecord[]>;
   /** D205: one record as GHL holds it now, with its owners (to check an owner change took). Optional; null when it is gone. */
