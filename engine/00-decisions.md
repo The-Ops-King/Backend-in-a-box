@@ -7470,6 +7470,59 @@ person's role and name in the link. The role from the link picks what shows; the
 The page's sign-in door opens one level under `/onboarding` (a made-up page is a 404). A test keeps em and en dashes out of the
 first three pages' words.
 
+## D315. Paid in full can be told by the billing reason, not the price (2026-11-05)
+
+Tyler: "we're giving out links left and right, so it should be whether or not it's a one time payment or a subscription start."
+PMU's checkout links have their own prices ($10,000, $11,500, more to come), so a list of full prices can't say what a purchase
+in full is. Two new settings on the offer (an offer that sets neither works as it did):
+
+- `payments.full_by` = `billing_reason`: the first money beyond a deposit, with a billing reason in `payments.full_reasons`, is
+  the purchase in full at whatever it cost. With nothing paid before, it is `paid_in_full`; after a deposit, it is the `balance`.
+  The deal is then worth what was paid (the deposit included). A subscription start is a close, not a purchase in full (Tyler's
+  answer): with `full_reasons` = `one_time` it is the first installment, and it can be a balance only once money came before it.
+  A payment that names no billing reason (a Zap's, an old row's) still goes by `payments.full_prices`.
+- `payments.deposit_up_to`: a payment of this much or less is a deposit (PMU: 500, so the $500 "Beauty Moguls Method" link is a
+  deposit). `payments.deposit_under` still means strictly under.
+
+The webhook already sees every product on the offer's Whop company; nothing here filters by product. PMU set:
+`full_by` billing_reason, `full_reasons` one_time, `deposit_up_to` 500, `full_prices` [10000, 11500, 12000].
+
+## D316. Is someone fully in, or fully out: one check, read live (2026-11-06)
+
+Tyler: "I need you to actually look and see if Minerva is fully out and Mel is fully in ... I just need you to check those things
+instead of telling me to." `memberCheck` reads one person across every tool the engine can reach and says what it saw:
+
+- the engine: their role, upcoming calls, open cards, contacts owned, the calendars it watches as theirs, their Sales Call closer option
+- GHL: whether they are a user of the location
+- Calendly: membership, the calendars they host (and whether the engine watches each), whether they host the shared closing
+  calendars the others do, and the open times on their own calendar over the next 7 days
+- Slack: whether their account is active and linked, and whether they are in the role's channels (bookings, calls, end of day)
+- Fathom: whether they are on the team the offer's key reads, and their latest meeting that key can see
+
+A setter or closer is checked as in, anyone else as out. A read that fails says so; nothing is guessed and nothing is changed.
+Zoom has no API the engine holds, so it is not read: a booking without a Zoom link is what shows it. Ways in: Slack
+`/team check <email>`, and `GET /api/admin/team/check?company=&email=`.
+
+The same day, Mel's follow-up calendar was made as a copy of Jose's ("Beauty Moguls Strategy", 45 minutes, Zoom) and watched as
+his is: "Follow-up call", a closing-call type, self-booked, hers.
+
+## D317. A payment recorded as the wrong kind can be put right; PMU's deposits are under $2,000 (2026-11-06)
+
+Carmen Thomas paid $1,000 one-time after her call with Jose. Under D315 (a one-time payment is the purchase in full) it was
+recorded as paid in full on a $1,000 deal. Tyler: it was a deposit on a $10,000 deal, and "under 2k should be a deposit".
+
+- The fix for what happened: `POST /api/admin/payments/kind` (dry run first, audited) sets one payment's kind and the deal's price.
+  It also puts right everything the engine keeps from it: the ledger, the deal (back to open when no money beyond a deposit is left
+  on it), the GHL Cash record (type, program price), and the closer card (stage Deposit or Purchase, and its value). Tags, contact
+  fields and the Sales Call go through their own routes.
+- So it doesn't happen again: PMU's `payments.deposit_under` is 2000. A one-time payment under $2,000 is a deposit; above that it
+  is paid in full at whatever price.
+
+## D318. What a contact was sent, and by which workflow (2026-11-06)
+
+Tyler: Carmen got the pre-first-call automations after booking a follow-up. The engine sent her nothing (its sends are Slack posts),
+so what reached her came from GHL. `GET /api/admin/contact/messages?company=&contact=` reads a contact's latest messages live,
+with the GHL workflow that sent each when GHL names it, so "what did they get, and from what" is read, not guessed.
 ## D319. Commas payments come into the ledger (2026-11-06)
 
 Tyler: "yes will come through commas ... pull from oct 1". Nelly's payments are taken through Commas, whose API is Fanbasis's

@@ -9,6 +9,8 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { bookingFor, type Adapters, type Company } from "@/adapters/types";
 import { changeTeam, teamOf, type TeamRole } from "./team";
+import { formatMemberCheck, memberCheck } from "./member-check";
+import { liveMemberLookups } from "./member-lookups";
 
 export const TEAM_COMMAND = "team";
 export const TEAM_USAGE = [
@@ -16,9 +18,10 @@ export const TEAM_USAGE = [
   "`/team add <email> <setter|closer>` adds them (once they're a GHL user) and says what's left to do. Run it again after each fix.",
   "`/team add <email> setter slack:<their Slack email>` when their Slack email is different.",
   "`/team remove <email>` takes the role off (nothing they did is touched).",
+  "`/team check <email>` looks at GHL, Calendly, Slack and Fathom: fully in for a setter or closer, fully out for anyone else.",
 ].join("\n");
 
-export type TeamAsk = { kind: "list" } | { kind: "add"; email: string; role: TeamRole; slack?: string } | { kind: "remove"; email: string } | { kind: "usage"; why?: string };
+export type TeamAsk = { kind: "list" } | { kind: "add"; email: string; role: TeamRole; slack?: string } | { kind: "remove"; email: string } | { kind: "check"; email: string } | { kind: "usage"; why?: string };
 
 export function parseTeam(text: string): TeamAsk {
   const words = text.trim().split(/\s+/).filter(Boolean).map((w) => w.replace(/^<mailto:[^|]+\|(.+)>$/, "$1"));   // Slack links a typed email
@@ -26,9 +29,10 @@ export function parseTeam(text: string): TeamAsk {
   const [verb, email, ...rest] = words;
   const v = verb.toLowerCase();
   if (v === "help") return { kind: "usage" };
-  if (v !== "add" && v !== "remove") return { kind: "usage", why: `I don't know "${verb}".` };
+  if (v !== "add" && v !== "remove" && v !== "check") return { kind: "usage", why: `I don't know "${verb}".` };
   if (!email || !email.includes("@")) return { kind: "usage", why: "Give their email (the one they use in GHL)." };
   if (v === "remove") return { kind: "remove", email: email.toLowerCase() };
+  if (v === "check") return { kind: "check", email: email.toLowerCase() };
   const role = rest.find((w) => /^(setter|closer)$/i.test(w))?.toLowerCase() as TeamRole | undefined;
   if (!role) return { kind: "usage", why: "Say setter or closer." };
   const slack = rest.find((w) => /^slack:/i.test(w))?.slice(6);
@@ -58,6 +62,11 @@ export async function teamCommand(c: PoolClient, a: Args): Promise<string> {
     const r = await changeTeam(c, { companyId: a.companyId, ac: a.ac, adapters: a.adapters, slackToken: a.slackToken, change: { email: ask.email, remove: true, by: `slack:${a.userId}` } });
     if (!r.ok) return `❌ ${r.why}`;
     return `${r.person.name} is off the team (was ${r.was.role}): no calls, end of day or setter link from now on. Nothing they did is touched. If they're leaving, remove them from GHL, Slack and Calendly yourself.`;
+  }
+  if (ask.kind === "check") {
+    // D316: read only, everything live
+    const r = await memberCheck(c, { companyId: a.companyId, email: ask.email, bindings: a.bindings, lookups: liveMemberLookups({ ac: a.ac, adapters: a.adapters, bindings: a.bindings, slackToken: a.slackToken }) });
+    return formatMemberCheck(r);
   }
   return addChecklist(c, a, ask);
 }
