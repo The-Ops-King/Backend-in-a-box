@@ -7523,3 +7523,22 @@ recorded as paid in full on a $1,000 deal. Tyler: it was a deposit on a $10,000 
 Tyler: Carmen got the pre-first-call automations after booking a follow-up. The engine sent her nothing (its sends are Slack posts),
 so what reached her came from GHL. `GET /api/admin/contact/messages?company=&contact=` reads a contact's latest messages live,
 with the GHL workflow that sent each when GHL names it, so "what did they get, and from what" is read, not guessed.
+## D319. Commas payments come into the ledger (2026-11-06)
+
+Tyler: "yes will come through commas ... pull from oct 1". Nelly's payments are taken through Commas, whose API is Fanbasis's
+(https://www.fanbasis.com/public-api/, key in `x-api-key`). The design follows two facts in Commas' own docs:
+
+- **A webhook is delivered at most once, never retried**, and it names a payment by its order id (ORD-...), while the transaction
+  list names it by a numeric id. So the transaction list is the one record of payments made: the engine reads it every 10 minutes
+  (with two days' overlap), each payment keyed by its transaction id, so a payment is never recorded twice and a lost webhook only
+  waits for the next read. A webhook (signed HMAC-SHA256, hex, `x-webhook-signature`) just asks for the read now. A failed
+  attempt is the exception: the list holds only payments made, so a failure is recorded from its webhook, keyed by its order id.
+- New payments go through the same ledger path as Whop's: GHL decides the buyer (D270), then Payment recorded and the rest start
+  from it. Refunds on a transaction are their own negative rows. The product's name rides along, so deposit names work (D119).
+- The first read only marks where reading starts; history comes in through `POST /api/admin/commas { action: "import", from }`
+  (rows only, nothing starts, dry run first). `action: "connect"` checks the key and makes the webhook subscription, its
+  secret bound. Three failed reads in a row is an alert (`commas:read`), closed by the next read that works.
+- The key is added on the offer's Settings page (Connections → Commas API key): tested with Commas before it is kept, kept
+  encrypted, never shown back. The page now takes keys this way; the list of keys it takes is `ENTERABLE_KEYS`.
+
+Engine code for every offer; only an offer with a Commas key reads Commas.
