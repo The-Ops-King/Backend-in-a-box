@@ -7542,3 +7542,6 @@ Tyler: "yes will come through commas ... pull from oct 1". Nelly's payments are 
   encrypted, never shown back. The page now takes keys this way; the list of keys it takes is `ENTERABLE_KEYS`.
 
 Engine code for every offer; only an offer with a Commas key reads Commas.
+
+Addendum (D319, same day): a workflow a payment starts counted only Whop as its source, so Nelly's four payment workflows read
+"needs Whop" with Commas connected. A Commas key now connects them too; the source is named "Whop or Commas".
