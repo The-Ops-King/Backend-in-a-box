@@ -53,7 +53,13 @@ export function deriveKind(amount: number, priorTotal: number, contractValue: nu
     // offer that goes by billing reason counts the first money beyond a deposit, of a reason it lists, as the purchase in full at
     // whatever price the link was for (the balance when a deposit came first). A payment that names no reason goes by price.
     if (rules.fullBy === "billing_reason" && rules.reason) {
-      if (fullReason(rules.reason, rules) && (rules.priorPaid ?? priorTotal) <= 0) return priorTotal > 0 ? "balance" : "paid_in_full";
+      if (fullReason(rules.reason, rules) && (rules.priorPaid ?? priorTotal) <= 0) {
+        if (priorTotal <= 0) return "paid_in_full";
+        // D321: after a deposit, a deal that already has its price is paid off only by what reaches it (Carmen Thomas: $1,000
+        // deposit, then $3,000 of a $10,000 plan was taken for a $4,000 purchase in full); with no price yet, deposit + this is the purchase
+        if (contractValue != null && contractValue > 0) return clearedBy(money(priorTotal + amount), contractValue, rules.slack) ? "balance" : "installment";
+        return "balance";
+      }
       if (priorTotal > 0 && clearedBy(money(priorTotal + amount), contractValue ?? rules.fullPrices[0] ?? null, rules.slack)) return "balance";
       return "installment";
     }
@@ -277,7 +283,9 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
   // D270: a payment beyond a deposit makes the deal worth its full price (the one it is, else the deal's, else the offer's first);
   // D315: a purchase in full told by its billing reason is worth what was paid for it (with the deposit before it)
   const byReason = rules.fullBy === "billing_reason" && !!reasonOf(payment.raw) && priorPaid <= 0 && (kind === "paid_in_full" || (kind === "balance" && fullReason(reasonOf(payment.raw), rules)));
-  const fullPrice = ruled && payment.status === "succeeded" && !["deposit", "refund", "failed"].includes(kind) ? (byReason ? money(prior + amount) : fullPriceFor(amount, opp.contract_value, rules)) : null;
+  // D321: by billing reason, a price the deal already has stands (set by the operator, the closer's answer or an earlier payment); only a deal with none takes what was paid
+  const known = rules.fullBy === "billing_reason" && prior > 0 && opp.contract_value != null && Number(opp.contract_value) > 0 ? Number(opp.contract_value) : null;
+  const fullPrice = ruled && payment.status === "succeeded" && !["deposit", "refund", "failed"].includes(kind) ? (known ?? (byReason ? money(prior + amount) : fullPriceFor(amount, opp.contract_value, rules))) : null;
   if (fullPrice !== null && opp.contract_value !== fullPrice) { await c.query("update opportunities set contract_value=$2 where id=$1", [opp.id, fullPrice]); opp.contract_value = fullPrice; }
   await c.query("update payments set contact_id=$2, opportunity_id=$3, kind=$4, link_status='linked', linked_by=$5 where id=$1", [payment.id, contactId, opp.id, kind, linkedBy]);
   const running = payment.status === "failed" ? prior : money(prior + amount);

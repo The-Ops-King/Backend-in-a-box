@@ -7545,3 +7545,14 @@ Engine code for every offer; only an offer with a Commas key reads Commas.
 
 Addendum (D319, same day): a workflow a payment starts counted only Whop as its source, so Nelly's four payment workflows read
 "needs Whop" with Commas connected. A Commas key now connects them too; the source is named "Whop or Commas".
+
+## D321. After a deposit, a deal's own price stands; the operator can post to an offer's Slack (2026-11-07)
+
+Carmen Thomas: $1,000 deposit, then $3,000 of a $10,000 plan. By D315 a one-time payment after a deposit was the purchase in full at
+deposit plus payment, so the deal became $4,000, tagged paid in full, and the close posted "Revenue Generated: $4,000". Tyler: $10,000
+generated, $4,000 collected.
+
+- A deal that already has its price and money paid in keeps that price. A payment after a deposit counts as the balance only when the
+  total reaches the price; otherwise it is an installment. With no price yet, deposit plus payment is still the purchase (D315).
+- `POST /api/admin/slack/post` (dry run first, audited) posts one message to an offer's Slack as its bot, for a post a workflow got
+  wrong, put right where it belongs.

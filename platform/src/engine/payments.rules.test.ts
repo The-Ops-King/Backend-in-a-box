@@ -74,6 +74,13 @@ describe("D315: an offer that goes by billing reason", () => {
     expect(byReason(9750, 250, 0)).toBe("balance");
   });
 
+  it("D321: after a deposit, a deal that already has its price is paid off only by what reaches it", () => {
+    expect(byReason(3000, 1000, 0, "one_time", 10000)).toBe("installment");   // Carmen: $1,000 deposit, $3,000 of a $10,000 plan
+    expect(byReason(9000, 1000, 0, "one_time", 10000)).toBe("balance");
+    expect(byReason(8997, 1000, 0, "one_time", 10000)).toBe("balance");       // within the $3 slack
+    expect(byReason(3000, 1000, 0, "one_time", null)).toBe("balance");        // no price yet: deposit + this is the purchase
+  });
+
   it("a subscription start or renewal is an installment until it clears the deal", () => {
     expect(byReason(4000, 0, 0, "subscription_create")).toBe("installment");
     expect(byReason(11500, 0, 0, "subscription_create")).toBe("installment");          // no money before it: never a balance on its own

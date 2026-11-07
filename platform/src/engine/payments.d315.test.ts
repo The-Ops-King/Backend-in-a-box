@@ -11,11 +11,12 @@ import type { Adapters, ContactSnapshot, ObjectRecord } from "@/adapters/types";
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const SLUG = `d315-${Date.now()}`;
 const person = (id: string, email: string): ContactSnapshot => ({ id, firstName: id, lastName: "Buyer", email, phone: null as never, tags: [], customFields: {}, dateUpdated: "2026-11-01T00:00:00Z", dateAdded: "2026-11-01T00:00:00Z" });
-const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com")];
+const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com"), person("G-DEE", "dee@x.com")];
 const base = fakeAdapters();
 const ghl: Adapters = { ...base, read: { ...base.read, objectRecords: async (_c, key) => (key === "custom_objects.cash" ? cash : []), findDuplicate: async (_c, by) => ("email" in by ? PEOPLE.find((p) => p.email === by.email) ?? null : null), getContact: async (_c, id) => PEOPLE.find((p) => p.id === id) ?? null } };
 // the deposit as Payment recorded writes it to GHL's Cash records (what was paid before is read from there)
-const cash: ObjectRecord[] = [{ id: "CASH-BEA", createdAt: "", properties: { transaction_id: "p_bea_dep", amount: 500, type: "deposit", contact_id: "G-BEA", customer_email: "bea@x.com", occurred_at: "2026-11-01T00:00:00Z" } }];
+const cash: ObjectRecord[] = [{ id: "CASH-BEA", createdAt: "", properties: { transaction_id: "p_bea_dep", amount: 500, type: "deposit", contact_id: "G-BEA", customer_email: "bea@x.com", occurred_at: "2026-11-01T00:00:00Z" } },
+  { id: "CASH-DEE", createdAt: "", properties: { transaction_id: "p_dee_dep", amount: 1000, type: "deposit", contact_id: "G-DEE", customer_email: "dee@x.com", occurred_at: "2026-11-01T00:00:00Z" } }];
 let co = "", g: GhlPay;
 const pay = (id: string, email: string, amount: number, billing_reason: string) => asOperator((c) => recordPayment(c, co, { providerPaymentId: id, amount, status: "succeeded", paidAt: new Date(), email, raw: { billing_reason } }, undefined, { dispatch: false, ghl: g }));
 const worth = (opp: string) => asOperator((c) => one<{ v: number }>(c, "select contract_value::float as v from opportunities where id=$1", [opp]));
@@ -26,7 +27,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
     await migrate();
     co = (await installCompany({ name: "D315", slug: SLUG, timezone: "America/New_York", locationId: "LOC", pit: "pit-fake", calendars: {}, templates: [] }, ghl)).companyId;
     await asOperator(async (c) => {
-      for (const [k, v] of [["crm.object_payment", "custom_objects.cash"], ["payments.full_prices", "[10000,11500,12000]"], ["payments.price_slack", "3"], ["payments.deposit_under", "500"], ["payments.deposit_up_to", "500"], ["payments.deposit_words", "deposit"], ["payments.full_reasons", "one_time"], ["payments.full_by", "billing_reason"]])
+      for (const [k, v] of [["crm.object_payment", "custom_objects.cash"], ["payments.full_prices", "[10000,11500,12000]"], ["payments.price_slack", "3"], ["payments.deposit_under", "2000"], ["payments.deposit_up_to", "500"], ["payments.deposit_words", "deposit"], ["payments.full_reasons", "one_time"], ["payments.full_by", "billing_reason"]])
         await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [co, k, Buffer.from(v)]);
       const lc = await loadCompany(c, co);
       g = { ac: lc.adapterCompany, adapters: ghl, bindings: lc.bindings, tz: lc.row.timezone };
@@ -57,5 +58,17 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
     expect(r).toMatchObject({ outcome: "linked", payment: { kind: "installment" } });
     if (r.outcome !== "linked") return;
     expect(await fullEvent(r.event.opportunity_id!)).toBeFalsy();
+  });
+
+  it("D321: a deal already priced at $10,000 after a $1,000 deposit: a $3,000 one-time is an installment and the price stands", async () => {
+    const d = await pay("p_dee_dep", "dee@x.com", 1000, "one_time");
+    expect(d).toMatchObject({ outcome: "linked", payment: { kind: "deposit" } });
+    if (d.outcome !== "linked") return;
+    await asOperator((c) => c.query("update opportunities set contract_value=10000 where id=$1", [d.event.opportunity_id]));
+    const r = await pay("p_dee_2", "dee@x.com", 3000, "one_time");
+    expect(r).toMatchObject({ outcome: "linked", payment: { kind: "installment" } });
+    if (r.outcome !== "linked") return;
+    expect(r.event.data).toMatchObject({ full_price: 10000, cleared: false });
+    expect(await worth(r.event.opportunity_id!)).toEqual({ v: 10000 });
   });
 });
