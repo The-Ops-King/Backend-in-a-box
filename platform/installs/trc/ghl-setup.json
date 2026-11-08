@@ -1,5 +1,5 @@
 {
-  "_note": "What Tiffany Rose Coaching (TRC) needs in its GHL location, read by scripts/provision-ghl.ts (additive only: creates what is missing, never renames, changes or deletes). Modelled on installs/dating/ghl-setup.json. Setter + closer pipelines (Tyler, 2026-11-08: like Hair/PMU, direct booking or New Lead -> booked moves over). TRC already has utm_*, fbclid, fbc and fbp contact fields, so those are not created here; their ids are bound in the install (crm.field_contact_utm_* etc.). No calendars yet (Game Changer or a new one, Tyler to decide), no discovery-call object (no dialer yet). Engine runs in ghost. Sales Call Closer starts with one option (Tiffany) until the closers are named; new closers are added as options (additive). Call Type: Sales Call / Follow-up.",
+  "_note": "What Tiffany Rose Coaching (TRC) needs in its GHL location, read by scripts/provision-ghl.ts (additive only: creates what is missing, never renames, changes or deletes). Modelled on installs/dating/ghl-setup.json. Setter + closer pipelines (Tyler, 2026-11-08: like Hair/PMU, direct booking or New Lead -> booked moves over). TRC already has utm_*, fbclid, fbc and fbp contact fields, so those are not created here; their ids are bound in the install (crm.field_contact_utm_* etc.). No calendars yet (Game Changer or a new one, Tyler to decide), the triage call is the engine's discovery_call object (labelled TRC Triage Call). Engine runs in ghost. Sales Call Closer: Nick (the one closer, 2026-11-08; not a GHL user yet); new closers are added as options (additive). Call Type: Sales Call / Follow-up.",
   "prefix": "TRC – ",
   "timezone": "America/Los_Angeles",
   "team": [],
@@ -164,8 +164,8 @@
           "type": "SINGLE_OPTIONS",
           "options": [
             {
-              "key": "tiffany",
-              "label": "Tiffany"
+              "key": "nick",
+              "label": "Nick"
             }
           ]
         },
@@ -459,18 +459,102 @@
         {
           "key": "closer",
           "name": "Closer",
-          "type": "TEXT",
-          "options": [
-            {
-              "key": "tiffany",
-              "label": "Tiffany"
-            }
-          ]
+          "type": "TEXT"
         },
         {
           "key": "setter",
           "name": "Setter",
           "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "binding": "discovery_call",
+      "key": "custom_objects.trc_triage_call",
+      "label": "TRC Triage Call",
+      "plural": "TRC Triage Calls",
+      "primary": {
+        "key": "display_label",
+        "name": "Display Label"
+      },
+      "fields": [
+        {
+          "key": "external_id",
+          "name": "External ID",
+          "type": "TEXT"
+        },
+        {
+          "key": "contact_id",
+          "name": "Contact ID",
+          "type": "TEXT"
+        },
+        {
+          "key": "occurred_at",
+          "name": "Occurred At",
+          "type": "TEXT"
+        },
+        {
+          "key": "direction",
+          "name": "Direction",
+          "type": "TEXT"
+        },
+        {
+          "key": "duration_sec",
+          "name": "Duration (sec)",
+          "type": "NUMERICAL"
+        },
+        {
+          "key": "setter",
+          "name": "Setter",
+          "type": "TEXT"
+        },
+        {
+          "key": "outcome",
+          "name": "Outcome",
+          "type": "TEXT"
+        },
+        {
+          "key": "recording_url",
+          "name": "Recording URL",
+          "type": "TEXT"
+        },
+        {
+          "key": "call_result",
+          "name": "Call Result",
+          "type": "SINGLE_OPTIONS",
+          "options": [
+            {
+              "key": "set",
+              "label": "Set"
+            },
+            {
+              "key": "follow_up",
+              "label": "Follow Up"
+            },
+            {
+              "key": "dq",
+              "label": "DQ"
+            },
+            {
+              "key": "not_interested",
+              "label": "Not Interested"
+            }
+          ]
+        },
+        {
+          "key": "dq_reason",
+          "name": "DQ Reason",
+          "type": "TEXT"
+        },
+        {
+          "key": "notes",
+          "name": "Notes",
+          "type": "LARGE_TEXT"
+        },
+        {
+          "key": "call_summary",
+          "name": "Call Summary",
+          "type": "LARGE_TEXT"
         }
       ]
     }
@@ -499,6 +583,12 @@
       "key": "trc_payment_opportunity",
       "first": "payment",
       "second": "opportunity"
+    },
+    {
+      "binding": "discovery_call_contact",
+      "key": "trc_triage_call_contact",
+      "first": "contact",
+      "second": "discovery_call"
     }
   ],
   "calendars": [],
@@ -548,6 +638,14 @@
     "enable": false,
     "name": "TRC",
     "slug": "trc",
-    "closers": []
+    "closers": [],
+    "discoveryCall": {
+      "results": {
+        "set": "set",
+        "follow_up": "follow_up",
+        "dq": "dq",
+        "not_interested": "not_interested"
+      }
+    }
   }
 }
