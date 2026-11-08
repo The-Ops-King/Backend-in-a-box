@@ -112,7 +112,7 @@ async function wipe(c: PoolClient, slug: string) {
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [slug]);
   if (!co) return;
   await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [co.id]);
-  for (const t of ["run_steps", "runs", "crm_records", "rollups_daily", "payments", "events", "recordings", "appointments", "opportunities", "workflow_triggers", "workflows", "calendars", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "poll_cursors", "audit_log"])
+  for (const t of ["run_steps", "runs", "crm_records", "rollups_daily", "payments", "events", "recordings", "appointments", "pipeline_cards", "opportunities", "workflow_triggers", "workflows", "calendars", "company_terms", "contact_identifiers", "contacts", "users", "bindings", "poll_cursors", "audit_log"])
     await c.query(t === "run_steps" ? "delete from run_steps where run_id in (select id from runs where company_id=$1)" : `delete from ${t} where company_id=$1`, [co.id]);
   await c.query("delete from companies where id=$1", [co.id]);
 }

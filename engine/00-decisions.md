@@ -7556,3 +7556,28 @@ generated, $4,000 collected.
   total reaches the price; otherwise it is an installment. With no price yet, deposit plus payment is still the purchase (D315).
 - `POST /api/admin/slack/post` (dry run first, audited) posts one message to an offer's Slack as its bot, for a post a workflow got
   wrong, put right where it belongs.
+
+## D322. A deal's price comes from what was sold, and paid in full is measured against it (2026-11-08)
+
+Tyler: "it's hard to know if it's $4,000, then $6,000, then another $2,000, or if it's just the $4,000 and the $6,000." Links go
+out at many prices, so a payment can't say what was bought. The deal's price can. An offer that lists `payments.price_from`
+(PMU: agreement, eod) takes it from, strongest first:
+
+- a person (`POST /api/admin/deal/price`, or a price given to `payments/kind`);
+- the signed agreement, read from its name ("($9,997 + Guarantee) …" is $9,997), then a sent one;
+- the closer's end-of-day revenue for a close or a deposit;
+- a first one-time payment with nothing else to go on (D315).
+
+A weaker source never replaces a stronger one. When they differ by more than the slack, an alert says so and the stronger price
+stands. Each time the price is set or changes, the deal's payments are checked against it. Money collected reaching the price,
+less the slack, is paid in full; anything short is a plan. These follow:
+
+- the payment kinds (the last payment is the balance, earlier ones are installments);
+- the GHL Cash records' type and program price;
+- the offer's paid and plan tags (`payments.tag_paid_full`, `payments.tag_plan_active`);
+- Revenue Generated;
+- the closer card's value;
+- `payment.paid_in_full`, once.
+
+With no price yet, a payment after a deposit is a plan. More money than the price stays paid in full, with an alert. Offers that
+don't list `payments.price_from` work as before. `opportunities.price_source` records where each price came from (migration 0015).

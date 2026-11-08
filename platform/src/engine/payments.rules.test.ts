@@ -8,8 +8,8 @@ const kind = (amount: number, prior = 0, deal: number | null = null, reason: str
 
 describe("D270: payment rules are the offer's settings", () => {
   it("reads the settings, as JSON or words with commas; an unset one is no rule", () => {
-    expect(PMU).toEqual({ fullPrices: [10000, 12000], slack: 3, depositUnder: 500, depositWords: ["deposit"], fullReasons: ["one_time", "subscription_create"], depositUpTo: null, fullBy: "price" });
-    expect(payRulesOf({})).toEqual({ fullPrices: [], slack: 0, depositUnder: null, depositWords: [], fullReasons: [], depositUpTo: null, fullBy: "price" });
+    expect(PMU).toEqual({ fullPrices: [10000, 12000], slack: 3, depositUnder: 500, depositWords: ["deposit"], fullReasons: ["one_time", "subscription_create"], depositUpTo: null, fullBy: "price", priceFrom: [] });
+    expect(payRulesOf({})).toEqual({ fullPrices: [], slack: 0, depositUnder: null, depositWords: [], fullReasons: [], depositUpTo: null, fullBy: "price", priceFrom: [] });
     expect(listSetting("$10,000")).toEqual(["$10", "000"]);   // a list is JSON or words with commas: a price with a comma is written in JSON
     expect(payRulesOf({ "payments.full_prices": "[\"$10,000\"]" }).fullPrices).toEqual([10000]);
   });

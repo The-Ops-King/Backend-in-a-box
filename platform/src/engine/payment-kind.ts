@@ -51,7 +51,7 @@ export async function setPaymentKind(c: PoolClient, a: { companyId: string; ac: 
   if (a.dryRun !== false || !changes.length) return { ok: true, dryRun: a.dryRun !== false, payment: p.whop_payment_id, changes };
 
   await c.query("update payments set kind=$2 where id=$1", [p.id, a.kind]);
-  await c.query("update opportunities set contract_value=$2, status=$3 where id=$1", [p.opportunity_id, price, status]);
+  await c.query("update opportunities set contract_value=$2, status=$3, price_source=case when $4 then 'operator' else price_source end where id=$1", [p.opportunity_id, price, status, a.price !== undefined]);
   if (Object.keys(cashPatch).length) {
     await a.adapters.write.updateRecord(a.ac, object, cash!.ghl_record_id!, cashPatch);
     await c.query("update crm_records set properties = properties || $4::jsonb, updated_at=now() where company_id=$1 and object_key=$2 and record_key=$3", [a.companyId, object, p.whop_payment_id, JSON.stringify(cashPatch)]);

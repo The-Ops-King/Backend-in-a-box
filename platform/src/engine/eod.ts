@@ -9,6 +9,8 @@ import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { reassignOn, requestReassign } from "./reassign";
 import { TAKEN, mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, pitchedOf, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { priceFrom, setDealPrice } from "./deal-price";
+import { raise } from "./alerts";
 import { SETTING_DEFAULTS, switchOn } from "./setting-defaults";
 import { standsSql } from "./held";
 
@@ -477,6 +479,15 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
       data: { user_id: closer.id, filer: closer.name, report_id: row?.id, day: args.day, day_label: DateTime.fromFormat(args.day, DAY_FMT).toFormat("ccc LLL d"), call_id: d.call.appointment_id, kind: p.kind ?? "closing", call_words: callWords[p.kind ?? "closing"],
         contact: p.contact, href_contact: p.href_contact ?? "", recording_url: p.recording_url ?? "", ai_read: d.ai_read, ai_label: d.ai_label, ai_confidence: d.ai_confidence, filed: d.call.outcome, filed_label: d.filed_label, filed_meaning: d.filed_meaning, reason: d.reason, refiled: !!wasFiled } });
     await dispatchEvent(c, dis, { user: { id: closer.id }, contact: { id: d.call.contact_id } });
+  }
+  // D322: a close or a deposit with its revenue names the deal's price, for an offer that takes its prices from the end of day
+  if (args.adapters && priceFrom(bindings).includes("eod")) {
+    for (const call of args.answers.calls) {
+      const revenue = num(call.revenue);
+      if (!call.contact_id || !revenue || revenue <= 0 || !isRevenueOutcome(call.outcome, fields, call.kind)) continue;
+      try { await setDealPrice(c, { companyId: company.id, ac: adapterCompany, adapters: args.adapters, bindings, contactId: call.contact_id, price: revenue, source: "eod", what: `${closer.name}'s end of day` }); }
+      catch (e) { await raise(c, { companyId: company.id, key: `payments:price-eod:${call.contact_id}`, level: "warning", source: "engine", text: `Couldn't set ${call.contact}'s deal price from ${closer.name}'s end of day: ${String((e as Error).message).slice(0, 160)}` }); }
+    }
   }
   return { ok: true, changes, recorded };
 }
