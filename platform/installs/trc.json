@@ -1,0 +1,107 @@
+{
+  "_note": "TRC (Tiffany Rose Coaching) install file. No secrets: the GHL PIT and the Whop key are pasted by Tyler on the company's Settings/Connections page and read from the stored bindings (install.ts: pit omitted -> secret.ghl_pit). GHL side built by scripts/provision-ghl.ts from installs/trc/ghl-setup.json (2026-11-08). Setter + closer boards (playbook setter-closer). scopeTag trc-lead: TRC's location holds ~46k webinar contacts; only contacts tagged trc-lead (ad opt-ins asking for a call, later the Typeform) or booked on TRC's calendars are the company's. No calendars yet (Tyler: a new one, later). Closer: Nick, not a GHL user yet, so closers is empty until he is. Runs in ghost, every workflow off.",
+  "name": "TRC",
+  "slug": "trc",
+  "timezone": "America/Los_Angeles",
+  "locationId": "uIbhnKYVOLg9JOk0MyyD",
+  "booking": {
+    "source": "ghl"
+  },
+  "crm": {
+    "pipeline_setter": "3GSEWqj5DVGAfjWupWnx",
+    "stage_setter_new_lead": "313b83b6-fa23-4970-89e1-49d87d0d1865",
+    "stage_setter_direct_booked": "55aad596-3685-47a7-95f2-1afeaa26404e",
+    "stage_setter_appointment_set": "3b373b26-704f-460d-a6fd-659bae67a84e",
+    "stage_setter_showed": "e663e319-1bdf-4204-837b-77af12c0b6f7",
+    "stage_setter_cancelled": "7a730163-0f5c-48f1-8585-b353308cc5d6",
+    "stage_setter_dq": "7e6e697f-671e-4fee-826d-40f86935bba0",
+    "stage_setter_not_interested": "6452009e-b8f0-46cc-8930-14140eb2b668",
+    "pipeline_closer": "dtmpVAEYbMsFJIae85nE",
+    "stage_closer_scheduled": "04614a06-4e4a-49b2-bbd1-a583f9ccbb73",
+    "stage_closer_cancelled": "38421dc3-a200-4ff1-8f35-eb48079800a0",
+    "stage_closer_follow_up": "43d3c248-17eb-43cf-bc2a-d659c2a66480",
+    "stage_closer_deposit": "2543ab1d-4ec8-407e-879a-21a5f1a2ec3c",
+    "stage_closer_agreement_sent": "1a5e32a1-eb8c-4ce0-9ffa-5f5e1230e833",
+    "stage_closer_closed_won": "271a8463-828d-4e33-8990-600b835ef501",
+    "stage_closer_lost": "824dde4c-3def-4379-936f-1fe106fa4c70",
+    "stage_closer_disqualified": "8687e03a-8915-4cc7-ae34-ce4d07790f29",
+    "field_contact_appointment_date": "t0trgmFaHAypAR8sGcxG",
+    "field_contact_setter": "V1Hv6Qkp9rTpVs4R7ECq",
+    "field_contact_cash_collected": "caIPYZ0oJ0n0XNALbNbX",
+    "field_contact_revenue_generated": "jdvHRNcUkg7JbCKpVe2Y",
+    "field_opportunity_setter_owner": "6tZ1NMyfK6vndqO1zn2M",
+    "field_opportunity_stage_entered": "SL7wGEG1bj5cSh8kJNlD",
+    "object_sales_call": "custom_objects.trc_sales_call",
+    "object_payment": "custom_objects.trc_payment",
+    "object_discovery_call": "custom_objects.trc_triage_call",
+    "assoc_sales_call_contact": "6aefd9991649894063f06b10",
+    "assoc_sales_call_opportunity": "6aefd99a4724226aa09ea605",
+    "assoc_payment_contact": "6aefd99a36bd7e445c15b957",
+    "assoc_payment_opportunity": "6aefd99b25881f8faab66a36",
+    "assoc_discovery_call_contact": "6aefd99b7091f8bc2b5a2b7b",
+    "field_contact_utm_source": "XqL7ws6vPZaZQ77XDaNu",
+    "field_contact_utm_medium": "Vvlmy9boQ7bJfH9wOx5w",
+    "field_contact_utm_campaign": "wtk96Ac7a4UxZvdIXKcW",
+    "field_contact_utm_content": "eLsAgHsTvzQfuRxGK8OK",
+    "field_contact_utm_term": "k9IgilLye2OZcAQRdHg3",
+    "field_contact_fbclid": "Pu7MW8BVvi18sP8hppeS"
+  },
+  "salesCall": {
+    "objections": [
+      "price",
+      "partner",
+      "timing",
+      "fear",
+      "competitor",
+      "think_about_it"
+    ],
+    "outcomes": {
+      "scheduled": "scheduled",
+      "showed": "showed",
+      "no_show": "noshow",
+      "cancelled": "cancelled",
+      "rescheduled": "rescheduled"
+    },
+    "bookingSources": {
+      "setter": "setter_set",
+      "self": "self_booked"
+    },
+    "dispositions": {
+      "closed_won": "closed",
+      "deposit": "deposit",
+      "follow_up": "follow_up",
+      "lost": "lost",
+      "dq": "unqualified",
+      "no_offer": {
+        "meaning": "unqualified",
+        "reason": "No offer made (DQ before the pitch)"
+      },
+      "financing_denied": {
+        "meaning": "lost",
+        "reason": "Financing denied"
+      },
+      "close_pending": "pending"
+    },
+    "dqDispositions": [
+      "dq",
+      "no_offer"
+    ],
+    "closerOptions": {},
+    "object": "custom_objects.trc_sales_call"
+  },
+  "discoveryCall": {
+    "results": {
+      "set": "set",
+      "follow_up": "follow_up",
+      "dq": "dq",
+      "not_interested": "not_interested"
+    }
+  },
+  "contractValueDefault": 10000,
+  "scopeTag": "trc-lead",
+  "testDomains": [
+    "jtylerray.com"
+  ],
+  "closers": [],
+  "enable": false
+}

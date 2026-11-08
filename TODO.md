@@ -37,6 +37,17 @@ Things only Tyler can do or decide, that are holding up work. Claude adds to it;
 
 - [ ] Say go on the step 3 dry runs (re-saving Call booked, Call cancelled and Call recorded from the onboarding branch).
 
+## TRC (Tiffany Rose Coaching)
+
+- [ ] Engine dashboard: Companies → Add "TRC" (a new offer, America/Los_Angeles), then paste the GHL PIT and the Whop key on its
+      Connections/Settings. Claude runs the install (every workflow off, ghost) from `platform/installs/trc.json`.
+- [ ] `CRON_SECRET_PREVIOUS` (production) is a second operator key Claude made on 2026-11-08 with Tyler's OK, for the TRC setup.
+      Delete it in Vercel (backend-in-a-box → Settings → Environment Variables) and redeploy to revoke. Rotating `CRON_SECRET`
+      later uses this same slot, so clear it first.
+- [ ] Calendar: a new TRC closing calendar (not built yet). Nick needs a GHL user before he can take bookings.
+- [ ] Lead tag: put `trc-lead` on the ad opt-in ("call me") form and later the Typeform (the install's scopeTag).
+- [ ] Slack: the custom app from the wizard's Slack step, then its token and signing secret.
+
 ## Sandbox (template businesses, D183)
 
 - [ ] Slack for the template tests, in Vercel (Production and Preview): `SANDBOX_SLACK_BOT_TOKEN`, `SANDBOX_SLACK_SIGNING_SECRET`,
