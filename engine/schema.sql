@@ -198,6 +198,7 @@ create table opportunities (
   lost_at             timestamptz,
   lost_reason_term    uuid references company_terms(id),
   contract_value      numeric(12,2),
+  price_source        text,                              -- D322: payment | eod | agreement_sent | agreement | operator
   payment_plan_term   uuid references company_terms(id),
   installments        int,
   created_at          timestamptz not null default now(),

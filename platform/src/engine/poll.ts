@@ -10,6 +10,7 @@ import { simTag, simulate } from "./simulate";
 import { callOutcome, callsNow, finishPhoneCall, meetingKey, pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, unfinishedPhoneCalls, UNFINISHED_CALL, type RecordingRow } from "./recordings";
 import { callSetting } from "./call-settings";
 import { applyDocument, facts as agreementFacts, isSigned } from "./agreements";
+import { priceFrom, priceFromName, setDealPrice } from "./deal-price";
 import { foldCard } from "./cards";
 import { handMoved } from "./card-moves";
 import { carriesTag, companyScopeTag, inScope, scopeTag, stillInScope, tagIntoScope } from "./scope";
@@ -457,6 +458,12 @@ async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapte
     }
     const { row, events } = await applyDocument(c, co.id, d, ours ? contact!.id : null, { silent: isBaseline || (!!contact && !ours) });
     for (const ev of events) { rep.agreements++; rep.eventsDispatched += (await dispatchEvent(c, ev, { contact: { id: row.contact_id }, agreement: agreementFacts(row) })).length; }
+    // D322: the agreement names what was sold; an offer that takes its prices from agreements sets the deal's price from it
+    const price = events.length && row.contact_id ? priceFromName(row.name) : null;
+    if (price && priceFrom(bindings).includes("agreement")) {
+      try { await setDealPrice(c, { companyId: co.id, ac, adapters, bindings, contactId: row.contact_id!, price, source: row.signed_at ? "agreement" : "agreement_sent", what: `"${row.name}"` }); }
+      catch (e) { await raise(c, { companyId: co.id, key: `payments:price-read:${row.id}`, level: "warning", source: "engine", text: `Couldn't set the deal's price from "${row.name}": ${String((e as Error).message).slice(0, 160)}` }); }
+    }
   }
   await saveCursor(c, co.id, "agreements", DateTime.now().toISO()!, true);
 }

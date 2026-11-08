@@ -128,4 +128,8 @@ export const MIGRATIONS: Migration[] = [
     await c.query("alter table companies drop constraint if exists companies_status_check");
     await c.query("alter table companies add constraint companies_status_check check (status in ('onboarding','active','hosted','archived','template','paused'))");
   } },
+  // D322: where a deal's price came from (payment < eod < agreement_sent < agreement < operator): a weaker source never replaces a stronger one
+  { id: "0015-deal-price-source", run: async (c) => {
+    await c.query("alter table opportunities add column if not exists price_source text");
+  } },
 ];
