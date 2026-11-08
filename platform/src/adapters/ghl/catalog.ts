@@ -38,3 +38,12 @@ export async function ghlWorkflows(pit: string, locationId: string): Promise<{ i
   const r = await ghl<{ workflows?: { id: string; name?: string; status?: string }[] }>(pit, "GET", `/workflows/?locationId=${locationId}`);
   return (r.workflows ?? []).map((w) => ({ id: w.id, name: w.name?.trim() || w.id, status: w.status ?? "unknown" })).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/** D323: one of the location's custom fields, read (GET) and renamed (PUT, the name only; its id and key stay, so nothing that writes it breaks). */
+export async function ghlCustomField(pit: string, locationId: string, id: string): Promise<{ id: string; name: string; fieldKey?: string; model?: string } | null> {
+  const r = await ghl<{ customField?: { id: string; name: string; fieldKey?: string; model?: string } }>(pit, "GET", `/locations/${locationId}/customFields/${encodeURIComponent(id)}`);
+  return r.customField ?? null;
+}
+export async function ghlRenameCustomField(pit: string, locationId: string, id: string, name: string): Promise<void> {
+  await ghl(pit, "PUT", `/locations/${locationId}/customFields/${encodeURIComponent(id)}`, { body: { name } });
+}

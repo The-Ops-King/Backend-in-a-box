@@ -109,7 +109,7 @@ const FOLLOWS: Record<string, (o: OutcomeChoice) => boolean> = {
 export const BUILTIN_FIELDS: EodField[] = [
   { key: "outcome", label: "What happened on the call?", type: "select", scope: "call", required: true, builtin: true },
   { key: "cash", label: "Cash collected ($)", type: "money", scope: "call", when: ["closed", "deposit"], required: true, builtin: true },
-  { key: "revenue", label: "Revenue generated ($)", type: "money", scope: "call", when: ["closed"], required: true, builtin: true },
+  { key: "revenue", label: "Contract value ($)", type: "money", scope: "call", when: ["closed"], required: true, builtin: true },
   { key: "next_date", label: "Next follow-up", type: "date", scope: "call", when: ["follow_up"], required: true, builtin: true },
   { key: "next_steps", label: "Next steps", type: "text", scope: "call", when: ["follow_up"], required: true, builtin: true },
   { key: "dq_reason", label: "Why were they a DQ?", type: "select", scope: "call", when: ["dq"], required: true, options: DQ_REASONS, builtin: true },
@@ -122,7 +122,8 @@ export const BUILTIN_FIELDS: EodField[] = [
 ];
 const BUILTIN = new Map(BUILTIN_FIELDS.map((f) => [f.key, f]));
 // a default label we later renamed: a company that saved the form with it never chose it, so it follows the new default
-const RETIRED_LABELS: Record<string, string[]> = { revenue: ["Contract value ($)"] };
+// D323 (Tyler 2026-11-08: "Change revenue generated to contract value everywhere"): a form saved with the D81 default follows the rename back
+const RETIRED_LABELS: Record<string, string[]> = { revenue: ["Revenue generated ($)"] };
 
 /** The company's list over the defaults: every builtin present (their label, required, options kept; key, type, scope, when fixed), extras kept as stored. */
 export function mergeEodFields(stored: EodField[] | null | undefined): EodField[] {
@@ -215,5 +216,5 @@ export function missingAnswers(fields: EodField[], calls: CallEntry[], day: Reco
  */
 export function impossibleAnswers(calls: CallEntry[], fields?: EodField[]): string[] {
   const asks = (x: CallEntry, key: string) => !fields || fieldsFor(fields, x.outcome, x.kind).some((f) => f.key === key);
-  return calls.filter((x) => x.cash != null && x.revenue != null && x.cash > x.revenue && asks(x, "cash") && asks(x, "revenue")).map((x) => `${x.contact}: cash collected is more than revenue generated`);
+  return calls.filter((x) => x.cash != null && x.revenue != null && x.cash > x.revenue && asks(x, "cash") && asks(x, "revenue")).map((x) => `${x.contact}: cash collected is more than the contract value`);
 }

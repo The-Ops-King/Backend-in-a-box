@@ -27,7 +27,7 @@
     { "binding": "appointment_date", "name": "Appointment Date", "type": "DATE" },
     { "binding": "setter", "name": "Setter", "type": "TEXT" },
     { "binding": "cash_collected", "name": "Cash Collected", "type": "NUMERICAL" },
-    { "binding": "revenue_generated", "name": "Revenue Generated", "type": "NUMERICAL" },
+    { "binding": "revenue_generated", "name": "Contract Value", "type": "NUMERICAL" },
     { "binding": "utm_source", "name": "UTM Source", "type": "TEXT" },
     { "binding": "utm_medium", "name": "UTM Medium", "type": "TEXT" },
     { "binding": "utm_campaign", "name": "UTM Campaign", "type": "TEXT" },
