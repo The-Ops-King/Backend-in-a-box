@@ -305,8 +305,8 @@ export type Change = { field: string; from: unknown; to: unknown; contact?: stri
  * What the closer corrected, as lines a person reads: "calls today 6 → 7", "Sarah: Follow up → Closed", "Sarah: cash $1,500 → $2,000".
  * Only a value the engine HAD and the closer changed is a correction; a blank they filled in is just their answer (D80).
  */
-const TOTAL_WORDS = { calls_count: "calls today", closes: "closes", deposits: "deposits", cash: "cash collected", revenue: "revenue generated" } as const;
-const CALL_WORDS = { cash: "cash collected", revenue: "revenue generated", next_date: "follow-up date" } as const;
+const TOTAL_WORDS = { calls_count: "calls today", closes: "closes", deposits: "deposits", cash: "cash collected", revenue: "contract value" } as const;
+const CALL_WORDS = { cash: "cash collected", revenue: "contract value", next_date: "follow-up date" } as const;
 const money = (v: unknown) => `$${num(v).toLocaleString("en-US")}`;
 const dayWords = (v: unknown) => { const d = DateTime.fromISO(String(v ?? "")); return d.isValid ? d.toFormat("ccc LLL d") : String(v ?? ""); };
 export function diffAnswers(pre: EodPrefill, ans: EodAnswers, fields?: EodField[]): Change[] {
@@ -357,7 +357,7 @@ function dispositionNotes(call: CallEntry, fields: EodField[]): string {
     meaning === "lost" && call.lost_reason ? `Lost: ${call.lost_reason}` : "",
     call.pitched && pitchedOf(call, fields) !== null && !isMoney(call.outcome, fields, call.kind) ? `Pitched: ${call.pitched}` : "",
     meaning === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
-    isMoney(call.outcome, fields, call.kind) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected${isRevenueOutcome(call.outcome, fields) ? `, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : ""}` : "",
+    isMoney(call.outcome, fields, call.kind) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected${isRevenueOutcome(call.outcome, fields) ? `, ${call.revenue == null ? "?" : money(call.revenue)} contract value` : ""}` : "",
     ...fields.filter((f) => f.scope === "call" && !f.builtin && !isSetterCall(call.kind) && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
   ];
   return lines.filter(Boolean).join("\n");
@@ -496,8 +496,8 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 /** D226: the closing calls that happened, and how many of them were pitched (a close or a deposit was). */
 export const heldCount = (calls: CallEntry[], fields: EodField[]) => calls.filter((x) => !isSetterCall(x.kind) && choiceOf(x.outcome, fields, x.kind)?.attendance === "showed").length;
 export const pitchCount = (calls: CallEntry[], fields: EodField[]) => calls.filter((x) => pitchedOf(x, fields) === true).length;
-/** "3 calls, 2 pitched, 1 close, 1 deposit, $1,500 collected, $4,000 revenue generated" (deposits only when there are any; pitched when known, D226). */
-export const totalsLine = (t: DayTotals, pitched?: number) => [plural(t.calls_count, "call"), pitched === undefined ? "" : `${pitched} pitched`, plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} collected`, `$${t.revenue.toLocaleString("en-US")} revenue generated`].filter(Boolean).join(", ");
+/** "3 calls, 2 pitched, 1 close, 1 deposit, $1,500 collected, $4,000 contract value" (deposits only when there are any; pitched when known, D226). */
+export const totalsLine = (t: DayTotals, pitched?: number) => [plural(t.calls_count, "call"), pitched === undefined ? "" : `${pitched} pitched`, plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} collected`, `$${t.revenue.toLocaleString("en-US")} contract value`].filter(Boolean).join(", ");
 
 export const reportFor = (c: PoolClient, companyId: string, userId: string, day: string) => one<{ id: string; submitted_at: Date | null; answers: EodAnswers | null; changes: Change[]; reminded_at: Date | null }>(c, "select id, submitted_at, answers, changes, reminded_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, userId, day]);
 export const companyReports = (c: PoolClient, companyId: string, limit = 60) => many<{ id: string; day: string; closer: string; submitted_at: Date | null; reminded_at: Date | null; answers: EodAnswers | null; changes: Change[] }>(c, "select r.id, r.day::text as day, u.name as closer, r.submitted_at, r.reminded_at, r.answers, r.changes from eod_reports r join users u on u.id=r.user_id where r.company_id=$1 order by r.day desc, u.name limit $2", [companyId, limit]);

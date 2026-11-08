@@ -93,9 +93,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "lost_reason", "pitched", "about", "notes", "general_notes"]);
     expect(def.find((f) => f.key === "pitched")).toMatchObject({ required: true, options: ["Yes", "No"], when: ["pending", "follow_up", "lost", "dq"] });   // D226: asked short of a close
     expect(def.find((f) => f.key === "dq_reason")!.options).toEqual(DQ_REASONS);
-    expect(def.filter((f) => f.key === "cash" || f.key === "revenue").map((f) => f.label)).toEqual(["Cash collected ($)", "Revenue generated ($)"]);
+    expect(def.filter((f) => f.key === "cash" || f.key === "revenue").map((f) => f.label)).toEqual(["Cash collected ($)", "Contract value ($)"]);
     // a form saved with the old default label follows the rename; a label the company chose stays theirs
-    expect(mergeEodFields([{ key: "revenue", label: "Contract value ($)", type: "money", scope: "call", required: true, builtin: true }]).find((f) => f.key === "revenue")!.label).toBe("Revenue generated ($)");
+    expect(mergeEodFields([{ key: "revenue", label: "Revenue generated ($)", type: "money", scope: "call", required: true, builtin: true }]).find((f) => f.key === "revenue")!.label).toBe("Contract value ($)");
     expect(mergeEodFields([{ key: "revenue", label: "Program price", type: "money", scope: "call", required: true, builtin: true }]).find((f) => f.key === "revenue")!.label).toBe("Program price");
     await asOperator((c) => saveEodForm(c, companyId, [
       { key: "notes", label: "Call notes", type: "text", scope: "call", required: true, builtin: true },
@@ -151,9 +151,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const answers = { ...half, calls: calls.map((x) => (x.contact === "Sarah Kim" ? { ...x, notes: "warm, wants her partner on the next one", pitched: "Yes" } : x)) };
     // more cash than revenue on one call can't be true: nothing is filed until it is fixed
     const over = { ...answers, calls: answers.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, cash: 5000 } : x)) };
-    expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than revenue generated" });
+    expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than the contract value" });
     // D305: the refusal is written down with its reason; a deposit (cash asked, revenue hidden) is never refused over a revenue left in the hidden box
-    expect(await asOperator((c) => one<{ after: { why: string } }>(c, "select after from audit_log where company_id=$1 and action='eod.refused' order by id desc limit 1", [companyId]))).toMatchObject({ after: { why: "Check Leo Ortiz: cash collected is more than revenue generated" } });
+    expect(await asOperator((c) => one<{ after: { why: string } }>(c, "select after from audit_log where company_id=$1 and action='eod.refused' order by id desc limit 1", [companyId]))).toMatchObject({ after: { why: "Check Leo Ortiz: cash collected is more than the contract value" } });
     expect(impossibleAnswers([{ ...over.calls.find((x) => x.contact === "Leo Ortiz")!, outcome: "deposit", cash: 500, revenue: 0 }], mergeEodFields(undefined))).toEqual([]);
     expect(impossibleAnswers([{ ...over.calls.find((x) => x.contact === "Leo Ortiz")!, outcome: "closed", cash: 500, revenue: 0 }], mergeEodFields(undefined))).toHaveLength(1);
     const changes = diffAnswers(pre, answers);
@@ -181,9 +181,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1 and tag like 'eod-reminder:%'", [companyId])))!.ts);
     expect(reactions).toEqual([{ channel: "UALLAN", ts: reminderTs, emoji: "white_check_mark" }]);
-    const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 2 pitched, 1 close, $2,000 collected, $4,000 revenue generated.");
+    const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 2 pitched, 1 close, $2,000 collected, $4,000 contract value.");
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
-    expect(summary.text).toMatch(/^📝 \*Allan P\* filed .*: 3 calls, 2 pitched, 1 close, \$2,000 collected, \$4,000 revenue generated\.\n• Sarah Kim: Follow up · next \w{3} \w{3} \d{1,2}\n• Leo Ortiz: Closed · \$2,000 collected · \$4,000 revenue\n\*What did I do well\?\* Stayed on the objection$/);   // what happened on each call, not what was corrected
+    expect(summary.text).toMatch(/^📝 \*Allan P\* filed .*: 3 calls, 2 pitched, 1 close, \$2,000 collected, \$4,000 contract value\.\n• Sarah Kim: Follow up · next \w{3} \w{3} \d{1,2}\n• Leo Ortiz: Closed · \$2,000 collected · \$4,000 revenue\n\*What did I do well\?\* Stayed on the objection$/);   // what happened on each call, not what was corrected
     const filed = await asOperator((c) => one<{ submitted_at: Date | null; changes: unknown[] }>(c, "select submitted_at, changes from eod_reports where company_id=$1 and user_id=$2", [companyId, allan]));
     expect(filed?.submitted_at).toBeTruthy(); expect(filed?.changes).toHaveLength(3);
     // filed: the clock finds nothing more to send for that day

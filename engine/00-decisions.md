@@ -7581,3 +7581,15 @@ less the slack, is paid in full; anything short is a plan. These follow:
 
 With no price yet, a payment after a deposit is a plan. More money than the price stays paid in full, with an alert. Offers that
 don't list `payments.price_from` work as before. `opportunities.price_source` records where each price came from (migration 0015).
+
+## D323. "Contract value", not "revenue generated" (2026-11-08)
+
+Tyler: "Change revenue generated to contract value everywhere", on every offer: the posts, the end-of-day form, the GHL field and
+pmu-dash. This reverses D81's wording, not its order (cash collected still comes first).
+
+- Engine: the end-of-day question is **Contract value ($)**. A form saved with D81's default follows the rename back, while a label an
+  offer chose stays its own. The day's totals and each call's line say "contract value", and the check says "cash collected is more
+  than the contract value". New installs name the GHL field Contract Value. The templates' posts say "Contract Value:". The frozen
+  fixtures keep their words.
+- Each offer's own workflows that say it are saved one by one, with a dry run.
+- `POST /api/admin/ghl/field-name` (dry run first, audited) renames an offer's GHL field. Only the name changes; its id and key stay.
