@@ -196,7 +196,7 @@ export const METRICS: Record<string, Def> = {
   pitched_close_rate: { kind: "rate", label: "Close rate when pitched", num: "closes", den: "pitched", definition: "closes ÷ pitched shows in the same period (D226)" },
   deposits: { kind: "ghl", label: "Deposits", unit: "count", entity: "payment", definition: "people who put down a deposit in the period: GHL Payment records of type deposit (a payment for one of the company's deposit products, D119), each person once; a deposit is not a close and is never counted as one" },
   deposit_cash: { kind: "ghl", label: "Deposit cash", unit: "money", entity: "payment", definition: "what the period's deposits brought in: succeeded GHL Payment records of type deposit, before refunds; already part of cash collected, never revenue" },
-  revenue: { kind: "ghl", label: "Revenue", unit: "money", entity: "close", definition: "value of the won Closer-pipeline cards in GHL in the period: revenue is counted only on a close, never on a deposit" },
+  revenue: { kind: "ghl", label: "Contract value", unit: "money", entity: "close", definition: "value of the won Closer-pipeline cards in GHL in the period: revenue is counted only on a close, never on a deposit" },
   cash_collected: { kind: "ghl", label: "Cash collected", unit: "money", entity: "payment", definition: "GHL Payment records by when they occurred: succeeded payments in, refunds and chargebacks out; credited to the record's closer (and setter)" },
   cash_gross: { kind: "ghl", label: "Payments", unit: "money", entity: "payment", definition: "succeeded GHL Payment records in the period, before refunds" },
   refunds: { kind: "ghl", label: "Refunds", unit: "money", entity: "payment", definition: "refunds and chargebacks in GHL's Payment records in the period" },

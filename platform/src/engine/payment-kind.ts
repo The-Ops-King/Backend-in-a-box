@@ -43,9 +43,9 @@ export async function setPaymentKind(c: PoolClient, a: { companyId: string; ac: 
   }
   // the closer card: Deposit for a deposit, Purchase for money beyond one
   const stage = a.bindings[a.kind === "deposit" ? "crm.stage_closer_deposit" : "crm.stage_closer_purchase"];
-  const card = await one<{ id: string; ghl_opportunity_id: string | null; ghl_stage_id: string }>(c,
-    "select id, ghl_opportunity_id, ghl_stage_id from pipeline_cards where opportunity_id=$1 and ghl_pipeline_id=$2 and status='open' order by updated_at desc limit 1", [p.opportunity_id, a.bindings["crm.pipeline_closer"] ?? ""]);
-  const moveCard = !!card?.ghl_opportunity_id && !!stage && card.ghl_stage_id !== stage;
+  const card = await one<{ id: string; ghl_opportunity_id: string | null; ghl_stage_id: string; status: string }>(c,
+    "select id, ghl_opportunity_id, ghl_stage_id, status from pipeline_cards where opportunity_id=$1 and ghl_pipeline_id=$2 and status in ('open','won') order by (status='open') desc, updated_at desc limit 1", [p.opportunity_id, a.bindings["crm.pipeline_closer"] ?? ""]);
+  const moveCard = !!card?.ghl_opportunity_id && !!stage && card.status === "open" && card.ghl_stage_id !== stage;   // D324: a won card keeps its stage; only its value follows
   if (moveCard) changes.push({ what: "closer card stage", was: card!.ghl_stage_id, now: stage });
   if (card?.ghl_opportunity_id && price !== null) changes.push({ what: "closer card value", was: "(as GHL has it)", now: price });
   if (a.dryRun !== false || !changes.length) return { ok: true, dryRun: a.dryRun !== false, payment: p.whop_payment_id, changes };

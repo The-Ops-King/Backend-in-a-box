@@ -175,9 +175,19 @@ async function ladder(c: PoolClient, companyId: string, p: Pick<PaymentInput, "e
   return null;
 }
 
-/** The pursuit a payment belongs to: the contact's latest open or won opportunity; a paying customer with none gets one. */
+/**
+ * D324: the person's sale, among their open and won opportunities: first one still owed money (its price above what was paid on it),
+ * then one with money on it or a card on the closer board, then the latest open one, then the latest. Carmen Thomas: GHL opened a
+ * second, empty deal on another board the moment she closed; her balance belongs to the $10,000 deal she was still paying off.
+ */
+export const SALE_ORDER = `order by
+    (o.contract_value is not null and coalesce((select sum(p.amount) from payments p where p.opportunity_id=o.id and p.status in ('succeeded','refunded')),0) < o.contract_value - 3) desc,
+    (exists (select 1 from payments p where p.opportunity_id=o.id) or exists (select 1 from pipeline_cards k where k.opportunity_id=o.id and k.ghl_pipeline_id = (select convert_from(b.value,'UTF8') from bindings b where b.company_id=o.company_id and b.key='crm.pipeline_closer'))) desc,
+    (o.status='open') desc, o.opened_at desc`;
+
+/** The pursuit a payment belongs to: the person's sale (D324); a paying customer with none gets one. */
 async function opportunityFor(c: PoolClient, companyId: string, contactId: string, payment: PaymentRow): Promise<{ id: string; contract_value: number | null; status: string; price_source: string | null }> {
-  let opp = await one<{ id: string; contract_value: string | null; status: string; price_source?: string | null }>(c, "select id, contract_value, status, price_source from opportunities where company_id=$1 and contact_id=$2 and status in ('open','won') order by (status='open') desc, opened_at desc limit 1", [companyId, contactId]);
+  let opp = await one<{ id: string; contract_value: string | null; status: string; price_source?: string | null }>(c, `select o.id, o.contract_value, o.status, o.price_source from opportunities o where o.company_id=$1 and o.contact_id=$2 and o.status in ('open','won') ${SALE_ORDER} limit 1`, [companyId, contactId]);
   if (!opp) {
     opp = await one<{ id: string; contract_value: string | null; status: string }>(c, "insert into opportunities (company_id, contact_id, opened_by) values ($1,$2,'payment') returning id, contract_value, status", [companyId, contactId]);
     await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp!.id, appointment_id: null, event_type: "opportunity.opened", source: "whop", data: { by: "payment", payment_id: payment.id } });
