@@ -76,7 +76,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
   it("D324: the balance goes to the sale still owed money, not an empty deal GHL opened since: $6,000 pays off the $10,000", async () => {
     const sale = await asOperator((c) => one<{ id: string; contact_id: string }>(c, "select o.id, o.contact_id from opportunities o join payments p on p.opportunity_id=o.id where p.whop_payment_id='p_dee_2' and o.company_id=$1", [co]));
     await asOperator((c) => c.query("update opportunities set status='won' where id=$1", [sale!.id]));
-    await asOperator((c) => c.query("insert into opportunities (company_id, contact_id, opened_by, status) values ($1,$2,'crm','open')", [co, sale!.contact_id]));
+    // GHL's empty deal, priced at a default and carrying a failed charge: neither makes it the sale
+    const empty = await asOperator((c) => one<{ id: string }>(c, "insert into opportunities (company_id, contact_id, opened_by, status, contract_value) values ($1,$2,'crm','open',10000) returning id", [co, sale!.contact_id]));
+    await asOperator((c) => c.query("insert into payments (company_id, contact_id, opportunity_id, whop_payment_id, amount, status, paid_at, kind) values ($1,$2,$3,'p_dee_fail',6000,'failed',now(),'failed')", [co, sale!.contact_id, empty!.id]));
     const r = await pay("p_dee_3", "dee@x.com", 6000, "one_time");
     expect(r).toMatchObject({ outcome: "linked", payment: { kind: "balance" } });
     if (r.outcome !== "linked") return;

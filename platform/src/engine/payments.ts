@@ -177,12 +177,13 @@ async function ladder(c: PoolClient, companyId: string, p: Pick<PaymentInput, "e
 
 /**
  * D324: the person's sale, among their open and won opportunities: first one still owed money (its price above what was paid on it),
- * then one with money on it or a card on the closer board, then the latest open one, then the latest. Carmen Thomas: GHL opened a
+ * then one with money on it or a card on the closer board, then the latest open one, then the latest. Only money that went through counts:
+ * a failed charge, or a default price on a deal nobody has paid on, makes nothing owed (her failed $6,000 had landed on the empty deal). Carmen Thomas: GHL opened a
  * second, empty deal on another board the moment she closed; her balance belongs to the $10,000 deal she was still paying off.
  */
 export const SALE_ORDER = `order by
-    (o.contract_value is not null and coalesce((select sum(p.amount) from payments p where p.opportunity_id=o.id and p.status in ('succeeded','refunded')),0) < o.contract_value - 3) desc,
-    (exists (select 1 from payments p where p.opportunity_id=o.id) or exists (select 1 from pipeline_cards k where k.opportunity_id=o.id and k.ghl_pipeline_id = (select convert_from(b.value,'UTF8') from bindings b where b.company_id=o.company_id and b.key='crm.pipeline_closer'))) desc,
+    (o.contract_value is not null and coalesce((select sum(p.amount) from payments p where p.opportunity_id=o.id and p.status in ('succeeded','refunded')),0) between 0.01 and o.contract_value - 3) desc,
+    (exists (select 1 from payments p where p.opportunity_id=o.id and p.status='succeeded') or exists (select 1 from pipeline_cards k where k.opportunity_id=o.id and k.ghl_pipeline_id = (select convert_from(b.value,'UTF8') from bindings b where b.company_id=o.company_id and b.key='crm.pipeline_closer'))) desc,
     (o.status='open') desc, o.opened_at desc`;
 
 /** The pursuit a payment belongs to: the person's sale (D324); a paying customer with none gets one. */
