@@ -118,7 +118,7 @@
         "id": "s1",
         "type": "slack_post",
         "channel": "{{slack.channel.deals}}",
-        "template": "*NEW CLOSE!* Well done {{contact.closer.mention | default:team}}!\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{contact.setter.mention | line:*Setter:*}}\n*Cash Collected:* ${{contact.cash_collected | money}}\n*Revenue Generated:* ${{contact.revenue | money | default:—}}\n\n*First Booking:* {{contact.first_booked_at | date_company:ccc LLL d | default:—}}\n*Days to Close:* {{contact.days_to_close | default:—}}\n\n*Source:* {{contact.source | default:—}}{{vars.cheer | line:}}",
+        "template": "*NEW CLOSE!* Well done {{contact.closer.mention | default:team}}!\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>{{contact.setter.mention | line:*Setter:*}}\n*Cash Collected:* ${{contact.cash_collected | money}}\n*Contract Value:* ${{contact.revenue | money | default:—}}\n\n*First Booking:* {{contact.first_booked_at | date_company:ccc LLL d | default:—}}\n*Days to Close:* {{contact.days_to_close | default:—}}\n\n*Source:* {{contact.source | default:—}}{{vars.cheer | line:}}",
         "as": {
           "name": "NEW CLOSE",
           "icon": [

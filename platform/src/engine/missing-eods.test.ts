@@ -4,8 +4,8 @@ import { DateTime } from "luxon";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { loadCompany } from "./context";
-import { missingEods, missingLines, formatMissingEods } from "./missing-eods";
-import { planCommand } from "./bot";
+import { missingEods, missingLines, missingPeople, formatMissingEods } from "./missing-eods";
+import { planCommand, MISSING_EOD_WORDS, missingEodBlocks } from "./bot";
 import { encrypt } from "./crypto";
 import { liveGhlReads, type GhlReads } from "@/adapters/ghl/metrics";
 
@@ -14,7 +14,9 @@ const TZ = "America/New_York";
 let companyId = "";
 const at = (n: number, h = 11) => DateTime.now().setZone(TZ).minus({ days: n }).set({ hour: h, minute: 0, second: 0, millisecond: 0 });
 const rec = (id: string, closer: string, name: string, n: number, outcome = "scheduled") => ({ id, createdAt: "", properties: { closer, outcome, contact_id: `G-${id}`, call_date: at(n).toISODate(), scheduled_at: at(n).toISO(), display_label: `${name} — ${at(n).toISODate()}` } });
-const SALES = [rec("S1", "Jose P", "Tommy", 2), rec("S2", "Jose P", "Kimberly", 1), rec("S3", "Jose P", "Elizabeth", 0, ""), rec("S4", "Mel R", "Ana", 1, "showed"), rec("S5", "Carly V", "Jonelle", 3, ""), rec("S6", "Jose P", "Old", 30)];
+// today's call has already passed whenever the test runs (an 11 AM call is still ahead at 10 AM): a minute ago, never before today
+const passedToday = () => DateTime.max(DateTime.now().setZone(TZ).minus({ minutes: 1 }), DateTime.now().setZone(TZ).startOf("day").plus({ seconds: 1 }));
+const SALES = [rec("S1", "Jose P", "Tommy", 2), rec("S2", "Jose P", "Kimberly", 1), { ...rec("S3", "Jose P", "Elizabeth", 0, ""), properties: { ...rec("S3", "Jose P", "Elizabeth", 0, "").properties, scheduled_at: passedToday().toISO() } }, rec("S4", "Mel R", "Ana", 1, "showed"), rec("S5", "Carly V", "Jonelle", 3, ""), rec("S6", "Jose P", "Old", 30)];
 const TRIAGE = [{ id: "D1", createdAt: "", properties: { setter: "Mitch S", outcome: "scheduled", display_label: `Pia — ${at(1).toISODate()}`, occurred_at: `${at(1).toFormat("ccc LLL d")} · 9:00 AM` } }, { id: "D2", createdAt: "", properties: { setter: "Mitch S", outcome: "showed", display_label: `Omar — ${at(1).toISODate()}`, occurred_at: "9:30 AM" } }];
 const reads: GhlReads = { ...liveGhlReads, objectRecords: async (_c, object) => (object === "custom_objects.sales_call" ? SALES : TRIAGE), recordContact: async () => null };
 
@@ -36,6 +38,20 @@ describe.skipIf(!process.env.DATABASE_URL)("D246: missing EODs", () => {
     expect(missingLines(list)[1]).toMatch(/^Jose P is missing EOD for \w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
     expect(formatMissingEods(list, "PMU")).toMatch(/^⚠️ \*Missing EODs · PMU\* \(4 days\)\n• Carly V is missing EOD for \w{3} \w{3} \d+ \(Jonelle\)\n• Jose P is missing EOD for .*\(Kimberly\); today so far: Elizabeth\n• Mitch S .*\(Pia\)\n_From the Sales Calls in GHL/);
     expect(formatMissingEods([], "PMU")).toMatch(/Everyone is filed/);
+    // D303: the /missing-eod answer tags each person by their Slack id (the name when they have none) and carries the File my EOD button
+    const tagged = formatMissingEods(list.map((p) => (p.name === "Jose P" ? { ...p, slack_user_id: "UJOSE" } : p)), "PMU", undefined, true);
+    expect(tagged).toMatch(/\n• <@UJOSE> is missing EOD for /);
+    expect(tagged).toMatch(/\n• Carly V is missing EOD for /);
+    expect(tagged).not.toMatch(/https?:/);
+    expect(JSON.stringify(missingEodBlocks(tagged))).toContain('"action_id":"eod_open"');
+    expect(missingEodBlocks(formatMissingEods([], "PMU", undefined, true))).toBeUndefined();
+    expect(["missing eod", "Missing EODs", "missing-eod", "/missing-eod", "missing eod?"].every((t) => MISSING_EOD_WORDS.test(t))).toBe(true);
+    expect(MISSING_EOD_WORDS.test("who is missing eod for monday")).toBe(false);
+    // D301: to tag in Slack: their Slack id when they have one, else the name; the days with the calls, no links
+    const tag = missingPeople(list.map((p) => (p.name === "Jose P" ? { ...p, slack_user_id: "UJOSE" } : p)));
+    expect(tag.map((p) => p.mention)).toEqual(["Carly V", "<@UJOSE>", "Mitch S"]);
+    expect(tag[1].days).toMatch(/^\w{3} \w{3} \d+ \(Tommy\), \w{3} \w{3} \d+ \(Kimberly\)$/);
+    expect(JSON.stringify(tag)).not.toMatch(/http/);
     // each day links through the operator's sign-in to that day's form; someone off the team has no form, so no link; the closers' private links are never in it
     const linked = formatMissingEods(list, "PMU", "https://biab.test/go/eod/pmu");
     expect(linked).toMatch(new RegExp(`<https://biab\\.test/go/eod/pmu/${list[1].user_id}/\\d{4}-\\d{2}-\\d{2}\\|\\w{3} \\w{3} \\d+> \\(Tommy\\)`));

@@ -16,9 +16,9 @@ export type WorkflowReadiness = { id: string; name: string; slug: string | null;
 /** The steps that need Slack to do their job: a post, a DM, a wait for a tap on a post. */
 const SLACK_STEPS = new Set(["slack_post", "notify_owner", "wait_for_reaction"]);
 const OUTBOUND_STEPS = new Set(["send_sms", "send_email", "send_document", "webhook"]);
-/** D128: where a trigger's events come from, when that is a vendor the company connects: payments only arrive from Whop (its webhook, made from the API key). */
+/** D128: where a trigger's events come from, when that is a vendor the company connects: payments arrive from Whop (its webhook, made from the API key) or, D319, from Commas (its key: the engine reads its transactions). */
 const SOURCES: { name: string; about: string; starts: (event: string) => boolean; connected: (bound: Set<string>) => boolean }[] = [
-  { name: "Whop", about: "a payment comes in", starts: (e) => e.startsWith("payment."), connected: (b) => b.has("secret.whop_api_key") || b.has("secret.whop_webhook") },
+  { name: "Whop or Commas", about: "a payment comes in", starts: (e) => e.startsWith("payment."), connected: (b) => b.has("secret.whop_api_key") || b.has("secret.whop_webhook") || b.has("secret.commas_api_key") },
 ];
 /** The sources a workflow starts from that the company has not connected: its triggers can never fire (D128; the health check says so hourly, D141). */
 export const missingSources = (events: string[], bound: Set<string>) => SOURCES.filter((s) => events.some(s.starts) && !s.connected(bound)).map(({ name, about }) => ({ name, about }));

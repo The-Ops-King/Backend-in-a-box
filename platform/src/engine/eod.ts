@@ -9,6 +9,8 @@ import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { reassignOn, requestReassign } from "./reassign";
 import { TAKEN, mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, pitchedOf, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { priceFrom, setDealPrice } from "./deal-price";
+import { raise } from "./alerts";
 import { SETTING_DEFAULTS, switchOn } from "./setting-defaults";
 import { standsSql } from "./held";
 
@@ -209,6 +211,9 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
       continue;
     }
     const rec = await one<{ share_url: string | null; analysis: Record<string, unknown> }>(c, "select share_url, analysis from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) order by started_at desc limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]);
+    // D308: what says the call happened: a meeting recording of it, or a phone call with them that day of 5 minutes or more (a dial that
+    // rang out or lasted seconds is not a held call)
+    const held = !!(await one(c, "select 1 from recordings where company_id=$1 and (appointment_id=$2 or (contact_id=$3 and started_at between $4 and $5)) and (provider <> 'ghl' or coalesce(duration_min, 0) >= 5) limit 1", [company.id, a.id, a.contact_id, from.toJSDate(), to.toJSDate()]));
     const notes = (rec?.analysis?.notes ?? {}) as Record<string, unknown>;
     // D119: a day whose payments were all deposits pre-fills Deposit; the amount says nothing about it
     const win = moneyWindow.get(a.id) ?? { from: from.toJSDate(), to: to.toJSDate() };
@@ -226,22 +231,28 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     // (D236: the AI never pre-sets Closed: a close it hears is Pending until cash is collected or the closer files it)
     // the company's own answer for what the ledger holds (B6): each outcome is found by what it means, not by its key
     const byCall = a.call_outcome_cat ? v({ call_outcome: a.call_outcome_cat as CallMeaning }) || (a.call_outcome_cat === "deposit" ? v({ call_outcome: "closed" }) : "") : "";
-    const outcome: string = a.outcome_cat === "noshow" || a.status === "noshow" ? v({ attendance: "noshow" }) : a.outcome_cat === "rescheduled" ? v({ attendance: "rescheduled" })
+    let outcome: string = a.outcome_cat === "noshow" || a.status === "noshow" ? v({ attendance: "noshow" }) : a.outcome_cat === "rescheduled" ? v({ attendance: "rescheduled" })
       : byCall || (paid > 0 ? (pay?.all_deposit ? v({ call_outcome: "deposit" }) || v({ call_outcome: "closed" }) : v({ call_outcome: "closed" })) : won ? v({ call_outcome: "closed" })
       : disp === "closed_won" || disp === "close_pending" ? v({ call_outcome: "pending" }) || v({ call_outcome: "follow_up" }) : disp === "follow_up" ? v({ call_outcome: "follow_up" }) : disp === "lost" ? v({ call_outcome: "lost" }) : disp === "dq" ? v({ call_outcome: "unqualified" }) : "");
+    // D308 (Tyler: "Gina and Amber should have defaulted to 'no show'"): a call whose time has passed with nothing that says it happened
+    // starts as a no-show, said so on the form; the closer changes it if they showed
+    const noShowGuess = !outcome && over && !held ? v({ attendance: "noshow" }) : "";
+    if (noShowGuess) outcome = noShowGuess;
     const money = isMoney(outcome, fields), contracted = isRevenueOutcome(outcome, fields);
     // A1 (D88): a card dragged to Lost or Disqualified filed the outcome; the form says so and asks why
     const moved = a.via === "card_moved" && (a.call_outcome_cat === "lost" || a.call_outcome_cat === "unqualified") ? `${a.notes ?? "Moved in the CRM"}. Say why.` : "";
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
-      kind: "closing", outcome, ...(over && !rec && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
+      kind: "closing", outcome, ...(noShowGuess ? { hint: "No recording and no call of 5 minutes or more with them, so this is set as a no-show. Change it if they showed." } : over && !held && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
       next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {},
       // D226: what was filed, else the call review's read of the transcript (the closer confirms it)
       pitched: a.pitched === true ? "Yes" : a.pitched === false ? "No" : notes.pitched === true ? "Yes" : notes.pitched === false ? "No" : "",
       ...(str(aiDisp?.value) ? { ai_read: { read: str(aiDisp?.value), confidence: aiConf } } : {}) });
   }
   // D156: the setter's outbound calls with anyone who had no triage call with them that day, each a row; the answer filed before comes back
-  for (const r of reads.filter((x) => !triaged.has(x.contact_id))) {
+  // D308: a dial to someone with a closing call with this closer that day is part of that call (calling them to join), not its own row
+  const booked = new Set(appts.filter((a) => a.term_cat !== "first_call").map((a) => a.contact_id));
+  for (const r of reads.filter((x) => !triaged.has(x.contact_id) && !booked.has(x.contact_id))) {
     const d = (m: Parameters<typeof valueFor>[1]) => valueFor(fields, m, "dial");
     const said = r.filed ?? r.result, outcome = READ_MEANING[said] ? d({ call_outcome: READ_MEANING[said] }) : "";
     calls.push({ appointment_id: dialId(r.conversation), contact_id: r.contact_id, contact: r.contact, starts_at: r.started_at.toISOString(), href_contact: href(r.ghl_contact_id), recording_url: r.share_url,
@@ -294,8 +305,8 @@ export type Change = { field: string; from: unknown; to: unknown; contact?: stri
  * What the closer corrected, as lines a person reads: "calls today 6 → 7", "Sarah: Follow up → Closed", "Sarah: cash $1,500 → $2,000".
  * Only a value the engine HAD and the closer changed is a correction; a blank they filled in is just their answer (D80).
  */
-const TOTAL_WORDS = { calls_count: "calls today", closes: "closes", deposits: "deposits", cash: "cash collected", revenue: "revenue generated" } as const;
-const CALL_WORDS = { cash: "cash collected", revenue: "revenue generated", next_date: "follow-up date" } as const;
+const TOTAL_WORDS = { calls_count: "calls today", closes: "closes", deposits: "deposits", cash: "cash collected", revenue: "contract value" } as const;
+const CALL_WORDS = { cash: "cash collected", revenue: "contract value", next_date: "follow-up date" } as const;
 const money = (v: unknown) => `$${num(v).toLocaleString("en-US")}`;
 const dayWords = (v: unknown) => { const d = DateTime.fromISO(String(v ?? "")); return d.isValid ? d.toFormat("ccc LLL d") : String(v ?? ""); };
 export function diffAnswers(pre: EodPrefill, ans: EodAnswers, fields?: EodField[]): Change[] {
@@ -346,7 +357,7 @@ function dispositionNotes(call: CallEntry, fields: EodField[]): string {
     meaning === "lost" && call.lost_reason ? `Lost: ${call.lost_reason}` : "",
     call.pitched && pitchedOf(call, fields) !== null && !isMoney(call.outcome, fields, call.kind) ? `Pitched: ${call.pitched}` : "",
     meaning === "follow_up" && (call.next_steps || call.next_date) ? `Next: ${call.next_steps}${call.next_date ? ` by ${call.next_date}` : ""}` : "",
-    isMoney(call.outcome, fields, call.kind) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected${isRevenueOutcome(call.outcome, fields) ? `, ${call.revenue == null ? "?" : money(call.revenue)} revenue generated` : ""}` : "",
+    isMoney(call.outcome, fields, call.kind) ? `${outcomeLabel(call.outcome, fields)}: ${call.cash == null ? "?" : money(call.cash)} collected${isRevenueOutcome(call.outcome, fields) ? `, ${call.revenue == null ? "?" : money(call.revenue)} contract value` : ""}` : "",
     ...fields.filter((f) => f.scope === "call" && !f.builtin && !isSetterCall(call.kind) && call.extra?.[f.key]).map((f) => `${f.label}: ${call.extra[f.key]}`),
   ];
   return lines.filter(Boolean).join("\n");
@@ -416,10 +427,13 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   const closer = await closerByToken(c, args.token); if (!closer || !closer.active || !closer.company_id) return { ok: false, why: "this link is not for anyone" };
   const { row: company, adapterCompany, bindings } = await loadCompany(c, closer.company_id);
   const fields = await loadEodForm(c, company.id);
+  // D305: a refused day is written down with its exact reason (the closer's own words for what they were told), so a closer who
+  // says it "won't go through" is never a guess; it is not an alert (they see the reason on the form)
+  const refused = async (why: string) => { await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'eod.refused','user',$2,$3)", [company.id, closer.id, { day: args.day, why, calls: args.answers.calls.length }]); return { ok: false as const, why }; };
   const missing = missingAnswers(fields, args.answers.calls, args.answers.day_answers ?? {});
-  if (missing.length) return { ok: false, why: `Still needed: ${missing.join("; ")}` };
-  const impossible = impossibleAnswers(args.answers.calls);
-  if (impossible.length) return { ok: false, why: `Check ${impossible.join("; ")}` };
+  if (missing.length) return refused(`Still needed: ${missing.join("; ")}`);
+  const impossible = impossibleAnswers(args.answers.calls, fields);
+  if (impossible.length) return refused(`Check ${impossible.join("; ")}`);
   const pre = await prefill(c, company, closer, args.day, DateTime.now());
   // a row that is not a booking (a "ghl:<record>" row from a form opened before D110) is dropped before anything is stored; D156: nor is
   // an outbound-call row the engine did not put on this day
@@ -435,8 +449,8 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   // D254: a call someone else took is handed to them (Reassign request) and is not filed here; it is theirs to file
   const team = new Set((await many<{ id: string }>(c, "select id from users where company_id=$1 and active and id<>$2", [company.id, closer.id])).map((u) => u.id));
   const taken = args.answers.calls.filter((x) => x.outcome === TAKEN && BOOKING_ID.test(x.appointment_id) && x.taken_by && team.has(x.taken_by));
-  if (taken.length && !(await reassignOn(c, company.id))) return { ok: false, why: "Handing a call to someone else isn't turned on for this offer yet; pick what happened on the call" };
-  if (args.answers.calls.some((x) => x.outcome === TAKEN && !taken.includes(x))) return { ok: false, why: "Check who took each call you marked as someone else's: they must be on the team" };
+  if (taken.length && !(await reassignOn(c, company.id))) return refused("Handing a call to someone else isn't turned on for this offer yet; pick what happened on the call");
+  if (args.answers.calls.some((x) => x.outcome === TAKEN && !taken.includes(x))) return refused("Check who took each call you marked as someone else's: they must be on the team");
   for (const x of taken) await requestReassign(c, company.id, { appointmentId: x.appointment_id, toUserId: x.taken_by!, via: "eod", by: closer.name, why: `${closer.name}'s end of day for ${args.day}` });
   let recorded = 0;
   for (const call of args.answers.calls.filter((x) => x.outcome !== TAKEN)) {
@@ -466,6 +480,15 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
         contact: p.contact, href_contact: p.href_contact ?? "", recording_url: p.recording_url ?? "", ai_read: d.ai_read, ai_label: d.ai_label, ai_confidence: d.ai_confidence, filed: d.call.outcome, filed_label: d.filed_label, filed_meaning: d.filed_meaning, reason: d.reason, refiled: !!wasFiled } });
     await dispatchEvent(c, dis, { user: { id: closer.id }, contact: { id: d.call.contact_id } });
   }
+  // D322: a close or a deposit with its revenue names the deal's price, for an offer that takes its prices from the end of day
+  if (args.adapters && priceFrom(bindings).includes("eod")) {
+    for (const call of args.answers.calls) {
+      const revenue = num(call.revenue);
+      if (!call.contact_id || !revenue || revenue <= 0 || !isRevenueOutcome(call.outcome, fields, call.kind)) continue;
+      try { await setDealPrice(c, { companyId: company.id, ac: adapterCompany, adapters: args.adapters, bindings, contactId: call.contact_id, price: revenue, source: "eod", what: `${closer.name}'s end of day` }); }
+      catch (e) { await raise(c, { companyId: company.id, key: `payments:price-eod:${call.contact_id}`, level: "warning", source: "engine", text: `Couldn't set ${call.contact}'s deal price from ${closer.name}'s end of day: ${String((e as Error).message).slice(0, 160)}` }); }
+    }
+  }
   return { ok: true, changes, recorded };
 }
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? "blank"));
@@ -473,8 +496,8 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 /** D226: the closing calls that happened, and how many of them were pitched (a close or a deposit was). */
 export const heldCount = (calls: CallEntry[], fields: EodField[]) => calls.filter((x) => !isSetterCall(x.kind) && choiceOf(x.outcome, fields, x.kind)?.attendance === "showed").length;
 export const pitchCount = (calls: CallEntry[], fields: EodField[]) => calls.filter((x) => pitchedOf(x, fields) === true).length;
-/** "3 calls, 2 pitched, 1 close, 1 deposit, $1,500 collected, $4,000 revenue generated" (deposits only when there are any; pitched when known, D226). */
-export const totalsLine = (t: DayTotals, pitched?: number) => [plural(t.calls_count, "call"), pitched === undefined ? "" : `${pitched} pitched`, plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} collected`, `$${t.revenue.toLocaleString("en-US")} revenue generated`].filter(Boolean).join(", ");
+/** "3 calls, 2 pitched, 1 close, 1 deposit, $1,500 collected, $4,000 contract value" (deposits only when there are any; pitched when known, D226). */
+export const totalsLine = (t: DayTotals, pitched?: number) => [plural(t.calls_count, "call"), pitched === undefined ? "" : `${pitched} pitched`, plural(t.closes, "close"), t.deposits ? plural(t.deposits, "deposit") : "", `$${t.cash.toLocaleString("en-US")} collected`, `$${t.revenue.toLocaleString("en-US")} contract value`].filter(Boolean).join(", ");
 
 export const reportFor = (c: PoolClient, companyId: string, userId: string, day: string) => one<{ id: string; submitted_at: Date | null; answers: EodAnswers | null; changes: Change[]; reminded_at: Date | null }>(c, "select id, submitted_at, answers, changes, reminded_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [companyId, userId, day]);
 export const companyReports = (c: PoolClient, companyId: string, limit = 60) => many<{ id: string; day: string; closer: string; submitted_at: Date | null; reminded_at: Date | null; answers: EodAnswers | null; changes: Change[] }>(c, "select r.id, r.day::text as day, u.name as closer, r.submitted_at, r.reminded_at, r.answers, r.changes from eod_reports r join users u on u.id=r.user_id where r.company_id=$1 order by r.day desc, u.name limit $2", [companyId, limit]);

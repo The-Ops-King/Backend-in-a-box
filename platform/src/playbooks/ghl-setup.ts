@@ -27,7 +27,7 @@ const opt = (key: string, label?: string) => ({ key, label: label ?? key.split("
 const field = (key: string, name: string, type: string, options?: { key: string; label: string }[]) => ({ key, name, type, ...(options ? { options } : {}) });
 
 const CORE_CONTACT = [
-  ["appointment_date", "Appointment Date", "DATE"], ["setter", "Setter", "TEXT"], ["cash_collected", "Cash Collected", "NUMERICAL"], ["revenue_generated", "Revenue Generated", "NUMERICAL"],
+  ["appointment_date", "Appointment Date", "DATE"], ["setter", "Setter", "TEXT"], ["cash_collected", "Cash Collected", "NUMERICAL"], ["revenue_generated", "Contract Value", "NUMERICAL"],
   ["utm_source", "UTM Source", "TEXT"], ["utm_medium", "UTM Medium", "TEXT"], ["utm_campaign", "UTM Campaign", "TEXT"], ["utm_content", "UTM Content", "TEXT"], ["utm_term", "UTM Term", "TEXT"], ["fbclid", "fbclid", "TEXT"],
 ].map(([binding, name, type]) => ({ binding, name, type }));
 

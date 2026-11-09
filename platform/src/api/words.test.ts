@@ -125,7 +125,7 @@ describe("D112: a step's words are made from its settings", () => {
   });
 
   it("a CRM record says which object, update or write, and the values that matter", () => {
-    expect(line(nodeOf(pmu("call-booked"), "k5"))).toBe("Update the Sales Call record for the slot the call moved from · outcome = rescheduled");
+    expect(line(nodeOf(pmu("call-booked"), "k5"))).toBe("Update the Sales Call record for the slot the call moved from, after ‘Move the card Closer → Rescheduled’ · outcome = rescheduled");
     expect(line(nodeOf(pmu("call-booked"), "k4"))).toMatch(/^Write the Sales Call record · outcome = scheduled · \+\d+ more fields$/);
     expect(line(nodeOf(pmu("call-outcome"), "r2"))).toBe("Update the Sales Call record · outcome = no-show · empties 7 fields");
     expect(line(nodeOf(pmu("call-outcome"), "r1"))).toBe("Update the Sales Call record · outcome = showed, sets disposition · +1 more field · empties 1 field");
@@ -137,7 +137,7 @@ describe("D112: a step's words are made from its settings", () => {
     expect(line(nodeOf(pre, "e1"))).toBe("Email: You're booked: [call time] — reply to lock it in");
     expect(line(nodeOf(pre, "c0"))).toBe("Check there is a CRM contact · waits up to 1 hour");
     expect(line(nodeOf(pmu("call-booked"), "n1"))).toBe("Update the contact · owner: the closer, appointment date");
-    expect(line(nodeOf(pmu("call-booked"), "n4"))).toBe("Slack: Call rescheduled or New call booked · to the bookings channel");
+    expect(line(nodeOf(pmu("call-booked"), "n4"))).toBe("Slack: Call rescheduled or New call booked or Follow-up rescheduled or Follow-up booked · to the bookings channel");
     const setter = parseDefinition(templates.find((t) => t.slug === "setter-call-logged")!.definition);
     expect(nodeOf(setter, "a3").title).toBe("Jev: set, follow up, DQ or not interested?");
     expect(nodeOf(setter, "c_latest").title).toBe("Check there are no later parts already in");
@@ -206,7 +206,7 @@ describe("D112: boards, stages and fields by the CRM's names", () => {
 
   it("GHL could not be read: the key words stand in, marked, never as if they were GHL's", () => {
     const c = chart(pmu("call-booked"), { read: false, pipelines: {}, stages: {}, fields: {}, objects: {} });
-    expect(at(c, "c_new")).toBe(`Move the card ‹Closer → Scheduled› · Closer, Scheduled: ${UNREAD_MANY} · named [full name] -- Direct/Setter · owner: the closer`);
+    expect(at(c, "c_new")).toBe(`Move the card ‹Closer → Scheduled›, otherwise · Closer, Scheduled: ${UNREAD_MANY} · named [full name] -- Direct/Setter · owner: the closer`);
     expect(at(c, "c_rs")).toContain(`only from New Lead, Scheduled, Unresponsive, Confirmed, No Show, Cancelled, Rescheduled (${UNREAD_MANY})`);
     expect(at(c, "n1")).toBe(`Update the contact · owner: the closer, appointment date (${UNREAD})`);
     expect(at(c, "k4")).toContain(`Write the Sales Call record (${UNREAD})`);

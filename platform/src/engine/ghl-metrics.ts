@@ -383,6 +383,32 @@ export async function ghlRows(x: GhlCtx, metric: string, entity: GhlEntity, labe
     }
     return { rows };
   }
+  // D294 (Tyler: "Use GHL"): consultations booked are the people whose first Sales Call record in GHL is the period's, by when it was
+  // booked (the record's creation, or its call time when that is earlier: a record written after its call by a repair); a follow-up's
+  // record (call type follow_up, D284) and a test contact are not a booking. By setters: that record says booking source setter.
+  if (entity === "call" && (metric === "consults_booked" || metric === "consults_booked_set")) {
+    const cfg = salesCallConfig(x.bindings);
+    if (!cfg) throw new MetricError("consultations booked are read from the Sales Call records in GHL, and no object is bound (crm.object_sales_call)");
+    const recs = await read("Sales Call records", () => x.reads.objectRecords(x.ac, cfg.object));
+    const first = new Map<string, { at: DateTime; setter: boolean; closer: string }>();
+    const setterValue = norm(bookingSourceValues(x.bindings).setter);
+    for (const r of recs) {
+      const p = r.properties, ghl = String(p.contact_id ?? "").trim();
+      if (!ghl || norm(answerText(p.call_type)) === "follow_up") continue;
+      const made = DateTime.fromISO(r.createdAt), call = callTime(p.scheduled_at, null, x.tz);
+      const at = call && call.isValid && (!made.isValid || call < made) ? call : made;
+      if (!at.isValid) continue;
+      const had = first.get(ghl);
+      if (!had || at < had.at) first.set(ghl, { at, setter: !!setterValue && norm(answerText(p.booking_source)) === setterValue, closer: String(p.closer ?? "") });
+    }
+    const test = new Set((await many<{ ghl: string }>(x.c, `select ct.ghl_contact_id as ghl from contacts ct where ct.company_id=$1 and ct.ghl_contact_id = any($2::text[]) and ${testContactSql("ct", "$3")}`, [x.companyId, [...first.keys()], x.domains])).map((r) => r.ghl));
+    for (const [ghl, k] of first) {
+      if (test.has(ghl) || k.at.toMillis() < x.start.getTime() || k.at.toMillis() >= x.end.getTime()) continue;
+      if (metric === "consults_booked_set" && !k.setter) continue;
+      add(!groupBy ? "" : groupBy === "closer" ? k.closer : timeKey(groupBy, k.at), 1);
+    }
+    return { rows };
+  }
   if (entity === "call" && (metric === "prospects_filed" || metric === "prospects_showed")) {
     // D228: a prospect counts once: in when any of their calls in the period has an outcome (showed, no-show, cancelled), showed
     // when any of them showed; by closer, the closer of their first call ever; by setter or time, their first call in the period

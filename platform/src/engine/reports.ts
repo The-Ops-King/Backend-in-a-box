@@ -47,7 +47,10 @@ export type Layout = { heading: Record<string, string>; sections: { title: strin
 export type ReportFacts = { kind: ReportKind; to_date: boolean; start: string; end: string; read_at: string; period: Period; n: Numbers; raw: Record<string, number>; calls: Record<keyof CallsSeen, number | null> | null; rates: { show_rate: number | null; close_rate: number | null; pitch_rate: number | null; pitched_close_rate: number | null }; money_moved: true | null;
   said: { label: string; answered: number; top: { answer: string; count: number }[]; rest: number; rest_kinds: number }[]; by: { closer: Breakdown[]; setter: Breakdown[] }; ghl_error: string | null; nothing: true | null;
   /** D246: who owes an end of day, one line each ("Jose P: Mon Oct 26 (Tommy Arakilian)"); count null when no one does */
-  missing_eods: { count: number | null; lines: string[] } };
+  missing_eods: { count: number | null; lines: string[]; people: MissingEodPerson[] } };
+/** D301: one person who owes an end of day, for a layout that tags them in Slack: `mention` is <@their Slack id> (their name when they have
+ * none), `days` the days owed with the calls ("Mon Oct 26 (Tommy Arakilian), Tue Oct 27 (Kimberly C)"); no links (each form is private). */
+export type MissingEodPerson = { name: string; mention: string; days: string };
 
 /** D124: nothing happened in the period, from the numbers (never the words): see `ReportFacts.nothing`. A GHL read that failed is not nothing: what it would have said is not known. */
 export function nothingHappened(a: { numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] } }): true | null {
@@ -74,7 +77,7 @@ export async function whatTheySaid(c: PoolClient, companyId: string, period: Per
 }
 
 /** The facts a layout reads, from the period's numbers. Pure. */
-export function reportFacts(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] }; readAt?: Date; missingEods?: string[] }): ReportFacts {
+export function reportFacts(args: { kind: ReportKind; period: Period; tz: string; toDate: boolean; numbers: Numbers; calls?: CallsSeen | null; showRate?: number | null; said: Said; ghlError?: string; by?: { closer: Breakdown[]; setter: Breakdown[] }; readAt?: Date; missingEods?: string[]; missingPeople?: MissingEodPerson[] }): ReportFacts {
   const { numbers } = args, k = args.calls ?? null;
   const v = (key: string) => numbers[key] ?? 0, nz = (x: number | null | undefined) => (x ? x : null);
   const pct = (a: number, of: number) => (a > 0 && of > 0 ? Math.round((a / of) * 100) : null);
@@ -83,13 +86,14 @@ export function reportFacts(args: { kind: ReportKind; period: Period; tz: string
     kind: args.kind, to_date: args.toDate, start: at(args.period.start), end: at(args.period.end), read_at: DateTime.fromJSDate(args.readAt ?? new Date()).setZone(args.tz).toISO()!, period: args.period,
     n: Object.fromEntries(Object.entries(numbers).map(([key, x]) => [key, nz(x)])), raw: Object.fromEntries(Object.entries(numbers).map(([key]) => [key, v(key)])),
     calls: k ? { booked: nz(k.booked), showed: nz(k.showed), noshow: nz(k.noshow), cancelled: nz(k.cancelled), missing: nz(k.missing), rescheduled: nz(k.rescheduled) } : null,
-    rates: { show_rate: k && k.booked > 0 ? Math.round((k.showed / k.booked) * 100) : null, close_rate: k ? pct(v("closes"), k.showed) : null,
+    // D294: of the calls with a known outcome, as /show-rate says it (a call nobody filed is not a no-show; it is listed as missing)
+    rates: { show_rate: args.showRate !== undefined ? args.showRate : k ? pct(k.showed, k.showed + k.noshow + k.cancelled) : null, close_rate: k ? pct(v("closes"), k.showed) : null,
       pitch_rate: k ? pct(v("pitched"), k.showed) : null, pitched_close_rate: pct(v("closes"), v("pitched")) },   // D226
     money_moved: v("cash_gross") > 0 || v("refunds") > 0 ? true : null,
     said: args.said.slice(0, 10).map((q) => ({ label: q.label, answered: q.answered, top: q.top.map(([a, n]) => ({ answer: a.length > 62 ? `${a.slice(0, 59)}…` : a, count: n })), rest: q.rest, rest_kinds: q.restKinds })),
     by: args.by ?? { closer: [], setter: [] }, ghl_error: args.ghlError ?? null,
     nothing: nothingHappened(args),
-    missing_eods: { count: args.missingEods?.length || null, lines: args.missingEods ?? [] },
+    missing_eods: { count: args.missingEods?.length || null, lines: args.missingEods ?? [], people: args.missingPeople ?? [] },
   };
 }
 
@@ -120,7 +124,7 @@ export function shippedLayout(kind: ReportKind = "daily"): Layout {
 // ---- generate ------------------------------------------------------------------------------------------------------------
 export type Built = { id: string; body: string; numbers: { totals: Totals; setters: Breakdown[]; closers: Breakdown[] } & { registry?: Numbers }; period: Period; facts: ReportFacts };
 /** The numbers the wrap-up reads by default, by the same registry the bot answers from (D73/D75), so the two can never disagree. The step's `metrics` replaces the list. */
-export const WRAPUP_METRICS = ["leads", "mqls", "booked", "booked_self", "booked_set", "reschedules", "dials", "connected", "speed_to_lead", "closes", "deposits", "deposit_cash", "revenue", "cash_collected", "cash_gross", "refunds"];
+export const WRAPUP_METRICS = ["leads", "mqls", "triage_booked", "consults_booked", "consults_booked_set", "booked", "booked_self", "booked_set", "reschedules", "dials", "connected", "speed_to_lead", "closes", "deposits", "deposit_cash", "revenue", "cash_collected", "cash_gross", "refunds"];
 
 /** The report step: the period's numbers from the registry (people, calls, deals and cash from GHL; bookings and dials from the ledger), put in the layout's words, kept in the wrapups ledger. Posting is the slack_post after it. */
 export async function buildReport(c: PoolClient, company: CompanyRow, kind: ReportKind, period: Period, opts: { breakdowns?: string[]; sections?: Record<string, boolean>; metrics?: string[]; layout?: Layout; ctx?: Record<string, unknown>; onDemand?: boolean; toDate?: boolean; reads?: GhlReads; now?: Date } = {}): Promise<Built> {
@@ -136,7 +140,8 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
     catch (e) { numbers[m] = null; const msg = String((e as Error).message); if (/GHL/.test(msg) && !/no object is bound|not mapped|none is bound|not connected|no field is bound|no answers are set/.test(msg)) errors.push(msg); }
   }
   let calls: CallsSeen | null = null;
-  try { const r = await getMetric(c, company.id, { metric: "show_rate", period: p, now: opts.now }, opts.reads); calls = r.shows_breakdown ?? null; }
+  let showRate: number | null = null;
+  try { const r = await getMetric(c, company.id, { metric: "show_rate", period: p, now: opts.now }, opts.reads); calls = r.shows_breakdown ?? null; showRate = typeof r.value === "number" ? Math.round(r.value <= 1 ? r.value * 100 : r.value) : null; }
   catch (e) { const msg = String((e as Error).message); if (/GHL could not be read/.test(msg)) errors.push(msg); }
   const domains = testDomains(Object.fromEntries((await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key='test.domains'", [company.id])).map((b) => [b.key, b.value.toString("utf8")])));
   const said = opts.sections?.what_they_said === false ? [] : await whatTheySaid(c, company.id, period, company.timezone, domains);
@@ -144,13 +149,13 @@ export async function buildReport(c: PoolClient, company: CompanyRow, kind: Repo
   // breakdowns: per closer and per setter from the ledger's rollups, for a layout that words them (D29: totals by default, per person switchable)
   const want = new Set(opts.breakdowns ?? []);
   // D246: who owes an end of day, as the wrap-up is read (a layout that does not word it says nothing about it)
-  const { missingEods, missingLines } = await import("./missing-eods");
-  const goBase = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
+  const { missingEods, missingLines, missingPeople: peopleOwing } = await import("./missing-eods");
   // D264: read from GHL; GHL unread, the wrap-up still posts and says the missing EODs could not be read rather than that nobody owes one
-  const missing = await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>, 14, opts.reads)
-    .then((l) => missingLines(l, goBase ? `${goBase}/go/eod/${company.slug}` : undefined))
-    .catch((e: Error) => [`Missing EODs couldn't be read from GHL (${String(e.message).slice(0, 120)})`]);
-  const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now, missingEods: missing });
+  const owing = await missingEods(c, company, (opts.now ? DateTime.fromJSDate(opts.now) : DateTime.now()) as DateTime<true>, 14, opts.reads).catch((e: Error) => e);
+  const missing = owing instanceof Error ? [`Missing EODs couldn't be read from GHL (${String(owing.message).slice(0, 120)})`] : missingLines(owing);   // D303: no admin links in a channel
+  // D301: the same people, to be tagged; unread, the one line above says so and no one is tagged
+  const missingPeople = owing instanceof Error ? [] : peopleOwing(owing);
+  const facts = reportFacts({ kind, period, tz: company.timezone, toDate: !!opts.toDate, numbers, calls, showRate, said, ghlError, by: { closer: want.has("closer") ? closers : [], setter: want.has("setter") ? setters : [] }, readAt: opts.now, missingEods: missing, missingPeople });
   const body = renderLayout(opts.layout ?? shippedLayout(kind), facts, opts.ctx ?? {}, { tz: company.timezone, companyTz: company.timezone });
   const rep = await one<{ id: string }>(c, "insert into wrapups (company_id, kind, period_start, period_end, on_demand, body, numbers) values ($1,$2,$3,$4,$5,$6,$7) returning id",
     [company.id, kind, period.start, period.end, !!opts.onDemand, body, { totals, setters, closers, registry: numbers }]);

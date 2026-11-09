@@ -256,6 +256,17 @@ describe.skipIf(!process.env.DATABASE_URL)("the Slack bot", () => {
       expect((await metric("booked")).value).toBe(8);       // the ledger: test contacts' bookings out
       expect((await metric("calls_due")).value).toBe(5);
       expect((await metric("calls_booked_due")).value).toBe(8);
+      // D294: consultations booked, from GHL: each person's first Sales Call record, by when it was booked. The records were made Oct 1
+      // 00:00 UTC, still Sep 30 in Phoenix; C3's first was August's (they met Cara then), so not this booking; the test contact is out
+      expect((await metric("consults_booked")).value).toBe(0);
+      const sepToo = { ...month(), from: "2026-09-30" };
+      expect((await metric("consults_booked", { period: sepToo, groupBy: "closer" })).rows!.map((r) => [r.label, r.value]).sort()).toEqual([["Cara Closer", 1], ["Dan Dealer", 1], ["Zed Outsider", 1], ["cara closer", 1]]);
+      expect((await metric("consults_booked_set", { period: sepToo })).value).toBe(0);   // only C3's said setter
+      // a setter's booking this month for someone new: counted, and by setters
+      salesCalls.push({ id: "S-SET", createdAt: "2026-10-05T18:00:00Z", properties: { external_id: "A-SET", contact_id: "C77", scheduled_at: "2026-10-20T17:00:00Z", call_date: "2026-10-20", closer: "Dan Dealer", booking_source: "setter_set" } });
+      await asOperator((c) => c.query("insert into bindings (company_id, key, kind, value) values ($1,'sales_call.booking_sources','text',$2) on conflict (company_id, key) do nothing", [companyId, Buffer.from(JSON.stringify({ setter: "setter_set", self: "self_booked" }))]));
+      try { expect((await metric("consults_booked")).value).toBe(1); expect((await metric("consults_booked_set")).value).toBe(1); }
+      finally { salesCalls.splice(salesCalls.findIndex((r) => r.id === "S-SET"), 1); await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='sales_call.booking_sources'", [companyId])); }
       const sr = await metric("show_rate", { groupBy: "closer" });
       // D228: each person once (C1 and C3 showed; C2 no-showed then cancelled; C9 cancelled; C4 nothing filed, out), by the closer of their first call ever (C3 met Cara in August)
       expect(sr).toMatchObject({ numerator: 2, denominator: 4, source: "GHL, read just now" });

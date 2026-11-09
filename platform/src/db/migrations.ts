@@ -123,4 +123,13 @@ export const MIGRATIONS: Migration[] = [
   { id: "0013-eod-disagreement", run: async (c) => {
     await c.query("insert into event_types values ('eod.disagreement','report') on conflict do nothing");
   } },
+  // D298: an offer paused (Tyler: "Hair is paused"): the engine runs nothing for it (no polls, schedules, runs, checks or alerts)
+  { id: "0014-company-paused", run: async (c) => {
+    await c.query("alter table companies drop constraint if exists companies_status_check");
+    await c.query("alter table companies add constraint companies_status_check check (status in ('onboarding','active','hosted','archived','template','paused'))");
+  } },
+  // D322: where a deal's price came from (payment < eod < agreement_sent < agreement < operator): a weaker source never replaces a stronger one
+  { id: "0015-deal-price-source", run: async (c) => {
+    await c.query("alter table opportunities add column if not exists price_source text");
+  } },
 ];

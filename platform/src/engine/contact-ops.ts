@@ -78,9 +78,9 @@ export async function contactTags(c: PoolClient, adapters: Adapters, a: { compan
  * instead. Had a call: a booking of theirs whose time has passed and was not cancelled (the replica's), or a call in their GHL
  * conversations that connected for more than 0 seconds (read live, the dry run too, since the replica's history starts later).
  */
-export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from?: string; except?: string[]; to: string; calledTo?: string; tag: string; why: string; dryRun?: boolean }):
+export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { company: string; from?: string; except?: string[]; to: string; calledTo?: string; tag?: string; contacts?: string[]; why: string; dryRun?: boolean }):
   Promise<{ ok: true; dryRun: boolean; from: string; to: string; count: number; byOwner: Record<string, number>; moved: number; contacts: string[]; skipped: { who: string; why: string }[]; called?: { to: string; count: number; contacts: string[] } } | Fail> {
-  if ((!a.from && !a.except?.length) || (a.from && a.except?.length) || !a.to || !a.tag?.trim() || !a.why?.trim()) return { ok: false, status: 400, error: "to, tag, why, and one of from (an owner) or except (owners to leave alone) are required" };
+  if ((!a.from && !a.except?.length) || (a.from && a.except?.length) || !a.to || !a.why?.trim() || (!a.tag?.trim() === !a.contacts?.length)) return { ok: false, status: 400, error: "to, why, one of tag or contacts (GHL contact ids), and one of from (an owner) or except (owners to leave alone) are required" };
   const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
   const who = (email: string) => one<{ name: string; ghl_user_id: string | null }>(c, "select name, ghl_user_id from users where company_id=$1 and lower(email)=lower($2)", [co.id, email.trim()]);
   const to = await who(a.to);
@@ -93,7 +93,8 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
   const matches = (owner: string | null | undefined) => (from ? owner === from.ghl_user_id : !keep.includes(owner ?? ""));
   const list = (await many<{ id: string; ghl_contact_id: string; who: string; owner: string | null; owner_name: string | null }>(c, `select ct.id, ct.ghl_contact_id, coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), ct.ghl_contact_id) as who,
       ct.assigned_ghl_user_id as owner, u.name as owner_name from contacts ct left join users u on u.company_id=ct.company_id and u.ghl_user_id=ct.assigned_ghl_user_id
-    where ct.company_id=$1 and $2 = any(ct.tags) and ct.ghl_contact_id is not null and ct.gone_at is null and ct.merged_into is null order by who`, [co.id, a.tag.trim()]))
+    where ct.company_id=$1 and (case when $3::text[] is null then $2 = any(ct.tags) else ct.ghl_contact_id = any($3::text[]) end) and ct.ghl_contact_id is not null and ct.gone_at is null and ct.merged_into is null order by who`,
+      [co.id, a.tag?.trim() ?? null, a.contacts?.length ? a.contacts.map((x) => x.trim()) : null]))
     .filter((x) => matches(x.owner));
   const byOwner: Record<string, number> = {};
   for (const x of list) { const k = x.owner_name ?? (x.owner ? `someone not on the roster (${x.owner})` : "no owner"); byOwner[k] = (byOwner[k] ?? 0) + 1; }
@@ -128,7 +129,7 @@ export async function contactsReassign(c: PoolClient, adapters: Adapters, a: { c
       if (!live) { skipped.push({ who: x.who, why: "gone from GHL" }); continue; }
       if (live.assignedTo === p.target.ghl_user_id) { skipped.push({ who: x.who, why: `already ${p.target.name}'s` }); continue; }
       if (!matches(live.assignedTo)) { skipped.push({ who: x.who, why: live.assignedTo === to.ghl_user_id ? `already ${to.name}'s` : live.assignedTo ? "owned by someone else now" : "has no owner now" }); continue; }
-      if (!live.tags.includes(a.tag.trim())) { skipped.push({ who: x.who, why: `no longer tagged ${a.tag}` }); continue; }
+      if (a.tag?.trim() && !live.tags.includes(a.tag.trim())) { skipped.push({ who: x.who, why: `no longer tagged ${a.tag}` }); continue; }
       await adapters.write.updateContact(ac, x.ghl_contact_id, { assignedUserId: p.target.ghl_user_id });
       // each contact committed on its own (D204: one transaction held across hundreds of GHL calls collided with the contacts poll
       // and lost every replica write at the end; the poll reads the owner back from GHL anyway)
@@ -235,6 +236,19 @@ export async function calendarAlerts(c: PoolClient, a: { company: string; calend
   return { ok: true, dryRun: false, calendar: cal.name, was, alerts: a.alerts, upcoming };
 }
 
+/** D283: how a watched calendar's bookings are read (BookingMode: self, setter, question, utm), its upcoming bookings unchanged. Audited. */
+export async function calendarBooking(c: PoolClient, a: { company: string; calendar: string; booking: string; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; calendar: string; was: string | null; booking: string } | Fail> {
+  if (!a.calendar || !["self", "setter", "question", "utm"].includes(a.booking) || !a.why?.trim()) return { ok: false, status: 400, error: "calendar, booking (self, setter, question or utm) and why are required" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const cal = await one<{ id: string; name: string; booking: string | null }>(c, "select id, name, config->>'booking' as booking from calendars where company_id=$1 and active and (external_id=$2 or lower(name)=lower($2))", [co.id, a.calendar.trim()]);
+  if (!cal) return { ok: false, status: 404, error: `no watched calendar is ${a.calendar}` };
+  if (a.dryRun !== false) return { ok: true, dryRun: true, calendar: cal.name, was: cal.booking, booking: a.booking };
+  await c.query("update calendars set config = config || jsonb_build_object('booking', $2::text) where id=$1", [cal.id, a.booking]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'calendar.booking','calendar',$2,$3,$4)", [co.id, cal.id, { booking: cal.booking }, { booking: a.booking, why: a.why }]);
+  return { ok: true, dryRun: false, calendar: cal.name, was: cal.booking, booking: a.booking };
+}
+
 /**
  * D215: one more of the booking tool's calendars watched (Tyler: "JP's Strategy is an individual calendar for follow up / reschedule
  * if needed. track it."), mapped exactly as install maps one (`watchCalendar`): its call type, how it is booked, its owner. The poll's
@@ -265,6 +279,8 @@ export async function calendarWatch(c: PoolClient, adapters: Adapters, a: { comp
   const m = { term: a.term, ...(a.name?.trim() ? { name: a.name.trim() } : {}), ...(a.owner ? { owner: a.owner.trim() } : {}), ...(a.booking ? { booking: a.booking } : {}) };
   if (a.dryRun !== false || was === "watched") return { ok: true, dryRun: a.dryRun !== false, calendar: k.name, id: k.id, was, maps: was === "watched" ? "already watched: nothing changed" : JSON.stringify(m) };
   const maps = await watchCalendar(c, co.id, ac.booking.source, k, m, terms);
+  // D292: its bookings already there are read silently first; the calls still ahead are then started as new ones (poll.ts)
+  await c.query("update calendars set config = config || '{\"catch_up\": true}'::jsonb where company_id=$1 and external_id=$2", [co.id, k.id]);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calendar.watched','calendar',$2,$3)", [co.id, k.id, { ...m, maps, why: a.why }]);
   return { ok: true, dryRun: false, calendar: k.name, id: k.id, was, maps };
 }

@@ -14,7 +14,7 @@ import { followMerge } from "./merge";
 import { TEST_CHANNEL_KEY, slackLiveSet, type Effective, type Mode } from "./mode";
 import { parseRubric, rubricFields, scoreCall } from "./score-call";
 import { dispatchEvent, emitEvent } from "./dispatch";
-import { raise } from "./alerts";
+import { raise, resolve as resolveAlert } from "./alerts";
 import { applyOutcome, outcomeTermFor, recordDisposition } from "./disposition";
 import { liveProbes, runAvailabilityStep, runHealthStep, type HealthProbes } from "./health";
 import { buildReport, periodFor, REPORT_KINDS, type ReportKind } from "./reports";
@@ -67,6 +67,9 @@ const NUMBER_TYPES = new Set(["NUMERICAL", "FLOAT", "NUMBER"]), MONEY_TYPES = ne
  * an array for a multi-option or checkbox field, text for the rest. With no type (the object's fields could not be read) the key's
  * name is the only hint. Never called with an empty value: an empty property is left out, never written as 0.
  */
+/** D308: the most of an input the classifier is sent (inputs to 77,000 characters were read fine; 137,000 were refused): the opening, then the end. */
+export const CLASSIFY_MAX_CHARS = 60_000, CLASSIFY_HEAD = 45_000;
+
 export function propertyValue(key: string, rendered: string, type: string | undefined): unknown {
   if (!type) return /^\[.*\]$/s.test(rendered) ? jsonArrayOr(rendered) : /^-?\d+(\.\d+)?$/.test(rendered) && /amount|total|count|score|duration|min$/i.test(key) ? Number(rendered) : rendered;
   const t = type.toUpperCase();
@@ -582,8 +585,11 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
     }
 
     case "classify": {
-      const input = render(node.input, d.ctx, env(d)); const state = node.state ? render(node.state, d.ctx, env(d)) : undefined;
-      if (!input.trim()) return { status: "skipped", next, result: { kind: "noop", why: "nothing to classify: input rendered empty" } };
+      const full = render(node.input, d.ctx, env(d)); const state = node.state ? render(node.state, d.ctx, env(d)) : undefined;
+      if (!full.trim()) return { status: "skipped", next, result: { kind: "noop", why: "nothing to classify: input rendered empty" } };
+      // D308: the classifier refuses a very long input (Insam Souidan's 111-minute call, 137,610 characters) and the refusal read as
+      // "unclear", so the call was dropped as not a sales call; it is sent the call's opening and its end, which say what it was
+      const input = full.length > CLASSIFY_MAX_CHARS ? `${full.slice(0, CLASSIFY_HEAD)}\n…\n${full.slice(-(CLASSIFY_MAX_CHARS - CLASSIFY_HEAD))}` : full;
       const options = (await many<{ value: string }>(d.c, "select value from core_categories where domain=$1 order by sort", [node.domain])).map((r) => r.value);
       const r = await d.adapters.classifier.choice(state, input, options, node.threshold, { apiKey: d.bindings["secret.jev_key"] || process.env.JEV_API_KEY, criteria: node.criteria, ambiguityMax: node.ambiguity_max, question: node.question });
       const top = Object.entries(r.distribution).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, p]) => `${k} ${(p * 100).toFixed(0)}%`).join(", ");
@@ -596,7 +602,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         const merged = deepSet(prior, intoKey.slice(1), { value: r.value, confidence: r.confidence, ambiguity: r.ambiguity ?? null });
         await d.c.query("update recordings set analysis = jsonb_set(analysis, $2::text[], $3::jsonb, true) where id=$1", [recId, [intoKey[0]], JSON.stringify(merged)]);
       }
-      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, top_guesses: top || "none", ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(readsTranscript || readsReply ? { input_chars: input.length } : { input }) } });   // D87, D89: neither a transcript nor a reply's words are copied into the ledger; Jev's read is
+      await emitEvent(d.c, { company_id: d.company.id, contact_id: d.run.contact_id, opportunity_id: d.run.opportunity_id, appointment_id: d.run.appointment_id, run_id: d.run.id, event_type: "reply.classified", source: "engine", data: { intent: r.value, confidence: r.confidence, unclear: r.unclear, top_guesses: top || "none", ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(readsTranscript || readsReply ? { input_chars: full.length, ...(input.length < full.length ? { sent_chars: input.length } : {}) } : { input }) } });   // D87, D89: neither a transcript nor a reply's words are copied into the ledger; Jev's read is
       return { status: "ok", next, result: { value: r.value, confidence: r.confidence, ...(r.ambiguity !== undefined ? { ambiguity: r.ambiguity } : {}), ...(r.unclear ? { why: r.confidence < node.threshold ? "not confident enough" : "a careful person would doubt it" } : {}) } };
     }
 
@@ -727,6 +733,8 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // D245: GHL refuses an empty money field ("Cash Collected is missing a currency code") and with it the whole write (Renee G's
       // no-show, 2026-10-26); a money field is emptied as no money, which it takes
       for (const k of Object.keys(cleared)) if (MONEY_TYPES.has(String(known?.get(k) ?? "").toUpperCase())) (cleared as Record<string, unknown>)[k] = { currency: "default", value: 0 };
+      // D302: a value its choice field does not offer is left out, so the rest of the record is still written
+      const notAnOption = offOptions(properties, fieldOptions(d, objectKey));
       if (dropped.length && !Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: `nothing to write: the ${objectKey} object has no ${dropped.join(", ")} field yet`, not_on_object: dropped } };
       if (byId) return recordById(d, node, next, objectKey, key, byId, properties, cleared, owner, dropped);
       const existing = await one<{ id: string; ghl_record_id: string | null }>(d.c, "select id, ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [d.company.id, objectKey, key]);
@@ -770,6 +778,8 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         if (ghlId) await d.adapters.write.updateRecord(d.adapterCompany, objectKey, ghlId, { ...properties, ...cleared }, owner);
         else { ghlId = (await d.adapters.write.createRecord(d.adapterCompany, objectKey, properties, owner)).id; await done(d, node, "record", ghlId); }
       }
+      // D296: what was written is read back: the record is in the object the step meant, under its key, its options as written
+      const checked = !ghost(d) && ghlId ? await readBack(d, node.id, objectKey, ghlId, properties, known) : null;
       const updating = !!(existing || matched);
       if (updating) Object.assign(properties, cleared);
       const row = await one<{ id: string }>(d.c, `insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,$2,$3,$4,$5,$6)
@@ -777,7 +787,7 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         [d.company.id, objectKey, key, ghlId, d.run.contact_id, properties]);
       d.ctx.record = { id: ghlId ?? "", key, object: objectKey, properties };
       const related = await relate(d, node);
-      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), ...(recoveredHow ? { recovered: recoveredHow } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}) } };
+      return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...(checked ?? {}), record: existing || matched ? "updated" : "created", ...(matched ? { matched_in_crm: matched } : {}), ...(recoveredHow ? { recovered: recoveredHow } : {}), our_id: row!.id, crm_id: ghlId, properties, related, ...(dropped.length ? { not_on_object: dropped } : {}), ...(notAnOption.length ? { not_an_option: notAnOption } : {}) } };
     }
     case "update_contact": {
       const contact = d.ctx.contact as { ghl_contact_id?: string | null } | undefined;
@@ -1086,6 +1096,34 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
 }
 
 /**
+ * D296 (Tyler: "how can we make sure these type of errors don't happen?"): a record written to the CRM is read straight back. It must be
+ * in the object the step meant (the backfill once wrote Sales Calls into the Discovery Call object for a day and called it repaired),
+ * carry the key the engine stamped on it, and hold each option field as written. A miss is an engine fault, raised at once; a read
+ * that fails says unverified and raises nothing (the next write is checked again).
+ */
+async function readBack(d: ExecDeps, nodeId: string, objectKey: string, id: string, written: Record<string, unknown>, known: Map<string, string | undefined> | null): Promise<Record<string, unknown>> {
+  if (!d.adapters.read.objectRecord) return {};
+  let rec: Awaited<ReturnType<NonNullable<typeof d.adapters.read.objectRecord>>>;
+  try { rec = await d.adapters.read.objectRecord(d.adapterCompany, objectKey, id); } catch (e) { return { verified: false, unverified: String((e as Error).message).slice(0, 120) }; }
+  const norm = (v: unknown) => (Array.isArray(v) ? v.map(String).join(",") : v === null || v === undefined ? "" : String(v)).trim().toLowerCase();
+  const wrong: string[] = [];
+  if (!rec) wrong.push(`GHL has no record ${id} in ${objectKey}`);
+  else {
+    if (written.external_id !== undefined && norm(rec.properties.external_id) !== norm(written.external_id)) wrong.push(`its key reads ${JSON.stringify(rec.properties.external_id ?? null)}, not ${JSON.stringify(written.external_id)}`);
+    for (const [k, v] of Object.entries(written)) {
+      const type = String(known?.get(k) ?? "").toUpperCase();
+      if (!/OPTIONS|RADIO|CHECKBOX/.test(type) || v === null || v === "") continue;
+      if (norm(rec.properties[k]) !== norm(v)) wrong.push(`${k} reads ${JSON.stringify(rec.properties[k] ?? null)}, not ${JSON.stringify(v)}`);
+    }
+  }
+  if (!wrong.length) { await resolveAlert(d.c, d.company.id, `readback:${d.run.workflow_id}:${nodeId}`); return { verified: true }; }
+  await raise(d.c, { companyId: d.company.id, key: `readback:${d.run.workflow_id}:${nodeId}`, level: "error", source: "engine", href: `/app/c/${d.company.slug}/runs/${d.run.id}`,
+    text: `An engine write to GHL did not land as written (${objectKey}, step ${nodeId}): ${wrong.join("; ")}. This is an engine fault: the run went on, the record needs a look.`,
+    detail: { object: objectKey, record_id: id, node: nodeId, run_id: d.run.id, wrong } });
+  return { verified: false, verify_failed: wrong };
+}
+
+/**
  * Our ledger's opportunity: the run's, else the contact's open one. D85: won / lost / open with a lost reason, one
  * opportunity.won / opportunity.lost per change (the row and the event are one transaction, so a retry finds the status already
  * set and emits nothing again), dispatched like any event; `card` marks the contact's card on that board through pipelineCard.
@@ -1331,13 +1369,41 @@ async function waitForEvent(d: ExecDeps, node: Extract<Node, { type: "wait_for_e
  * (with no readable time, the same day). Never by name; a record already tied to another booking is not a candidate.
  */
 /** The object's own property keys and each one's type, read from the CRM at most every ten minutes per company; null when it cannot be read (the write goes as is). */
-const objectFieldCache = new Map<string, { at: number; fields: Map<string, string | undefined> }>();
+const objectFieldCache = new Map<string, { at: number; fields: Map<string, string | undefined>; options: Map<string, { key: string; label?: string }[]> }>();
 async function objectFields(d: ExecDeps, objectKey: string): Promise<Map<string, string | undefined> | null> {
   if (!objectKey.startsWith("custom_objects.") || !d.adapters.read.objectFields) return null;
   const k = `${d.company.id}:${objectKey}`, hit = objectFieldCache.get(k);
   if (hit && Date.now() - hit.at < 10 * 60e3) return hit.fields;
-  try { const fields = new Map((await d.adapters.read.objectFields(d.adapterCompany, objectKey)).map((f) => [f.key, f.type] as const)); if (!fields.size) return null; objectFieldCache.set(k, { at: Date.now(), fields }); return fields; }
+  try {
+    const all = await d.adapters.read.objectFields(d.adapterCompany, objectKey);
+    const fields = new Map(all.map((f) => [f.key, f.type] as const)); if (!fields.size) return null;
+    objectFieldCache.set(k, { at: Date.now(), fields, options: new Map(all.filter((f) => f.options?.length).map((f) => [f.key, f.options!] as const)) });
+    return fields;
+  }
   catch { return null; }
+}
+
+/** D302: a choice field's options as the CRM has them (read with the fields, same cache); none known, nothing is checked. */
+const fieldOptions = (d: ExecDeps, objectKey: string) => objectFieldCache.get(`${d.company.id}:${objectKey}`)?.options ?? null;
+/**
+ * D302 (Tyler: "it should have created the 2 sales call records anyway"): a value a choice field does not offer makes the CRM refuse the
+ * whole write (PMU's Next Step, Jennifer Rouwhorst's and Kealey Corey's calls, 2026-11-02). Such a value is left out and named; the rest
+ * is written. A value that is an option's key or label (any case) is written as it was, so nothing the CRM took before changes.
+ */
+export function offOptions(properties: Record<string, unknown>, options: Map<string, { key: string; label?: string }[]> | null): { field: string; value: string }[] {
+  if (!options) return [];
+  const off: { field: string; value: string }[] = [];
+  for (const [k, v] of Object.entries(properties)) {
+    const opts = options.get(k); if (!opts?.length || v === null || v === undefined) continue;
+    const ok = (x: unknown) => { const t = String(x).trim().toLowerCase(); return opts.some((o) => o.key.toLowerCase() === t || (o.label ?? "").trim().toLowerCase() === t); };
+    if (Array.isArray(v)) {
+      const keep = v.filter(ok), bad = v.filter((x) => !ok(x));
+      if (!bad.length) continue;
+      for (const x of bad) off.push({ field: k, value: String(x) });
+      if (keep.length) properties[k] = keep; else delete properties[k];
+    } else if (typeof v === "string" && !ok(v)) { off.push({ field: k, value: v }); delete properties[k]; }
+  }
+  return off;
 }
 
 async function bookingRecord(d: ExecDeps, objectKey: string): Promise<{ id: string } | { why: string }> {

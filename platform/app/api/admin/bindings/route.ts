@@ -27,7 +27,8 @@ export async function POST(req: Request) {
   if (!b?.company || !b.key || typeof b.value !== "string" || !b.value.trim() || !b.why?.trim()) return NextResponse.json({ error: "company, key, value and why are required" }, { status: 400 });
   const r = await asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [b.company]); if (!co) return { status: 404, error: "company not found" };
-    const kind = (await settingsRows(c, co.id)).find((x) => x.key === b.key)?.kind ?? EXTRA[b.key!];
+    // D279: a contact field is always one an offer may bind (contact.fields.<name> is how its workflows read it): its GHL field id
+    const kind = (await settingsRows(c, co.id)).find((x) => x.key === b.key)?.kind ?? EXTRA[b.key!] ?? (/^crm\.field_contact_[a-z0-9_]+$/.test(b.key!) ? "id" : undefined);
     if (!kind) return { status: 400, error: `${b.key} is not a setting this offer has` };
     await setBinding(c, co.id, b.key!, kind, b.value!.trim(), `admin: ${b.why!.trim()}`);
     return { status: 200, key: b.key, kind };

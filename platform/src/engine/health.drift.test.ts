@@ -11,7 +11,7 @@ import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "@/engine/crypto";
 import { loadCompany } from "@/engine/context";
-import { runHealthStep, type Finding, type HealthProbes } from "@/engine/health";
+import { runHealthStep, syncFromGhl, type Finding, type HealthProbes } from "@/engine/health";
 import { announceDue, openAlerts } from "@/engine/alerts";
 import { tick } from "@/engine/runner";
 import { fakeAdapters, fakeProbes, installTemplateForTest } from "@/engine/test-install";
@@ -52,7 +52,8 @@ const fake: Adapters = { ...base, notifier: { ...base.notifier, post: async (_t,
 
 let companyId: string, runId: string;
 const sc = (id: string, ext: string, contact: string, at: DateTime, outcome: string): GhlObjectRecord => ({ id, createdAt: ago({ days: 9 }).toISO()!, properties: { external_id: ext, contact_id: contact, scheduled_at: at.toUTC().toISO(), outcome, closer: "Cara Closer" } });
-const sweep = (opts: { run?: boolean } = {}) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return runHealthStep(c, row, fake, probes, { checks: {}, min_slots: 0, slots_days: 7, run_id: opts.run === false ? undefined : runId }); });
+// D297: the comparison with GHL is the 10-minute sync's (syncFromGhl), no longer the hourly health check's
+const sweep = (opts: { run?: boolean } = {}) => asOperator(async (c) => { const { row } = await loadCompany(c, companyId); return (await syncFromGhl(c, row, fake, probes, DateTime.now(), { runId: opts.run === false ? null : runId }))!; });
 const drift = (fs: Finding[]) => fs.filter((f) => f.check === "ledger_drift");
 /** D88: the Ledger drift workflow makes the GHL writes the sweep hands it, on the next tick. */
 const run = () => tick(fake, undefined, companyId, probes);
@@ -282,4 +283,160 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
       await asOperator(async (c) => { await c.query("delete from bindings where company_id=$1 and key='sales_call.dispositions'", [companyId]); await c.query("delete from audit_log where company_id=$1", [companyId]); await c.query("delete from appointments where company_id=$1 and external_id in ('AP8','AP9','AP10','AP11','AP12')", [companyId]); await c.query("delete from company_terms where company_id=$1 and name='Financing denied'", [companyId]); await c.query("delete from payments where company_id=$1 and whop_payment_id='pay-k3'", [companyId]); await c.query("delete from agreements where company_id=$1 and external_id='DOC-K3'", [companyId]); });
     }
   });
+
+  it("D289: a closing booking whose time has passed with no Sales Call in GHL, and a Sales Call left on its old time after its call moved, are each asked about, one line each", async () => {
+    await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      const appt = (ext: string, starts: DateTime) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly',$3,$4,$5,$5,$6,'confirmed')",
+        [companyId, k1, ext, closing, starts.toJSDate(), ago({ days: 6 }).toJSDate()]);
+      await appt("AP20", ago({ days: 2, hours: 5 }).startOf("minute"));   // no record at all: booked while the workflow that makes it was off
+      await appt("AP21", ago({ days: 1, hours: 5 }).startOf("minute"));   // moved here; its record still sits at the old time
+    });
+    records.push({ ...sc("R21", "AP21", "G-K1", ago({ days: 3, hours: 5 }).startOf("minute"), ""), properties: { external_id: "AP21", contact_id: "G-K1", scheduled_at: ago({ days: 3, hours: 5 }).startOf("minute").toUTC().toISO(), closer: "Cara Closer" } });
+    try {
+      const fs = (await sweep()).findings;
+      const q = asked(fs);
+      expect(q.filter((x) => x.kind === "no_record")).toEqual([expect.objectContaining({ kind: "no_record", label: expect.stringMatching(/^G-K1, /) })]);
+      expect(q.filter((x) => x.kind === "moved_not_marked")).toEqual([expect.objectContaining({ kind: "moved_not_marked", label: expect.stringMatching(/^G-K1, /) })]);
+      const text = await worded();
+      expect(text).toContain("the call has passed and GHL has no Sales Call for it, so the end of day never asks for it.");
+      expect(text).toContain("but this Sales Call was never marked rescheduled, so the end of day keeps asking for it. Mark it rescheduled?");
+    } finally {
+      records.splice(records.findIndex((r) => r.id === "R21"), 1);
+      await asOperator((c) => c.query("delete from appointments where company_id=$1 and external_id in ('AP20','AP21')", [companyId]));
+    }
+  });
+
+  it("D294: when what makes the offer's Sales Calls writes to GHL, a Sales Call left on a moved call's old time is marked rescheduled and said as a repair; while it runs in test it only asks", async () => {
+    const wf = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, source, external_id, slot_key, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly','AP31','AP31',$3,$4,$4,$5,'confirmed')",
+        [companyId, k1, closing, ago({ days: 1, hours: 7 }).startOf("minute").toJSDate(), ago({ days: 6 }).toJSDate()]);
+      await c.query("update bindings set value=$2 where company_id=$1 and key='sales_call.outcomes'", [companyId, Buffer.from(JSON.stringify({ showed: "showed", no_show: "noshow", cancelled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" }))]);
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, mode) values ($1,'Closing call booked','always',true,'test') returning id", [companyId]))!.id;
+    });
+    records.push({ ...sc("R31", "AP31", "G-K1", ago({ days: 3, hours: 7 }).startOf("minute"), ""), properties: { external_id: "AP31", contact_id: "G-K1", scheduled_at: ago({ days: 3, hours: 7 }).startOf("minute").toUTC().toISO(), closer: "Cara Closer" } });
+    const w = writes.length;
+    try {
+      expect(asked((await sweep()).findings).filter((q) => q.kind === "moved_not_marked")).toHaveLength(1);
+      expect(writes.slice(w)).toEqual([]);
+      await asOperator((c) => c.query("update workflows set mode='live' where id=$1", [wf]));
+      const fs = drift((await sweep()).findings);
+      expect(fs.some((f) => f.ok && f.item === "repair:R31:moved")).toBe(true);
+      expect(asked(fs).filter((q) => q.kind === "moved_not_marked")).toEqual([]);
+      expect(writes.slice(w)).toEqual([{ id: "R31", outcome: "rescheduled" }]);
+    } finally {
+      records.splice(records.findIndex((r) => r.id === "R31"), 1);
+      await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id='AP31'", [companyId]); await c.query("delete from workflows where id=$1", [wf]); });
+    }
+  });
+
+  it("D291: when what makes the offer's Sales Calls writes to GHL, the sweep makes a missing one itself (blank, for the end of day) and says it repaired it; while it runs in test it only asks", async () => {
+    const created: Record<string, unknown>[] = [];
+    const before = fake.write.createRecord;
+    fake.write.createRecord = async (_c, _o, props) => { created.push(props); return { id: `NEW-${created.length}` }; };
+    const wf = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      const u = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role) values ($1,'dee@drift.test','Dee Closer','closer') on conflict do nothing returning id", [companyId]))?.id
+        ?? (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='dee@drift.test'", [companyId]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status, assigned_user_id) values ($1,$2,'calendly','AP30',$3,$4,$4,$5,'confirmed',$6)",
+        [companyId, k1, closing, ago({ days: 2, hours: 3 }).startOf("minute").toJSDate(), ago({ days: 6 }).toJSDate(), u]);
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'crm.assoc_sales_call_contact','id','A-SC'),($1,'crm.assoc_sales_call_opportunity','id','A-SO') on conflict (company_id, key) do nothing", [companyId]);
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, mode) values ($1,'Closing call booked','always',true,'test') returning id", [companyId]))!.id;
+    });
+    try {
+      // its maker runs in test: asked, nothing made
+      expect(asked((await sweep()).findings).filter((x) => x.kind === "no_record" && String(x.label).includes("G-K1"))).toHaveLength(1);
+      expect(created).toEqual([]);
+      // live: made, said as repaired, not asked
+      await asOperator((c) => c.query("update workflows set mode='live' where id=$1", [wf]));
+      const fs = (await sweep()).findings;
+      expect(created).toEqual([expect.objectContaining({ external_id: "AP30", contact_id: "G-K1" })]);
+      expect(created[0]).not.toHaveProperty("outcome", "showed");
+      expect(fs.some((f) => f.ok && String(f.item).endsWith(":sales_call") && /the health check made it/.test(f.text))).toBe(true);
+      expect(asked(fs).filter((x) => x.kind === "no_record")).toEqual([]);
+    } finally {
+      fake.write.createRecord = before;
+      await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id='AP30'", [companyId]); await c.query("delete from workflows where id=$1", [wf]); await c.query("delete from crm_records where company_id=$1", [companyId]); await c.query("delete from bindings where company_id=$1 and key in ('crm.assoc_sales_call_contact','crm.assoc_sales_call_opportunity')", [companyId]); });
+    }
+  });
+
+  it("D307: a held Sales Call with no recording link gets the engine's recording of that call; a link already there, or a call not held, is left alone", async () => {
+    const at = ago({ days: 2 }).startOf("minute"), url = "https://fathom.video/share/d307";
+    const wf = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      for (const ext of ["AP50", "AP51", "AP52"]) {
+        const a = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly',$3,$4,$5,$5,$6,'confirmed') returning id",
+          [companyId, k1, ext, closing, at.plus({ hours: ["AP50", "AP51", "AP52"].indexOf(ext) * 3 }).toJSDate(), ago({ days: 5 }).toJSDate()]))!.id;
+        await c.query("insert into recordings (company_id, contact_id, appointment_id, provider, external_id, started_at, duration_min, share_url, link_status, linked_by) values ($1,$2,$3,'fathom',$4,$5,40,$6,'linked','time')", [companyId, k1, a, `d307-${ext}`, at.plus({ hours: ["AP50", "AP51", "AP52"].indexOf(ext) * 3, minutes: 2 }).toJSDate(), `${url}-${ext}`]);
+      }
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, mode) values ($1,'Closing call booked','always',true,'live') returning id", [companyId]))!.id;
+    });
+    const mine = [sc("SC-R50", "AP50", "G-K1", at, "showed"), { ...sc("SC-R51", "AP51", "G-K1", at.plus({ hours: 3 }), "showed"), properties: { ...sc("SC-R51", "AP51", "G-K1", at.plus({ hours: 3 }), "showed").properties, recording_url: "https://kept" } }, sc("SC-R52", "AP52", "G-K1", at.plus({ hours: 6 }), "no_show")];
+    records.push(...mine);
+    const n = linkWrites.length;
+    try {
+      await sweep();
+      expect(linkWrites.slice(n).filter((w) => "recording_url" in w.props)).toEqual([{ id: "SC-R50", props: { recording_url: `${url}-AP50` } }]);
+      await sweep();   // filled once: GHL has it now
+      expect(linkWrites.slice(n).filter((w) => "recording_url" in w.props)).toHaveLength(1);
+      // the write is audited
+      expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and after->>'repair'='recording_added'", [companyId]))).toBeTruthy();
+    } finally {
+      records.splice(records.indexOf(mine[0]), 3);
+      await asOperator(async (c) => { await c.query("delete from recordings where company_id=$1 and external_id like 'd307-%'", [companyId]); await c.query("delete from appointments where company_id=$1 and external_id in ('AP50','AP51','AP52')", [companyId]); await c.query("delete from workflows where id=$1", [wf]); });
+    }
+  });
+
+  it("D299: a call still ahead with no Sales Call gets one before the call (scheduled, for its closer); one booked inside the last half hour is Call booked's, left alone", async () => {
+    const created: Record<string, unknown>[] = [];
+    const before = fake.write.createRecord;
+    fake.write.createRecord = async (_c, _o, props) => { created.push(props); return { id: `UP-${created.length}` }; };
+    const wf = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      const u = (await one<{ id: string }>(c, "insert into users (company_id, email, name, role) values ($1,'dee@drift.test','Dee Closer','closer') on conflict do nothing returning id", [companyId]))?.id
+        ?? (await one<{ id: string }>(c, "select id from users where company_id=$1 and email='dee@drift.test'", [companyId]))!.id;
+      const appt = (ext: string, starts: DateTime, booked: DateTime) => c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status, assigned_user_id) values ($1,$2,'calendly',$3,$4,$5,$5,$6,'confirmed',$7)",
+        [companyId, k1, ext, closing, starts.toJSDate(), booked.toJSDate(), u]);
+      await appt("AP40", NOW.plus({ days: 2 }).startOf("minute"), ago({ hours: 3 }));     // booked three hours ago, its record never made
+      await appt("AP41", NOW.plus({ days: 3 }).startOf("minute"), ago({ minutes: 5 }));   // just booked: Call booked's to make
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'crm.assoc_sales_call_contact','id','A-SC'),($1,'crm.assoc_sales_call_opportunity','id','A-SO') on conflict (company_id, key) do nothing", [companyId]);
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, mode) values ($1,'Closing call booked','always',true,'live') returning id", [companyId]))!.id;
+    });
+    try {
+      const fs = (await sweep()).findings;
+      expect(created).toEqual([expect.objectContaining({ external_id: "AP40", contact_id: "G-K1" })]);
+      expect(fs.some((f) => f.ok && String(f.item).endsWith(":sales_call"))).toBe(true);
+      expect(asked(fs).filter((x) => x.kind === "no_record")).toEqual([]);
+    } finally {
+      fake.write.createRecord = before;
+      await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id in ('AP40','AP41')", [companyId]); await c.query("delete from workflows where id=$1", [wf]); await c.query("delete from crm_records where company_id=$1", [companyId]); });
+    }
+  });
+  it("D313: a Sales Call on a booking that is not a closing call is asked about and never repaired as one (no card made, no outcome carried)", async () => {
+    const at = ago({ days: 2 }).startOf("hour");
+    await asOperator(async (c) => {
+      const triage = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='first_call'", [companyId]))!.id;
+      const ct = (await one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name, ghl_added_at) values ($1,'G-TRI','Isa',$2) returning id", [companyId, ago({ days: 3 }).toJSDate()]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly','EV-TRI',$3,$4,$4,$5,'confirmed')", [companyId, ct, triage, at.toJSDate(), ago({ days: 3 }).toJSDate()]);
+    });
+    records.push({ ...sc("R-TRI", "EV-TRI", "G-TRI", at, "showed") });
+    try {
+      const before = { links: linkWrites.length, rel: relations.length, out: writes.length };
+      const fs = await sweep();
+      expect(asked(fs.findings)).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "not_closing", record_id: "R-TRI" })]));
+      await run();
+      expect(linkWrites.slice(before.links).some((w) => w.id === "R-TRI")).toBe(false);
+      expect(relations.slice(before.rel).some((r) => r.includes("R-TRI"))).toBe(false);
+      expect(writes.slice(before.out).some((w) => w.id === "R-TRI")).toBe(false);
+      expect(await outcomeOf("EV-TRI")).toBeNull();   // GHL's "showed" is not carried onto the triage booking
+      expect(await worded()).toMatch(/Isa, .*: this Sales Call is on a .*, not a closing call, so the engine leaves it alone\./);
+    } finally { records.splice(records.findIndex((r) => r.id === "R-TRI"), 1); }
+  });
 });
+

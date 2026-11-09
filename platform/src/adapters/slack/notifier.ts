@@ -57,6 +57,12 @@ export const slackNotifier: Notifier = {
     const data = (await res.json()) as { ok: boolean; user?: { profile?: { email?: string } }; error?: string };
     return data.ok ? data.user?.profile?.email?.toLowerCase() ?? null : null;
   },
+  async userActive(token, userId) {
+    const res = await fetch(`https://slack.com/api/users.info?user=${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = (await res.json()) as { ok: boolean; user?: { deleted?: boolean }; error?: string };
+    if (!data.ok) return data.error === "user_not_found" ? false : null;
+    return data.user?.deleted !== true;
+  },
   async channelMembers(token, channelId) {
     const out: string[] = [];
     let cursor = "";

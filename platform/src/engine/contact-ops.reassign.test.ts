@@ -46,6 +46,18 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     expect(await asOperator((c) => contactsReassign(c, fake, { ...args, to: "nobody@x.com" }))).toMatchObject({ ok: false, status: 404 });
   });
 
+  it("D300: contacts named by GHL id instead of a tag: only those move, whatever their tags; a tag and contacts together is refused", async () => {
+    writes.length = 0;
+    crm.set("C", snap("C", "GM", ["other"]));
+    const args = { company: SLUG, from: "mitch@x.com", to: "nonie@x.com", contacts: ["C"], why: "test" };
+    expect(await asOperator((c) => contactsReassign(c, fake, args))).toMatchObject({ ok: true, dryRun: true, count: 1, contacts: ["C"] });
+    expect(writes).toEqual([]);
+    expect(await asOperator((c) => contactsReassign(c, fake, { ...args, dryRun: false }))).toMatchObject({ ok: true, moved: 1, contacts: ["C"], skipped: [] });
+    expect(writes).toEqual([["C", "GN"]]);
+    expect(await asOperator((c) => contactsReassign(c, fake, { ...args, tag: "dating" }))).toMatchObject({ ok: false, status: 400 });
+    writes.length = 0;
+  });
+
   it("everyone's but Nelly's (no owner included): Nelly's and the new owner's own are left; each still checked live", async () => {
     await asOperator(async (c) => {
       for (const [id, owner] of [["G", null], ["H", "GL"], ["I", "GM"]] as const)
@@ -99,6 +111,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     expect(await asOperator((c) => calendarWatch(c, withCal, { ...args, dryRun: false }))).toMatchObject({ ok: true, dryRun: false, was: "not watched", maps: '"JP Strategy" → Follow-up call (closing) (self-booked)' });
     const row = await asOperator((c) => one<{ active: boolean; self_booked: boolean; booking_url: string; owner: string; term: string; category: string }>(c, "select cal.active, cal.self_booked, cal.booking_url, u.email as owner, t.name as term, t.category from calendars cal join users u on u.id=(cal.config->>'owner')::uuid join company_terms t on t.id=cal.appointment_term where cal.company_id=$1 and cal.external_id='CAL-JP'", [co]));
     expect(row).toEqual({ active: true, self_booked: true, booking_url: "https://x/jp", owner: "nonie@x.com", term: "Follow-up call", category: "closing" });
+    // D292: marked so its first read's calls still ahead are started (poll.ts catchUpCalendar)
+    expect(await asOperator((c) => one(c, "select (config->>'catch_up')::boolean as catch_up from calendars where company_id=$1 and external_id='CAL-JP'", [co]))).toEqual({ catch_up: true });
     expect(await asOperator((c) => calendarWatch(c, withCal, { ...args, dryRun: false }))).toMatchObject({ dryRun: false, was: "watched", maps: "already watched: nothing changed" });
     expect(await asOperator((c) => calendarWatch(c, withCal, { ...args, calendar: "nope" }))).toMatchObject({ ok: false, status: 404 });
   });

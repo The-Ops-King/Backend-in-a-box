@@ -9,7 +9,7 @@ import { dispatchSchedules } from "@/engine/clock";
 import { tick } from "@/engine/runner";
 import { installTemplateForTest, replicaSnapshot } from "@/engine/test-install";
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
-import { totalsOf, DQ_REASONS, mergeEodFields } from "@/engine/eod-form";
+import { totalsOf, DQ_REASONS, mergeEodFields, impossibleAnswers } from "@/engine/eod-form";
 import { loadCompany } from "@/engine/context";
 import type { Adapters, BookingRead, SlackPersona } from "@/adapters/types";
 /** D226: a call short of a close says whether they were pitched; these tests are about other answers, so yes */
@@ -93,9 +93,9 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(def.map((f) => f.key)).toEqual(["outcome", "cash", "revenue", "next_date", "next_steps", "dq_reason", "dq_note", "lost_reason", "pitched", "about", "notes", "general_notes"]);
     expect(def.find((f) => f.key === "pitched")).toMatchObject({ required: true, options: ["Yes", "No"], when: ["pending", "follow_up", "lost", "dq"] });   // D226: asked short of a close
     expect(def.find((f) => f.key === "dq_reason")!.options).toEqual(DQ_REASONS);
-    expect(def.filter((f) => f.key === "cash" || f.key === "revenue").map((f) => f.label)).toEqual(["Cash collected ($)", "Revenue generated ($)"]);
+    expect(def.filter((f) => f.key === "cash" || f.key === "revenue").map((f) => f.label)).toEqual(["Cash collected ($)", "Contract value ($)"]);
     // a form saved with the old default label follows the rename; a label the company chose stays theirs
-    expect(mergeEodFields([{ key: "revenue", label: "Contract value ($)", type: "money", scope: "call", required: true, builtin: true }]).find((f) => f.key === "revenue")!.label).toBe("Revenue generated ($)");
+    expect(mergeEodFields([{ key: "revenue", label: "Revenue generated ($)", type: "money", scope: "call", required: true, builtin: true }]).find((f) => f.key === "revenue")!.label).toBe("Contract value ($)");
     expect(mergeEodFields([{ key: "revenue", label: "Program price", type: "money", scope: "call", required: true, builtin: true }]).find((f) => f.key === "revenue")!.label).toBe("Program price");
     await asOperator((c) => saveEodForm(c, companyId, [
       { key: "notes", label: "Call notes", type: "text", scope: "call", required: true, builtin: true },
@@ -151,7 +151,11 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     const answers = { ...half, calls: calls.map((x) => (x.contact === "Sarah Kim" ? { ...x, notes: "warm, wants her partner on the next one", pitched: "Yes" } : x)) };
     // more cash than revenue on one call can't be true: nothing is filed until it is fixed
     const over = { ...answers, calls: answers.calls.map((x) => (x.contact === "Leo Ortiz" ? { ...x, cash: 5000 } : x)) };
-    expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than revenue generated" });
+    expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: over }))).toEqual({ ok: false, why: "Check Leo Ortiz: cash collected is more than the contract value" });
+    // D305: the refusal is written down with its reason; a deposit (cash asked, revenue hidden) is never refused over a revenue left in the hidden box
+    expect(await asOperator((c) => one<{ after: { why: string } }>(c, "select after from audit_log where company_id=$1 and action='eod.refused' order by id desc limit 1", [companyId]))).toMatchObject({ after: { why: "Check Leo Ortiz: cash collected is more than the contract value" } });
+    expect(impossibleAnswers([{ ...over.calls.find((x) => x.contact === "Leo Ortiz")!, outcome: "deposit", cash: 500, revenue: 0 }], mergeEodFields(undefined))).toEqual([]);
+    expect(impossibleAnswers([{ ...over.calls.find((x) => x.contact === "Leo Ortiz")!, outcome: "closed", cash: 500, revenue: 0 }], mergeEodFields(undefined))).toHaveLength(1);
     const changes = diffAnswers(pre, answers);
     expect(changes.map(changeLine)).toEqual(["calls today 2 → 3", "cash collected $1,500 → $2,000", "Leo Ortiz: cash collected $1,500 → $2,000"]);
     // a blank the closer fills in is their answer, not a correction; a date the engine had and they moved is
@@ -177,16 +181,16 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(await tick(fake, DateTime.now(), companyId)).toMatchObject({ claimed: 1, completed: 1, failed: 0 });
     const reminderTs = `ts${n}`.replace(/ts\d+/, (await asOperator((c) => one<{ ts: string }>(c, "select ts from slack_posts where company_id=$1 and tag like 'eod-reminder:%'", [companyId])))!.ts);
     expect(reactions).toEqual([{ channel: "UALLAN", ts: reminderTs, emoji: "white_check_mark" }]);
-    const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 2 pitched, 1 close, $2,000 collected, $4,000 revenue generated.");
+    const reply = posts.slice(n).find((p) => p.threadTs === reminderTs)!; expect(reply.text).toBe("✅ Got it. 3 calls, 2 pitched, 1 close, $2,000 collected, $4,000 contract value.");
     const summary = posts.slice(n).find((p) => p.channel === "CALERTS")!;
-    expect(summary.text).toMatch(/^📝 \*Allan P\* filed .*: 3 calls, 2 pitched, 1 close, \$2,000 collected, \$4,000 revenue generated\.\n• Sarah Kim: Follow up · next \w{3} \w{3} \d{1,2}\n• Leo Ortiz: Closed · \$2,000 collected · \$4,000 revenue\n\*What did I do well\?\* Stayed on the objection$/);   // what happened on each call, not what was corrected
+    expect(summary.text).toMatch(/^📝 \*Allan P\* filed .*: 3 calls, 2 pitched, 1 close, \$2,000 collected, \$4,000 contract value\.\n• Sarah Kim: Follow up · next \w{3} \w{3} \d{1,2}\n• Leo Ortiz: Closed · \$2,000 collected · \$4,000 revenue\n\*What did I do well\?\* Stayed on the objection$/);   // what happened on each call, not what was corrected
     const filed = await asOperator((c) => one<{ submitted_at: Date | null; changes: unknown[] }>(c, "select submitted_at, changes from eod_reports where company_id=$1 and user_id=$2", [companyId, allan]));
     expect(filed?.submitted_at).toBeTruthy(); expect(filed?.changes).toHaveLength(3);
     // filed: the clock finds nothing more to send for that day
     expect((await asOperator((c) => dispatchSchedules(c, DateTime.now().setZone(TZ).set({ hour: 18 }) as DateTime<true>, companyId))).started).toEqual([]);
   });
 
-  it("no presumption (D80): a call whose time has passed with no recording, no outcome and no money opens BLANK with a hint, never as a no-show; a call still ahead opens blank too; nothing is marked", async () => {
+  it("D308 (was D80): a call whose time has passed with no recording and no call of 5 minutes or more opens as a no-show, said so; a phone call that long leaves it blank; a call still ahead opens blank; nothing is marked until the closer files", async () => {
     const day = DateTime.now().setZone(TZ).minus({ days: 1 }).toFormat("yyyy-MM-dd");
     const at = (h: number) => DateTime.fromFormat(day, "yyyy-MM-dd", { zone: TZ }).set({ hour: h }).toJSDate();
     await asOperator(async (c) => {
@@ -200,6 +204,8 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
       apptTheo = (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, calendar_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,$3,'A6',$4,$5,now(),'confirmed',$6,$7) returning id", [companyId, theo, cal, at(16), at(17), term, allan]))!.id;
       // Noah's call was recorded and Jev read it as a follow-up; Mia's and Theo's left no recording
       await c.query("insert into recordings (company_id, contact_id, appointment_id, provider, external_id, title, started_at, share_url, analysis, linked_by, raw) values ($1,$2,$3,'fathom','R2','Noah <> Allan',$4,'https://fathom.video/share/r2',$5,'invitee_email','{}')", [companyId, noah, apptNoah, at(14), { notes: { disposition: "follow_up", next_step: "call back Friday" } }]);
+      // Theo was called on the phone for 6 minutes (no meeting recording): that says the call happened
+      await c.query("insert into recordings (company_id, contact_id, provider, external_id, title, started_at, duration_min, linked_by, raw) values ($1,$2,'ghl','D308-T','Outbound call · connected',$3,6,'contact','{}')", [companyId, theo, at(16)]);
       // the booking posts Call booked made, remembered by appointment, so a reaction has a post to land on
       await c.query("insert into bindings (company_id,key,kind,value) values ($1,'slack.channel.bookings','channel',$2)", [companyId, Buffer.from("CBOOK")]);
       for (const [tag, ts] of [[`appointment:${apptMia}`, "bk-mia"], [`appointment:${apptNoah}`, "bk-noah"], [`appointment:${apptTheo}`, "bk-theo"]]) await c.query("insert into slack_posts (company_id, tag, channel, ts) values ($1,$2,'CBOOK',$3)", [companyId, tag, ts]);
@@ -210,7 +216,7 @@ describe.skipIf(!process.env.DATABASE_URL)("end-of-day report (D34)", () => {
     expect(morning.calls.map((x) => [x.contact, x.outcome])).toEqual([["Mia Chen", ""], ["Noah Reyes", "follow_up"], ["Theo Park", ""]]);   // Jev's read stands regardless of the clock: a recording exists
     // opened at the end of the day: the two unrecorded calls are over, and with no evidence they stay blank for the closer to answer, saying why
     const evening = await asOperator(async (c) => prefill(c, (await loadCompany(c, companyId)).row, who, day, DateTime.fromFormat(day, "yyyy-MM-dd", { zone: TZ }).set({ hour: 23 })));
-    expect(evening.calls.map((x) => [x.contact, x.outcome, x.hint ?? null])).toEqual([["Mia Chen", "", "No recording found for this call."], ["Noah Reyes", "follow_up", null], ["Theo Park", "", "No recording found for this call."]]);
+    expect(evening.calls.map((x) => [x.contact, x.outcome, x.hint ?? null])).toEqual([["Mia Chen", "no_show", "No recording and no call of 5 minutes or more with them, so this is set as a no-show. Change it if they showed."], ["Noah Reyes", "follow_up", null], ["Theo Park", "", null]]);
     expect((await asOperator((c) => one<{ n: string }>(c, "select count(*)::text as n from appointments where company_id=$1 and outcome_term is not null and id in ($2,$3,$4)", [companyId, apptMia, apptNoah, apptTheo])))!.n).toBe("0");   // nothing marked: the closer decides
   });
 

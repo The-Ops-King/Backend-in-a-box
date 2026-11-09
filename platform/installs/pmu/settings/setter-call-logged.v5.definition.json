@@ -904,7 +904,7 @@
       "id": "lt_line",
       "key": "outcome_line",
       "type": "set_var",
-      "value": "Set — booked through a setter link after the call (Jev read: {{vars.classify.result | words}}, {{vars.jev_confidence}}% sure)"
+      "value": "Set — booked through a setter link after the call (Jev read: {{vars.classify.result | words}}{{vars.jev_confidence | suffix:\"% sure\" | prefix:\",\"}})"
     },
     {
       "id": "rec_late",

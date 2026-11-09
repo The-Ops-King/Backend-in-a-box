@@ -93,6 +93,19 @@ export const ghlRead: CrmRead = {
       if (seen >= INBOUND_MAX_THREADS || pos === start) { out.more = pos; return out; }   // a full page that did not move on (all one timestamp) is not read again this tick
     }
   },
+  async contactMessages(c, contactId, limit = 40) {
+    type Raw = { id: string; dateAdded?: string; messageType?: string; type?: number; direction?: string; source?: string; body?: string; subject?: string; meta?: Record<string, unknown>; [k: string]: unknown };
+    const r = await ghl<{ conversations?: { id: string }[] }>(c.pit, "GET", `/conversations/search?locationId=${c.locationId}&contactId=${encodeURIComponent(contactId)}&limit=10`, { version: "2021-04-15" });
+    const out: Raw[] = [];
+    for (const conv of r.conversations ?? []) {
+      const m = await ghl<{ messages?: { messages?: Raw[] } }>(c.pit, "GET", `/conversations/${conv.id}/messages?limit=${Math.min(100, limit)}`, { version: "2021-04-15" });
+      out.push(...(m.messages?.messages ?? []));
+    }
+    const wf = (m: Raw) => { const hit = JSON.stringify(m).match(/"workflow(?:_?[Ii]d)?"\s*:\s*"([^"]+)"/); return hit ? hit[1] : null; };
+    return out.sort((x, y) => String(y.dateAdded ?? "").localeCompare(String(x.dateAdded ?? ""))).slice(0, limit).map((m) => ({
+      id: m.id, at: String(m.dateAdded ?? ""), channel: String(m.messageType ?? m.type ?? "").replace(/^TYPE_/, "").toLowerCase(), direction: String(m.direction ?? ""),
+      source: m.source ? String(m.source) : null, workflow: wf(m), subject: m.subject ? String(m.subject) : null, body: String(m.body ?? "").replace(/\s+/g, " ").slice(0, 200) }));
+  },
   /**
    * D89: a reply's words are read back from GHL when a step needs them; the engine stores only that it came in. The messages of one thread
    * come from one read of the thread (`GET /conversations/{id}/messages`, the newest 100); any not in it, or with no thread named, are read

@@ -31,3 +31,11 @@ export const after = (d: Def, prev: string, n: Node) => {
 };
 export const RESCHEDULE = { eq: ["{{event._type}}", "appointment.rescheduled"] };
 export const asCopy = (workflow: string, d: Def, note: string): Copy => ({ workflow, note, definition: d as unknown as Record<string, unknown> });
+
+/** D284: a copy that is no closing call (a triage call's Discovery Call, no closer card or Sales Call) takes the follow-up path out again. */
+export function dropFollowUp(d: Def): void {
+  const into = d.edges.filter((e) => e.to === "fu0"); if (into.length !== 1) throw new Error("Call booked's follow-up fork is no longer reached one way");
+  into[0].to = "n2";
+  d.nodes = d.nodes.filter((n) => !n.id.startsWith("fu"));
+  d.edges = d.edges.filter((e) => !e.from.startsWith("fu") && !e.to.startsWith("fu"));
+}

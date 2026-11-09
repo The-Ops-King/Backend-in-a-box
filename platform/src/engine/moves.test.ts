@@ -343,7 +343,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the end-of-day reminder's days 
 describe("D88: the wrap-up's words are the template's (A8)", () => {
   const day = { start: "2026-10-10", end: "2026-10-10" };
   const facts = (over: Partial<Parameters<typeof reportFacts>[0]> = {}) => reportFacts({ kind: "daily", period: day, tz: "UTC", toDate: false, numbers: { leads: 3, booked: 0 }, calls: null, said: [], readAt: new Date("2026-10-10T19:00:00Z"), ...over });
-  const FOOT = "\n\n_From GHL and the engine, read 7:00 PM UTC_";
+  const FOOT = "\n\n_From GHL, read 7:00 PM UTC_";
   const body = (f: ReturnType<typeof reportFacts>, layout = shippedLayout(f.kind)) => renderLayout(layout, f, {}, { tz: "UTC", companyTz: "UTC" });
 
   it("as shipped: what they said, the top four answers each, the rest counted, long answers cut", () => {
@@ -442,10 +442,10 @@ describe.skipIf(!process.env.DATABASE_URL)("D88: the drift sweep's findings are 
   const sweepWith = async (patch?: (d: Definition) => void) => {
     const { fakeProbes } = await import("@/engine/test-install");
     await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1", [companyId]));
-    const wf = await install("health-check", (d) => { const n = d.nodes.find((x) => x.type === "health_check")!; if (n.type === "health_check") n.checks = Object.fromEntries(["ghl_token", "ghl_calendars", "ghl_pipelines", "ghl_fields", "ghl_users", "slack", "steps", "urls", "anthropic", "duplicates"].map((k) => [k, false])); patch?.(d); });
-    const { fireNow } = await import("@/engine/clock");
-    await asOperator((c) => fireNow(c, companyId, wf));
-    await tick(fake, undefined, companyId, { ...fakeProbes, ghl });
+    await install("health-check", (d) => { const n = d.nodes.find((x) => x.type === "health_check")!; if (n.type === "health_check") n.checks = Object.fromEntries(["ghl_token", "ghl_calendars", "ghl_pipelines", "ghl_fields", "ghl_users", "slack", "steps", "urls", "anthropic", "duplicates"].map((k) => [k, false])); patch?.(d); });
+    // D297: GHL is compared by the 10-minute sync, which takes the window from the offer's Health check step
+    const { syncFromGhl } = await import("@/engine/health");
+    await asOperator(async (c) => syncFromGhl(c, (await loadCompany(c, companyId)).row, fake, { ...fakeProbes, ghl }));
     const { announceDue } = await import("@/engine/alerts");
     await asOperator((c) => announceDue(c, fake, new Date(), companyId)); await tick(fake, undefined, companyId, { ...fakeProbes, ghl });
     return asOperator((c) => many<{ kind: string; count: number }>(c, "select data->>'kind' as kind, (data->>'count')::int as count from events where company_id=$1 and event_type='drift.found' order by id", [companyId]));

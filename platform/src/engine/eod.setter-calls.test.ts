@@ -150,6 +150,19 @@ describe.skipIf(!process.env.DATABASE_URL)("D154/D156: a setter's calls on the e
     expect(facts.today.calls).toBe(2);
   });
 
+  it("D308: a dial to someone with a closing call with the same person that day is part of that call, not a row of its own", async () => {
+    const omar = await asOperator((c) => one<{ id: string }>(c, "select contact_id as id from recordings where company_id=$1 and external_id=$2", [co, omarCall.ext]));
+    const booking = await asOperator(async (c) => {
+      const term = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [co]))!.id;
+      const at = omarCall.started.plus({ hours: 2 }).toJSDate();
+      return (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, external_id, starts_at, ends_at, booked_at, status, appointment_term, assigned_user_id) values ($1,$2,'D308-O',$3,$3,now(),'confirmed',$4,$5) returning id", [co, omar!.id, at, term, mitch.id]))!.id;
+    });
+    try {
+      const p = await asOperator(async (c) => prefill(c, (await loadCompany(c, co)).row, mitch, day));
+      expect(p.calls.filter((x) => x.contact === "Omar Test").map((x) => x.kind)).toEqual(["closing"]);
+    } finally { await asOperator((c) => c.query("delete from appointments where id=$1", [booking])); }
+  });
+
   it("D191: the end-of-day reminder counts the setter's outbound calls too: Mitch is owed two calls today (Pia's triage call and Omar's outbound call), not one", async () => {
     await installCompany({ name: "EOD setter", slug: "eodset", timezone: TZ, locationId: "LOC", templates: ["eod-reminder"], enable: true }, fake);
     const { fireNow } = await import("@/engine/clock");

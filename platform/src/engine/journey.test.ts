@@ -635,11 +635,11 @@ describe.skipIf(!HAS_DB)("journey sweep", () => {
       expect([...removes.keys()].filter((t) => !adds.has(t)).sort()).toEqual(["opt-in lead", "seq-no-show", "seq-nurture", "seq-winback", "sys-send-agreement-manually"]);
     });
     it("tags a template adds that nothing ever removes (F9, D62): the milestones — every other stat-*, meta booked call, pay-deposit, pay-paid-full, pay-refunded; the ones that would misfire on a filter come off: stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention on a fresh booking, stat-agreement-unsigned on the signature, stat-unconfirmed on the confirmation", () => {
-      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-deposit", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-call-booked", "stat-closed-won", "stat-customer", "stat-deposit", "stat-disqualified", "stat-follow-up", "stat-lost", "stat-new", "stat-showed"]);
+      expect([...adds.keys()].filter((t) => !removes.has(t)).sort()).toEqual(["meta booked call", "pay-deposit", "pay-paid-full", "pay-refunded", "stat-agreement-sent", "stat-agreement-signed", "stat-call-booked", "stat-closed-won", "stat-customer", "stat-deposit", "stat-disqualified", "stat-follow-up", "stat-follow-up-booked", "stat-lost", "stat-new", "stat-showed"]);
       expect(removes.get("stat-unconfirmed")).toEqual(["pre-call-sequence:n_conf"]);
-      expect(removes.get("stat-call-not-booked")).toEqual(["call-booked:s5", "call-booked:b6"]);   // on until they book (Tyler, 2026-10-28); stat-call-booked is a milestone
-      for (const t of ["stat-no-show", "stat-cancelled", "stat-possible-cancel"]) expect(removes.get(t)).toEqual(["call-booked:s5", "call-booked:b6"]);
-      expect(removes.get("stat-needs-attention")).toEqual(["pre-call-sequence:n_att_off", "call-booked:s5", "call-booked:b6"]);
+      expect(removes.get("stat-call-not-booked")).toEqual(["call-booked:s5", "call-booked:b6", "call-booked:fu4"]);   // on until they book (Tyler, 2026-10-28); stat-call-booked is a milestone
+      for (const t of ["stat-no-show", "stat-cancelled", "stat-possible-cancel"]) expect(removes.get(t)).toEqual(["call-booked:s5", "call-booked:b6", "call-booked:fu4"]);   // D284: a follow-up booked too
+      expect(removes.get("stat-needs-attention")).toEqual(["pre-call-sequence:n_att_off", "call-booked:s5", "call-booked:b6", "call-booked:fu4"]);
       expect(removes.get("stat-agreement-unsigned")).toEqual(["agreement-signed:g1"]);
     });
   });

@@ -42,7 +42,8 @@ export const SETTING_DEFAULTS = {
   "crm.tasks": { kind: "switch", default: "on" },
   "setter_result.act": { kind: "switch", default: "off" },
   "eod.setter_calls": { kind: "switch", default: "on" },   // D239: every offer; a caller's setting calls with no booking are on their end of day
-  "eod.triage_overdue": { kind: "switch", default: "on" },   // D207, D239: every offer; a setter's blank triage calls are in the operator's ping
+  "eod.triage_overdue": { kind: "switch", default: "on" },
+  "eod.totals_from_calls": { kind: "switch", default: "off" },   // D309: the day's numbers are the calls' answers added up, shown, not typed (PMU on)   // D207, D239: every offer; a setter's blank triage calls are in the operator's ping
   "slack.live": { kind: "switch", default: "off" },
   "reports.quiet_when_empty": { kind: "switch", default: "off" },
   "qualify.unanswered_is_mql": { kind: "switch", default: "off" },

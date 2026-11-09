@@ -15,7 +15,7 @@
  * D170: this is the application-and-triage playbook (two boards, an application form, a triage call, a booked-call workflow per
  * call type); it was installs/dating/copies.ts.
  */
-import { after, drop, load, node, RESCHEDULE, template, type Copy, type Def, type Edge } from "./kit";
+import { after, drop, dropFollowUp, load, node, RESCHEDULE, template, type Copy, type Def, type Edge } from "./kit";
 import { defaultPrompts } from "@/prompts";
 import { isPlaceholderCopy } from "@/engine/readiness";
 
@@ -226,6 +226,8 @@ const rechannel = (d: Def, slot?: string) => {
  */
 function triageBooked(): Def {
   const d = load("call-booked");
+  // D284: a triage call has no follow-up of its own (the follow-up is the closing call's)
+  dropFollowUp(d);
   // a triage call is a phone call: no meeting link to ask for, and no closer card (the fork's)
   for (const id of ["n_nolink_note", "n_nolink_alert", "s_suffix", "b_suffix"]) drop(d, id);
   const edges = d.edges as Edge[];

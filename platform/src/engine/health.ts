@@ -4,6 +4,7 @@ import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { loadCompany, type CompanyRow } from "./context";
 import { reconcile, type AlertInput, type Level } from "./alerts";
+import { POLL_FAILURES } from "./setting-defaults";
 import { slackLiveSet, TEST_CHANNEL_KEY } from "./mode";
 import { followMerge } from "./merge";
 import { missingSources } from "./readiness";
@@ -555,7 +556,17 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
       // the API wants a start in the future and a window of at most 7 days: a minute from now, (days - 1) days and 23 hours long
       const r = await probes.calendlyAvailableTimes(token, `https://api.calendly.com/event_types/${cal.external_id}`, now.plus({ minutes: 1 }).toJSDate(), now.plus({ days: days - 1, hours: 23 }).toJSDate());
       if (r.ok) known.set(cal.external_id, r.times);
-      if (!r.ok) bad("calendly_calendars", "error", `Event type "${cal.name}": availability cannot be read: ${r.error}`, cal.external_id, undefined, link(cal));
+      // D295: one read Calendly refuses is the vendor blinking (every calendar of PMU at 13:00, of Nelly at 17:00, each fine the hour
+      // after); it is a problem when the calendar fails `alerts.poll_failures` (2) sweeps in a row, said with Calendly's own reason
+      const failKey = `calendly_read_fail:${company.id}:${cal.external_id}`;
+      if (r.ok) await c.query("delete from engine_state where key=$1", [failKey]);
+      if (!r.ok) {
+        const times = Number((await one<{ n: number }>(c, `insert into engine_state (key, value, updated_at) values ($1, '{"n":1}'::jsonb, now())
+          on conflict (key) do update set value = jsonb_build_object('n', coalesce((engine_state.value->>'n')::int, 0) + 1), updated_at=now() returning (value->>'n')::int as n`, [failKey]))?.n ?? 1);
+        const limit = Math.max(1, Number(bindings["alerts.poll_failures"]) || POLL_FAILURES);
+        if (times >= limit) bad("calendly_calendars", "error", `Event type "${cal.name}": Calendly would not give its availability ${times} hours running: ${r.error}`, cal.external_id, undefined, link(cal));
+        else ok("calendly_calendars", `"${cal.name}": Calendly would not give its availability this hour (${r.error}); checked again next hour.`, cal.external_id, undefined, link(cal));
+      }
       else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id, { repeat: false }, link(cal));
       else { const len = await probes.calendlyEventTypeHosts(token, `https://api.calendly.com/event_types/${cal.external_id}`, ac.booking.source === "calendly" ? ac.booking.organization || undefined : undefined);
         const n = bookable([...new Set(r.times.map(ms))].map((start) => ({ start, minutes: (len.ok && len.duration) || DEFAULT_CALL_MINUTES }))).length;   // D267: calls that fit, not start times
@@ -741,11 +752,33 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
 /** The health_check step: run the checks (availability is its own step), remember the result, turn failures into alerts and clear the ones that passed. */
 export async function runHealthStep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, cfg: HealthConfig & { as_name?: string | null; as_icon?: string | null }, now = DateTime.now()): Promise<{ findings: Finding[]; raised: number; resolved: number }> {
   await ensureHealth(c, company.id);
-  const findings = (await sweep(c, company, adapters, probes, { ...cfg, checks: { ...cfg.checks, availability: false } }, now)).filter((f) => f.check !== "availability");
+  // D297: GHL is compared every 10 minutes in the company's own tick (syncFromGhl), not here; its alert is that sweep's to keep
+  const findings = (await sweep(c, company, adapters, probes, { ...cfg, checks: { ...cfg.checks, availability: false, ledger_drift: false } }, now)).filter((f) => f.check !== "availability" && f.check !== "ledger_drift");
   const prev = (await one<{ last_result: Finding[] }>(c, "select last_result from health_checks where company_id=$1", [company.id]))?.last_result ?? [];
   await c.query("update health_checks set last_run_at=$2, last_result=$3, channel=$4, as_name=$5, as_icon=$6 where company_id=$1", [company.id, now.toJSDate(), JSON.stringify([...findings, ...prev.filter((f) => f.check === "availability")]), cfg.channel ?? null, cfg.as_name ?? null, cfg.as_icon ?? null]);
   const present = findings.filter((f) => !f.ok).map((f) => toAlert(company, f));
-  const r = await reconcile(c, company.id, "health", present, now.toJSDate(), undefined, "health:availability");
+  const r = await reconcile(c, company.id, "health", present, now.toJSDate(), undefined, ["health:availability", "health:ledger_drift"]);
+  return { findings, ...r };
+}
+
+/** D297: how often GHL is compared with the engine and the engine brought into line, in each company's own minute. */
+export const SYNC_EVERY_MIN = 10;
+/**
+ * D297 (Tyler: "Maybe we just increase the drift check to every 10 minutes ... instead of alerting me every single time that there's
+ * an issue, they could just say, 'Oh, the contact changed. Here's the new information.'", and keep it quiet). GHL is the record: every
+ * 10 minutes the engine reads it and takes what it says (a contact added, changed or gone, an outcome filed, a Sales Call missing or
+ * moved), logged in the audit and said to no one. Only what a person must decide stays an alert (`health:ledger_drift`, kept and
+ * cleared here, no longer by the hourly health check). A read that fails changes nothing and is read again next time.
+ */
+export async function syncFromGhl(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, now = DateTime.now(), opts: { runId?: string | null } = {}): Promise<{ findings: Finding[]; raised: number; resolved: number } | null> {
+  if (!probes.ghl) return null;
+  const { adapterCompany: ac, bindings } = await loadCompany(c, company.id);
+  // the window and the poll's lag stay the offer's own, on its Health check step (D88)
+  const step = (await many<{ n: { drift_days?: number; poll_lag_min?: number } }>(c, `select n as n from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version,
+      jsonb_array_elements(v.definition->'nodes') n where w.company_id=$1 and w.enabled and n->>'type'='health_check' limit 1`, [company.id]))[0]?.n ?? {};
+  const findings = await ledgerDrift(c, company, ac, bindings, probes.ghl, adapters, opts.runId === null ? undefined : opts.runId ?? "sync", now, { days: step.drift_days, pollLagMin: step.poll_lag_min });
+  const present = findings.filter((f) => !f.ok).map((f) => toAlert(company, f));
+  const r = await reconcile(c, company.id, "health", present, now.toJSDate(), "health:ledger_drift");
   return { findings, ...r };
 }
 

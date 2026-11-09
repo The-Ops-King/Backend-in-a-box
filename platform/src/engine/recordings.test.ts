@@ -217,6 +217,35 @@ describe.skipIf(!process.env.DATABASE_URL)("recordings ledger", () => {
     expect(r).toMatchObject({ match: null, conflict: expect.stringMatching(/the recorder's booking then is Otto Mtg, but Audra Mtg spoke, who is Audra Mtg in the CRM/) });
   });
 
+  it("D306: email, phone, the Zoom link, then the closer's booking at that time before any name; a name stops it only with a different link (Mary booked, Sally spoke)", async () => {
+    const t = day(90), mins = (m: number) => new Date(t.getTime() + m * 60e3);
+    const zoom = (id: string) => `https://us06web.zoom.us/j/${id}`;
+    // Elena: the 10:30 booking, and a cancelled one at 11:00: the cancelled one never counts; she joined as "Elena's iPhone"
+    const elena = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Elena','Jocobi') returning id", [companyId])))!.id;
+    const kealey = await person("Kealey");
+    const hers = await book(elena, "D306-E", t, null); await book(kealey, "D306-K", mins(30), null, closer, "cancelled");
+    expect((await asOperator((c) => resolveRecording(c, companyId, rec("d306-1", { startedAt: mins(12), transcript: [{ speaker: "Cal", text: "hi" }, { speaker: "Elena's iPhone", text: "hi" }] })))).match).toEqual({ contactId: elena, by: "time", appointmentId: hers });
+    // two live bookings then: the one whose first name was given ("Elena's iPhone") is it
+    const other = await person("Nora"); await book(other, "D306-N", mins(30), null);
+    expect((await asOperator((c) => resolveRecording(c, companyId, rec("d306-2", { startedAt: mins(12), transcript: [{ speaker: "Elena's iPhone", text: "hi" }] })))).match).toEqual({ contactId: elena, by: "speaker", appointmentId: hers });
+    // Luz joined under her married name, nobody in the CRM: the closer's booking then is still hers
+    const t2 = day(91), luz = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, first_name, last_name) values ($1,'Luz','Aguilar') returning id", [companyId])))!.id;
+    const luzAt = await book(luz, "D306-L", t2, meetingKey(zoom("1112223334"))!);
+    expect((await asOperator((c) => resolveRecording(c, companyId, rec("d306-3", { startedAt: new Date(t2.getTime() + 5 * 60e3), transcript: [{ speaker: "Luz Mccullough", text: "hi" }] })))).match).toEqual({ contactId: luz, by: "time", appointmentId: luzAt });
+    // the booking's own Zoom link wins whoever spoke
+    expect((await asOperator((c) => resolveRecording(c, companyId, rec("d306-4", { startedAt: new Date(t2.getTime() + 5 * 60e3), meetingUrl: zoom("1112223334"), transcript: [{ speaker: "Sally Stone", text: "hi" }] })))).match).toEqual({ contactId: luz, by: "meeting", appointmentId: luzAt });
+    // Mary had a call booked but Sally spoke, on another Zoom link: not linked, the operator is told
+    const sally = await asOperator((c) => resolveRecording(c, companyId, rec("d306-5", { startedAt: new Date(t2.getTime() + 5 * 60e3), meetingUrl: zoom("9998887776"), transcript: [{ speaker: "Sally Stone", text: "hi" }] })));
+    expect(sally).toMatchObject({ match: null, conflict: expect.stringMatching(/different meeting link and Sally Stone spoke/) });
+    // a device on another link is still them
+    expect((await asOperator((c) => resolveRecording(c, companyId, rec("d306-6", { startedAt: new Date(t2.getTime() + 5 * 60e3), meetingUrl: zoom("9998887776"), transcript: [{ speaker: "iPhone", text: "hi" }] })))).match).toMatchObject({ contactId: luz, by: "time" });
+    // a dial-in phone that is one contact's, booked then, before the time: theirs
+    const t3 = day(92), pam = await person("Pam"), joe = await person("Joe");
+    await asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) values ($1,$2,'phone','+14805550111')", [companyId, pam]));
+    const pamAt = await book(pam, "D306-P", t3, null, null); await book(joe, "D306-J", t3, null);
+    expect((await asOperator((c) => resolveRecording(c, companyId, rec("d306-7", { startedAt: new Date(t3.getTime() + 2 * 60e3), transcript: [{ speaker: "+1 (480) 555-0111", text: "hi" }] })))).match).toEqual({ contactId: pam, by: "phone", appointmentId: pamAt });
+  });
+
   it("D236: a call no booking fits is placed by the ledger: a client's call; a closing call held late; a follow-up on a sale held; else unbooked", async () => {
     const t = day(80), at = new Date(t.getTime() + 25 * 3600e3);   // the call is the next day
     const terms = await asOperator(async (c) => Object.fromEntries((await many<{ k: string; id: string }>(c, "select domain||':'||category as k, id from company_terms where company_id=$1 and is_default", [companyId])).map((r) => [r.k, r.id])));

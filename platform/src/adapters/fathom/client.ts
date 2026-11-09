@@ -76,3 +76,18 @@ export async function fathomListMeetings(apiKey: string, from: Date, to: Date): 
   return out;
 }
 export const fathomRecorder = { transcript: fathomTranscript, meetings: fathomListMeetings };
+
+/** D316: the emails of the team members the key can see (GET /team_members, paged); null when Fathom will not list them for this key. */
+export async function fathomTeamMembers(apiKey: string): Promise<string[] | null> {
+  const out: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const res = await fetch(`${BASE}/team_members${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { headers: headers(apiKey) });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { items?: { email?: string }[]; next_cursor?: string | null };
+    for (const m of body.items ?? []) if (m.email) out.push(m.email.toLowerCase());
+    if (!body.next_cursor) break;
+    cursor = body.next_cursor;
+  }
+  return out;
+}

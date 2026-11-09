@@ -6,3 +6,4 @@ secrets/
 # build artifacts
 *.png
 node_modules
+.claude/settings.local.json

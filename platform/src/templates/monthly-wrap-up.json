@@ -46,7 +46,10 @@
           "revenue",
           "cash_collected",
           "cash_gross",
-          "refunds"
+          "refunds",
+          "triage_booked",
+          "consults_booked",
+          "consults_booked_set"
         ],
         "layout": {
           "heading": {
@@ -66,12 +69,16 @@
                   "{{report.n.mqls | default:\"\"}}"
                 ],
                 [
-                  "New bookings",
-                  "{{report.n.booked | default:\"\"}}"
+                  "Triage booked (Calendly)",
+                  "{{report.n.triage_booked | default:\"\"}}"
+                ],
+                [
+                  "Consultations booked",
+                  "{{report.n.consults_booked | default:\"\"}}"
                 ],
                 [
                   "  by setters",
-                  "{{report.n.booked_set | default:\"\"}}"
+                  "{{report.n.consults_booked_set | default:\"\"}}"
                 ],
                 [
                   "Calls due",
@@ -170,7 +177,7 @@
             "monthly_to_date": "Nothing this month: no leads, bookings, calls or payments."
           },
           "failed": "_couldn't read GHL: {{report.ghl_error}}_",
-          "footer": "_From GHL and the engine, read {{report.read_at | date:\"h:mm a ZZZZ\"}}_"
+          "footer": "_From GHL, read {{report.read_at | date:\"h:mm a ZZZZ\"}}_"
         },
         "title": "Read the numbers and word the wrap-up (the layout: sections, lines, headings)"
       },

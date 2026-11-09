@@ -5,7 +5,7 @@
   "stage": "booking",
   "sort": 10,
   "origin": "spec",
-  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner (a setter who booked it follows the contact and both cards instead, D266), the booking's UTMs (source, medium, campaign, content, term, fbclid) go on the contact's UTM fields where GHL has none yet (a first touch is never overwritten; an unbound field is skipped, D78), the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, a Sales Call record is created for the call slot (the recording and the filed outcome update it; a reschedule logs the old slot's record as rescheduled and makes the new slot its own, D76), and the team gets the Slack card with the company's own intake lines (the booking card setting, D104) and the person's lead source. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card. A booking no text can reach (Do Not Disturb, or no phone on file) gets ⚠️ on its card and a note under it saying why, once (D188).",
+  "description": "A closing call is booked (or moved): the contact gets the appointment date and the closer as owner (a setter who booked it follows the contact and both cards instead, D266), the booking's UTMs (source, medium, campaign, content, term, fbclid) go on the contact's UTM fields where GHL has none yet (a first touch is never overwritten; an unbound field is skipped, D78), the setter card moves to Direct Booked Call or Appointment Set, the closer card is created or moved to Scheduled, stat-booked plus stat-self-booked or stat-set are added, the nurture sequence tags and opt-in lead come off along with stat-no-show, stat-cancelled, stat-possible-cancel and stat-needs-attention (a fresh booking resets them so a filter on them does not catch someone who has rebooked, D62), meta booked call goes on, the owner gets a task to send a personal video, a Sales Call record is created for the call slot (the recording and the filed outcome update it; a reschedule logs the old slot's record as rescheduled and makes the new slot its own, D76), and the team gets the Slack card with the company's own intake lines (the booking card setting, D104) and the person's lead source. A reschedule runs the same CRM updates and posts the card again with the new time under a 🔁 face instead of the calendar and reacts 🔁 on the card it replaces; later reactions (confirmed, cancelled, outcome, payment) land on that newest card. A booking no text can reach (Do Not Disturb, or no phone on file) gets ⚠️ on its card and a note under it saying why, once (D188). D284: a closing call for someone whose earlier closing call was held is a follow-up: the setter stays as it is (no new set, no setter card or Setter field written), the closer card goes back to Scheduled with its name, and the call gets its own Sales Call (call type follow_up) carrying the original setter.",
   "definition": {
     "schema": 1,
     "reentry": "always",
@@ -502,6 +502,138 @@
         "id": "x1",
         "type": "exit",
         "reason": "booked"
+      },
+      {
+        "id": "fu1",
+        "type": "set_var",
+        "key": "setter_line",
+        "value": "*Follow-up* on an earlier call{{contact.setter.name | default: | then:\" · setter \"}}{{contact.setter.name | default:}}",
+        "title": "A follow-up: the post says so, and who set them first"
+      },
+      {
+        "id": "fu2",
+        "type": "set_var",
+        "key": "booking_kind",
+        "value": "follow-up"
+      },
+      {
+        "id": "fu3",
+        "type": "set_var",
+        "key": "booking_source",
+        "when": {
+          "exists": "contact.setter.name"
+        },
+        "value": "{{picklist.sales_call_booking_source.setter}}",
+        "else_value": "{{picklist.sales_call_booking_source.self}}"
+      },
+      {
+        "id": "fu4",
+        "type": "tags",
+        "add": [
+          "stat-follow-up-booked",
+          "meta booked call"
+        ],
+        "remove": [
+          "seq-no-show",
+          "seq-nurture",
+          "seq-winback",
+          "opt-in lead",
+          "stat-no-show",
+          "stat-cancelled",
+          "stat-possible-cancel",
+          "stat-needs-attention",
+          "stat-call-not-booked"
+        ],
+        "title": "Tags: a follow-up booked (not a new set)"
+      },
+      {
+        "type": "pipeline_card",
+        "pipeline": "{{crm.pipeline_closer}}",
+        "stage": "{{crm.stage_closer_scheduled}}",
+        "name": "{{contact.name}} -- Follow Up",
+        "assign_to": "{{appointment.closer.ghl_user_id | default:}}",
+        "id": "fu_card",
+        "title": "Closer card → Scheduled, its name kept (a follow-up)",
+        "keep_name": true
+      },
+      {
+        "id": "fu_rs",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+        "key": "{{event.slot.from | default:}}",
+        "if_missing": "skip",
+        "properties": {
+          "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
+        },
+        "title": "The Sales Call for the old time: logged as rescheduled",
+        "only_if": {
+          "eq": [
+            "{{event._type}}",
+            "appointment.rescheduled"
+          ]
+        }
+      },
+      {
+        "id": "fu_sc",
+        "type": "crm_record",
+        "object": "{{crm.object_sales_call | default:custom_objects.sales_call}}",
+        "key": "{{appointment.slot_key}}",
+        "properties": {
+          "display_label": "{{contact.name | default:Unknown}} — {{appointment.starts_at | date_company:yyyy-MM-dd}}",
+          "external_id": "{{appointment.slot_key}}",
+          "contact_id": "{{contact.ghl_contact_id | default:}}",
+          "opportunity_id": "{{cards.closer.id | default:}}",
+          "scheduled_at": "{{appointment.starts_at}}",
+          "call_date": "{{appointment.starts_at | date_company:yyyy-MM-dd}}",
+          "closer": "{{appointment.closer.name | default: | option:sales_call_closer}}",
+          "setter": "{{contact.setter.name | default:}}",
+          "outcome": "{{picklist.sales_call_outcome.scheduled}}",
+          "booking_source": "{{vars.booking_source | default:}}",
+          "call_type": "follow_up"
+        },
+        "relate": [
+          {
+            "association": "{{crm.assoc_sales_call_contact}}",
+            "first": "{{contact.ghl_contact_id | default:}}",
+            "second": "{{record.id}}"
+          },
+          {
+            "association": "{{crm.assoc_sales_call_opportunity}}",
+            "first": "{{record.id}}",
+            "second": "{{cards.closer.id | default:}}"
+          }
+        ],
+        "title": "The follow-up's own Sales Call (call type follow_up, the original setter)"
+      },
+      {
+        "id": "fu_v",
+        "type": "set_var",
+        "key": "card",
+        "when": {
+          "eq": [
+            "{{event._type}}",
+            "appointment.rescheduled"
+          ]
+        },
+        "value": {
+          "name": "Follow-up rescheduled",
+          "icons": [
+            ":repeat:"
+          ],
+          "reschedule_mark": "repeat"
+        },
+        "else_value": {
+          "name": "Follow-up booked",
+          "icons": [
+            ":repeat_one:"
+          ],
+          "reschedule_mark": ""
+        }
+      },
+      {
+        "id": "fu0",
+        "type": "branch",
+        "title": "A follow-up? (an earlier closing call of theirs was held)"
       }
     ],
     "edges": [
@@ -523,7 +655,7 @@
       },
       {
         "from": "u1",
-        "to": "n2"
+        "to": "fu0"
       },
       {
         "from": "n2",
@@ -670,6 +802,55 @@
       {
         "from": "n_nolink_alert",
         "to": "x1"
+      },
+      {
+        "from": "fu0",
+        "to": "fu1",
+        "when": {
+          "eq": [
+            "{{appointment.follow_up}}",
+            true
+          ]
+        },
+        "label": "a follow-up"
+      },
+      {
+        "from": "fu0",
+        "to": "n2",
+        "else": true,
+        "label": "a new set"
+      },
+      {
+        "from": "fu1",
+        "to": "fu2"
+      },
+      {
+        "from": "fu2",
+        "to": "fu3"
+      },
+      {
+        "from": "fu3",
+        "to": "fu4"
+      },
+      {
+        "from": "fu4",
+        "to": "fu_card"
+      },
+      {
+        "from": "fu_card",
+        "to": "fu_rs"
+      },
+      {
+        "from": "fu_rs",
+        "to": "fu_sc"
+      },
+      {
+        "from": "fu_sc",
+        "to": "fu_v"
+      },
+      {
+        "from": "fu_v",
+        "to": "n4"
       }
     ]
   }

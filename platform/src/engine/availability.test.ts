@@ -4,8 +4,10 @@ import { DateTime } from "luxon";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { encrypt } from "./crypto";
-import { fakeProbes } from "./test-install";
-import { bookable, hostFree, type HealthProbes } from "./health";
+import { fakeAdapters, fakeProbes } from "./test-install";
+import { bookable, hostFree, readCalendars, type HealthProbes } from "./health";
+import { loadCompany } from "./context";
+import { calendlyReason } from "@/adapters/calendly/client";
 import { getAvailability } from "./metric-registry";
 import { formatAvailability } from "./bot-format";
 import type { CalendlySchedule } from "@/adapters/calendly/health";
@@ -80,6 +82,7 @@ describe.skipIf(!process.env.DATABASE_URL)("availability per closer on Calendly 
   const clean = async () => asOperator(async (c) => {
     const co = await one<{ id: string }>(c, "select id from companies where slug='avail72'");
     if (!co) return;
+    await c.query("delete from engine_state where key like $1", [`calendly_read_fail:${co.id}:%`]);
     for (const x of ["calendars", "bindings", "users", "company_terms"]) await c.query(`delete from ${x} where company_id=$1`, [co.id]);
     await c.query("delete from companies where id=$1", [co.id]);
   });
@@ -134,5 +137,22 @@ describe.skipIf(!process.env.DATABASE_URL)("availability per closer on Calendly 
       expect(a.closers.map((x) => [x.short, x.per_day])).toEqual([["Josh Harris", [1, 1, 4]], ["Pat", [0, 0, 3]]]);
       expect(formatAvailability(a)).toContain("Day         Josh Harris  Pat  All");
     } finally { await asOperator((c) => c.query("delete from users where company_id=$1 and email='josh.s@hair.co'", [companyId])); }
+  });
+
+  it("D295: Calendly refusing one read is a note, not an alert; the same calendar refused two sweeps running is the alert, with Calendly's own reason; a good read starts the count again", async () => {
+    expect(calendlyReason(JSON.stringify({ title: "Invalid Argument", message: "The supplied parameters are invalid.", details: [{ parameter: "start_time", message: "must be in the future" }] })))
+      .toBe("Invalid Argument · The supplied parameters are invalid. · start_time: must be in the future");
+    let fail = true;
+    const base = fakeAdapters();
+    const adapters = { ...base, booking: { ...base.booking, calendly: { ...base.booking.calendly, listCalendars: async () => [{ id: "SELF", name: "45 Min Strategy Call", active: true, teamMemberIds: [] }, { id: "SETTER", name: "45 Min Strategy Call - S", active: true, teamMemberIds: [] }] } } } as typeof base;
+    const probes2: HealthProbes = { ...probes, calendlyAvailableTimes: async (...a) => (fail ? { ok: false, error: "Calendly 400: start_time: must be in the future (on /event_type_available_times)" } : probes.calendlyAvailableTimes(...a)) };
+    const sweep = () => asOperator(async (c) => readCalendars(c, (await loadCompany(c, companyId)).row, adapters, probes2, { checks: { calendly_calendars: true }, min_slots: 0, slots_days: 7 }, NY("2026-10-12T08:00") as DateTime<true>));
+    const self = (fs: Awaited<ReturnType<typeof sweep>>) => fs.find((f) => f.check === "calendly_calendars" && f.item === "SELF")!;
+    const first = self(await sweep());
+    expect(first).toMatchObject({ ok: true }); expect(first.text).toMatch(/checked again next hour/);
+    const second = self(await sweep());
+    expect(second).toMatchObject({ ok: false, level: "error" }); expect(second.text).toMatch(/2 hours running: Calendly 400: start_time: must be in the future/);
+    fail = false; expect(self(await sweep())).toMatchObject({ ok: true });
+    fail = true; expect(self(await sweep())).toMatchObject({ ok: true });   // the count started again
   });
 });

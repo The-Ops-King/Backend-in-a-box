@@ -43,19 +43,19 @@ describe("report periods and due-ness (pure)", () => {
   });
   const day = { start: "2026-10-10", end: "2026-10-10" };
   it("D76: only what happened: a day with one self-booking is the booking section and nothing else", () => {
-    expect(renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { leads: 0, booked: 1, booked_self: 1, booked_set: 0, dials: 0, cash_collected: 0, cash_gross: 0, refunds: 0 }, calls: { booked: 0, showed: 0, noshow: 0, cancelled: 0, missing: 0, rescheduled: 0 } }))
-      .toBe("📊 *Today, Sat Oct 10*\n\n```\nNew bookings  1\n```\n\n_From GHL and the engine, read 7:00 PM UTC_");
+    expect(renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { leads: 0, consults_booked: 1, consults_booked_set: 0, dials: 0, cash_collected: 0, cash_gross: 0, refunds: 0 }, calls: { booked: 0, showed: 0, noshow: 0, cancelled: 0, missing: 0, rescheduled: 0 } }))
+      .toBe("📊 *Today, Sat Oct 10*\n\n```\nConsultations booked  1\n```\n\n_From GHL, read 7:00 PM UTC_");
   });
   it("D76: nothing at all is one line; a GHL read that failed says so instead of a 0", () => {
     expect(renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: {}, calls: null })).toBe("Nothing today: no leads, bookings, calls or payments.");
     expect(renderReport({ kind: "weekly", period: { start: "2026-09-28", end: "2026-10-04" }, tz: "UTC", toDate: false, said: [], numbers: {} })).toBe("Nothing last week: no leads, bookings, calls or payments.");
-    const failed = renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { leads: null, booked: 2, booked_set: 2 }, ghlError: "(contacts, 503): GHL 503" });
-    expect(failed).toBe("📊 *Today, Sat Oct 10*\n\n```\nNew bookings  2\n  by setters  2\n```\n\n_couldn't read GHL: (contacts, 503): GHL 503_\n\n_From GHL and the engine, read 7:00 PM UTC_");
+    const failed = renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { leads: null, consults_booked: 2, consults_booked_set: 2 }, ghlError: "(contacts, 503): GHL 503" });
+    expect(failed).toBe("📊 *Today, Sat Oct 10*\n\n```\nConsultations booked  2\n  by setters          2\n```\n\n_couldn't read GHL: (contacts, 503): GHL 503_\n\n_From GHL, read 7:00 PM UTC_");
     expect(failed).not.toMatch(/Leads +0/);
   });
   it("D76: a rate only with its denominator; calls, deals and cash by the registry's words", () => {
     const text = renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { leads: 4, mqls: 2, dials: 10, connected: 4, speed_to_lead: 7.4, closes: 1, revenue: 3000, cash_collected: 800, cash_gross: 1000, refunds: 200 }, calls: { booked: 4, showed: 2, noshow: 1, cancelled: 0, missing: 1, rescheduled: 1 } });
-    expect(text).toBe("📊 *Today, Sat Oct 10*\n\n```\nLeads               4\nMQLs                2\nCalls due           4\nShowed              2\nNo-shows            1\nShow rate         50%\nCloses              1\nClose rate        50%\nRevenue        $3,000\nCash             $800\nRefunds          $200\nDials              10\nConnected           4\nSpeed to lead   7 min\n```\n⚠️ Calls with no EOD outcome: 1\n\n_From GHL and the engine, read 7:00 PM UTC_");
+    expect(text).toBe("📊 *Today, Sat Oct 10*\n\n```\nLeads               4\nMQLs                2\nCalls due           4\nShowed              2\nNo-shows            1\nShow rate         67%\nCloses              1\nClose rate        50%\nRevenue        $3,000\nCash             $800\nRefunds          $200\nDials              10\nConnected           4\nSpeed to lead   7 min\n```\n⚠️ Calls with no EOD outcome: 1\n\n_From GHL, read 7:00 PM UTC_");
     expect(renderReport({ kind: "daily", period: day, tz: "UTC", toDate: false, said: [], numbers: { speed_to_lead: 614 } })).toContain("Speed to lead  10 h 14 min");
   });
 });
@@ -111,10 +111,11 @@ describe.skipIf(!HAS_DB)("rollups from the ledger", () => {
   });
   it("builds the daily wrap-up; the wrap-ups workflow fires it at 7pm once per day and the post is recorded (suppressed: no Slack here)", async () => {
     const r = await asOperator(async (c) => buildReport(c, (await loadCompany(c, companyId)).row, "daily", { start: day, end: day }, { reads: ghl, now: new Date("2026-10-11T23:05:00Z") }));
-    // D76: GHL's two leads, the ledger's booking and dials; no Sales Calls, closes or Payment records in GHL, so nothing about them
+    // D76: GHL's two leads and the dials; no Sales Calls, closes or Payment records in GHL, so nothing about them
     const body = r.body.split("\n");
-    expect(body.slice(0, -1)).toEqual([`📊 *Today, ${DateTime.fromISO(day).toFormat("ccc LLL d")}*`, "", "```", "Leads               2", "New bookings        1", "  by setters        1", "Dials               3", "Connected           2", "Speed to lead  15 min", "```", ""]);
-    expect(body.at(-1)).toMatch(/^_From GHL and the engine, read \d{1,2}:05 [AP]M [A-Z]+_$/);
+    expect(body.slice(0, -1)).toEqual([`📊 *Today, ${DateTime.fromISO(day).toFormat("ccc LLL d")}*`, "", "```", "Leads               2", "Dials               3", "Connected           2", "Speed to lead  10 min", "```", ""]);
+    // D294: bookings are GHL's Sales Calls (none here: the GHL read has no records); speed to lead leaves out the lead who booked before anyone dialled
+    expect(body.at(-1)).toMatch(/^_From GHL, read \d{1,2}:05 [AP]M [A-Z]+_$/);
     const down = await asOperator(async (c) => buildReport(c, (await loadCompany(c, companyId)).row, "daily", { start: day, end: day }, { reads: { ...ghl, contactsAdded: async () => { throw Object.assign(new Error("GHL 503 on /contacts/search"), { status: 503 }); } } }));
     expect(down.body).toContain("_couldn't read GHL: (contacts, 503)"); expect(down.body).not.toMatch(/Leads +\d/);
     const fake: Adapters = {

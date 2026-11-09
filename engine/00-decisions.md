@@ -6963,7 +6963,7 @@ task for now"; "we should be watching jose and minerva. jose's is a triage". PMU
 - Minerva's "Beauty Mogules Assessment" is watched as a Follow-up call (closing, like Jose's "Beauty Moguls Strategy"; Tyler: "like a
   follow up call"), owned by Minerva.
 
-## D276. A read-only probe of what GHL answers for a call's recording and transcript (2026-10-31)
+## D280. A read-only probe of what GHL answers for a call's recording and transcript (2026-10-31)
 
 Tyler: "can you check that we had calls in GHL and that they're not getting the call recording right? what do i need to do?" Dating's
 155 connected dialer calls since Oct 19 never came back with a transcript; PMU's do. `GET /api/admin/recordings/probe?company=<slug>`
@@ -6993,3 +6993,618 @@ link"). A move made any other way after the start, such as a drag in Google Cale
 the start it is suggested as rescheduled on the call, and later as showed with the new time a follow-up. That is not built until a
 Google Calendar drag has been tested, since nobody knows yet how Calendly reports one. PMU's round-robin event types keep the
 original host on a reschedule (Calendly's "Use same hosts as original meeting", set by Tyler).
+
+## D279. PMU's UTM fields, and a contact field is always a setting an offer may bind (2026-10-31)
+
+Tyler, on the booking card saying "Source: zapier": "The source shouldn't be zapier. It should be meta or Facebook", then "can you add a
+\"UTM\" section which has all these and a lead source" (Typeform A's hidden fields: utm_source, utm_medium, utm_campaign, utm_content,
+utm_term). PMU's GHL had no lead-source or UTM field and its bookings carry no UTMs, so a contact's source fell back to GHL's
+attribution, the channel that made the contact: Zapier (the Typeform Zap).
+
+- Made in PMU's GHL (the setup's additive apply, on Tyler's word): a contact-field folder "UTM" with Lead Source, UTM Source, UTM
+  Medium, UTM Campaign, UTM Content and UTM Term (TEXT), bound as `crm.field_contact_lead_source`, `..._utm_source`, `..._utm_medium`,
+  `..._utm_campaign`, `..._utm_content`, `..._utm_term`. The engine's source order already reads the lead-source field first, then
+  the UTM Source field (lead-source.ts), so once the Zap fills them the card says the ad's source.
+- The bindings route takes any `crm.field_contact_<name>` (its GHL field id), and the Settings page always offers the lead-source and
+  UTM Source fields the engine's source order reads: a contact field is how a workflow reads a person, not something only a workflow
+  that names it may bind.
+
+## D281. The UTMs backfilled from Typeform (2026-10-31)
+
+Tyler: "can you backfill from typeform all the utm stuff?" `POST /api/admin/contact/utm-backfill` (dry run first): each person who
+answered the named forms gets the UTMs their first response carried (Typeform's hidden utm_source, utm_medium, utm_campaign,
+utm_content, utm_term; blanks and unfilled placeholders left out) in the offer's UTM fields, and the lead source: the utm_source in the
+words `sourceNames` gives it (`{"fb": "Meta"}`), else as it came. Only an empty field is filled, never one the Zap or a person wrote.
+A person GHL does not have is listed, not made. The dry run lists every utm_source seen, so the names are chosen from the data. Audited.
+
+## D282. A Typeform form's questions read through the offer's token; the backfill fills the form's answers too (2026-10-31)
+
+Tyler: "can you backfill those?" (the revenue and biggest-struggle answers, so the booking post and the setter score have them).
+`GET /api/admin/typeform/form?company&form` lists a form's questions (ref, type, title, choices) and hidden fields through the
+offer's Typeform token, read only. The UTM backfill (D281) takes `answers` (question ref → the contact field's bound name) and fills
+those empty fields from each person's latest answer. PMU's VSL A and B ask the same two questions (biggest struggle; average monthly
+revenue over 90 days) and no ad budget, so ad budget has nothing in Typeform to fill from.
+
+
+## D283. The onboarding page shows each person's booking links (2026-10-31)
+
+Tyler: closers use their own two links (a 15-minute triage, a 45-minute closing call for a follow-up or a self-set); setters book
+through links tagged with their name; "the calendar list should stay active on the dating-nelly/onboarding?role=setter and
+?role=closer so that at any time they can see their own calendar link and their own setter links, their own RR links".
+
+- The offer's setting `team.links` names the round robin's triage and closing calendars and each closer's own two
+  (`{ rr: { triage, closing }, closers: [{ email, triage, closing }] }`, by the booking tool's calendar id or a watched calendar's
+  name). The setters are the roster's active setters. A link is the one the engine keeps for a watched calendar.
+- "Your links" on `/<offer>/onboarding`, read live (the page is no longer built only at deploy): ?role=closer shows each closer's
+  Triage and Closing; ?role=setter shows each setter's round robin Triage and Closing and every closer's two, each tagged
+  `utm_medium=setter&utm_content=<first name>` (their email when someone else active shares the first name, D153); a manager sees
+  both. `&name=jake` shows only that person's. Without `team.links`, or if the engine cannot be read, the page shows no links.
+- A calendar's booking mode can be changed (`POST /api/admin/calendars/booking`, dry run first, audited), so a triage calendar
+  can read a setter's tag (`utm`: through a tagged link, set by that setter; otherwise as before, the closer's own or direct).
+
+## D284. A closing call for someone whose closing call was already held is a follow-up (2026-10-31)
+
+Tyler: "if the closing call was already held it is a follow up for sure ... if the call already has a setter, it shouldn't overwrite
+the setter"; "new record for follow up. we want to see if they close on the first call or the follow up". Closers use one closing
+link for a follow-up and a self-set alike, so the engine tells them apart.
+
+- The run context has `appointment.follow_up`: the person has an earlier closing call (closing or follow_up type, not cancelled)
+  that was held, marked showed or with a sales recording linked to it (on Nelly the recording is usually the only sign). Additive.
+- Dating Nelly's Closing call booked asks it first, ahead of the setter-or-self fork. A follow-up: the post says "Follow-up on an
+  earlier call" and who set them first; the tags `stat-follow-up-booked` (never stat-set or stat-self-booked); the closer card back to
+  Scheduled with its name kept and no setter field written; the old slot's Sales Call logged rescheduled on a reschedule; and the
+  call's own Sales Call, call type `follow_up` (a new option, "Follow-up"), carrying the contact's setter. The setter card, the
+  contact's Setter field and its followers are left alone, and there is no video task.
+- Other offers get it only when Tyler asks, one at a time.
+
+## D285. PMU's booking card is filled in once the Typeform answers land (2026-10-31)
+
+Tyler: "the calls booked still come through without the monthly budget and the revenue and qualified" (Gina McBroom). On PMU the
+booking happens inside the Typeform (its Calendly question), so the booking reaches the engine before the form is submitted and the Zap
+writes the answers to GHL: the card is posted with nothing to show. PMU's Call booked (its own copy, v14, saved on Tyler's complaint):
+after the card is posted and its notes are done, the run waits (a check every minute, up to 15 minutes) for the answers the card shows
+(average monthly revenue or biggest struggle) to be on the contact, then edits the same card (tag `appointment:<id>`), picking up the
+answers and the qualified tag if they have landed; if they never come, the card stands. Its booking card reads the Typeform answer fields
+(`booking_card.intake`: Monthly revenue = average_monthly_revenue, Biggest struggle, Ad budget, Qualified). Ad budget is asked on
+neither Typeform form, so it shows only for the older application form's leads. Not in the repo copy (installs/pmu/call-booked.json is
+kept by the other session in its own shape); the engine's version history holds v14.
+
+## D286. The follow-up path is Call booked's, for every offer (2026-10-31)
+
+Tyler: "do the follow up rule. these new calendar settings and plans should carry over to all accounts". D284's follow-up path
+(fu0 … fu_v) moves from Dating Nelly's copy into the shipped Call booked, so every offer has it the same way. A Nelly triage copy
+takes it out (`dropFollowUp`: a triage call has no follow-up of its own). PMU's copy is rebuilt with it.
+
+- An existing offer gets it only through its own save, one offer at a time, dry run first, with only the follow-up path added to
+  what it runs (the rest of its Call booked as it is). Its GHL Sales Call first gets what the path writes: a `follow_up` option on
+  Call Type (PMU), or a Call Type field (Hair, which had none).
+
+## D287. PMU's EOD list was short: calls from before Call booked went live had no Sales Call (2026-10-31)
+
+Tyler: "it still has only 2 missing eods ... why does oct 27 still stay scheduled if it's passed? why does minerva have calls that have no
+record?" The owed list is GHL's Sales Calls (D264), and PMU's Call booked, which makes a call's Sales Call and marks the old one rescheduled
+when a call moves, went live on Oct 30 at 10:58 PM ET (it had run in ghost). So a call booked or moved before then had no record (Minerva's
+Elanna Stammer Oct 30 6:30 PM and Johanny Restrepo Oct 30 10 PM: never owed), and a call moved before then kept its old record "scheduled"
+(Carly's Quentin Thomas Oct 27, moved to Jose on Oct 30; Jonelle Oct 26, rescheduled): owed to Carly for ever. Put right on Tyler's word:
+the two made blank, so Minerva files them in her end of day; Carly's two marked rescheduled.
+- The operator's record repair (D233 create) made a record only where the engine had no row for the key; a ghost run's would-be row (no CRM
+  id: nothing was made in GHL) blocked it (Johanny's). Now such a row is filled with the record made; a row with a CRM id still refuses.
+  Live steps already treated a row with no CRM id as no record.
+
+
+## D288. A follow-up is told apart in any order, and before anything says the first call was held (2026-11-01)
+
+Tyler: "This needs to be super flexible. Sometimes the consultation will come first, sometimes it won't. We just need to figure
+it out. Make sure it's good."
+
+- Any closing-type call counts as the first one, whichever was held first: a consultation, a demo (PMU), a closer's own follow-up
+  call. Every closing booking after a held one is a follow-up (D284).
+- Held: marked showed, or a sales recording linked to it; and, because a closer books the follow-up on the call, before the
+  recording or the end of day can say so: the booking was made between the earlier call's start and its transcript wait after it
+  ended (`calls.transcript_wait_min`, each offer's own), and the earlier call is not marked a no-show, cancelled or rescheduled.
+- So a no-show who rebooks, or someone booking a day later when nothing says the first call happened, is a new booking.
+- What a booking was decided as is fixed when it runs: a recording that arrives later does not turn an earlier new booking into a
+  follow-up.
+
+## D289. So a workflow never goes live without what it relies on, and a missing Sales Call is said within the hour (2026-11-01)
+
+Tyler: "how can we make sure this doesn't happen again?" (PMU's end of day went live reading GHL's Sales Calls while Call booked, which
+makes them, ran in ghost: Minerva's Oct 30 calls had no record and were never asked for; moved calls kept a "scheduled" record owed for
+ever). "go for it". Three guards:
+- The drift sweep (Health check, hourly) asks the other way round too: a closing booking whose time has passed with no Sales Call in GHL
+  (`no_record`: cancelled before its start, test bookings and contacts, and the poll's lag left out), and a Sales Call left on the time
+  its call moved away from, never marked (`moved_not_marked`). Health check words both ("Make the record (blank, so the closer files
+  it)?", "Mark it rescheduled?"); each offer's copy of Health check takes the wording on Tyler's word, one at a time with a dry run.
+- Going live or quiet (a workflow, or the company) refuses a workflow that relies on what another makes unless one of its providers is
+  enabled and runs at least as high (golive-deps.ts RELIES: the end of day, Call outcome filed and Sales call recorded on Call booked or
+  an offer's own "Closing call booked"; Setter call filed on Setter call logged), or the offer names the provider outside the engine
+  (`golive.outside`, e.g. a Zap that still makes the Sales Calls, set on Tyler's word).
+- Going up clears the records a workflow's ghost runs would have made (rows with no CRM id, of the objects its record steps write):
+  nothing was made in GHL, and left they only stand in a repair's way. The calls it missed while in ghost are the drift sweep's
+  `no_record` within the hour.
+Found while checking every offer: Hair's end of day and Call outcome filed are live while its Call booked runs in test, and its last
+Sales Call in GHL is Oct 17: told to Tyler, nothing changed.
+
+
+## D290. A late pre-call starts at its first reminder, never at the booking text (2026-11-01)
+
+Tyler: run booked for Taylor's 12 bookings the engine took in as a baseline, "but make sure no late texts go out". A pre-call's
+booking text has no limit but the call itself (15 minutes before), so a booking handed on days after it was made would get
+"you're booked" days late. Changing the pre-call's text step would lock its sends (D151).
+
+- `replayBookings` (and `POST /api/admin/replay-bookings`) take `start_at` with a `workflow`: each run starts at that step
+  instead of the first. The step must be the workflow's own and not a send (or the trigger). The audit records it.
+- The waits and sends after it keep their own limits: a reminder whose time has passed is skipped (on_stale), as always.
+
+## D291. The health check makes a missing Sales Call itself (2026-11-01)
+
+Tyler, on Taylor's Oct 30 calls having no Sales Call: "that REALLY pisses me off. it really should have caught that. and the health
+check should have found that it was missed, and added it and tracked it. I shouldn't have to go in and fix it."
+
+- D289's hourly `no_record` finding (a closing call whose time has passed, with no Sales Call in GHL) is now repaired by the sweep when
+  what makes the offer's Sales Calls writes to GHL (its Call booked, or its own Closing call booked, enabled and live or quiet): the
+  record is written as the Sales Call backfill writes it (D115: from the evidence, the outcome blank when nothing says it, so the
+  closer files it on the end of day), audited (`health.repaired`, `sales_call_made`) and said as repaired.
+- While that workflow runs lower (ghost or test), the call has no closer, or the write fails, it is asked about as before, with why.
+
+## D292. A calendar watched once it already has bookings starts its calls still ahead (2026-11-01)
+
+Watching Taylor's two calendars after they had bookings left 12 upcoming calls with nothing started (the first read of a calendar is a
+silent baseline, D215), and two held ones with no Sales Call.
+
+- `calendarWatch` marks the calendar (`catch_up`). After its first, silent read the poll hands its calls still ahead, with no run, to
+  the booked-call workflows as bookings found late (`catchUpCalendar`), once; the mark comes off.
+- Found late (`replayBookings` `late`): a run whose one way on from its trigger sends before it first waits (a pre-call's booking
+  text) starts at that first wait, so nothing goes out late; one that waits first, or forks first, starts as usual.
+- Its calls already held are the health check's: their Sales Calls are made within the hour (D291).
+- An install's own first read stays silent (no mark).
+
+## D293. The hourly sweep marks a Sales Call left on a moved call's old time rescheduled (2026-11-01)
+
+Tyler: "It should compare GHL with calendar for booked calls every hour and if the call didn't get recorded it should. We shouldn't ever
+miss a call in the first place." D291 (the same day, the other session) has the sweep make a missing Sales Call itself when what makes
+the offer's Sales Calls writes to GHL. Under that same rule, the sweep now also sets a Sales Call left on the time its call moved away
+from (D289's `moved_not_marked`, Carly's Quentin Thomas Oct 27) to the offer's rescheduled outcome, audited and logged as a repair; on a
+rehearsal rung, or with no rescheduled outcome mapped (sales_call.outcomes), it stays a question.
+
+
+## D294. The wrap-up's numbers from GHL: show rate on filed calls, bookings from GHL's records, speed to lead without self-bookers (2026-11-01)
+
+Tyler, on October's wrap-up: "I keep having to tell you not to use the engines numbers. Use GHL". Four lines were wrong or misleading.
+
+- **Show rate** is of the calls with a known outcome (the registry's `show_rate`, as `/show-rate` says it): a call nobody filed was
+  counted as not showing (12 of 24 = 50% when 12 of 13 filed had shown). The unfiled ones stay listed ("Calls with no EOD outcome").
+- **Bookings**: "Consultations booked" and "by setters" are GHL's (`consults_booked`, `consults_booked_set`: each person's first Sales
+  Call record, by when it was booked, its creation or its call time when earlier; a follow-up's record and test contacts out; by
+  setters, its booking source). "Triage booked (Calendly)" is the booking source's (`triage_booked`): GHL holds no record of a triage
+  booking alone (Discovery Calls are also made for dials). "New bookings" mixed 143 triage calls with 35 consultations.
+- **Speed to lead** leaves out a lead who booked a call before anyone dialled them: Nelly's applicants book a triage call from the form
+  and are rung at its time, days later (149 hours).
+- **Missing Sales Calls** are looked for 35 days back, not the sweep's 7, so a month's wrap-up never reads a call with no record (Celine
+  Adran and Olivia Villa, Oct 15). A call older than the week counts as having one when GHL holds a record under its key or for the
+  same person at the same minute (one made outside the engine counts); GHL unread, none is called missing.
+- The shipped wrap-up layouts say so (and "From GHL"); each offer's own wrap-ups take the words on Tyler's word (all three offers).
+
+## D295. The repairs write the right object, stop asking what is fine, and a vendor's one bad hour is not an alert (2026-11-01)
+
+Tyler: "What's going on with these alerts". Found by reading every alert of the last hours:
+
+- **The Sales Call backfill wrote into the Discovery Call object.** It takes the object from the offer's booked-call step keyed by the
+  slot, and Dating Nelly's Triage call booked (a Discovery Call keyed the same way) came first. Alia Besharat's, Jayne Clark's,
+  Celine Adran's and Olivia Villa's "Sales Calls" (the operator's plan on Oct 31, then the health check's D291 repair, every hour)
+  went to Discovery Call records; the call stayed with no Sales Call and the sweep repaired it again each hour. Now only a step that
+  writes the Sales Call object (`crm.object_sales_call`) is taken.
+- **A record GHL deleted is made again.** The engine remembered PMU's ALma Saucedo and Renee G records that GHL no longer has; each
+  repair updated them and got a 404, every hour. Now a 404 on a record GHL lists nowhere under the key drops the memory and makes it.
+- **A call recorded with no booking** (Sales call recorded keys its record by the recording, "fathom-…": Nelly's call with Anya) is
+  not "a Sales Call with no booking": it matches none by design. No longer asked.
+- **Calendly refusing one availability read** (every calendar of PMU and Hair at 13:00, of Nelly at 17:00, each fine the hour after)
+  is a note; the same calendar refused `alerts.poll_failures` (2) sweeps running is the alert. A Calendly error now says Calendly's
+  reason first (title, message, the parameter it names), not the request's long URL that cut it off.
+
+## D296. Every record the engine writes to GHL is read back (2026-11-01)
+
+Tyler: "how can we make sure these type of errors don't happen? What do we need to do to make sure this is bullet proof?" The first of
+five changes he agreed (read-back; GHL changes synced quietly every 10 minutes; a setup check on every deploy; going live writes what
+ghost held back, paused offers silent; the engine keeps where each person is and whether a message went, not its text).
+
+- A workflow's record step reads the record straight back after it writes it: it must be in the object the step meant, carry the key
+  the engine stamped on it, and hold each option field as written. A miss is an engine fault, raised at once (`readback:<workflow>:<step>`,
+  error) with what GHL holds; the run goes on, and the next good write of that step clears it. A read that fails says unverified.
+- The Sales Call backfill (operator plans, the health check's repair) does the same: a write not in its object, or under another key,
+  is the row's error and never "written".
+- Ghost and test still write nothing to GHL (Tyler: "we don't want to write tags and stuff and opportunity spots if we're just testing").
+
+## D297. GHL is compared every 10 minutes, quietly (2026-11-01)
+
+Tyler: "Maybe we just increase the drift check to every 10 minutes ... instead of alerting me every single time that there's an issue,
+they could just say, 'Oh, the contact changed. Here's the new information.'" and "keep it quiet".
+
+- The comparison with GHL (the ledger drift sweep) runs in each company's own minute every 10 minutes (`syncFromGhl`, `ghl_sync:<company>`),
+  not inside the hourly health check. GHL wins: a contact added, changed or gone, an outcome filed, a Sales Call missing or left on a
+  moved call's time is taken from GHL or mended, logged in the audit and said to no one. Only what a person must decide stays an alert
+  (`health:ledger_drift`), raised and cleared by the sync; the hourly health check no longer touches it.
+- The window and the poll's lag stay each offer's own, on its Health check step (D88). A GHL read that fails changes nothing and is
+  read again next time; a failure never fails the tick. No summary is posted.
+
+## D298. An offer can be paused (2026-11-01)
+
+Tyler: "Hair is paused as I've said." Until now the only ways to stop an offer were archiving it, which is the wrong meaning, or leaving it
+running, which kept polling and alerting.
+
+- `paused` is a company status (migration 0014). The engine runs only active and hosted offers (running.ts), so a paused one gets no
+  polls, ticks, schedules, runs, checks or alerts.
+- `POST /api/admin/company/pause {company, paused, why, dryRun}`: dry run by default, `why` required, one offer per call, audited
+  (`company.paused` / `company.unpaused`). Only an active or hosted offer can be paused, and only a paused one unpaused (to active).
+- Pausing closes the offer's open alerts quietly.
+- Unpausing clears its poll cursors, so the first read of GHL and Calendly is a silent baseline: nothing booked or changed while it was
+  paused starts a workflow or sends a text late. The 10-minute sync (D297) then brings it into line with GHL.
+
+## D299. The GHL sweep checks a call still ahead for its Sales Call (2026-11-02)
+
+Tyler, after Jennifer Rouwhorst's call that afternoon had no Sales Call: "You said the health check should catch shit like this." The
+sweep (D289, D291, D297) only looked at calls that had passed, so a booking whose Sales Call never got made was found after the call, when
+the closer had already gone without it.
+
+- The sweep now also takes booked calls up to `UPCOMING_DAYS` (90) ahead. A call ahead with no Sales Call in GHL (by its booking's key, or
+  the same person at the same minute) gets one made by the same repair as D291: scheduled, for its closer, under the same write rule
+  (the workflow that makes the offer's Sales Calls runs quiet or live), audited.
+- A booking inside the poll's lag (`poll_lag_min`, 30 by default) is left to Call booked, which makes the record as the booking lands.
+- A call ahead that was cancelled is not owed a record. Nothing about passed calls changes.
+
+## D300. A handover can name its people (2026-11-02)
+
+Tyler, on Carly's two calls still ahead after she left (Ikeybra Byrd Nov 16, Alysha Ajanon Dec 15): "let's assign them to minerva for
+now ... assign them to her in GHL". The calls' closer moved with D218 (`/api/admin/appointments/closer`). The card and contact owner
+had only bulk doors: `cards/reassign` moves every open card on a person (Carly has 39) and `contact/reassign` every contact with a tag.
+
+- Both take `contacts` (GHL contact ids): only those people's cards, or those contacts, move. `contact/reassign` takes a tag or
+  contacts, not both. Each is still read live before it is written, dry run first, audited.
+
+## D301. A wrap-up can tag who owes an end of day (2026-11-02)
+
+Tyler: "fix the EOD to post in the EOD slack channel instead of the ops and it should tag the closers with missing info. @Jose is
+missing eod for X ... same with the weekly wrapup and monthly wrapup as well." A wrap-up's `report.missing_eods` had one line per person
+by name, each day linked through the operator's sign-in, which a closer cannot use.
+
+- `report.missing_eods.people`: each person who owes a day (the same list as `lines`, D246/D264, read from GHL), with `mention`
+  (<@their Slack id>, their name when they have none) and `days` ("Mon Oct 26 (Tommy Arakilian), Tue Oct 27 (Kimberly C)"), no links.
+  `lines` is unchanged, so no saved layout words anything differently until it is saved to use `people`.
+- GHL unread: no one is tagged; `lines` says it could not be read, as before.
+
+## D302. A value a choice field does not offer is left out, not the whole record; the end of day's work is not a drift question (2026-11-02)
+
+Tyler, on two alerts: "it should have created the 2 sales call records anyway" and "it shouldn't alert me that there's an issue if
+we've planned for it. like the eod". PMU's Sales call recorded (v7, D271) wrote the AI's next step, a sentence, into the Sales Call's
+Next Step, a dropdown (follow_up_booked, sending_info, nurture, dead). GHL refused the whole write for Jennifer Rouwhorst's and Kealey
+Corey's calls: recording link, date, length and objection never landed, and the step was given up as permanent.
+
+- `crm_record` reads each choice field's options with the object's fields (same cache). A value a field does not offer (not one of its
+  keys or labels, any case) is left out and named in the step's result (`not_an_option`); the rest is written. A value it does offer
+  is written as it was, so nothing the CRM took before changes. Options not known, nothing is checked.
+- A step that may make the record is said to "save" it, not "create" it (it often updates).
+- The drift sweep no longer asks about a Sales Call with no outcome in GHL whose booking the engine has a guess for (`ghl_unfiled`):
+  filing it is the end of day's job, which asks the closer, tags them a day late (D301) and lists it in the wrap-ups.
+
+## D303. File my EOD: a button, never a link, in a shared channel (2026-11-02)
+
+Tyler, on a missing-EOD post whose day links asked for a password: "why ... is there an admin link in the public channel?! ... when an
+EOD form gets posted it should give the link that closers can click to fill out their eod." A closer's own link files their end of
+day for whoever has it, so it is never posted where others can see it (it goes to them by DM).
+
+- A slack_post can carry a "File my EOD" button (`buttons`, action `eod_open`). A press says who pressed; the answer is that person's
+  own link, shown only to them (ephemeral): one line per day they still owe (read from GHL, D264, the same list the post tags) and
+  today's. Someone not on the team, or GHL unread, is told so plainly; no one can open another person's form from a channel.
+- The `/missing-eod` answer and a wrap-up's `report.missing_eods.lines` no longer link each day through the operator's sign-in
+  (`/go/eod/...`): names and days only, on every offer (Slack works the same everywhere). The route stays for the dashboard.
+
+## D304. A value a path never sets is found at save; "missing eod" tags everyone with the File my EOD button (2026-11-02)
+
+Tyler: "every time we fix the alert we should be making a fix that makes sure that alert doesn't need to happen in the future", and
+on the /missing-eod answer: "it still doesn't tag the person, or give the link ... the goal is that i can say 'missing eod' and have
+it just send every eod that's missing".
+
+- PMU's Call booked v15 (D286's follow-up path) went straight to the booking card without the steps that set its headline; every
+  follow-up booking failed with "unknown path {{vars.head}}" (Tanganyika Brewer). PMU v16 sends that path through the headline
+  steps (they already had "Follow-up booked"); her booking was run again and its card posted.
+- The kind of fault is now found when a workflow is saved (`unsetReads`, unset-vars.ts): a step that reads `vars.X` with no
+  fallback, on a path from a trigger that never sets X. A save that adds one is refused, naming the step and the path; one the saved
+  copy already had is a warning and does not block an unrelated change. Not counted: a condition (an absent value compares empty), a
+  "may be absent" pipe (default, prefix, line, link, bullets, oneof, each), a record step (absent lands as null), an exists guard.
+  Every shipped template passes it (a test); the setter template's late-booking line read the Jev confidence on a path that never
+  sets it and now says it only when there is one. The live copies on PMU, Dating and Hair still have that line: theirs to change.
+- `/missing-eod`, and "missing eod" said to the bot, answer with each person tagged (their Slack mention, the name when they have
+  none) and the File my EOD button (D303) when anyone owes a day.
+
+## D305. An end of day is never refused over a box the closer can't see; every refusal is written down (2026-11-03)
+
+Tyler: "someone is trying to submit their EOD but it's not going through even though she has filled everything out." A refused day
+left no trace, so the reason was a guess. One reason the form could give that the closer could not act on: "cash collected is more
+than revenue generated" was checked on every call, though a deposit asks for cash and hides revenue; a revenue the prefill (the
+call's contract value) or an earlier pick left in the hidden box refused the whole day.
+
+- Cash over revenue is checked only where the call's outcome asks for both.
+- Every refused end of day is written to the audit log (`eod.refused`: who, which day, the exact reason the form showed), so the next
+  "it won't go through" is read, not guessed. Not an alert: the closer sees the reason on the form.
+
+## D306. A recording links on email, phone, Zoom link and time before any name (2026-11-03)
+
+Tyler, on Sales Calls marked lost or DQ with no video: "The engine should link on 4 things before linking on the name", and: "We
+should do a match in most unknown cases and only block very specific unknown cases ... if it's just 'iPhone' that shows up and speaks,
+but it's at the right time with the closer then it should be fine. Or if it's Mary's phone or Mary [new last name] ... The only time we
+should check is if the zoom link is different and the name is different. I.e. Mary had a call booked but Sally spoke."
+
+Found: 8 PMU Sales Calls with a Fathom recording the engine held but never put on the record (Jennyfer Cantrell x2, Jacklyn Kieu,
+Sash Pike, Renee G x2, Luz Aguilar, Elena Jocobi), written on Tyler's word; Renee's Oct 22 "no show" with a 64-minute recording set to
+showed. Luz joined Zoom as "Luz Mccullough" and Elena as "Elena's iPhone", with Kealey's cancelled booking counted beside Elena's.
+
+- The order: the invite's email (booked then), a phone a guest joined or dialled in with or an invitee's (booked then), the booking's
+  own Zoom/Meet link (whoever spoke), the recorder's own booking then (a cancelled one never counts; two then, the one whose first
+  name someone gave, "Elena's iPhone"), the email or phone with nothing booked then, then names as before.
+- A name stops the time match only when the call's link is not the booking's and a guest gave a real name that is not theirs; or,
+  with no link on one side to compare, when a different client the CRM knows by full name or email spoke (D273's difference, still
+  told to the operator). A device or phone label ("iPhone", "Mary's phone", "+1 480 …"), or their first name under another surname,
+  never stops it.
+- Addendum: the end-of-day form no longer lets the browser stop a send (`noValidate`). A required box left empty was refused by the
+  browser before the engine heard of it, which left no trace; now every send reaches the engine, which names what is still needed on
+  the form and writes the refusal down.
+
+## D307. A held Sales Call with no recording link gets the engine's recording of it (2026-11-03)
+
+Tyler: "I want to know why these didn't get written automatically, and then I want them to be written automatically in the future."
+Why the 8 PMU recordings of D306 never reached their Sales Calls:
+- Before Oct 30 PMU's Sales call recorded ran in rehearsal (ghost): it wrote nothing to GHL, and going live did not go back over the
+  calls held before (Jacklyn Kieu, Sash Pike, Elena Jocobi, Luz Aguilar).
+- JP's Fathom was connected on Oct 28 and its history read in quietly (D215: no event, no run), so nothing wrote his earlier calls'
+  recordings (Renee G x2, Jennyfer Cantrell x2).
+- Luz and Elena were not matched at all (D306).
+
+- The 10-minute GHL sync (D297) now fills a Sales Call of the last 35 days that GHL says showed and whose recording link is empty: the
+  booking (the one the engine keyed the record by, else this person's at the record's time), then the recording linked to it (else
+  theirs within that call's hours), a meeting recording or a dialled call of 5 minutes or more, the longest. GHL's empty field only,
+  never one a person or a step filled; written quietly, audited (`recording_added`), only where what makes the offer's Sales Calls
+  writes to GHL (live or quiet). A read that fails is tried again next sweep and asks no one.
+
+## D308. Minerva's Nov 2: a long call is read, a call with nothing to show for it starts as a no-show, a dial to a booked person is part of their call (2026-11-03)
+
+Tyler, on Minerva's end of day that "wouldn't let her submit": "Insam and Minerva didn't get connected / recorded ... there are 2
+for insam anyway, Gina and Amber should have defaulted to 'no show' and it says 6 calls on calendar, but i see only 5 calls".
+
+- Insam Souidan's 111-minute Fathom call was linked to her 8 PM booking, but the classifier refused its 137,610-character transcript
+  and the refusal read as "unclear", so Sales call recorded stopped at "not a sales call": nothing marked, no recording on her Sales
+  Call. The classify step now sends at most 60,000 characters (the call's opening and its end; inputs to 77,000 were read fine).
+  PMU's Sales call recorded (v9) also takes any recording linked to a closing or follow-up booking as a sales call, whatever the
+  classifier says.
+- A closer's dialer call to someone with a closing call with them that day (calling them to join) is part of that call, not a row of
+  its own: Insam's 3:08 PM dial was a required "Discovery call" row left on "Choose one", the likely reason the day would not send,
+  and the sixth "call on your calendar".
+- Supersedes D80's "no presumption": a closing call whose time has passed with no meeting recording and no call with them of 5 minutes
+  or more that day starts as a no-show, and the form says so ("Change it if they showed"). D80's worry (a failed recording or a call
+  taken by phone becoming a no-show) is why a phone call that long, or any recording, leaves it blank.
+
+## D309. An offer's end of day: a field made optional, the day's numbers added up from the calls (2026-11-03)
+
+Tyler: "Let's make the 'next follow up' not mandatory ... the calls taken we don't really need them to fill out. actually all of this
+here in the top row, doesn't need to be filled out manually, because all the info is in the per call section." And: the notes "should
+be in passive voice ... really be ABOUT the prospect ... we can add a '12k pitched, lowered to 10k'".
+
+- `GET/POST /api/admin/eod/form`: one offer's form; one field's "required" set on that offer only, dry run first, audited
+  (`eod.form_field`). What happened on the call is always asked. PMU: Next follow-up optional.
+- `eod.totals_from_calls` (a switch, off by default; PMU on): the day's numbers (calls held, closes, deposits, cash, revenue) are shown
+  added up from the calls' answers, nothing typed, and the engine files them that way whatever a form sends.
+- PMU's call review (prompt.call_review): every line under notes is about the prospect, in passive voice or fragments, never what the
+  closer did; the offer in shorthand. The coaching (rubric) stays about the closer.
+
+## D310. A new member's calendar is made by copying a teammate's (2026-11-03)
+
+Tyler: "can you create her a 15 and 45 min calendar in calendly". `POST /api/admin/calendly/event-type { company, from, owner, name,
+duration?, why, dryRun = true }` makes a one-person calendar for a member of the offer's Calendly organization, copied from `from`.
+Calendly's create endpoint only takes the owner, name, duration, description, locations, color and active, so that is what gets
+copied. The answer lists by name what still has to be set in Calendly: the booking questions on the source, buffers, notice,
+reminders, the link's slug, and availability (the owner's default working hours). A round robin is not copied. The new calendar is
+not watched; watching it is `calendars/watch`. Audited (`calendly.event_type_created`).
+
+Also: the member busy-times lookup asked Calendly for exactly 7 days and was refused (the range must be under 7 days); it now asks
+for one minute less.
+
+## D311. A Sales Call the repairs write gets its closer card (2026-11-03)
+
+Tyler: "add them to a closer card, and make the change". Four Nelly Sales Calls made by the backfill (Celine Adran, Olivia Villa, Alia
+Besharat, Jayne Clark) were tied only to the person, because the person had no card on the closer board. The hourly link check then
+asked "which card?" with nothing to pick.
+
+- The Sales Call backfill, and so the health check that uses it for a missing Sales Call (D291), now makes the closer card when the
+  person has none on the closer board. It's made the way the offer's own Call booked card step makes it: that step's name ("<name>
+  -- Direct" / "-- Setter Booked" from the step's own `card_suffix` values) and assignee. The Sales Call is then related to it.
+- The stage follows what is known of the call: its result (closed won, deposit, follow up, lost, disqualified), else cancelled,
+  else the step's own stage (Scheduled). No-show has no closer stage on Nelly, so a no-show sits on Scheduled; Tyler: "for no-shows
+  we'll just have to not have the data for now".
+- The CRM is read again before making it, so a card made meanwhile is used and none is made twice. The new card goes into the
+  replica at once, without emitting anything, so no workflow starts and the link check sees it.
+- The hourly link check, finding a Sales Call whose person has no closer card at all, has the backfill make and link it instead of
+  asking. Two cards stay a question: which one is a person's call.
+- An offer whose card step cannot be rendered (a stage it has not bound) still gets its Sales Call; the row says why no card was made.
+
+Also: the provision test expected Nelly's setup file to list four closers; Judith was added to it (PR #142), so it lists five.
+
+## D312. A recording no workflow read can be reviewed on demand, silently (2026-11-04)
+
+Tyler: "there are 21 calls that don't have a pitched value. Can you figure out what that's about? Backfill as many as you can." All 21
+are PMU calls held Sep 24 to Oct 29, before Sales call recorded went live (Oct 30) and before the end of day asked "Did you pitch
+them?" for every held call: nothing ever wrote Pitched on them. 13 of them have a Fathom recording the call review never read.
+
+- `POST /api/admin/recordings/review { company, recordings, why, dryRun }`: the offer's own call review (prompt.call_review) run on
+  up to 5 recordings, the read kept on the recording (analysis.notes, analysis.rubric) as the analyze step keeps it. Nothing is
+  posted, nothing is written to the CRM; the dry run asks the AI nothing. Audited (`recording.reviewed`).
+- Pitched then goes on each Sales Call from that read (or the end of day's answer where one exists), by crm-record's dry run.
+## D313. A Sales Call on a booking that isn't a closing call is asked about, never repaired (2026-11-04)
+
+Isabel Vega's triage call (Oct 25) got a Sales Call before D255 stopped that. D255 fixed the workflow but never cleaned up the record
+it had already made, and nothing caught it, because the hourly check only matched a Sales Call to its booking, never checked the
+booking's kind. Tyler: "That should have been fixed a long time ago. I'm not sure why that didn't get caught."
+
+- Put right (Nelly): the call's notes (next step, payment terms, recording, 43 minutes, showed) moved onto her Discovery Call, then
+  the Sales Call was deleted. Both were dry-run first.
+- Prevented: the hourly check now looks at the kind of a Sales Call's booking. On any kind but a closing call, it does nothing as a
+  Sales Call: no closer card made (D311 would otherwise make one), no outcome carried either way. It asks instead (`not_closing`),
+  every hour until a person moves what the record holds and removes it. It is not deleted automatically: Isabel's held real notes.
+- The question's wording is in the shipped Health check template. An offer's saved Health check gets it only when Tyler brings it
+  there (D147); until then the question is counted in the alert but has no line of its own.
+
+## D314. The team onboarding is read one page at a time (2026-11-05)
+
+Tyler: "break it up into the pages". Nelly's onboarding is now pages, each at its own address, with Back and Next that keep the
+person's role and name in the link. The role from the link picks what shows; the tabs still let anyone look at the other role.
+
+1. Welcome (`/dating-nelly/onboarding`): a note from Nelly, who we are, and who applies. The figures are from the 364 VIP
+   Matchmaking Applications in GHL as of today.
+2. Your tech (`/onboarding/tech`): the @nellysudri.com address (sign-in details arrive in the person's personal email; every
+   other invite goes to the work address), a Chrome profile for work, the bookmarks bar, and the invites to accept (Calendly, Zoom
+   and Fathom for closers).
+3. Set up your tools (`/onboarding/setup`): Calendly (work then personal calendar, then Zoom), Fathom (desktop app, sign in,
+   connect Zoom), GHL (turn off "Notify me about all new conversations", connect calendar and email), then the bookmarks: GHL
+   Contacts and Smart Lists, Calendly, Fathom, Gmail, Google Calendar and the person's own booking links (read live, D283). The
+   end-of-day form is not listed: its link is private to each person, so the bot's Slack message is where they bookmark it.
+4. How the work runs: the earlier calls, end-of-day, Slack and manager sections, unchanged, until they are reworked.
+
+The page's sign-in door opens one level under `/onboarding` (a made-up page is a 404). A test keeps em and en dashes out of the
+first three pages' words.
+
+## D315. Paid in full can be told by the billing reason, not the price (2026-11-05)
+
+Tyler: "we're giving out links left and right, so it should be whether or not it's a one time payment or a subscription start."
+PMU's checkout links have their own prices ($10,000, $11,500, more to come), so a list of full prices can't say what a purchase
+in full is. Two new settings on the offer (an offer that sets neither works as it did):
+
+- `payments.full_by` = `billing_reason`: the first money beyond a deposit, with a billing reason in `payments.full_reasons`, is
+  the purchase in full at whatever it cost. With nothing paid before, it is `paid_in_full`; after a deposit, it is the `balance`.
+  The deal is then worth what was paid (the deposit included). A subscription start is a close, not a purchase in full (Tyler's
+  answer): with `full_reasons` = `one_time` it is the first installment, and it can be a balance only once money came before it.
+  A payment that names no billing reason (a Zap's, an old row's) still goes by `payments.full_prices`.
+- `payments.deposit_up_to`: a payment of this much or less is a deposit (PMU: 500, so the $500 "Beauty Moguls Method" link is a
+  deposit). `payments.deposit_under` still means strictly under.
+
+The webhook already sees every product on the offer's Whop company; nothing here filters by product. PMU set:
+`full_by` billing_reason, `full_reasons` one_time, `deposit_up_to` 500, `full_prices` [10000, 11500, 12000].
+
+## D316. Is someone fully in, or fully out: one check, read live (2026-11-06)
+
+Tyler: "I need you to actually look and see if Minerva is fully out and Mel is fully in ... I just need you to check those things
+instead of telling me to." `memberCheck` reads one person across every tool the engine can reach and says what it saw:
+
+- the engine: their role, upcoming calls, open cards, contacts owned, the calendars it watches as theirs, their Sales Call closer option
+- GHL: whether they are a user of the location
+- Calendly: membership, the calendars they host (and whether the engine watches each), whether they host the shared closing
+  calendars the others do, and the open times on their own calendar over the next 7 days
+- Slack: whether their account is active and linked, and whether they are in the role's channels (bookings, calls, end of day)
+- Fathom: whether they are on the team the offer's key reads, and their latest meeting that key can see
+
+A setter or closer is checked as in, anyone else as out. A read that fails says so; nothing is guessed and nothing is changed.
+Zoom has no API the engine holds, so it is not read: a booking without a Zoom link is what shows it. Ways in: Slack
+`/team check <email>`, and `GET /api/admin/team/check?company=&email=`.
+
+The same day, Mel's follow-up calendar was made as a copy of Jose's ("Beauty Moguls Strategy", 45 minutes, Zoom) and watched as
+his is: "Follow-up call", a closing-call type, self-booked, hers.
+
+## D317. A payment recorded as the wrong kind can be put right; PMU's deposits are under $2,000 (2026-11-06)
+
+Carmen Thomas paid $1,000 one-time after her call with Jose. Under D315 (a one-time payment is the purchase in full) it was
+recorded as paid in full on a $1,000 deal. Tyler: it was a deposit on a $10,000 deal, and "under 2k should be a deposit".
+
+- The fix for what happened: `POST /api/admin/payments/kind` (dry run first, audited) sets one payment's kind and the deal's price.
+  It also puts right everything the engine keeps from it: the ledger, the deal (back to open when no money beyond a deposit is left
+  on it), the GHL Cash record (type, program price), and the closer card (stage Deposit or Purchase, and its value). Tags, contact
+  fields and the Sales Call go through their own routes.
+- So it doesn't happen again: PMU's `payments.deposit_under` is 2000. A one-time payment under $2,000 is a deposit; above that it
+  is paid in full at whatever price.
+
+## D318. What a contact was sent, and by which workflow (2026-11-06)
+
+Tyler: Carmen got the pre-first-call automations after booking a follow-up. The engine sent her nothing (its sends are Slack posts),
+so what reached her came from GHL. `GET /api/admin/contact/messages?company=&contact=` reads a contact's latest messages live,
+with the GHL workflow that sent each when GHL names it, so "what did they get, and from what" is read, not guessed.
+## D319. Commas payments come into the ledger (2026-11-06)
+
+Tyler: "yes will come through commas ... pull from oct 1". Nelly's payments are taken through Commas, whose API is Fanbasis's
+(https://www.fanbasis.com/public-api/, key in `x-api-key`). The design follows two facts in Commas' own docs:
+
+- **A webhook is delivered at most once, never retried**, and it names a payment by its order id (ORD-...), while the transaction
+  list names it by a numeric id. So the transaction list is the one record of payments made: the engine reads it every 10 minutes
+  (with two days' overlap), each payment keyed by its transaction id, so a payment is never recorded twice and a lost webhook only
+  waits for the next read. A webhook (signed HMAC-SHA256, hex, `x-webhook-signature`) just asks for the read now. A failed
+  attempt is the exception: the list holds only payments made, so a failure is recorded from its webhook, keyed by its order id.
+- New payments go through the same ledger path as Whop's: GHL decides the buyer (D270), then Payment recorded and the rest start
+  from it. Refunds on a transaction are their own negative rows. The product's name rides along, so deposit names work (D119).
+- The first read only marks where reading starts; history comes in through `POST /api/admin/commas { action: "import", from }`
+  (rows only, nothing starts, dry run first). `action: "connect"` checks the key and makes the webhook subscription, its
+  secret bound. Three failed reads in a row is an alert (`commas:read`), closed by the next read that works.
+- The key is added on the offer's Settings page (Connections → Commas API key): tested with Commas before it is kept, kept
+  encrypted, never shown back. The page now takes keys this way; the list of keys it takes is `ENTERABLE_KEYS`.
+
+Engine code for every offer; only an offer with a Commas key reads Commas.
+
+Addendum (D319, same day): a workflow a payment starts counted only Whop as its source, so Nelly's four payment workflows read
+"needs Whop" with Commas connected. A Commas key now connects them too; the source is named "Whop or Commas".
+
+## D321. After a deposit, a deal's own price stands; the operator can post to an offer's Slack (2026-11-07)
+
+Carmen Thomas: $1,000 deposit, then $3,000 of a $10,000 plan. By D315 a one-time payment after a deposit was the purchase in full at
+deposit plus payment, so the deal became $4,000, tagged paid in full, and the close posted "Revenue Generated: $4,000". Tyler: $10,000
+generated, $4,000 collected.
+
+- A deal that already has its price and money paid in keeps that price. A payment after a deposit counts as the balance only when the
+  total reaches the price; otherwise it is an installment. With no price yet, deposit plus payment is still the purchase (D315).
+- `POST /api/admin/slack/post` (dry run first, audited) posts one message to an offer's Slack as its bot, for a post a workflow got
+  wrong, put right where it belongs.
+
+## D322. A deal's price comes from what was sold, and paid in full is measured against it (2026-11-08)
+
+Tyler: "it's hard to know if it's $4,000, then $6,000, then another $2,000, or if it's just the $4,000 and the $6,000." Links go
+out at many prices, so a payment can't say what was bought. The deal's price can. An offer that lists `payments.price_from`
+(PMU: agreement, eod) takes it from, strongest first:
+
+- a person (`POST /api/admin/deal/price`, or a price given to `payments/kind`);
+- the signed agreement, read from its name ("($9,997 + Guarantee) …" is $9,997), then a sent one;
+- the closer's end-of-day revenue for a close or a deposit;
+- a first one-time payment with nothing else to go on (D315).
+
+A weaker source never replaces a stronger one. When they differ by more than the slack, an alert says so and the stronger price
+stands. Each time the price is set or changes, the deal's payments are checked against it. Money collected reaching the price,
+less the slack, is paid in full; anything short is a plan. These follow:
+
+- the payment kinds (the last payment is the balance, earlier ones are installments);
+- the GHL Cash records' type and program price;
+- the offer's paid and plan tags (`payments.tag_paid_full`, `payments.tag_plan_active`);
+- Revenue Generated;
+- the closer card's value;
+- `payment.paid_in_full`, once.
+
+With no price yet, a payment after a deposit is a plan. More money than the price stays paid in full, with an alert. Offers that
+don't list `payments.price_from` work as before. `opportunities.price_source` records where each price came from (migration 0015).
+
+## D323. "Contract value", not "revenue generated" (2026-11-08)
+
+Tyler: "Change revenue generated to contract value everywhere", on every offer: the posts, the end-of-day form, the GHL field and
+pmu-dash. This reverses D81's wording, not its order (cash collected still comes first).
+
+- Engine: the end-of-day question is **Contract value ($)**. A form saved with D81's default follows the rename back, while a label an
+  offer chose stays its own. The day's totals and each call's line say "contract value", and the check says "cash collected is more
+  than the contract value". New installs name the GHL field Contract Value. The templates' posts say "Contract Value:". The frozen
+  fixtures keep their words.
+- Each offer's own workflows that say it are saved one by one, with a dry run.
+- `POST /api/admin/ghl/field-name` (dry run first, audited) renames an offer's GHL field. Only the name changes; its id and key stay.
+
+## D324. A payment goes to the sale still owed money; the wrap-ups say "Contract value" (2026-11-09)
+
+The weekly wrap-up showed "Revenue $4,000" for Carmen Thomas's $10,000 deal, for two reasons. First, the payments/kind route had
+only put the value on an *open* card, and her won card kept $4,000, which is what the wrap-ups count. Second, GHL had opened a
+second, empty deal on another board the moment she closed, and every pick of "the person's deal" took the open one first. Her
+$6,000 balance would have gone there as a new purchase.
+
+- One order for the person's sale (`SALE_ORDER`), used by payments, the deal's price and the operator's price route:
+  1. one still owed money;
+  2. then one with money on it or a closer card;
+  3. then the latest open one;
+  4. then the latest.
+- payments/kind sets a won card's value too, and never moves a won card's stage.
+- The wrap-ups' row is "Contract value" (D323).

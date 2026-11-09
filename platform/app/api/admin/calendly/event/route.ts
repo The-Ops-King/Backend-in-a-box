@@ -30,7 +30,7 @@ export async function GET(req: Request) {
       if (q.get("from") && q.get("to")) {   // D225: who was booked with this member around a time
         const f = new Date(q.get("from")!), t = new Date(q.get("to")!);
         if (Number.isNaN(f.getTime()) || Number.isNaN(t.getTime()) || f >= t || t.getTime() - f.getTime() > 2 * 864e5) return NextResponse.json({ error: "from and to must be times, from before to, at most 2 days apart" }, { status: 400 });
-        const ev = await calendly<{ collection?: { uri: string; name: string; status: string; start_time: string; end_time: string; event_type?: string }[] }>(token, `/scheduled_events?user=${encodeURIComponent(u.uri)}&min_start_time=${encodeURIComponent(f.toISOString())}&max_start_time=${encodeURIComponent(t.toISOString())}&count=100&sort=start_time:asc`);
+        const ev = await calendly<{ collection?: { uri: string; name: string; status: string; start_time: string; end_time: string; event_type?: string }[] }>(token, `/scheduled_events?organization=${encodeURIComponent(org)}&user=${encodeURIComponent(u.uri)}&min_start_time=${encodeURIComponent(f.toISOString())}&max_start_time=${encodeURIComponent(t.toISOString())}&count=100&sort=start_time:asc`);
         const events = [];
         for (const e of ev.collection ?? []) {
           const uuid = e.uri.split("/").pop()!;
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
         }
         return NextResponse.json({ ok: true, user: { email: u.email, name: u.name ?? null }, from: f.toISOString(), to: t.toISOString(), events });
       }
-      const from = new Date(), to = new Date(Date.now() + 7 * 864e5);
+      const from = new Date(), to = new Date(Date.now() + 7 * 864e5 - 60_000);   // Calendly: the range must be under 7 days
       const r = await calendly<{ collection?: { type: string; start_time: string; end_time: string }[] }>(token, `/user_busy_times?user=${encodeURIComponent(u.uri)}&start_time=${encodeURIComponent(from.toISOString())}&end_time=${encodeURIComponent(to.toISOString())}`);
       const busy = (r.collection ?? []).map((b) => ({ type: b.type, start: b.start_time, end: b.end_time }));
       return NextResponse.json({ ok: true, user: { email: u.email, name: u.name ?? null, timezone: u.timezone ?? null }, days: 7, external_count: busy.filter((b) => b.type === "external").length, calendly_count: busy.filter((b) => b.type === "calendly").length, busy });
