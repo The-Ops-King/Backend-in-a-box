@@ -16,7 +16,8 @@ const base = fakeAdapters();
 const ghl: Adapters = { ...base, read: { ...base.read, objectRecords: async (_c, key) => (key === "custom_objects.cash" ? cash : []), findDuplicate: async (_c, by) => ("email" in by ? PEOPLE.find((p) => p.email === by.email) ?? null : null), getContact: async (_c, id) => PEOPLE.find((p) => p.id === id) ?? null } };
 // the deposit as Payment recorded writes it to GHL's Cash records (what was paid before is read from there)
 const cash: ObjectRecord[] = [{ id: "CASH-BEA", createdAt: "", properties: { transaction_id: "p_bea_dep", amount: 500, type: "deposit", contact_id: "G-BEA", customer_email: "bea@x.com", occurred_at: "2026-11-01T00:00:00Z" } },
-  { id: "CASH-DEE", createdAt: "", properties: { transaction_id: "p_dee_dep", amount: 1000, type: "deposit", contact_id: "G-DEE", customer_email: "dee@x.com", occurred_at: "2026-11-01T00:00:00Z" } }];
+  { id: "CASH-DEE", createdAt: "", properties: { transaction_id: "p_dee_dep", amount: 1000, type: "deposit", contact_id: "G-DEE", customer_email: "dee@x.com", occurred_at: "2026-11-01T00:00:00Z" } },
+  { id: "CASH-DEE2", createdAt: "", properties: { transaction_id: "p_dee_2", amount: 3000, type: "installment", contact_id: "G-DEE", customer_email: "dee@x.com", occurred_at: "2026-11-02T00:00:00Z" } }];
 let co = "", g: GhlPay;
 const pay = (id: string, email: string, amount: number, billing_reason: string) => asOperator((c) => recordPayment(c, co, { providerPaymentId: id, amount, status: "succeeded", paidAt: new Date(), email, raw: { billing_reason } }, undefined, { dispatch: false, ghl: g }));
 const worth = (opp: string) => asOperator((c) => one<{ v: number }>(c, "select contract_value::float as v from opportunities where id=$1", [opp]));
@@ -70,5 +71,16 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
     if (r.outcome !== "linked") return;
     expect(r.event.data).toMatchObject({ full_price: 10000, cleared: false });
     expect(await worth(r.event.opportunity_id!)).toEqual({ v: 10000 });
+  });
+
+  it("D324: the balance goes to the sale still owed money, not an empty deal GHL opened since: $6,000 pays off the $10,000", async () => {
+    const sale = await asOperator((c) => one<{ id: string; contact_id: string }>(c, "select o.id, o.contact_id from opportunities o join payments p on p.opportunity_id=o.id where p.whop_payment_id='p_dee_2' and o.company_id=$1", [co]));
+    await asOperator((c) => c.query("update opportunities set status='won' where id=$1", [sale!.id]));
+    await asOperator((c) => c.query("insert into opportunities (company_id, contact_id, opened_by, status) values ($1,$2,'crm','open')", [co, sale!.contact_id]));
+    const r = await pay("p_dee_3", "dee@x.com", 6000, "one_time");
+    expect(r).toMatchObject({ outcome: "linked", payment: { kind: "balance" } });
+    if (r.outcome !== "linked") return;
+    expect(r.event.opportunity_id).toBe(sale!.id);
+    expect(r.event.data).toMatchObject({ cleared: true, full_price: 10000 });
   });
 });

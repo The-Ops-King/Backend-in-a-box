@@ -14,7 +14,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import { emitEvent, dispatchEvent } from "./dispatch";
-import { payRules, listSetting } from "./payments";
+import { payRules, listSetting, SALE_ORDER } from "./payments";
 import { paymentObject } from "./ghl-metrics";
 import { raise } from "./alerts";
 
@@ -44,7 +44,7 @@ export async function setDealPrice(c: PoolClient, d: Deps & { contactId: string;
   const family = d.source.startsWith("agreement") ? "agreement" : d.source;
   if (d.source !== "operator" && d.source !== "payment" && !from.includes(family)) return { changed: false, price: null, was: null, source: null };
   const opp = await one<{ id: string; contract_value: string | null; price_source: string | null }>(c,
-    "select id, contract_value, price_source from opportunities where company_id=$1 and contact_id=$2 and status in ('open','won') order by (status='open') desc, opened_at desc limit 1", [d.companyId, d.contactId]);
+    `select o.id, o.contract_value, o.price_source from opportunities o where o.company_id=$1 and o.contact_id=$2 and o.status in ('open','won') ${SALE_ORDER} limit 1`, [d.companyId, d.contactId]);
   if (!opp) return { changed: false, price: null, was: null, source: null };
   const was = opp.contract_value === null ? null : Number(opp.contract_value);
   const rules = await payRules(c, d.companyId);

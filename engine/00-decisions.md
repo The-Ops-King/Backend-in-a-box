@@ -7593,3 +7593,18 @@ pmu-dash. This reverses D81's wording, not its order (cash collected still comes
   fixtures keep their words.
 - Each offer's own workflows that say it are saved one by one, with a dry run.
 - `POST /api/admin/ghl/field-name` (dry run first, audited) renames an offer's GHL field. Only the name changes; its id and key stay.
+
+## D324. A payment goes to the sale still owed money; the wrap-ups say "Contract value" (2026-11-09)
+
+The weekly wrap-up showed "Revenue $4,000" for Carmen Thomas's $10,000 deal, for two reasons. First, the payments/kind route had
+only put the value on an *open* card, and her won card kept $4,000, which is what the wrap-ups count. Second, GHL had opened a
+second, empty deal on another board the moment she closed, and every pick of "the person's deal" took the open one first. Her
+$6,000 balance would have gone there as a new purchase.
+
+- One order for the person's sale (`SALE_ORDER`), used by payments, the deal's price and the operator's price route:
+  1. one still owed money;
+  2. then one with money on it or a closer card;
+  3. then the latest open one;
+  4. then the latest.
+- payments/kind sets a won card's value too, and never moves a won card's stage.
+- The wrap-ups' row is "Contract value" (D323).
