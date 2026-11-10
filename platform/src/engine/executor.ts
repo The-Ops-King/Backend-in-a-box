@@ -1259,9 +1259,18 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
       // D66: the CRM was read first (D41) and has no card, so a pending claim means the earlier try never reached it; a done claim is a card the read missed (index lag) and is reused
       const cl = await claim(d, node, "card");
       if (!cl.fresh && cl.done && cl.external_id) ghlId = cl.external_id;
-      else { ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id; await done(d, node, "card", ghlId); }
+      else {
+        try { ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id; }
+        catch (e) {
+          // D327: GHL keeps one card per person on a board and names the one it has (a returning buyer's old card): that card is moved instead
+          const existing = duplicateCard(e); if (!existing) throw e;
+          await d.adapters.write.updateOpportunity(d.adapterCompany, existing, write);
+          ghlId = existing;
+        }
+        await done(d, node, "card", ghlId);
+      }
     }
-    await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status, created_by_run, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,clock_timestamp()) on conflict (company_id, ghl_opportunity_id) do update set ghl_stage_id=excluded.ghl_stage_id, name=excluded.name, status=excluded.status, updated_at=clock_timestamp()", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open", d.run.id]);
+    await d.c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name, assigned_user_id, status, created_by_run, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,clock_timestamp()) on conflict (company_id, ghl_opportunity_id) do update set ghl_stage_id=excluded.ghl_stage_id, name=excluded.name, status=excluded.status, opportunity_id=excluded.opportunity_id, assigned_user_id=coalesce(excluded.assigned_user_id, pipeline_cards.assigned_user_id), created_by_run=excluded.created_by_run, updated_at=clock_timestamp()", [d.company.id, oppId, d.run.contact_id, ghlId, pipelineId, stageId, name, ownerRow?.id ?? null, node.status ?? "open", d.run.id]);
   }
   if (!d.run.opportunity_id) { d.run.opportunity_id = oppId; await d.c.query("update runs set opportunity_id=$2 where id=$1", [d.run.id, oppId]); }
   d.ctx.opportunity = await one(d.c, "select id, status, contract_value, opened_at from opportunities where id=$1", [oppId]);
@@ -1269,6 +1278,14 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   const cardId = card && !goneCard ? card.ghl_opportunity_id : (await one<{ ghl_opportunity_id: string | null }>(d.c, "select ghl_opportunity_id from pipeline_cards where company_id=$1 and contact_id=$2 and ghl_pipeline_id=$3 and created_by_run=$4 order by updated_at desc limit 1", [d.company.id, d.run.contact_id, pipelineId, d.run.id]))?.ghl_opportunity_id;
   const followed = ghost(d) ? (followers.length ? { would_follow: followers } : {}) : cardId ? await addFollowers(d, node.id, "opportunity", cardId, followers) : {};
   return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...followed, card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), ...(monetaryValue !== undefined ? { value: monetaryValue } : {}), fields: customFields } };
+}
+
+/** D327: the card GHL says the person already has on that board, when it refused a second one (400 OPPORTUNITY_NO_DUPLICATE, meta.existingId). */
+export function duplicateCard(e: unknown): string | null {
+  const msg = String((e as { body?: string; message?: string })?.body ?? (e as Error)?.message ?? "");
+  if (!/OPPORTUNITY_NO_DUPLICATE|duplicate opportunity/i.test(msg)) return null;
+  const m = /"existingId"\s*:\s*"([^"]+)"/.exec(msg);
+  return m ? m[1] : null;
 }
 
 /** A crm_record step's `relate`, after the record is in `record.*`: each link both ends of which rendered. */
