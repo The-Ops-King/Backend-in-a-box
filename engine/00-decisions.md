@@ -7630,3 +7630,12 @@ Sales Calls) also posted them to Slack. Tyler: "i don't want them all to show up
   saying why. What the workflow writes (GHL records, tags, cards, the ledger) is written as usual. Audited with `quiet`.
 - Also on Nelly: Deal closed is off again (Tyler: "we don't want deal closed to fire on nelly. not right now"); Payment recorded
   writes processor "commas" (Nelly's payments come through Commas).
+
+## D327. A person's existing card is moved when GHL refuses a second one (2026-11-10)
+
+Tyler's test booking (a contact who bought in September) stopped Call booked at its closer card. GHL keeps one card per person on a
+board, answered "Can not create duplicate opportunity for the contact" (400 OPPORTUNITY_NO_DUPLICATE), and named the card it has
+(`meta.existingId`). The engine knew no open card for them, so it tried to create one. Any returning buyer who books again hit this.
+
+- The pipeline_card step now takes the card GHL names: it moves that card as the step says and records it as this deal's card.
+- The replica takes the card over too, even when it held the card under an earlier deal.
