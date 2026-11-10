@@ -7608,3 +7608,14 @@ $6,000 balance would have gone there as a new purchase.
   4. then the latest.
 - payments/kind sets a won card's value too, and never moves a won card's stage.
 - The wrap-ups' row is "Contract value" (D323).
+
+## D325. Putting a payment's kind right also puts right its event (2026-11-10)
+
+Anya Rubinstein's $4,700 came in from Commas as an installment, before Nelly's price was set (Tyler: "I think it's 5k price
+point"). Correcting it to a balance (D317) fixed the ledger, the deal and the card, but not the `payment.received` event saved
+when it arrived. Replaying Payment recorded for it (to write the GHL Payment record and the Sales Call) would have read the old
+event: an installment with $300 outstanding.
+
+- Put right: `setPaymentKind` now also corrects the payment's event (kind, the running total up to it, what was paid before,
+  the deal's price, what is outstanding, whether it clears), so a workflow replayed for the payment reads it as it is now. It is
+  one more change the dry run lists. Nelly's `payments.full_prices` is 5000.
