@@ -48,7 +48,21 @@ export async function setPaymentKind(c: PoolClient, a: { companyId: string; ac: 
   const moveCard = !!card?.ghl_opportunity_id && !!stage && card.status === "open" && card.ghl_stage_id !== stage;   // D324: a won card keeps its stage; only its value follows
   if (moveCard) changes.push({ what: "closer card stage", was: card!.ghl_stage_id, now: stage });
   if (card?.ghl_opportunity_id && price !== null) changes.push({ what: "closer card value", was: "(as GHL has it)", now: price });
+  // D325: the payment's own event says what it was when it came in; a workflow replayed for it (events/replay) reads that, so it is
+  // put right with the payment (Anya's $4,700 balance replayed as an installment with $300 outstanding)
+  const ev = await one<{ id: string; data: Record<string, unknown> }>(c, "select id, data from events where company_id=$1 and event_type='payment.received' and data->>'payment_id'=$2 order by id desc limit 1", [a.companyId, p.id]);
+  let evPatch: Record<string, unknown> | null = null;
+  if (ev) {
+    const t = (await one<{ upto: string; prior_nd: string }>(c, `select coalesce(sum(amount) filter (where q.paid_at <= x.paid_at),0)::text upto,
+        coalesce(sum(amount) filter (where q.paid_at < x.paid_at and q.id<>x.id and coalesce(q.kind,'')<>'deposit'),0)::text prior_nd
+      from payments q, (select id, paid_at from payments where id=$2) x where q.opportunity_id=$1 and q.status='succeeded' and q.amount > 0`, [p.opportunity_id, p.id]))!;
+    const upto = Number(t.upto), amount = Number(p.amount), want: Record<string, unknown> = { kind: a.kind, running_total: upto, prior_total: Math.round((upto - amount) * 100) / 100, prior_non_deposit_total: Number(t.prior_nd),
+      ...(price !== null ? { contract_value: price, outstanding: Math.max(0, Math.round((price - upto) * 100) / 100), cleared: upto >= price - 0.01 } : {}) };
+    const diff = Object.fromEntries(Object.entries(want).filter(([k, v]) => ev.data[k] !== v));
+    if (Object.keys(diff).length) { evPatch = diff; changes.push({ what: "the payment's event (what a replay reads)", was: Object.fromEntries(Object.keys(diff).map((k) => [k, ev.data[k] ?? null])), now: diff }); }
+  }
   if (a.dryRun !== false || !changes.length) return { ok: true, dryRun: a.dryRun !== false, payment: p.whop_payment_id, changes };
+  if (ev && evPatch) await c.query("update events set data = data || $2::jsonb where id=$1", [ev.id, JSON.stringify(evPatch)]);
 
   await c.query("update payments set kind=$2 where id=$1", [p.id, a.kind]);
   await c.query("update opportunities set contract_value=$2, status=$3, price_source=case when $4 then 'operator' else price_source end where id=$1", [p.opportunity_id, price, status, a.price !== undefined]);

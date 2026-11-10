@@ -23,6 +23,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D317: a payment's kind put right", (
       await c.query("insert into payments (company_id, contact_id, opportunity_id, whop_payment_id, amount, status, paid_at, kind) values ($1,$2,$3,'pay_1',1000,'succeeded',now(),'paid_in_full')", [co, ct, opp]);
       await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,'custom_objects.cash','pay_1','REC1',$2,$3)", [co, ct, { type: "paid_in_full", program_price: 1000 }]);
       await c.query("insert into pipeline_cards (company_id, opportunity_id, contact_id, ghl_opportunity_id, ghl_pipeline_id, ghl_stage_id, name) values ($1,$2,$3,'GOPP','PIPE','PUR','Carmen')", [co, opp, ct]);
+      const pid = (await one<{ id: string }>(c, "select id from payments where company_id=$1 and whop_payment_id='pay_1'", [co]))!.id;
+      await c.query("insert into events (company_id, contact_id, opportunity_id, event_type, source, occurred_at, data) values ($1,$2,$3,'payment.received','whop',now(),$4)", [co, ct, opp, { payment_id: pid, kind: "paid_in_full", amount: 1000, running_total: 1000, contract_value: 1000, outstanding: 0, cleared: true }]);
     });
   }, 180000);
   const run = (dryRun: boolean) => asOperator((c) => setPaymentKind(c, { companyId: co, ac, adapters, bindings, payment: "pay_1", kind: "deposit", price: 10000, why: "test", dryRun }));
@@ -31,7 +33,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D317: a payment's kind put right", (
     const r = await run(true);
     expect(r).toMatchObject({ ok: true, dryRun: true });
     if (!r.ok) return;
-    expect(r.changes.map((x) => x.what)).toEqual(["payment kind", "deal price", "deal status", "Cash record type", "Cash record program_price", "closer card stage", "closer card value"]);
+    expect(r.changes.map((x) => x.what)).toEqual(["payment kind", "deal price", "deal status", "Cash record type", "Cash record program_price", "closer card stage", "closer card value", "the payment's event (what a replay reads)"]);
     expect(calls).toEqual([]);
   });
 
@@ -42,6 +44,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D317: a payment's kind put right", (
     expect(calls).toEqual([["record", "custom_objects.cash", "REC1", { type: "deposit", program_price: 10000 }], ["card", "GOPP", { stageId: "DEP", monetaryValue: 10000 }]]);
     expect(await asOperator((c) => one(c, "select ghl_stage_id from pipeline_cards where opportunity_id=$1", [opp]))).toEqual({ ghl_stage_id: "DEP" });
     expect(await asOperator((c) => one(c, "select 1 from audit_log where company_id=$1 and action='payment.kind_set'", [co]))).toBeTruthy();
+    // D325: a workflow replayed for it reads the payment as it is now
+    expect((await asOperator((c) => one<{ data: Record<string, unknown> }>(c, "select data from events where company_id=$1 and event_type='payment.received'", [co])))!.data).toMatchObject({ kind: "deposit", contract_value: 10000, running_total: 1000, outstanding: 9000, cleared: false });
   });
 
   it("refuses a kind it doesn't know and a payment that isn't the offer's", async () => {
