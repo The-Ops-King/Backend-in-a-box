@@ -368,11 +368,15 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
   } finally { dropTranscripts(d.ctx, held); if (runs && readsReplyText(node)) dropReplies(d.ctx); d.replyTexts = undefined; }
 }
 
+/** D326: the steps a quiet replay skips: everything that tells someone (Slack, and the sends). */
+export const QUIET_SKIPS = new Set<string>(["slack_post", "notify_owner", "send_sms", "send_email", "send_document", "webhook"]);
 async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
   d.ctx.now = d.now.toISO();   // {{now | date:...}} in templates; refreshed every node so a persisted context never carries a stale clock
   const next = single(d, node.id);
   // only_if: a step that runs some of the time; the chart draws it dashed with this condition (D103)
   if (node.only_if && node.type !== "trigger" && !evaluate(node.only_if, d.ctx)) return { status: "skipped", next, result: { kind: "noop", why: skippedWords(node.only_if, (q) => evaluate(q, d.ctx)) } };
+  // D326: a quiet replay (events/replay with quiet: true) writes what the workflow writes and tells nobody: no Slack, no text, email, agreement or webhook
+  if (QUIET_SKIPS.has(node.type) && (d.run.context?.replay as { quiet?: boolean } | undefined)?.quiet) return { status: "skipped", next, result: { kind: "noop", why: "a quiet replay: nothing is posted or sent" } };
   switch (node.type) {
     case "trigger": return { status: "ok", next };
     case "exit": return { status: "exit", reason: node.reason };
