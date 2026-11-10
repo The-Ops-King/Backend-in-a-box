@@ -14,10 +14,11 @@ export const dynamic = "force-dynamic"; export const maxDuration = 120;
  * ran for it; an event it already ran for is never run again. Audited. D256: each is matched with what it was first dispatched with
  * (its booking and the booking's call type, its recording), and "takes" is the trigger's own answer, its match included.
  * D257: `again: true` with `why` runs an event the workflow already ran for once more (a step added since); still audited.
+ * D326: `quiet: true` runs them writing only: no Slack post, text, email, agreement or webhook (a backfill nobody should be told about).
  */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await req.json()) as { company?: string; workflow?: string; events?: number[]; dryRun?: boolean; again?: boolean; why?: string };
+  const body = (await req.json()) as { company?: string; workflow?: string; events?: number[]; dryRun?: boolean; again?: boolean; why?: string; quiet?: boolean };
   if (!body.company || !body.workflow || !body.events?.length) return NextResponse.json({ error: "company, workflow and events are required" }, { status: 400 });
   // D257: an event the workflow already ran for is run again only when the operator says so, with why (a step added since, e.g. a closer card)
   if (body.again && !body.why?.trim()) return NextResponse.json({ error: "again needs why" }, { status: 400 });
@@ -40,13 +41,15 @@ export async function POST(req: Request) {
         if (!dryRun && takes && (!ran || (body.again && !going))) {
           if (ran) await c.query("update runs set reentry_key = reentry_key || ':again:' || id::text where workflow_id=$1 and triggered_by_event=$2 and reentry_key not like '%:again:%'", [w.id, e.id]);
           row.runs = await dispatchEvent(c, e, ctx, { workflowId: w.id });
+          // D326: marked before any step runs (the runs are worked after this answer)
+          if (body.quiet && (row.runs as string[]).length) await c.query("update runs set context = context || jsonb_build_object('replay', jsonb_build_object('quiet', true)) where id = any($1::uuid[])", [row.runs]);
         }
         rows.push(row);
       }
-      if (!dryRun) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'events.replayed','workflow',$2,$3)", [co.id, w.id, { events: body.events, ...(body.again ? { again: true, why: body.why } : {}), rows: rows.map((x) => ({ event: x.event, runs: x.runs ?? [] })) }]);
+      if (!dryRun) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'events.replayed','workflow',$2,$3)", [co.id, w.id, { events: body.events, ...(body.again ? { again: true, why: body.why } : {}), rows: rows.map((x) => ({ event: x.event, runs: x.runs ?? [] })), ...(body.quiet ? { quiet: true } : {}) }]);
       return { companyId: co.id, workflow: w.id, rows };
     });
     if (!dryRun) after(() => runCompanyNow(r.companyId));
-    return NextResponse.json({ ok: true, dryRun, workflow: r.workflow, rows: r.rows });
+    return NextResponse.json({ ok: true, dryRun, quiet: !!body.quiet, workflow: r.workflow, rows: r.rows });
   } catch (e) { return NextResponse.json({ ok: false, error: String((e as Error).message) }, { status: 500 }); }
 }

@@ -7619,3 +7619,14 @@ event: an installment with $300 outstanding.
 - Put right: `setPaymentKind` now also corrects the payment's event (kind, the running total up to it, what was paid before,
   the deal's price, what is outstanding, whether it clears), so a workflow replayed for the payment reads it as it is now. It is
   one more change the dry run lists. Nelly's `payments.full_prices` is 5000.
+
+## D326. A replay can be quiet (2026-11-10)
+
+Replaying Payment recorded for Nelly's three Commas payments from before the connection (to write their GHL Payment records and
+Sales Calls) also posted them to Slack. Tyler: "i don't want them all to show up ... yeah quiet replay".
+
+- `POST /api/admin/events/replay` takes `quiet: true`: its runs are marked before any step runs, and the executor skips every step
+  that tells someone (`slack_post`, `notify_owner`, `send_sms`, `send_email`, `send_document`, `webhook`) for a run so marked,
+  saying why. What the workflow writes (GHL records, tags, cards, the ledger) is written as usual. Audited with `quiet`.
+- Also on Nelly: Deal closed is off again (Tyler: "we don't want deal closed to fire on nelly. not right now"); Payment recorded
+  writes processor "commas" (Nelly's payments come through Commas).
