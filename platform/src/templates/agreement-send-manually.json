@@ -93,6 +93,14 @@
         "title": "Who sent it, for the note"
       },
       {
+        "id": "g1",
+        "type": "tags",
+        "remove": [
+          "sys-send-agreement-manually"
+        ],
+        "title": "Take the request tag off (whether or not the agreement went out)"
+      },
+      {
         "id": "d1",
         "type": "send_document",
         "template": "{{vars.agreement_template}}",
@@ -100,14 +108,18 @@
         "name": "{{vars.agreement_name}}"
       },
       {
-        "id": "g1",
+        "id": "g2",
         "type": "tags",
         "add": [
           "stat-agreement-sent"
         ],
-        "remove": [
-          "sys-send-agreement-manually"
-        ]
+        "only_if": {
+          "eq": [
+            "{{vars.sent.d1}}",
+            true
+          ]
+        },
+        "title": "Tag stat-agreement-sent, only if the agreement went out (D328)"
       },
       {
         "id": "m1",
@@ -126,16 +138,8 @@
         "to": "c1"
       },
       {
-        "from": "d1",
-        "to": "g1"
-      },
-      {
         "from": "m1",
         "to": "x1"
-      },
-      {
-        "from": "g1",
-        "to": "m1"
       },
       {
         "from": "t2",
@@ -158,8 +162,20 @@
         "to": "v_by"
       },
       {
+        "from": "g2",
+        "to": "m1"
+      },
+      {
         "from": "v_by",
+        "to": "g1"
+      },
+      {
+        "from": "g1",
         "to": "d1"
+      },
+      {
+        "from": "d1",
+        "to": "g2"
       }
     ]
   }
