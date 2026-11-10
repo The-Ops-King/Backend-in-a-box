@@ -356,10 +356,10 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
   let replies: string[] | null = null;
   try {
     replies = runs ? await hydrateReplies(d, node) : null;
-    if (!replies?.length) return await executeStep(d, node);
+    if (!replies?.length) return markSent(d, node, await executeStep(d, node));
     const before = new Map(Object.entries((d.ctx.vars as Record<string, unknown>) ?? {}).map(([k, v]) => [k, JSON.stringify(v)]));
     d.replyTexts = replies;
-    const out = await executeStep(d, node);
+    const out = markSent(d, node, await executeStep(d, node));
     const vars = d.ctx.vars as Record<string, unknown> | undefined;
     if (vars) for (const [k, v] of Object.entries(vars)) if (before.get(k) !== JSON.stringify(v)) vars[k] = scrubReplyText(v, replies, { cut: false });
     // a classify step's result is Jev's answer, never its input (an answer of "confirmed" to a reply of "confirmed" stays as it is)
@@ -368,6 +368,20 @@ export async function executeNode(d: ExecDeps, node: Node): Promise<StepOutcome>
   } finally { dropTranscripts(d.ctx, held); if (runs && readsReplyText(node)) dropReplies(d.ctx); d.replyTexts = undefined; }
 }
 
+/**
+ * D328: whether a send step's message really went out, kept as `vars.sent.<step id>` (true only for a send that reached the vendor
+ * now or before; false when the mode held it back, the send lock or a quiet replay stopped it, or the step was skipped). A step
+ * that records the send ("agreement sent") runs only_if it is true, so the CRM never says something went out that did not.
+ */
+const SEND_STEPS = new Set<string>(["send_sms", "send_email", "send_document"]);
+function markSent(d: ExecDeps, node: Node, out: StepOutcome): StepOutcome {
+  if (!SEND_STEPS.has(node.type) || out.status === "waiting" || out.status === "failed") return out;
+  const r = ("result" in out && out.result && typeof out.result === "object" ? out.result : {}) as Record<string, unknown>;
+  const went = out.status === "ok" && !r.quiet && !r.ghost && !Object.keys(r).some((k) => k.startsWith("would_"));
+  const vars = ((d.ctx.vars as Record<string, unknown> | undefined) ?? (d.ctx.vars = {})) as Record<string, unknown>;
+  vars.sent = { ...((vars.sent as Record<string, boolean> | undefined) ?? {}), [node.id]: went };
+  return out;
+}
 /** D326: the steps a quiet replay skips: everything that tells someone (Slack, and the sends). */
 export const QUIET_SKIPS = new Set<string>(["slack_post", "notify_owner", "send_sms", "send_email", "send_document", "webhook"]);
 async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
@@ -1262,7 +1276,7 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
       else {
         try { ghlId = (await d.adapters.write.createOpportunity(d.adapterCompany, { ...write, contactId: contact.ghl_contact_id })).id; }
         catch (e) {
-          // D327: GHL keeps one card per person on a board and names the one it has (a returning buyer's old card): that card is moved instead
+          // D328: GHL keeps one card per person on a board and names the one it has (a returning buyer's old card): that card is moved instead
           const existing = duplicateCard(e); if (!existing) throw e;
           await d.adapters.write.updateOpportunity(d.adapterCompany, existing, write);
           ghlId = existing;
@@ -1280,7 +1294,7 @@ async function pipelineCard(d: ExecDeps, node: Extract<Node, { type: "pipeline_c
   return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...followed, card: card && !goneCard ? "moved" : "created", ...(goneCard ? { replaced_gone_card: goneCard } : {}), ...(card && !goneCard ? { from_stage: card.ghl_stage_id, crm_card: card.ghl_opportunity_id } : {}), name, stage: stageId, ...(node.status ? { card_status: node.status } : {}), ...(monetaryValue !== undefined ? { value: monetaryValue } : {}), fields: customFields } };
 }
 
-/** D327: the card GHL says the person already has on that board, when it refused a second one (400 OPPORTUNITY_NO_DUPLICATE, meta.existingId). */
+/** D328: the card GHL says the person already has on that board, when it refused a second one (400 OPPORTUNITY_NO_DUPLICATE, meta.existingId). */
 export function duplicateCard(e: unknown): string | null {
   const msg = String((e as { body?: string; message?: string })?.body ?? (e as Error)?.message ?? "");
   if (!/OPPORTUNITY_NO_DUPLICATE|duplicate opportunity/i.test(msg)) return null;

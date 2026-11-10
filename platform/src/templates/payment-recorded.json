@@ -187,13 +187,27 @@
         "type": "set_tag",
         "tag": [
           "stat-agreement-sent"
-        ]
+        ],
+        "only_if": {
+          "eq": [
+            "{{vars.sent.a1}}",
+            true
+          ]
+        },
+        "title": "Tag stat-agreement-sent, only if the agreement went out (D328)"
       },
       {
         "id": "a3",
         "type": "pipeline_card",
         "pipeline": "{{crm.pipeline_closer}}",
-        "stage": "{{crm.stage_closer_agreement_sent}}"
+        "stage": "{{crm.stage_closer_agreement_sent}}",
+        "only_if": {
+          "eq": [
+            "{{vars.sent.a1}}",
+            true
+          ]
+        },
+        "title": "Closer card → Agreement Sent, only if the agreement went out (D328)"
       },
       {
         "id": "m1",

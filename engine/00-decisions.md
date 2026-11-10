@@ -7639,3 +7639,23 @@ board, answered "Can not create duplicate opportunity for the contact" (400 OPPO
 
 - The pipeline_card step now takes the card GHL names: it moves that card as the step says and records it as this deal's card.
 - The replica takes the card over too, even when it held the card under an earlier deal.
+
+## D328. "Agreement sent" only when it was; a calendar with no time says why (2026-11-10)
+
+Nelly's Payment recorded (in quiet mode) held the purchase agreement back, then tagged both buyers "agreement sent" and moved
+their closer cards to Agreement Sent. Tyler: "that should happen then" (fix it).
+
+- The engine keeps, for each send step, whether its message really went out: `vars.sent.<step id>` is true only for a send that
+  reached the vendor; false when the mode held it back, the send lock or a quiet replay stopped it, or it was skipped.
+- The shipped Payment recorded tags "stat-agreement-sent" and moves the card to Agreement Sent only if `vars.sent.a1` is true.
+  The manual agreement send takes its request tag off first, then sends, then tags "agreement sent" only if it went out. A
+  template change: an offer's saved workflows keep what they have (D147); PMU's copy in the repo is rebuilt (its live workflow
+  sends for real, so nothing it does changes). Nelly's Payment recorded no longer sends the agreement (paid = closed for now).
+- Judith's two calendars had no open time: a calendar she connected held two events a day, midnight to 7:30 PM and 7:30 PM to
+  1 AM. The alert said "a connected calendar may have dropped", the opposite. Now, when a Calendly calendar has no time, the
+  check reads its hosts' busy times; a connected calendar keeping a host busy 85% of the window or more is named, with the fix
+  (Availability → Calendar settings → Check for conflicts). Busy times now carry their source (`calendly` or `external`).
+
+Also on Nelly (same day): paid = closed (Deal closed closes on payment beyond a deposit, no agreement, and is on; Payment recorded
+skips the agreement steps). Sylvia Duluc-Silva and Anya Rubinstein were closed by a quiet replay. Jassie Szabo is off the offer
+(role removed, her calendars not watched, her links off the onboarding page; her 6 open cards stay hers until reassigned).

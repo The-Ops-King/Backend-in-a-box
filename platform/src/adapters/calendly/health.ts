@@ -53,9 +53,10 @@ export async function calendlyEventTypeSchedules(token: string, eventTypeUri: st
 }
 
 /** A host's busy times (Calendly bookings and connected calendars that check for conflicts), at most 7 days. A Calendly booking counts with its buffers. */
-export async function calendlyBusyTimes(token: string, userUri: string, from: Date, to: Date): Promise<{ ok: true; busy: { start: string; end: string }[] } | { ok: false; error: string }> {
+export async function calendlyBusyTimes(token: string, userUri: string, from: Date, to: Date): Promise<{ ok: true; busy: { start: string; end: string; type?: string }[] } | { ok: false; error: string }> {
   try {
-    const r = await calendly<{ collection?: { start_time: string; end_time: string; buffered_start_time?: string | null; buffered_end_time?: string | null }[] }>(token, `/user_busy_times?user=${encodeURIComponent(userUri)}&start_time=${encodeURIComponent(from.toISOString())}&end_time=${encodeURIComponent(to.toISOString())}`);
-    return { ok: true, busy: (r.collection ?? []).map((b) => ({ start: b.buffered_start_time || b.start_time, end: b.buffered_end_time || b.end_time })) };
+    const r = await calendly<{ collection?: { type?: string; start_time: string; end_time: string; buffered_start_time?: string | null; buffered_end_time?: string | null }[] }>(token, `/user_busy_times?user=${encodeURIComponent(userUri)}&start_time=${encodeURIComponent(from.toISOString())}&end_time=${encodeURIComponent(to.toISOString())}`);
+    // D328: `type` says where a busy time comes from: "calendly" (its own bookings) or "external" (a connected calendar)
+    return { ok: true, busy: (r.collection ?? []).map((b) => ({ start: b.buffered_start_time || b.start_time, end: b.buffered_end_time || b.end_time, ...(b.type ? { type: b.type } : {}) })) };
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 200) }; }
 }

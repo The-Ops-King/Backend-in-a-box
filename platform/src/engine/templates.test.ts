@@ -51,7 +51,8 @@ describe("shipped templates", () => {
     expect(node("call-cancelled", "n5")).toMatchObject({ type: "tags", add: ["stat-cancelled"], remove: ["stat-self-booked", "stat-set", "stat-confirmed"] });   // stat-call-booked stays: booked at least once (Tyler, 2026-10-28)
     expect(node("payment-recorded", "f1")).toMatchObject({ type: "tags", add: ["pay-paid-full"], remove: ["pay-plan-active"] });
     expect(node("payment-recorded", "g1")).toMatchObject({ type: "tags", add: ["pay-refunded"], only_if: { eq: ["{{event.kind}}", "refund"] } });   // D57: a refund adds its own tag and leaves the others as the last payment left them
-    expect(node("agreement-send-manually", "g1")).toMatchObject({ type: "tags", add: ["stat-agreement-sent"], remove: ["sys-send-agreement-manually"] });
+    expect(node("agreement-send-manually", "g1")).toMatchObject({ type: "tags", remove: ["sys-send-agreement-manually"] });   // D328: the request tag comes off whether or not it went out
+    expect(node("agreement-send-manually", "g2")).toMatchObject({ type: "tags", add: ["stat-agreement-sent"], only_if: { eq: ["{{vars.sent.d1}}", true] } });   // D328: only an agreement that went out is tagged sent
     expect(node("agreement-signed", "g1")).toMatchObject({ type: "tags", add: ["stat-agreement-signed"], remove: ["stat-agreement-unsigned"] });   // D62: a signed client must not carry the chase's tag
     expect(node("pre-call-sequence", "e1")).toMatchObject({ type: "send_email", kind: "transactional" }); expect(node("pre-call-sequence", "s1")).toMatchObject({ type: "send_sms", kind: "transactional" });   // D62: booking receipts go at once in dark hours when the company allows it
   });

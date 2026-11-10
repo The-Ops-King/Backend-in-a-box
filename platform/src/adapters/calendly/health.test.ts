@@ -22,7 +22,7 @@ describe("Calendly reads for per-closer availability (D72)", () => {
       { type: "calendly", start_time: "2026-10-12T15:00:00Z", end_time: "2026-10-12T15:45:00Z", buffered_start_time: "2026-10-12T14:45:00Z", buffered_end_time: "2026-10-12T16:00:00Z" },
       { type: "external", start_time: "2026-10-12T18:00:00Z", end_time: "2026-10-12T19:00:00Z" }] } });
     const r = await calendlyBusyTimes("tok", "https://api.calendly.com/users/U1", new Date("2026-10-10T12:00:00Z"), new Date("2026-10-17T11:59:00Z"));
-    expect(r).toEqual({ ok: true, busy: [{ start: "2026-10-12T14:45:00Z", end: "2026-10-12T16:00:00Z" }, { start: "2026-10-12T18:00:00Z", end: "2026-10-12T19:00:00Z" }] });
+    expect(r).toEqual({ ok: true, busy: [{ start: "2026-10-12T14:45:00Z", end: "2026-10-12T16:00:00Z", type: "calendly" }, { start: "2026-10-12T18:00:00Z", end: "2026-10-12T19:00:00Z", type: "external" }] });
     expect(asked[0]).toContain("user=https%3A%2F%2Fapi.calendly.com%2Fusers%2FU1");
   });
   it("schedules: the event type's own, one per host when each host has their own, shared when there is no user", async () => {

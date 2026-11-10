@@ -567,7 +567,7 @@ export async function readCalendars(c: PoolClient, company: CompanyRow, adapters
         if (times >= limit) bad("calendly_calendars", "error", `Event type "${cal.name}": Calendly would not give its availability ${times} hours running: ${r.error}`, cal.external_id, undefined, link(cal));
         else ok("calendly_calendars", `"${cal.name}": Calendly would not give its availability this hour (${r.error}); checked again next hour.`, cal.external_id, undefined, link(cal));
       }
-      else if (r.slots === 0) bad("calendly_calendars", "warning", `Event type "${cal.name}" has no available time in the next ${days} days. A host's connected calendar may have dropped, or availability is off.`, cal.external_id, { repeat: false }, link(cal));
+      else if (r.slots === 0) bad("calendly_calendars", "warning", await noTimeWhy(probes, token, cal, days, now, ac.booking.source === "calendly" ? ac.booking.organization || undefined : undefined), cal.external_id, { repeat: false }, link(cal));
       else { const len = await probes.calendlyEventTypeHosts(token, `https://api.calendly.com/event_types/${cal.external_id}`, ac.booking.source === "calendly" ? ac.booking.organization || undefined : undefined);
         const n = bookable([...new Set(r.times.map(ms))].map((start) => ({ start, minutes: (len.ok && len.duration) || DEFAULT_CALL_MINUTES }))).length;   // D267: calls that fit, not start times
         ok("calendly_calendars", `"${cal.name}": ${n} bookable calls in the next ${days} days.`, cal.external_id, { slots: n, start_times: r.slots }, link(cal)); slotReads.push({ name: cal.name, id: cal.external_id, slots: n, href: link(cal), times: r.times }); }
@@ -750,6 +750,33 @@ export async function readAvailability(c: PoolClient, companyId: string, probes:
 }
 
 /** The health_check step: run the checks (availability is its own step), remember the result, turn failures into alerts and clear the ones that passed. */
+/**
+ * D328: why a Calendly calendar has no open time, said as the cause where the hosts' busy times show it. Judith's calendar was
+ * "may have dropped" while a calendar she had connected held two events a day from midnight to 1 AM: a connected calendar that
+ * keeps a host busy most of the window is named as that, with the fix; anything else is the general sentence.
+ */
+const BUSY_MOST = 0.85;
+export async function noTimeWhy(probes: HealthProbes, token: string, cal: { external_id: string; name: string }, days: number, now: DateTime, organization?: string): Promise<string> {
+  const general = `Event type "${cal.name}" has no available time in the next ${days} days. Its availability may be off, or every time is booked.`;
+  try {
+    const hosts = await probes.calendlyEventTypeHosts(token, `https://api.calendly.com/event_types/${cal.external_id}`, organization);
+    if (!hosts.ok || !hosts.hosts.length) return general;
+    const from = now.plus({ minutes: 1 }), to = now.plus({ days: Math.min(days, 7) - 1, hours: 23 }), span = to.toMillis() - from.toMillis();
+    const blocked: string[] = [];
+    for (const h of hosts.hosts) {
+      const b = await probes.calendlyBusyTimes(token, h.uri, from.toJSDate(), to.toJSDate());
+      if (!b.ok) continue;
+      // the union of the connected calendar's busy times, clipped to the window
+      const iv = b.busy.filter((x) => x.type === "external").map((x) => [Math.max(Date.parse(x.start), from.toMillis()), Math.min(Date.parse(x.end), to.toMillis())] as [number, number]).filter(([a, z]) => z > a).sort((p, q) => p[0] - q[0]);
+      let covered = 0, end = -Infinity;
+      for (const [a, z] of iv) { if (a > end) { covered += z - a; end = z; } else if (z > end) { covered += z - end; end = z; } }
+      if (covered / span >= BUSY_MOST) blocked.push(`${h.name} (${Math.round((covered / span) * 100)}% of the time)`);
+    }
+    if (!blocked.length) return general;
+    return `Event type "${cal.name}" has no available time in the next ${days} days: a calendar connected in Calendly shows ${blocked.join(", ")} busy. In Calendly, Availability → Calendar settings → "Check for conflicts": turn off the calendar holding those long events, or mark them Free.`;
+  } catch { return general; }
+}
+
 export async function runHealthStep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, cfg: HealthConfig & { as_name?: string | null; as_icon?: string | null }, now = DateTime.now()): Promise<{ findings: Finding[]; raised: number; resolved: number }> {
   await ensureHealth(c, company.id);
   // D297: GHL is compared every 10 minutes in the company's own tick (syncFromGhl), not here; its alert is that sweep's to keep
