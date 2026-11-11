@@ -24,12 +24,13 @@ export const APP_COMPLETE = "stat-application-complete", APP_PARTIAL = "stat-app
 export const BOOKED_TAGS = ["stat-call-booked", "stat-booked-call", "stat-booked", "meta booked call"];
 
 type Status = "complete" | "partial";
-type Person = { key: string; email?: string; phone?: string; name?: string; status: Status; responses: number };
+type Person = { key: string; email?: string; phone?: string; name?: string; status: Status; responses: number; form?: string; hidden?: Record<string, string> };
 export type Change = { who: string; ghl_contact_id: string; status: Status; booked: string | null; add: string[]; remove: string[] };
 export type AppTagsResult = {
   ok: true; dryRun: boolean; forms: { id: string; completed: number; partial: number }[];
   people: number; unidentified: number; changes: Change[]; unchanged: number; skipped: { who: string; ghl_contact_id: string }[];
   notInGhl: { name?: string; email?: string; phone?: string; status: Status }[];
+  created: { who: string; ghl_contact_id: string | null; tags: string[]; dryRun: boolean }[];
   errors: { who: string; error: string }[];
   totals: Record<string, number>;
 };
@@ -47,14 +48,15 @@ export function personOf(r: TfResponse): { email?: string; phone?: string; name?
 }
 
 /** Oldest first, so a person's latest response names them; one submitted response makes them complete. */
-export function peopleOf(responses: { r: TfResponse; status: Status }[]): { people: Person[]; unidentified: number } {
+export function peopleOf(responses: { r: TfResponse; status: Status; form?: string }[]): { people: Person[]; unidentified: number } {
   const by = new Map<string, Person>(); let unidentified = 0;
   const at = (r: TfResponse) => r.submitted_at ?? r.landed_at ?? "";
-  for (const { r, status } of [...responses].sort((a, b) => at(a.r).localeCompare(at(b.r)))) {
+  for (const { r, status, form } of [...responses].sort((a, b) => at(a.r).localeCompare(at(b.r)))) {
     const p = personOf(r), key = p.email ?? (p.phone ? `phone:${p.phone}` : undefined);
     if (!key) { unidentified++; continue; }
     const cur = by.get(key);
-    by.set(key, { key, email: p.email ?? cur?.email, phone: p.phone ?? cur?.phone, name: p.name ?? cur?.name, status: cur?.status === "complete" || status === "complete" ? "complete" : "partial", responses: (cur?.responses ?? 0) + 1 });
+    by.set(key, { key, email: p.email ?? cur?.email, phone: p.phone ?? cur?.phone, name: p.name ?? cur?.name, status: cur?.status === "complete" || status === "complete" ? "complete" : "partial", responses: (cur?.responses ?? 0) + 1,
+      form: form ?? cur?.form, hidden: { ...(cur?.hidden ?? {}), ...((r.hidden as Record<string, string> | undefined) ?? {}) } });
   }
   return { people: [...by.values()], unidentified };
 }
@@ -74,7 +76,7 @@ async function eachLimited<T>(xs: T[], n: number, fn: (x: T) => Promise<void>) {
   await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (i < xs.length) await fn(xs[i++]); }));
 }
 
-export async function applicationTags(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; skip?: string[]; tf?: TypeformApi; cal?: CalendlyLookup; concurrency?: number; since?: string }): Promise<AppTagsResult | { ok: false; status: number; error: string }> {
+export async function applicationTags(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; skip?: string[]; tf?: TypeformApi; cal?: CalendlyLookup; concurrency?: number; since?: string; createPartials?: boolean }): Promise<AppTagsResult | { ok: false; status: number; error: string }> {
   if (!a.forms?.length || !a.why?.trim()) return { ok: false, status: 400, error: "company, forms (Typeform form ids) and why are required" };
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [a.company]); if (!co) return { ok: false, status: 404, error: "no such company" };
   const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
@@ -82,15 +84,20 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
   const tf = a.tf ?? liveTypeform, cal = a.cal ?? liveCalendly, dryRun = a.dryRun !== false;
   const calendlyCfg = ac.booking.source === "calendly" && ac.booking.organization ? { token: ac.booking.token, organization: ac.booking.organization } : null;
 
-  const all: { r: TfResponse; status: Status }[] = [], forms: AppTagsResult["forms"] = [];
+  const all: { r: TfResponse; status: Status; form: string }[] = [], forms: AppTagsResult["forms"] = [];
   for (const id of a.forms) {
     const completed = await tf.responses(token, id, "completed", 1000, a.since), partial = await tf.responses(token, id, "partial", 1000, a.since);
     forms.push({ id, completed: completed.length, partial: partial.length });
-    all.push(...completed.map((r) => ({ r, status: "complete" as const })), ...partial.map((r) => ({ r, status: "partial" as const })));
+    all.push(...completed.map((r) => ({ r, status: "complete" as const, form: id })), ...partial.map((r) => ({ r, status: "partial" as const, form: id })));
   }
   const { people, unidentified } = peopleOf(all);
   const policy = matchPolicy(bindings);
-  const skipped: AppTagsResult["skipped"] = [], changes: Change[] = [], notInGhl: AppTagsResult["notInGhl"] = [], errors: AppTagsResult["errors"] = [];
+  const skipped: AppTagsResult["skipped"] = [], changes: Change[] = [], notInGhl: AppTagsResult["notInGhl"] = [], errors: AppTagsResult["errors"] = [], created: AppTagsResult["created"] = [];
+  // D331: a half-finished applicant GHL doesn't have is made (Tyler: create them, half-finished only): name, email or phone, the
+  // partial and not-booked tags, the form's own tag (`typeform.form_tags`: {form id: tag}) and the UTMs where the offer binds them
+  let formTags: Record<string, string> = {};
+  try { formTags = JSON.parse(bindings["typeform.form_tags"] || "{}") as Record<string, string>; } catch { /* unset */ }
+  const createPartials = a.createPartials ?? /^(on|true|yes)$/i.test(bindings["typeform.create_partials"] ?? "");
   let unchanged = 0;
   const ledgerBooked = async (ghlId: string) => !!(await one(c, "select 1 from appointments a join contacts ct on ct.id=a.contact_id where a.company_id=$1 and ct.ghl_contact_id=$2 limit 1", [co.id, ghlId]));
 
@@ -98,7 +105,18 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
     const who = p.name ?? p.email ?? p.phone ?? p.key;
     try {
       const found = await findInGhl(ac, adapters, p.email, p.phone, policy);
-      if (!found) { notInGhl.push({ name: p.name, email: p.email, phone: p.phone, status: p.status }); return; }
+      if (!found) {
+        if (createPartials && p.status === "partial" && p.name && (p.email || p.phone)) {
+          const [firstName, ...rest] = p.name.split(/\s+/);
+          const tags = [APP_PARTIAL, NOT_BOOKED, ...(p.form && formTags[p.form] ? [formTags[p.form]] : [])];
+          const customFields = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"].map((k) => ({ id: bindings[`crm.field_contact_${k}`], field_value: p.hidden?.[k] ?? "" })).filter((f) => f.id && f.field_value);
+          if (dryRun) { created.push({ who, ghl_contact_id: null, tags, dryRun: true }); return; }
+          const { id } = await adapters.write.createContact(ac, { firstName, lastName: rest.join(" ") || undefined, email: p.email, phone: p.phone, tags, ...(customFields.length ? { customFields } : {}), source: "Typeform (half-finished application)" });
+          created.push({ who, ghl_contact_id: id, tags, dryRun: false });
+          return;
+        }
+        notInGhl.push({ name: p.name, email: p.email, phone: p.phone, status: p.status }); return;
+      }
       const snap: ContactSnapshot = found.snap;
       const name = [snap.firstName, snap.lastName].filter(Boolean).join(" ") || who;
       if (a.skip?.includes(snap.id)) { skipped.push({ who: name, ghl_contact_id: snap.id }); return; }
@@ -125,6 +143,7 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
   const totals: Record<string, number> = {};
   for (const ch of changes) { for (const t of ch.add) totals[`+${t}`] = (totals[`+${t}`] ?? 0) + 1; for (const t of ch.remove) totals[`-${t}`] = (totals[`-${t}`] ?? 0) + 1; }
   if (!dryRun && changes.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.application_tags','company',$2,$3)", [co.id, co.id, { forms: a.forms, why: a.why, totals, skipped: a.skip ?? [], changes: changes.map((x) => ({ ghl_contact_id: x.ghl_contact_id, add: x.add, remove: x.remove })) }]);
-  return { ok: true, dryRun, forms, people: people.length, unidentified, changes, unchanged, skipped, notInGhl, errors, totals };
+  if (!dryRun && created.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.application_created','company',$2,$3)", [co.id, co.id, { forms: a.forms, why: a.why, created }]);
+  return { ok: true, dryRun, forms, people: people.length, unidentified, changes, unchanged, skipped, notInGhl, created, errors, totals };
 }
 
