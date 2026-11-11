@@ -74,7 +74,7 @@ async function eachLimited<T>(xs: T[], n: number, fn: (x: T) => Promise<void>) {
   await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (i < xs.length) await fn(xs[i++]); }));
 }
 
-export async function applicationTags(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; skip?: string[]; tf?: TypeformApi; cal?: CalendlyLookup; concurrency?: number }): Promise<AppTagsResult | { ok: false; status: number; error: string }> {
+export async function applicationTags(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; skip?: string[]; tf?: TypeformApi; cal?: CalendlyLookup; concurrency?: number; since?: string }): Promise<AppTagsResult | { ok: false; status: number; error: string }> {
   if (!a.forms?.length || !a.why?.trim()) return { ok: false, status: 400, error: "company, forms (Typeform form ids) and why are required" };
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [a.company]); if (!co) return { ok: false, status: 404, error: "no such company" };
   const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
@@ -84,7 +84,7 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
 
   const all: { r: TfResponse; status: Status }[] = [], forms: AppTagsResult["forms"] = [];
   for (const id of a.forms) {
-    const completed = await tf.responses(token, id, "completed"), partial = await tf.responses(token, id, "partial");
+    const completed = await tf.responses(token, id, "completed", 1000, a.since), partial = await tf.responses(token, id, "partial", 1000, a.since);
     forms.push({ id, completed: completed.length, partial: partial.length });
     all.push(...completed.map((r) => ({ r, status: "complete" as const })), ...partial.map((r) => ({ r, status: "partial" as const })));
   }

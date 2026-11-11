@@ -7670,3 +7670,15 @@ recorded as a deposit. The last one brought her to $10,000, but as a "deposit" i
   that, a small payment is part of the plan: an installment, or the balance when it reaches the price. A deposit by name or by declared
   product is unchanged. Only PMU sets a deposit line, so no other offer changes.
 - Put right: Carmen's three $1,000s are two installments and the balance, and her deal was re-checked, so she is paid in full.
+
+## D330. Half-finished applications are tagged as they happen (2026-11-11)
+
+Tyler: "half finished typeform. we need to be tagging them as partials." D250 set `stat-application-partial` /
+`stat-application-complete` once, over Typeform's history (Oct 28). Nothing tagged a lead after that, so the 26 VSL leads since then
+had neither tag. Typeform notifies only a submitted form, so a half-finished one can only be read from its API.
+
+- Every ten minutes, each offer with `typeform.application_forms` (PMU: M88ZC2VO, YwAviNMl) reads the last day of its forms'
+  completed and partial responses (`since`). It runs the D250 tagger on them: partial, or complete with partial taken off, and
+  `stat-call-not-booked` until they book. It writes only what a contact lacks. People GHL doesn't have are left alone, never
+  created. Read failures show in the poll's errors.
+- The leads from before the pass were backfilled once with the D250 route, after a dry run.
