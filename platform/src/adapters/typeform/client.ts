@@ -34,11 +34,12 @@ export const typeformGetForm = (token: string, formId: string) => tf<TfForm>(tok
 export const formFields = (f: TfForm): TfField[] => f.fields.flatMap((x) => [x, ...(x.properties?.fields ? formFields({ ...f, fields: x.properties.fields }) : [])]);
 
 /** Every response of one kind, newest first, paged back with `before` (a page holds up to 1000). */
-export async function typeformResponses(token: string, formId: string, type: "completed" | "partial" | "started" = "completed", pageSize = 1000): Promise<TfResponse[]> {
+export async function typeformResponses(token: string, formId: string, type: "completed" | "partial" | "started" = "completed", pageSize = 1000, since?: string): Promise<TfResponse[]> {
   const out: TfResponse[] = [];
   let before: string | undefined;
   for (let page = 0; page < 100; page++) {
     const q = new URLSearchParams({ page_size: String(pageSize), response_type: type });
+    if (since) q.set("since", since);   // D330: only responses landed (or last changed) since then
     if (before) q.set("before", before);
     const r = await tf<{ items?: TfResponse[]; total_items?: number }>(token, "GET", `/forms/${encodeURIComponent(formId)}/responses?${q}`);
     const items = r.items ?? [];

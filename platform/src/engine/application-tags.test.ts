@@ -65,4 +65,23 @@ describe.skipIf(!process.env.DATABASE_URL)("D250 apply", () => {
     expect(await asOperator((c) => one(c, "select count(*)::int n from audit_log where company_id=$1 and action='contact.application_tags'", [co]))).toEqual({ n: 1 });
     expect(await run(true)).toMatchObject({ changes: [] });
   });
+
+  it("D330: the ten-minute pass reads only recent responses; a half-finished application is partial, then complete once it's sent", async () => {
+    await asOperator((c) => c.query("insert into contacts (company_id, ghl_contact_id, first_name, tags) values ($1,'GP','P','{}')", [co]));
+    const crm = new Map([["GP", snap("GP", "p@x.com", [])]]);
+    const base = fakeAdapters({ crm }), sinces: (string | undefined)[] = [];
+    const ad: Adapters = { ...base,
+      read: { ...base.read, findDuplicate: async (_c, by) => [...crm.values()].find((x) => "email" in by && x.email === by.email) ?? null },
+      write: { ...base.write, addTag: async (_c, id, t) => { crm.get(id)!.tags.push(t); }, removeTag: async (_c, id, t) => { crm.get(id)!.tags = crm.get(id)!.tags.filter((x) => x !== t); } } };
+    let submitted = false;
+    const tf: TypeformApi = { getForm: async () => { throw new Error("no"); }, getWebhook: async () => ({ ok: true, found: false }), putWebhook: async () => ({}) as never,
+      responses: async (_t, _f, type, _ps, since) => { sinces.push(since); return type === "partial" ? [resp("p@x.com", null, "2026-11-11")] : submitted ? [resp("p@x.com", null, "2026-11-11")] : []; } };
+    const since = "2026-11-10T12:00:00.000Z";
+    const pass = () => asOperator((c) => applicationTags(c, ad, { company: SLUG, forms: ["F1"], why: "D330", dryRun: false, tf, cal: async () => false, since }));
+    expect(await pass()).toMatchObject({ ok: true, changes: [{ ghl_contact_id: "GP", status: "partial", add: ["stat-application-partial", "stat-call-not-booked"] }] });
+    expect(sinces.every((x) => x === since)).toBe(true);
+    submitted = true;
+    expect(await pass()).toMatchObject({ changes: [{ ghl_contact_id: "GP", status: "complete", add: ["stat-application-complete"], remove: ["stat-application-partial"] }] });
+    expect(crm.get("GP")!.tags.sort()).toEqual(["stat-application-complete", "stat-call-not-booked"]);
+  });
 });

@@ -9,6 +9,9 @@ import { ensureOpportunityForBooking, ensureUser, userIdByEmail } from "./lifecy
 import { simTag, simulate } from "./simulate";
 import { callOutcome, callsNow, finishPhoneCall, meetingKey, pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, unfinishedPhoneCalls, UNFINISHED_CALL, type RecordingRow } from "./recordings";
 import { callSetting } from "./call-settings";
+import { applicationTags } from "./application-tags";
+import { TF_TOKEN_KEY } from "./typeform";
+import { listSetting } from "./payments";
 import { applyDocument, facts as agreementFacts, isSigned } from "./agreements";
 import { priceFrom, priceFromName, setDealPrice } from "./deal-price";
 import { foldCard } from "./cards";
@@ -290,6 +293,9 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
 /** D241: how often the minute tick reads GHL's documents (an offer waiting on a signature is read every ten seconds by its own job). */
 export const AGREEMENTS_EVERY_MS = 5 * 60e3 - 15e3;
 
+/** D330: how often an offer's application forms are read for new and half-finished applications. */
+export const APPLICATIONS_EVERY_MS = 10 * 60e3 - 15e3;
+
 /** D234: how often every booking in the window is read again in full, whatever the source stamps say. */
 export const FULL_BOOKING_READ_MS = 60 * 60e3;
 
@@ -560,6 +566,20 @@ export async function pollCompany(adapters: Adapters, companyId: string, rep: Po
       await c.query("insert into engine_state (key, value, updated_at) values ($1,$2,now()) on conflict (key) do update set value=$2, updated_at=now()", [`agreements_read:${co.id}`, { at: new Date().toISOString() }]);
     }],
     ["cards", pollCards],
+    // D330: half-finished applications are tagged as they happen (Tyler: "half finished typeform. we need to be tagging them as
+    // partials"). Typeform only notifies a submitted form, so its API is read: every ten minutes, the last day of responses of the
+    // offer's application forms (`typeform.application_forms`); the D250 tagger sets partial / complete / not booked on each
+    ["applications", async (c, co, _ac, adapters, rep, bindings) => {
+      const forms = listSetting(bindings["typeform.application_forms"]);
+      if (!forms.length || !bindings[TF_TOKEN_KEY]) return;
+      const key = `applications_read:${co.id}`;
+      const last = await one<{ at: string }>(c, "select value->>'at' as at from engine_state where key=$1", [key]);
+      if (last?.at && Date.now() - Date.parse(last.at) < APPLICATIONS_EVERY_MS) return;
+      const r = await applicationTags(c, adapters, { company: co.slug, forms, why: "D330: the ten-minute applications pass", dryRun: false, since: new Date(Date.now() - 24 * 3600e3).toISOString(), concurrency: 2 });
+      if (!r.ok) throw new Error(r.error);
+      if (r.errors.length) rep.errors.push({ company: co.slug, entity: "applications", error: r.errors.slice(0, 3).map((x) => `${x.who}: ${x.error}`).join("; ") });
+      await c.query("insert into engine_state (key, value, updated_at) values ($1,$2,now()) on conflict (key) do update set value=$2, updated_at=now()", [key, { at: new Date().toISOString(), changed: r.changes.length }]);
+    }],
   ];
   if (timings) timings.setup = Date.now() - t0;
   for (const [entity, fn] of entities) {
