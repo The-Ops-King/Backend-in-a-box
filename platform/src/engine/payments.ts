@@ -49,7 +49,7 @@ export function deriveKind(amount: number, priorTotal: number, contractValue: nu
     // D270 (Tyler, 2026-10-30), every number and word the offer's own setting: under its deposit threshold is a deposit; one payment
     // of a full price (or up to its slack under it), for a billing reason it counts, is paid in full; the payment that brings the
     // total to the deal's price is its balance
-    // D328: a deposit by its amount is the first money on the deal; once something is paid, a small payment is part of the plan
+    // D329: a deposit by its amount is the first money on the deal; once something is paid, a small payment is part of the plan
     // (Carmen Thomas: three $1,000 payments finishing her $10,000 plan were taken for deposits, and she never showed paid in full)
     if (priorTotal <= 0 && depositByAmount(amount, rules)) return "deposit";
     // D315 (Tyler, 2026-11-05: "we're giving out links left and right, so it should be whether or not it's a one time payment"): an

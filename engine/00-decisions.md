@@ -7660,7 +7660,7 @@ Also on Nelly (same day): paid = closed (Deal closed closes on payment beyond a 
 skips the agreement steps). Sylvia Duluc-Silva and Anya Rubinstein were closed by a quiet replay. Jassie Szabo is off the offer
 (role removed, her calendars not watched, her links off the onboarding page; her 6 open cards stay hers until reassigned).
 
-## D328. Under the deposit line is a deposit only as the first money on a deal (2026-11-11)
+## D329. Under the deposit line is a deposit only as the first money on a deal (2026-11-11)
 
 Carmen Thomas finished her $10,000 plan with three $1,000 payments. Each was under PMU's $2,000 deposit line (D317), so each was
 recorded as a deposit. The last one brought her to $10,000, but as a "deposit" it took the deposit path, so she never got
