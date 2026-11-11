@@ -13,13 +13,15 @@ const SLUG = `d315-${Date.now()}`;
 const person = (id: string, email: string): ContactSnapshot => ({ id, firstName: id, lastName: "Buyer", email, phone: null as never, tags: [], customFields: {}, dateUpdated: "2026-11-01T00:00:00Z", dateAdded: "2026-11-01T00:00:00Z" });
 const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com"), person("G-DEE", "dee@x.com")];
 const base = fakeAdapters();
-const ghl: Adapters = { ...base, read: { ...base.read, objectRecords: async (_c, key) => (key === "custom_objects.cash" ? cash : []), findDuplicate: async (_c, by) => ("email" in by ? PEOPLE.find((p) => p.email === by.email) ?? null : null), getContact: async (_c, id) => PEOPLE.find((p) => p.id === id) ?? null } };
+const ghl: Adapters = { ...base, read: { ...base.read, objectRecords: async (_c, key) => (key === "custom_objects.cash" ? cash.filter((r) => paid.has(String(r.properties.transaction_id))) : []), findDuplicate: async (_c, by) => ("email" in by ? PEOPLE.find((p) => p.email === by.email) ?? null : null), getContact: async (_c, id) => PEOPLE.find((p) => p.id === id) ?? null } };
 // the deposit as Payment recorded writes it to GHL's Cash records (what was paid before is read from there)
 const cash: ObjectRecord[] = [{ id: "CASH-BEA", createdAt: "", properties: { transaction_id: "p_bea_dep", amount: 500, type: "deposit", contact_id: "G-BEA", customer_email: "bea@x.com", occurred_at: "2026-11-01T00:00:00Z" } },
   { id: "CASH-DEE", createdAt: "", properties: { transaction_id: "p_dee_dep", amount: 1000, type: "deposit", contact_id: "G-DEE", customer_email: "dee@x.com", occurred_at: "2026-11-01T00:00:00Z" } },
   { id: "CASH-DEE2", createdAt: "", properties: { transaction_id: "p_dee_2", amount: 3000, type: "installment", contact_id: "G-DEE", customer_email: "dee@x.com", occurred_at: "2026-11-02T00:00:00Z" } }];
 let co = "", g: GhlPay;
-const pay = (id: string, email: string, amount: number, billing_reason: string) => asOperator((c) => recordPayment(c, co, { providerPaymentId: id, amount, status: "succeeded", paidAt: new Date(), email, raw: { billing_reason } }, undefined, { dispatch: false, ghl: g }));
+// GHL holds a Cash record only for a payment that has happened
+const paid = new Set<string>();
+const pay = async (id: string, email: string, amount: number, billing_reason: string) => { const r = await asOperator((c) => recordPayment(c, co, { providerPaymentId: id, amount, status: "succeeded", paidAt: new Date(), email, raw: { billing_reason } }, undefined, { dispatch: false, ghl: g })); paid.add(id); return r; };
 const worth = (opp: string) => asOperator((c) => one<{ v: number }>(c, "select contract_value::float as v from opportunities where id=$1", [opp]));
 const fullEvent = (opp: string) => asOperator((c) => one(c, "select 1 from events where opportunity_id=$1 and event_type='payment.paid_in_full'", [opp]));
 
