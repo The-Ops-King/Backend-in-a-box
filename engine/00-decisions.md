@@ -7659,3 +7659,14 @@ their closer cards to Agreement Sent. Tyler: "that should happen then" (fix it).
 Also on Nelly (same day): paid = closed (Deal closed closes on payment beyond a deposit, no agreement, and is on; Payment recorded
 skips the agreement steps). Sylvia Duluc-Silva and Anya Rubinstein were closed by a quiet replay. Jassie Szabo is off the offer
 (role removed, her calendars not watched, her links off the onboarding page; her 6 open cards stay hers until reassigned).
+
+## D329. Under the deposit line is a deposit only as the first money on a deal (2026-11-11)
+
+Carmen Thomas finished her $10,000 plan with three $1,000 payments. Each was under PMU's $2,000 deposit line (D317), so each was
+recorded as a deposit. The last one brought her to $10,000, but as a "deposit" it took the deposit path, so she never got
+`pay-paid-full` and her Cash records read deposit with no price.
+
+- `payments.deposit_under` / `deposit_up_to` now count a payment as a deposit only when nothing has been paid on the deal yet. After
+  that, a small payment is part of the plan: an installment, or the balance when it reaches the price. A deposit by name or by declared
+  product is unchanged. Only PMU sets a deposit line, so no other offer changes.
+- Put right: Carmen's three $1,000s are two installments and the balance, and her deal was re-checked, so she is paid in full.

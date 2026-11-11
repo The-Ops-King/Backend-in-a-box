@@ -39,6 +39,11 @@ describe("D322: an agreement's name says its price", () => {
     expect(deriveKind(9997, 0, 10000, "succeeded", false, { ...r, priceKnown: true })).toBe("paid_in_full");
     expect(deriveKind(3000, 1000, null, "succeeded", false, r)).toBe("installment");
     expect(deriveKind(3000, 0, null, "succeeded", false, r)).toBe("paid_in_full");   // the first one-time payment with no price: D315 stands
+    // D329: under the deposit line is a deposit only as the first money; Carmen's last $1,000s were the plan's end
+    const pmu = { ...payRulesOf({ ...bindings, "payments.deposit_under": "2000" }), reason: "one_time", priorPaid: 0 };
+    expect(deriveKind(1000, 0, null, "succeeded", false, pmu)).toBe("deposit");
+    expect(deriveKind(1000, 8000, 10000, "succeeded", false, { ...pmu, priorPaid: 7000, priceKnown: true })).toBe("installment");
+    expect(deriveKind(1000, 9000, 10000, "succeeded", false, { ...pmu, priorPaid: 8000, priceKnown: true })).toBe("balance");
   });
 });
 
