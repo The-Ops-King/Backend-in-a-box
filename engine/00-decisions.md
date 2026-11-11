@@ -7682,3 +7682,21 @@ had neither tag. Typeform notifies only a submitted form, so a half-finished one
   `stat-call-not-booked` until they book. It writes only what a contact lacks. People GHL doesn't have are left alone, never
   created. Read failures show in the poll's errors.
 - The leads from before the pass were backfilled once with the D250 route, after a dry run.
+
+## D331. A small first payment is asked about; half-finished applicants the Zap missed are created (2026-11-11)
+
+Tyler: "deposit let's say under 2k and if it's under 2k ... if it doesn't say 'deposit' in the product name it asks in slack 'is this
+a full first payment or a deposit?'"; "yes backfil" (create the half-finished applicants GHL doesn't have).
+
+- **The question.** With `payments.ask_deposit` on (PMU), a first payment under the deposit line whose product or plan doesn't say
+  "deposit" is held as a deposit, and its `payment.received` event carries `ask_kind`. PMU's Payment recorded posts the question with
+  two buttons (action `payment_kind`), which only managers and the operator can answer:
+  - Deposit: it stays a deposit.
+  - Full first payment: it is the first payment of a plan (an installment, Tyler's choice). `setPaymentKind` puts the ledger, deal,
+    Cash record, card and event right, and the workflows that took the payment run again quietly (D326), so the deal is won and
+    tagged as a plan's first payment.
+  PMU's line is back to under $2,000.
+- **Half-finished applicants.** With `typeform.create_partials` on, the D250 tagger creates a half-finished applicant GHL doesn't
+  have, if they gave a name and an email or phone. They get `stat-application-partial`, `stat-call-not-booked`, the form's tag
+  (`typeform.form_tags`, PMU: M88ZC2VO "vsl a", YwAviNMl "vsl b") and their UTMs where the offer binds the fields. Finished applicants
+  stay the Zap's. This runs in the ten-minute pass (D330) and in the operator route, dry run first.

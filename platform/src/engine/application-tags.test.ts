@@ -84,4 +84,19 @@ describe.skipIf(!process.env.DATABASE_URL)("D250 apply", () => {
     expect(await pass()).toMatchObject({ changes: [{ ghl_contact_id: "GP", status: "complete", add: ["stat-application-complete"], remove: ["stat-application-partial"] }] });
     expect(crm.get("GP")!.tags.sort()).toEqual(["stat-application-complete", "stat-call-not-booked"]);
   });
+
+  it("D331: a half-finished applicant GHL doesn't have is created (dry run first): partial, not booked, the form's tag, their UTMs", async () => {
+    await asOperator((c) => c.query("insert into bindings (company_id, key, kind, value) values ($1,'typeform.form_tags','text',convert_to('{\"FA\":\"vsl a\"}','UTF8')),($1,'crm.field_contact_utm_source','text',convert_to('F_SRC','UTF8')) on conflict do nothing", [co]));
+    const made: unknown[] = [];
+    const base = fakeAdapters();
+    const ad: Adapters = { ...base, read: { ...base.read, findDuplicate: async () => null }, write: { ...base.write, createContact: async (_c, input) => { made.push(input); return { id: "GNEW" }; } } };
+    const half = { ...resp("hassana@x.com", "+18622834155", "2026-11-11", "Hassana"), hidden: { utm_source: "ig" } };
+    const tf: TypeformApi = { getForm: async () => { throw new Error("no"); }, getWebhook: async () => ({ ok: true, found: false }), putWebhook: async () => ({}) as never,
+      responses: async (_t, _f, type) => (type === "partial" ? [half] : [resp("done@x.com", null, "2026-11-11")]) };
+    const run = (dryRun: boolean) => asOperator((c) => applicationTags(c, ad, { company: SLUG, forms: ["FA"], why: "t", dryRun, tf, cal: async () => false, createPartials: true }));
+    expect(await run(true)).toMatchObject({ created: [{ ghl_contact_id: null, dryRun: true, tags: ["stat-application-partial", "stat-call-not-booked", "vsl a"] }], notInGhl: [{ email: "done@x.com" }] });
+    expect(made).toEqual([]);
+    expect(await run(false)).toMatchObject({ created: [{ ghl_contact_id: "GNEW", dryRun: false }] });
+    expect(made[0]).toMatchObject({ email: "hassana@x.com", tags: ["stat-application-partial", "stat-call-not-booked", "vsl a"], customFields: [{ id: "F_SRC", field_value: "ig" }] });
+  });
 });

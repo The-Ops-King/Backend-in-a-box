@@ -11,6 +11,7 @@ import { alertPressed, parseSlackInteraction, ONLY_MANAGERS, type SlackPress } f
 import { checkSubmit, LINK_ACTIONS, LINK_FORM, linkForm, linkSubmitted, parseMeta } from "@/engine/webhooks/slack-link";
 import { openTicket, TICKET_COMMAND, TICKET_USAGE } from "@/engine/tickets";
 import { TEAM_COMMAND, teamCommand } from "@/engine/team-command";
+import { answerPaymentKind } from "@/engine/payment-ask";
 import { REASSIGN_COMMAND, REASSIGN_PICK, REASSIGN_CALLS, reassignStart, reassignPicked, reassignChosen } from "@/engine/webhooks/reassign-command";
 import { AGREEMENT_COMMAND, AGREEMENT_FORM, agreementForm, answerAgreementCommand, checkAgreementPress, checkAgreementSubmit, requestAgreement, type AgreementChoice, type Who } from "@/engine/webhooks/agreement-request";
 import { slackBot } from "@/engine/slack-conn";
@@ -187,7 +188,7 @@ export async function commandsDoor(req: Request, key: DoorKey): Promise<Response
  */
 export async function interactionsDoor(req: Request, key: DoorKey): Promise<Response> {
   const raw = await req.text();
-  type Next = Response | ({ companyId: string } & ({ kind: "agreement"; user: string; contact: Who; choice: AgreementChoice; by: { name: string; ghl_user_id: string | null }; url?: string } | { kind: "link"; user: string; meta: NonNullable<ReturnType<typeof parseMeta>>; contact: { id: string; name: string } } | { kind: "say"; url?: string; text: string; replace?: boolean } | { kind: "press"; press: SlackPress } | { kind: "eod"; user: string; url?: string }));
+  type Next = Response | ({ companyId: string } & ({ kind: "agreement"; user: string; contact: Who; choice: AgreementChoice; by: { name: string; ghl_user_id: string | null }; url?: string } | { kind: "link"; user: string; meta: NonNullable<ReturnType<typeof parseMeta>>; contact: { id: string; name: string } } | { kind: "say"; url?: string; text: string; replace?: boolean } | { kind: "press"; press: SlackPress } | { kind: "eod"; user: string; url?: string } | { kind: "paykind"; user: string; value: string; url?: string }));
   const res = await asOperator(async (c): Promise<Next> => {
     const v = await verifyDoor(c, key, req, raw);
     if (!v.ok) return "moved" in v ? new Response(null, { status: 200 }) : NextResponse.json({ error: v.why }, { status: v.status });
@@ -238,6 +239,8 @@ export async function interactionsDoor(req: Request, key: DoorKey): Promise<Resp
     }
     // D303: "File my EOD": the presser's own links, said only to them (read after the press is acknowledged: GHL can take a moment)
     if (p.action === "eod_open") return { companyId, kind: "eod", user: p.user, url: p.responseUrl };
+    // D331: "Is this a full first payment or a deposit?": answered after the press is acknowledged (it writes to GHL)
+    if (p.action === "payment_kind") return { companyId, kind: "paykind", user: p.user, value: p.value, url: p.responseUrl };
     const kind = LINK_ACTIONS[p.action as keyof typeof LINK_ACTIONS];
     if (kind) {
       const allowed = await one(c, `select 1 where exists (select 1 from users where company_id=$1 and slack_user_id=$2 and active and role in ('owner','manager'))
@@ -257,6 +260,13 @@ export async function interactionsDoor(req: Request, key: DoorKey): Promise<Resp
   }
   if (res.kind === "link") { after(() => linkSubmitted(liveAdapters, companyId, res.user, res.meta, res.contact).then(() => undefined).catch((e) => console.error("slack link:", e)).then(() => runCompanyNow(companyId))); return new Response(null, { status: 200 }); }
   if (res.kind === "eod") { const url = res.url, user = res.user; if (url) after(() => asOperator((c) => eodButtonReply(c, liveAdapters, companyId, user)).then((text) => respondToSlack(url, { response_type: "ephemeral", replace_original: false, text })).catch((e) => console.error("slack eod button:", e))); return new Response(null, { status: 200 }); }
+  if (res.kind === "paykind") {
+    const url = res.url, user = res.user, value = res.value;
+    after(() => asOperator((c) => answerPaymentKind(c, liveAdapters, companyId, user, value))
+      .then((r) => (url ? respondToSlack(url, { replace_original: true, text: r.text }) : undefined))
+      .catch((e) => console.error("slack payment kind:", e)).then(() => runCompanyNow(companyId)));
+    return new Response(null, { status: 200 });
+  }
   if (res.kind === "say") { const url = res.url; if (url) after(() => respondToSlack(url, { response_type: "ephemeral", replace_original: !!res.replace, text: res.text }).catch(() => {})); return new Response(null, { status: 200 }); }
   const press = res.press;
   after(() => alertPressed({ adapters: liveAdapters, respond: respondToSlack }, companyId, press).catch((e) => console.error("slack press:", e)).then(() => runCompanyNow(companyId)));

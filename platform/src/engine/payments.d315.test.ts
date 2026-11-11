@@ -6,12 +6,13 @@ import { installCompany } from "@/engine/install";
 import { loadCompany } from "@/engine/context";
 import { fakeAdapters } from "@/engine/test-install";
 import { recordPayment, type GhlPay } from "@/engine/payments";
+import { answerPaymentKind, parseKindAnswer } from "@/engine/payment-ask";
 import type { Adapters, ContactSnapshot, ObjectRecord } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const SLUG = `d315-${Date.now()}`;
 const person = (id: string, email: string): ContactSnapshot => ({ id, firstName: id, lastName: "Buyer", email, phone: null as never, tags: [], customFields: {}, dateUpdated: "2026-11-01T00:00:00Z", dateAdded: "2026-11-01T00:00:00Z" });
-const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com"), person("G-DEE", "dee@x.com")];
+const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com"), person("G-DEE", "dee@x.com"), person("G-EVE", "eve@x.com"), person("G-FAY", "fay@x.com")];
 const base = fakeAdapters();
 const ghl: Adapters = { ...base, read: { ...base.read, objectRecords: async (_c, key) => (key === "custom_objects.cash" ? cash.filter((r) => paid.has(String(r.properties.transaction_id))) : []), findDuplicate: async (_c, by) => ("email" in by ? PEOPLE.find((p) => p.email === by.email) ?? null : null), getContact: async (_c, id) => PEOPLE.find((p) => p.id === id) ?? null } };
 // the deposit as Payment recorded writes it to GHL's Cash records (what was paid before is read from there)
@@ -30,7 +31,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
     await migrate();
     co = (await installCompany({ name: "D315", slug: SLUG, timezone: "America/New_York", locationId: "LOC", pit: "pit-fake", calendars: {}, templates: [] }, ghl)).companyId;
     await asOperator(async (c) => {
-      for (const [k, v] of [["crm.object_payment", "custom_objects.cash"], ["payments.full_prices", "[10000,11500,12000]"], ["payments.price_slack", "3"], ["payments.deposit_under", "2000"], ["payments.deposit_up_to", "500"], ["payments.deposit_words", "deposit"], ["payments.full_reasons", "one_time"], ["payments.full_by", "billing_reason"]])
+      for (const [k, v] of [["crm.object_payment", "custom_objects.cash"], ["payments.full_prices", "[10000,11500,12000]"], ["payments.price_slack", "3"], ["payments.deposit_under", "2000"], ["payments.deposit_up_to", "500"], ["payments.deposit_words", "deposit"], ["payments.full_reasons", "one_time"], ["payments.full_by", "billing_reason"], ["payments.ask_deposit", "on"], ["bot.escalate_to", "UOP"]])
         await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3) on conflict (company_id,key) do update set value=excluded.value", [co, k, Buffer.from(v)]);
       const lc = await loadCompany(c, co);
       g = { ac: lc.adapterCompany, adapters: ghl, bindings: lc.bindings, tz: lc.row.timezone };
@@ -86,5 +87,20 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
     if (r.outcome !== "linked") return;
     expect(r.event.opportunity_id).toBe(sale!.id);
     expect(r.event.data).toMatchObject({ cleared: true, full_price: 10000 });
+  });
+
+  it("D331: a first payment under the line, its product not saying deposit, is held as a deposit and asked about; a manager's \"full first payment\" makes it installment 1", async () => {
+    const r = await asOperator((c) => recordPayment(c, co, { providerPaymentId: "p_eve", amount: 1500, status: "succeeded", paidAt: new Date(), email: "eve@x.com", raw: { billing_reason: "one_time", product_name: "Beauty Moguls Method" } }, undefined, { dispatch: false, ghl: g }));
+    expect(r).toMatchObject({ outcome: "linked", payment: { kind: "deposit" } });
+    if (r.outcome !== "linked") return;
+    expect(r.event.data).toMatchObject({ ask_kind: true });
+    const named = await asOperator((c) => recordPayment(c, co, { providerPaymentId: "p_fay", amount: 1500, status: "succeeded", paidAt: new Date(), email: "fay@x.com", raw: { billing_reason: "one_time", product_name: "Beauty Moguls Deposit" } }, undefined, { dispatch: false, ghl: g }));
+    expect(named.outcome === "linked" && named.event.data).toMatchObject({ ask_kind: false });
+    expect((await asOperator((c) => answerPaymentKind(c, ghl, co, "USOMEONE", `first:${r.payment.id}`))).text).toBe("Only a manager can answer this one.");
+    const a = await asOperator((c) => answerPaymentKind(c, ghl, co, "UOP", `first:${r.payment.id}`));
+    expect(a.text).toContain("is the first payment of a plan, not a deposit");
+    expect(await asOperator((c) => one(c, "select kind from payments where id=$1", [r.payment.id]))).toEqual({ kind: "installment" });
+    expect(parseKindAnswer("deposit:abc")).toEqual({ answer: "deposit", payment: "abc" });
+    expect(parseKindAnswer("nope")).toBeNull();
   });
 });
