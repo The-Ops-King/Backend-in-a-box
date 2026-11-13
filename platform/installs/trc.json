@@ -1,5 +1,5 @@
 {
-  "_note": "TRC (Tiffany Rose Coaching) install file. No secrets: the GHL PIT and the Whop key are pasted by Tyler on the company's Settings/Connections page and read from the stored bindings (install.ts: pit omitted -> secret.ghl_pit). GHL side built by scripts/provision-ghl.ts from installs/trc/ghl-setup.json (2026-11-08). Setter + closer boards (playbook setter-closer). scopeTag trc-lead: TRC's location holds ~46k webinar contacts; only contacts tagged trc-lead (ad opt-ins asking for a call, later the Typeform) or booked on TRC's calendars are the company's. No calendars yet (Tyler: a new one, later). Closer: Nick, not a GHL user yet, so closers is empty until he is. Runs in ghost, every workflow off.",
+  "_note": "TRC (Tiffany Rose Coaching) install file. No secrets: the GHL PIT and the Whop key are pasted by Tyler on the company's Settings/Connections page and read from the stored bindings (install.ts: pit omitted -> secret.ghl_pit). GHL side built by scripts/provision-ghl.ts from installs/trc/ghl-setup.json (2026-11-08). Setter + closer boards (playbook setter-closer). scopeTag trc-lead: TRC's location holds ~46k webinar contacts; only contacts tagged trc-lead (ad opt-ins asking for a call, later the Typeform) or booked on TRC's calendars are the company's. Calendars (Tyler, 2026-11-13): Leap Welcome Calls + its Reschedule calendar are the closing call; only bookings assigned to Nick go through (a trigger condition on TRC's own workflows). Closer: Nick (nick@tiffanyrosecoaching.com, a GHL user). Runs in ghost, every workflow off.",
   "name": "TRC",
   "slug": "trc",
   "timezone": "America/Los_Angeles",
@@ -102,6 +102,18 @@
   "testDomains": [
     "jtylerray.com"
   ],
-  "closers": [],
-  "enable": false
+  "closers": [
+    "nick@tiffanyrosecoaching.com"
+  ],
+  "enable": false,
+  "calendars": {
+    "7ZrKZZSaU9VvDxZ5X1h6": {
+      "term": "closing",
+      "name": "Leap Welcome Call"
+    },
+    "3gEXPQqCm2HLzC3FikYL": {
+      "term": "closing",
+      "name": "Leap Welcome Call"
+    }
+  }
 }
