@@ -7701,7 +7701,12 @@ a full first payment or a deposit?'"; "yes backfil" (create the half-finished ap
   (`typeform.form_tags`, PMU: M88ZC2VO "vsl a", YwAviNMl "vsl b") and their UTMs where the offer binds the fields. Finished applicants
   stay the Zap's. This runs in the ten-minute pass (D330) and in the operator route, dry run first.
 
-## D332. Nelly's two setting teams, and where a booking was set (2026-11-13)
+## D332. The calendars lookup shows each calendar's booking questions (2026-11-12)
+
+`GET /api/admin/calendars` returns each calendar's booking questions (name, type, whether required), so a person can check a
+calendar asks for and requires a phone number (after Paige Bresky booked Taylor's consultation with no phone, 2026-11-12).
+
+## D333. Nelly's two setting teams, and where a booking was set (2026-11-13)
 
 Tyler's process for now: Nelly posts a CTA on Instagram; Bella (DMs and texts) sets with Judith; Taylor, a hybrid, sets for herself
 from GHL dials and closes. Two new round robins on Nelly, both closing calls, setters credited from the link (`booking: utm`):
