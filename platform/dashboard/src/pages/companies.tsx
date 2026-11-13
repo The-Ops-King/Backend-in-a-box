@@ -4,6 +4,7 @@ import { api, usePage, useAction, type CompaniesPage } from "~/api";
 import { Counts, Empty, NameLine, Sec, Skeleton, Tag } from "~/ui/pieces";
 import { ago } from "~/fmt";
 import { Templates } from "./templates";
+import { WIZARD } from "~/flags";
 
 export function Companies() {
   const q = usePage<CompaniesPage>(["companies"], "/api/v1/companies");
@@ -11,7 +12,7 @@ export function Companies() {
   if (!q.data) return q.error ? <p className="note">{q.error.message}</p> : <Skeleton />;
   const { engine, companies } = q.data;
   const stale = engine.last_tick ? (Date.now() - new Date(engine.last_tick).getTime()) / 60e3 > 5 : true;
-  const href = (c: CompaniesPage["companies"][number]) => c.status === "onboarding" ? `/app/c/${c.slug}/onboarding` : `/app/c/${c.slug}`;
+  const href = (c: CompaniesPage["companies"][number]) => WIZARD && c.status === "onboarding" ? `/app/c/${c.slug}/onboarding` : `/app/c/${c.slug}`;
   return <>
     <NameLine name="Companies" control={adding ? null : <button type="button" className="btn" onClick={() => setAdding(true)}>Add client</button>} />
     <div className="tagline">{stale ? <Tag kind="warn">engine stale</Tag> : <Tag kind="ok">engine ticking</Tag>}<span>last tick {engine.last_tick ? ago(engine.last_tick) : "never"}{engine.recovery ? " · recovering" : ""}</span></div>
@@ -33,8 +34,8 @@ function AddClient({ onCancel }: { onCancel: () => void }) {
   const nav = useNavigate();
   const [name, setName] = useState(""); const [timezone, setTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York");
   const [kind, setKind] = useState<"new" | "takeover">("new"); const [err, setErr] = useState<string | null>(null);
-  const add = useAction<{ name: string; timezone: string; kind: string }, { href: string }>((v) => api("/api/v1/companies", { method: "POST", json: v }), [["companies"]]);
-  const submit = async (e: React.FormEvent) => { e.preventDefault(); setErr(null); try { nav((await add.mutateAsync({ name, timezone, kind })).href); } catch (x) { setErr((x as Error).message); } };
+  const add = useAction<{ name: string; timezone: string; kind: string }, { href: string; slug: string }>((v) => api("/api/v1/companies", { method: "POST", json: v }), [["companies"]]);
+  const submit = async (e: React.FormEvent) => { e.preventDefault(); setErr(null); try { const r = await add.mutateAsync({ name, timezone, kind }); nav(WIZARD ? r.href : `/app/c/${r.slug}`); } catch (x) { setErr((x as Error).message); } };
   return <form className="form call addclient" onSubmit={submit}>
     <b>Add client</b>
     {err ? <div className="banner warn" style={{ marginTop: 0 }}><strong>Not added.</strong> {err}</div> : null}
@@ -43,7 +44,7 @@ function AddClient({ onCancel }: { onCancel: () => void }) {
       <label>Time zone<input list="zones" value={timezone} onChange={(e) => setTz(e.target.value)} required /><datalist id="zones">{ZONES.map((z) => <option key={z} value={z} />)}</datalist></label>
       <label className="wide">What is it?<select value={kind} onChange={(e) => setKind(e.target.value as "new" | "takeover")}><option value="new">A new offer: built fresh on our stack</option><option value="takeover">A takeover: a running system with live calls and automations</option></select></label>
     </div>
-    <div style={{ display: "flex", gap: 8 }}><button className="btn" type="submit" disabled={add.isPending}>{add.isPending ? "Adding…" : "Add and start onboarding"}</button><button className="btn" type="button" onClick={onCancel}>Cancel</button></div>
-    <p className="note">Nothing runs for it yet: the engine starts on it at the install step, in ghost.</p>
+    <div style={{ display: "flex", gap: 8 }}><button className="btn" type="submit" disabled={add.isPending}>{add.isPending ? "Adding…" : WIZARD ? "Add and start onboarding" : "Add client"}</button><button className="btn" type="button" onClick={onCancel}>Cancel</button></div>
+    <p className="note">Nothing runs for it yet: the engine starts on it {WIZARD ? "at the install step" : "once it is installed"}, in ghost.</p>
   </form>;
 }

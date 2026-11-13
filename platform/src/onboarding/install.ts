@@ -79,3 +79,12 @@ export async function runInstall(asOp: <T>(fn: (c: PoolClient) => Promise<T>) =>
   catch (e) { return { ok: false, status: 422, why: `the install was refused: ${String((e as Error).message).slice(0, 300)}` }; }
   return asOp((c) => finishInstall(c, companyId, slug, p.plan, out, by));
 }
+
+/** D334: an offer installed by hand (the admin install route, the wizard off) leaves onboarding as the wizard's install step would: active, still in ghost. */
+export async function finishByHand(c: PoolClient, slug: string, by = "admin install"): Promise<boolean> {
+  const co = await one<{ id: string }>(c, "update companies set status='active' where slug=$1 and status='onboarding' returning id", [slug]);
+  if (!co) return false;
+  await c.query("update onboarding set steps = steps || jsonb_build_object('install', jsonb_build_object('done_at', now(), 'by', $2::text)) where company_id=$1", [co.id, by]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'onboarding.installed','company',$2,$3)", [co.id, co.id, { by, wizard: false }]);
+  return true;
+}

@@ -7719,3 +7719,14 @@ from GHL dials and closes. Two new round robins on Nelly, both closing calls, se
 - The links: utm_medium=setter, utm_content=<setter's first name>, utm_campaign=<dm|ghl>. Taylor sets for herself, so her GHL
   link names her ("taylor" matches only Taylor Duzel). Bella is not a GHL user the engine knows yet: her link credits no one until
   she is (a setter-booked call with no setter is the setter-missing alert, D121).
+
+## D334. The onboarding wizard is off for now; an offer is installed by hand (2026-11-13)
+
+Tyler: "can you turn off the onboarding wizard for now? it's driving me nuts", then, offered the choice: hide it everywhere and take
+the new offer out of onboarding into ghost. One switch, `WIZARD` in `dashboard/src/flags.ts` (false; true brings it all back):
+
+- An offer still in onboarding opens its own page from the offers list, not the wizard; its page shows no "Open the onboarding steps"
+  banner; Add client opens the new offer's page; the wizard page, reached by its address, no longer reloads every minute.
+- An offer in onboarding runs nothing until its install. The admin install route (`POST /api/admin/install`) now finishes an offer
+  still in onboarding the way the wizard's install step does: active, still in ghost, the onboarding's install step marked done,
+  audited (`onboarding.installed`, by "admin install"). An offer already past onboarding is untouched.

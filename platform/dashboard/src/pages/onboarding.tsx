@@ -12,12 +12,13 @@ import type { CrmRun } from "@/onboarding/crm";
 import type { Message } from "@/onboarding/messages";
 import type { TestsState, ScenarioResult } from "@/onboarding/tests";
 import type { FiltersState, Mark } from "@/onboarding/filters";
+import { WIZARD } from "~/flags";
 
 /** D171 (#53 P1): standing a client up, step by step. Every step saves; Tyler can stop for days and come back to the same place. */
 export function Onboarding() {
   const { slug = "" } = useParams();
   const key = ["onboarding", slug];
-  const q = usePage<OnboardingPage>(key, `/api/v1/companies/${slug}/onboarding`, { every: 60_000 });
+  const q = usePage<OnboardingPage>(key, `/api/v1/companies/${slug}/onboarding`, WIZARD ? { every: 60_000 } : {});
   const [params, setParams] = useSearchParams();
   // the step on screen stays put when a save marks it done; it moves only when Tyler picks another
   const first = q.data ? (q.data.steps.find((s) => s.built && !s.done) ?? q.data.steps[0]).id : null;
