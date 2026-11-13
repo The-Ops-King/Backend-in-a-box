@@ -1,0 +1,62 @@
+# TRC Ops Engine: paste at api.slack.com/apps -> Create New App -> From an app manifest -> (TRC's workspace) -> YAML.
+# Same scopes, events and commands as every offer (CLAUDE.md: Slack works the same on every offer); the request URLs are TRC's
+# (company 9e222206-...). Slack gives a command to the app installed last, so don't install a second Ops Engine app into the
+# same workspace. After changing this file: paste it under App Manifest, then Reinstall to Workspace.
+display_information:
+  name: TRC Ops Engine
+  description: Tiffany Rose Coaching sales ops engine (TRC)
+features:
+  app_home:
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: TRC Ops
+    always_online: true
+  slash_commands:
+    - { command: /mtd, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Month to date: leads, shows, closes, cash vs last month", should_escape: false }
+    - { command: /weekly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Last week's numbers (or: this week)", usage_hint: "[this week]", should_escape: false }
+    - { command: /monthly, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Last month's numbers (or: this month)", usage_hint: "[this month]", should_escape: false }
+    - { command: /show-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Show rate by closer and source", usage_hint: "[last month]", should_escape: false }
+    - { command: /close-rate, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Close rate by closer and source", usage_hint: "[last month]", should_escape: false }
+    - { command: /cash, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Cash collected, refunds and net by closer", usage_hint: "[last week]", should_escape: false }
+    - { command: /availability, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Open calendar slots per day and per closer", usage_hint: "[days, up to 7]", should_escape: false }
+    - { command: /leads, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Leads, MQLs and marketing DQs by source", usage_hint: "[yesterday]", should_escape: false }
+    - { command: /closes, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Every close in the period: who, closer, day won", usage_hint: "[last month]", should_escape: false }
+    - { command: /leaderboard, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Closers by cash, setters by sets", usage_hint: "[last week]", should_escape: false }
+    - { command: /help, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "What the bot can answer", should_escape: false }
+    - { command: /support, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Something broke, or you need something: logs it for Tyler with a number", usage_hint: "[what's wrong or what you need]", should_escape: false }
+    - { command: /reassign, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Hand calls to another closer: whose, which day, which calls, to whom", should_escape: false }
+    - { command: /team, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Operator only: add or remove a setter or closer, and what's left to set up", usage_hint: "[add <email> <setter|closer>]", should_escape: false }
+    - { command: /agreement, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "send an agreement: who and which, either order; leave either off and you're asked", usage_hint: "[who] [which agreement], either order", should_escape: false }
+    - { command: /missing-eod, url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/commands", description: "Who owes an end of day: the days not filed and whose calls are open", should_escape: false }
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.customize
+      - channels:read
+      - groups:read
+      - reactions:read
+      - reactions:write
+      - users:read.email
+      - users:read
+      - commands
+      - app_mentions:read
+      - im:history
+      - channels:history
+      - groups:history
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d/interactions"
+  event_subscriptions:
+    request_url: "https://backend-in-a-box.vercel.app/api/webhooks/slack/9e222206-d93c-4fd5-8280-f999292b133d"
+    bot_events:
+      - reaction_added
+      - app_mention
+      - message.im
+      - message.channels
+      - message.groups
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
