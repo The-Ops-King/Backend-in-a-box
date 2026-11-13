@@ -7700,3 +7700,22 @@ a full first payment or a deposit?'"; "yes backfil" (create the half-finished ap
   have, if they gave a name and an email or phone. They get `stat-application-partial`, `stat-call-not-booked`, the form's tag
   (`typeform.form_tags`, PMU: M88ZC2VO "vsl a", YwAviNMl "vsl b") and their UTMs where the offer binds the fields. Finished applicants
   stay the Zap's. This runs in the ten-minute pass (D330) and in the operator route, dry run first.
+
+## D332. The calendars lookup shows each calendar's booking questions (2026-11-12)
+
+`GET /api/admin/calendars` returns each calendar's booking questions (name, type, whether required), so a person can check a
+calendar asks for and requires a phone number (after Paige Bresky booked Taylor's consultation with no phone, 2026-11-12).
+
+## D333. Nelly's two setting teams, and where a booking was set (2026-11-13)
+
+Tyler's process for now: Nelly posts a CTA on Instagram; Bella (DMs and texts) sets with Judith; Taylor, a hybrid, sets for herself
+from GHL dials and closes. Two new round robins on Nelly, both closing calls, setters credited from the link (`booking: utm`):
+"Private Dating Consultation" hosted by Judith is the DM team's, the one hosted by Taylor the GHL team's.
+
+- Where a booking was set is not its lead source (Tyler: "if it CAME from IG, but was set from GHL ... we'd want to track that").
+  The setter links carry it as `utm_campaign` (`dm` or `ghl`), never `utm_source`, so the lead source stays where the
+  person came from. Nelly's Sales Call has a new field, Set Via (DM / GHL); Closing call booked fills it from the link (both its
+  Sales Call steps: the call and a follow-up), lower-cased; a booking without it leaves the field blank.
+- The links: utm_medium=setter, utm_content=<setter's first name>, utm_campaign=<dm|ghl>. Taylor sets for herself, so her GHL
+  link names her ("taylor" matches only Taylor Duzel). Bella is not a GHL user the engine knows yet: her link credits no one until
+  she is (a setter-booked call with no setter is the setter-missing alert, D121).
