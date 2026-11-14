@@ -275,13 +275,31 @@ export async function calendarWatch(c: PoolClient, adapters: Adapters, a: { comp
   const terms = await many<{ id: string; category: string }>(c, "select id, category from company_terms where company_id=$1 and domain='appointment_type' and is_default", [co.id]);
   if (!a.name?.trim() && !terms.some((t) => t.category === a.term)) return { ok: false, status: 400, error: `term: one of ${terms.map((t) => t.category).join(", ")}` };
   if (a.owner && !(await one(c, "select 1 from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, a.owner.trim()]))) return { ok: false, status: 404, error: `${a.owner} is not on this offer's roster` };
-  const was = (await one(c, "select 1 from calendars where company_id=$1 and source=$2 and external_id=$3 and active", [co.id, ac.booking.source, k.id])) ? "watched" as const : "not watched" as const;
-  const m = { term: a.term, ...(a.name?.trim() ? { name: a.name.trim() } : {}), ...(a.owner ? { owner: a.owner.trim() } : {}), ...(a.booking ? { booking: a.booking } : {}) };
-  if (a.dryRun !== false || was === "watched") return { ok: true, dryRun: a.dryRun !== false, calendar: k.name, id: k.id, was, maps: was === "watched" ? "already watched: nothing changed" : JSON.stringify(m) };
+  const cur = await one<{ term: string; config: Record<string, unknown> }>(c, "select t.name as term, k.config from calendars k join company_terms t on t.id=k.appointment_term where k.company_id=$1 and k.source=$2 and k.external_id=$3 and k.active", [co.id, ac.booking.source, k.id]);
+  const was = cur ? "watched" as const : "not watched" as const;
+  // D335: a call type named only by its kind takes the one the offer's other calendars of that kind use (Nelly's "Closing call",
+  // which her workflows start on), never the generic default beside it; two in use and none named is a question, not a guess
+  let name = a.name?.trim() || undefined;
+  if (!name && !cur) {   // a calendar already watched changes its call type only when one is named
+    const used = await many<{ name: string }>(c, `select distinct t.name from calendars k join company_terms t on t.id=k.appointment_term
+      where k.company_id=$1 and k.active and t.category=$2 and k.external_id<>$3`, [co.id, a.term, k.id]);
+    if (used.length > 1) return { ok: false, status: 400, error: `this offer's ${a.term} calendars use ${used.map((u) => `"${u.name}"`).join(" and ")}: say which (name)` };
+    if (used.length === 1) name = used[0].name;
+  }
+  const m = { term: a.term, ...(name ? { name } : {}), ...(a.owner ? { owner: a.owner.trim() } : {}), ...(a.booking ? { booking: a.booking } : {}) };
+  const target = name ?? null;
+  // D335: a watched calendar whose call type is wrong is put right (its bookings with it); one already right changes nothing
+  const remap = !!cur && !!target && cur.term !== target;
+  if (cur && !remap) return { ok: true, dryRun: a.dryRun !== false, calendar: k.name, id: k.id, was, maps: "already watched: nothing changed" };
+  if (a.dryRun !== false) {
+    const n = remap ? Number((await one<{ n: string }>(c, "select count(*) n from appointments a join calendars k on k.id=a.calendar_id where k.company_id=$1 and k.external_id=$2", [co.id, k.id]))!.n) : 0;
+    return { ok: true, dryRun: true, calendar: k.name, id: k.id, was, maps: remap ? `call type "${cur!.term}" → "${target}" (its ${n} booking${n === 1 ? "" : "s"} with it)` : JSON.stringify(m) };
+  }
   const maps = await watchCalendar(c, co.id, ac.booking.source, k, m, terms);
-  // D292: its bookings already there are read silently first; the calls still ahead are then started as new ones (poll.ts)
-  await c.query("update calendars set config = config || '{\"catch_up\": true}'::jsonb where company_id=$1 and external_id=$2", [co.id, k.id]);
-  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'calendar.watched','calendar',$2,$3)", [co.id, k.id, { ...m, maps, why: a.why }]);
+  // D292: its bookings already there are read silently first; the calls still ahead are then started as new ones (poll.ts). A
+  // remap has its bookings already: the calls ahead that missed their workflows are handed on by replay-bookings
+  if (!remap) await c.query("update calendars set config = config || '{\"catch_up\": true}'::jsonb where company_id=$1 and external_id=$2", [co.id, k.id]);
+  await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,$4,'calendar',$2,$3)", [co.id, k.id, { ...m, maps, why: a.why, ...(remap ? { was_term: cur!.term } : {}) }, remap ? "calendar.remapped" : "calendar.watched"]);
   return { ok: true, dryRun: false, calendar: k.name, id: k.id, was, maps };
 }
 
