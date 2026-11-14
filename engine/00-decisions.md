@@ -7730,3 +7730,16 @@ the new offer out of onboarding into ghost. One switch, `WIZARD` in `dashboard/s
 - An offer in onboarding runs nothing until its install. The admin install route (`POST /api/admin/install`) now finishes an offer
   still in onboarding the way the wizard's install step does: active, still in ghost, the onboarding's install step marked done,
   audited (`onboarding.installed`, by "admin install"). An offer already past onboarding is untouched.
+
+## D335. A calendar takes the offer's own call type; a wrong one can be put right (2026-11-14)
+
+Judith's calendars got no booking posts and no pre-call reminders. When they were watched by kind only ("closing", "first_call"),
+`calendars/watch` took the generic default call type ("Closing", "First call"), while Nelly's calendars use "Closing call" and
+"Triage call", which her Closing call booked and pre-call workflows start on. Seven bookings on Dating Consultation with Judith
+(Nov 12 to 14) started nothing. The two new round robins had the same mapping.
+
+- Put right: a watched calendar's call type can now be changed by naming it (`name`); its bookings move with it, audited
+  (`calendar.remapped`). Judith's Dating Consultation and the two round robins are "Closing call", her Introduction Call
+  "Triage call"; the calls ahead are handed to their workflows by replay-bookings.
+- So it cannot happen again: a calendar watched by kind alone takes the call type the offer's other calendars of that kind use;
+  two in use and none named is refused ("say which"). A calendar already watched changes type only when one is named.
