@@ -677,7 +677,9 @@ async function applyRows(c: PoolClient, co: LoadedCompany, adapters: Adapters, r
       let crmId = ours?.ghl_record_id ?? inCrm?.id ?? null;
       const kept: string[] = [], props = { ...w.properties };
       if (inCrm) for (const [k, v] of Object.entries(props)) {
-        const cur = inCrm.properties[k], blank = cur === undefined || cur === null || cur === "" || (Array.isArray(cur) && !cur.length);
+        // D337: "scheduled" is what Call booked writes when the call is booked, a placeholder, not a value someone filed: a settled outcome replaces it
+        const cur = inCrm.properties[k], placeholder = k === "outcome" && cur === "scheduled" && v !== "scheduled";
+        const blank = placeholder || cur === undefined || cur === null || cur === "" || (Array.isArray(cur) && !cur.length);
         const amount = (x: unknown) => String((x as { value?: unknown } | null)?.value ?? x);   // a money field reads back as { currency, value }
         if (!blank && JSON.stringify(cur) !== JSON.stringify(v) && amount(cur) !== amount(v)) { kept.push(`${k} (GHL has ${JSON.stringify(cur)})`); delete props[k]; }
       }

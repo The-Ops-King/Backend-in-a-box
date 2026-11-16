@@ -271,6 +271,16 @@ describe.skipIf(!HAS_DB)("sales-call history (D115)", () => {
     expect((await counts()).runs).toBe(0);
   });
 
+  it("D337: the outcome Call booked wrote at booking (\"scheduled\") is a placeholder: a settled outcome replaces it", async () => {
+    const recB = world.records.find((r) => r.properties.external_id === "evt-B")!;
+    recB.properties.outcome = "scheduled";
+    const again = await run({ dryRun: false });
+    const planned = rowOf(again, "evt-B").fields.outcome;
+    expect(planned).toBeTruthy(); expect(planned).not.toBe("scheduled");
+    expect(world.records.find((r) => r.properties.external_id === "evt-B")!.properties.outcome).toBe(planned);
+    expect(rowOf(again, "evt-B").written!.kept).toEqual([]);
+  });
+
   it("D222: a person GHL merged away gets no new record (the row says why); a record that is made is the engine's before it is linked", async () => {
     // evt-H's record is gone from GHL and from the engine, and so is its person: the pass must not make one attached to no one
     world.records = world.records.filter((r) => r.properties.external_id !== "evt-H");
