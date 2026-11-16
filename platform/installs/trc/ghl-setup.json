@@ -1,5 +1,5 @@
 {
-  "_note": "What Tiffany Rose Coaching (TRC) needs in its GHL location, read by scripts/provision-ghl.ts (additive only: creates what is missing, never renames, changes or deletes). Modelled on installs/dating/ghl-setup.json. Setter + closer pipelines (Tyler, 2026-11-08: like Hair/PMU, direct booking or New Lead -> booked moves over). TRC already has utm_*, fbclid, fbc and fbp contact fields, so those are not created here; their ids are bound in the install (crm.field_contact_utm_* etc.). No calendars yet (Game Changer or a new one, Tyler to decide), the triage call is the engine's discovery_call object (labelled TRC Triage Call). Engine runs in ghost. Sales Call Closer: Nick (the one closer, 2026-11-08; not a GHL user yet); new closers are added as options (additive). Call Type: Sales Call / Follow-up.",
+  "_note": "What Tiffany Rose Coaching (TRC) needs in its GHL location, read by scripts/provision-ghl.ts (additive only: creates what is missing, never renames, changes or deletes). Modelled on installs/dating/ghl-setup.json. Setter + closer pipelines (Tyler, 2026-11-08: like Hair/PMU, direct booking or New Lead -> booked moves over). TRC already has utm_*, fbclid, fbc and fbp contact fields, so those are not created here; their ids are bound in the install (crm.field_contact_utm_* etc.). No calendars yet (Game Changer or a new one, Tyler to decide), the triage call is the engine's discovery_call object (labelled TRC Triage Call). Engine runs in ghost. Sales Call Closer: Nick (the one closer, 2026-11-08; not a GHL user yet); new closers are added as options (additive). Tiffany added 2026-11-16 (her bookings go through too). Call Type: Sales Call / Follow-up.",
   "prefix": "TRC – ",
   "timezone": "America/Los_Angeles",
   "team": [],
@@ -166,6 +166,10 @@
             {
               "key": "nick",
               "label": "Nick"
+            },
+            {
+              "key": "tiffany",
+              "label": "Tiffany"
             }
           ]
         },
