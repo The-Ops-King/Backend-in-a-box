@@ -7755,3 +7755,13 @@ belongs to the key that made it: a key changed alone leaves recordings arriving 
   and id are bound, and only then is the old webhook removed with the old key (no gap). If Fathom won't remove the old one the new
   key stays and the result says so. Audited (`fathom.key_replaced`, the key's last 4 only); the key never comes back.
 - One offer per call, as every key change.
+
+## D337 — "scheduled" is a placeholder, not a filed outcome (2026-11-16)
+
+Bringing in Nelly's missed Fathom calls (D336) wrote 4 Sales Calls (Colette, Daniella, Paige, Denise) with their recording,
+disposition, objection and next step, but kept their outcome "scheduled": the history pass keeps any value GHL already holds, and
+"scheduled" is what Call booked writes at booking, not something a person filed.
+
+- Put right: plan 5307 run again; those 4 now read showed.
+- So it cannot happen again: the Sales Call history pass (and the health check's own writes through it) treats an outcome of
+  "scheduled" as blank when it has a settled one. Any other filed value still stays. Test first in sales-call-backfill.test.ts.
