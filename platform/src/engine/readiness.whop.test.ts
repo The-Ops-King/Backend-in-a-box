@@ -20,7 +20,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D128: payment workflows need Whop", 
   beforeAll(async () => {
     process.env.CRON_SECRET = KEY;
     await migrate();
-    co = (await installCompany({ name: "Whop Less", slug: SLUG, timezone: "America/Phoenix", locationId: "LOC-D128", pit: "pit-fake", calendars: {}, templates: ["payment-failed", "payment-recorded", "deal-closed", "new-lead"], crm: { agreement_template: "TPL1" } }, fakeAdapters())).companyId;
+    co = (await installCompany({ name: "Whop Less", slug: SLUG, timezone: "America/Phoenix", locationId: "LOC-D128", pit: "pit-fake", calendars: {}, templates: ["payment-failed", "payment-recorded", "deal-closed", "new-lead", "payment-pending"], crm: { agreement_template: "TPL1" } }, fakeAdapters())).companyId;
   });
   afterAll(() => { if (prev === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = prev; });
 
@@ -57,6 +57,18 @@ describe.skipIf(!process.env.DATABASE_URL)("D128: payment workflows need Whop", 
     setProbeRetryMs(0);
     const { findings } = await asOperator(async (c) => { const { row } = await loadCompany(c, co); return runHealthStep(c, row, fakeAdapters(), fakeProbes, { checks: {}, min_slots: 0, slots_days: 7 } as never); });
     expect(findings.find((f) => f.check === "whop_webhook")).toMatchObject({ ok: false, level: "error", text: "A Whop API key is saved but no payment webhook is registered: no payment reaches the engine.", fix: { action: "reregister_whop" } });
+  });
+
+  it("D342: with Payment pending on, a webhook that does not send payment.pending is an error with the fix; one that does is fine", async () => {
+    await asOperator(async (c) => { await setBinding(c, co, "secret.whop_api_key", "secret", "apik_fake", "test"); await setBinding(c, co, "secret.whop_webhook", "secret", "ws_fake", "test"); await setBinding(c, co, "whop.webhook_id", "id", "hook_1", "test");
+      await c.query("update workflows w set enabled=true from workflow_templates t where t.id=w.template_id and w.company_id=$1 and t.slug='payment-pending'", [co]); });
+    setProbeRetryMs(0);
+    const run = (events: string[]) => asOperator(async (c) => { const { row } = await loadCompany(c, co); return runHealthStep(c, row, fakeAdapters(), { ...fakeProbes, whopGetWebhook: async () => ({ ok: true as const, found: true, enabled: true, events }) }, { checks: {}, min_slots: 0, slots_days: 7 } as never); });
+    const old = (await run(["payment.succeeded", "payment.failed", "refund.created"])).findings.find((f) => f.check === "whop_webhook");
+    expect(old).toMatchObject({ ok: false, level: "error", text: "The Whop payment webhook does not send payment.pending, which a workflow that is on starts on.", fix: { action: "reregister_whop" } });
+    expect((await run(["payment.succeeded", "payment.failed", "refund.created", "payment.pending"])).findings.find((f) => f.check === "whop_webhook")).toMatchObject({ ok: true });
+    await asOperator(async (c) => { await c.query("update workflows w set enabled=false from workflow_templates t where t.id=w.template_id and w.company_id=$1 and t.slug='payment-pending'", [co]);
+      await c.query("delete from bindings where company_id=$1 and key in ('secret.whop_webhook','secret.whop_api_key','whop.webhook_id')", [co]); });
   });
 
   it("a Whop webhook secret connects it, and with one bound the missing-webhook finding is gone", async () => {

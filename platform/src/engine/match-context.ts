@@ -56,6 +56,9 @@ export const MATCH_CONTEXT: Record<string, readonly string[]> = {
   "payment.refunded": PAYMENT,
   "payment.linked": PAYMENT,
   "payment.unlinked": PAYMENT,
+  // D342: payments.ts recordPending (webhooks/whop, backfill): the buyer only; a pending payment has no deal yet. pending_resolved starts nothing (a wait_for_event wakes on it)
+  "payment.pending": CONTACT,
+  "payment.pending_resolved": CONTACT,
   "payment.paid_in_full": PAYMENT,
   // executor.ts opportunity step
   "opportunity.won": [...CONTACT, "opportunity.id", "opportunity.status"],

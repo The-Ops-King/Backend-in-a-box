@@ -366,7 +366,7 @@ insert into event_types values
   ('appointment.status_changed','appointment'), ('appointment.outcome','appointment'), ('appointment.reassign_requested','appointment'), ('appointment.reassigned','appointment'),
   ('call.held','call'),
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'), ('intent.unanswered','message'), ('intent.unanswered_no_show','message'),
-  ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'),
+  ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'), ('payment.pending','payment'), ('payment.pending_resolved','payment'),
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('setter_call.filed','call'), ('call.closing','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'), ('agreement.requested','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('card.moved','crm'), ('scope.left','crm'),

@@ -1,0 +1,143 @@
+{
+  "slug": "payment-pending",
+  "name": "Payment pending",
+  "category": "payments",
+  "stage": "payments",
+  "sort": 25,
+  "origin": "default",
+  "description": "A payment the processor accepted but has not collected yet (financing, a bank transfer clearing) is posted in the payments channel with the contact's owner tagged, and the contact is tagged pay-pending. When it clears or fails, a line goes under that post and the tag comes off; Payment recorded or Payment failed does the rest as usual. Still pending after 7 days, the team is told. The client hears nothing from the engine.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_contact",
+    "reentry_key": "{{event.provider_payment_id}}",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "payment.pending"
+      },
+      {
+        "id": "g1",
+        "type": "tags",
+        "add": "pay-pending",
+        "title": "Tag pay-pending"
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.payments}}",
+        "tag": "payment-pending:{{event.provider_payment_id}}",
+        "title": "Post the pending payment in Slack and tag the owner",
+        "as": {
+          "name": "Payment pending",
+          "icon": [":hourglass_flowing_sand:", ":hourglass:"]
+        },
+        "template": "*Payment pending:* ${{event.amount | money}}\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\nAccepted, waiting for it to clear. Nothing is counted until it does.{{event.product_name | line:*Product:*}}\n*Closer:* {{contact.owner.mention | default:unassigned}}{{contact.setter.name | line:*Setter:*}}"
+      },
+      {
+        "id": "w1",
+        "type": "wait_for_event",
+        "event": "payment.pending_resolved",
+        "match": {
+          "eq": ["{{data.provider_payment_id}}", "{{event.provider_payment_id}}"]
+        },
+        "until": {
+          "anchor": "now",
+          "offset": "+7d",
+          "tz": "company"
+        },
+        "into": "settled",
+        "title": "Wait for it to clear or fail (7 days)"
+      },
+      {
+        "id": "b1",
+        "type": "branch",
+        "title": "Cleared or failed?"
+      },
+      {
+        "id": "s_ok",
+        "type": "slack_post",
+        "channel": "{{slack.channel.payments}}",
+        "thread_of": "tag:payment-pending:{{event.provider_payment_id}}",
+        "thread_only": true,
+        "react": "white_check_mark",
+        "title": "Cleared: a line under the pending post",
+        "as": {
+          "name": "Payment pending",
+          "icon": ":white_check_mark:"
+        },
+        "template": "✅ Cleared: ${{vars.settled.data.amount | money}} received."
+      },
+      {
+        "id": "s_fail",
+        "type": "slack_post",
+        "channel": "{{slack.channel.payments}}",
+        "thread_of": "tag:payment-pending:{{event.provider_payment_id}}",
+        "thread_only": true,
+        "react": "x",
+        "title": "Failed: a line under the pending post",
+        "as": {
+          "name": "Payment pending",
+          "icon": ":x:"
+        },
+        "template": "❌ It failed. {{contact.owner.mention | default:The closer}}, please follow up with them."
+      },
+      {
+        "id": "r1",
+        "type": "tags",
+        "remove": "pay-pending",
+        "title": "Take pay-pending off"
+      },
+      {
+        "id": "r2",
+        "type": "tags",
+        "remove": "pay-pending",
+        "title": "Take pay-pending off"
+      },
+      {
+        "id": "a1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.attention}}",
+        "fallback_channel": "{{slack.channel.payments}}",
+        "title": "Still pending after 7 days: tell the team",
+        "as": {
+          "name": "Payment pending",
+          "icon": ":hourglass:"
+        },
+        "template": "*Still pending after 7 days:* ${{event.amount | money}} from <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>. Check it in Whop. {{contact.owner.mention | default:}}"
+      },
+      {
+        "id": "x_ok",
+        "type": "exit",
+        "reason": "cleared"
+      },
+      {
+        "id": "x_fail",
+        "type": "exit",
+        "reason": "failed"
+      },
+      {
+        "id": "x_stuck",
+        "type": "exit",
+        "reason": "still pending"
+      }
+    ],
+    "edges": [
+      { "from": "t1", "to": "g1" },
+      { "from": "g1", "to": "s1" },
+      { "from": "s1", "to": "w1" },
+      { "from": "w1", "to": "b1", "label": "event" },
+      { "from": "w1", "to": "a1", "label": "until" },
+      { "from": "b1", "to": "s_ok", "when": { "eq": ["{{vars.settled.data.status}}", "succeeded"] }, "label": "cleared" },
+      { "from": "b1", "to": "s_fail", "else": true, "label": "failed" },
+      { "from": "s_ok", "to": "r1" },
+      { "from": "r1", "to": "x_ok" },
+      { "from": "s_fail", "to": "r2" },
+      { "from": "r2", "to": "x_fail" },
+      { "from": "a1", "to": "x_stuck" }
+    ]
+  }
+}

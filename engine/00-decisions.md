@@ -7832,3 +7832,23 @@ webhook made was left at Whop with no secret the engine knows. Those deliveries 
 - The insert takes the company id as two parameters. The same reuse appears nowhere else.
 - Test: health-fix.route.test.ts presses the button through the route (the vendor faked) and checks the secret, the id and the audit
   row. The route had no test, which is how it shipped broken.
+
+## D342 — A payment accepted and not yet collected is "pending" (2026-11-16)
+
+Tyler (TRC, Razia's $10,000 pending in Whop): "can we add a 'pending' one? where we can see something happened and it was accepted,
+and we're waiting for it to come through". Whop sends `payment.pending` (financing, a transfer clearing); the engine took only
+succeeded, failed and refunds, and its history read skipped anything not paid.
+
+- `payment.pending` (payments.ts `recordPending`): one event per processor payment about the buyer the ledger's ladder finds (GHL
+  first from the webhook), or nobody. Nothing in the ledger: no money moved, no deal, no cash. One already in the ledger is "settled"
+  and writes nothing. The webhook route and the backfill (Whop status or substatus "pending") both write it; the backfill starts no
+  workflow (a replay does).
+- `payment.pending_resolved`: when that payment then reaches the ledger as succeeded or failed (recordPayment), once, about the same
+  person: `data.status`, `data.amount`. It starts nothing; a `wait_for_event` wakes on it.
+- Template `payment-pending` (installed only where asked; TRC first): tag pay-pending, post in the payments channel tagging the
+  contact's owner, wait up to 7 days; cleared → ✅ under the post, failed → ❌ under the post, tag off either way; still pending →
+  the attention channel. Payment recorded and Payment failed are unchanged and still do the money.
+- Whop: new webhooks ask for `payment.pending` too (WHOP_EVENTS). An existing webhook is not touched by a deploy: the health check
+  says so only on an offer with a workflow that is on and starts on an event its webhook does not send, and its button now updates
+  the engine's webhook in place (PATCH: same id and secret, no second webhook), creating one only when Whop no longer has it.
+- Other offers: no workflow, webhook or alert changes (none has Payment pending).
