@@ -57,4 +57,4 @@ export async function relianceBlockers(c: PoolClient, companyId: string, moving:
 }
 
 /** The rung a workflow runs on after only its own flag changes. */
-export const afterOwn = (company: Mode, id: string, mode: Mode | null) => (w: Row) => runMode(company, w.id === id ? mode : w.own);
+export const afterOwn = (company: Mode, id: string, mode: Mode | null) => (w: Pick<Row, "id" | "own">) => runMode(company, w.id === id ? mode : w.own);

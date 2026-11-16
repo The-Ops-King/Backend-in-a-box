@@ -5,6 +5,10 @@ import { MODES, runMode, testContactSql, testDomains, TEST_DOMAINS_KEY, type Mod
 import { afterOwn, relianceBlockers } from "./golive-deps";
 import { parseDefinition } from "./definition";
 import { render } from "./template";
+import { closerFieldBlockers } from "./golive-closer";
+import type { Adapters } from "@/adapters/types";
+/** The CRM the go-live gate reads (D339: the Sales Call Closer field's options); live unless a caller hands its own (install, tests). */
+const gateAdapters = async (a?: Adapters) => a ?? (await import("@/adapters")).liveAdapters;
 
 /**
  * Go live (D51), and D132's go quiet: the two rungs that write the CRM for everyone. Moving up into one is refused while readiness
@@ -109,17 +113,20 @@ export async function clearStrayHarnessBookings(c: PoolClient, companyId: string
   return out;
 }
 
-export type CompanyModeChange = { ok: true; changed: boolean; mode: Mode; cleared?: Cleared } | { ok: false; blockers: Issue[] };
+export type CompanyModeChange = { ok: true; changed: boolean; mode: Mode; cleared?: Cleared; /** D339: what the gate says without stopping the move */ warnings?: Issue[] } | { ok: false; blockers: Issue[] };
 /** The company onto a rung (D52, D132): up into quiet or live through the gate and the clean slate above; any other move is the flag. Audited. */
-export async function setCompanyMode(c: PoolClient, companyId: string, to: Mode, slugPrefix: string, via: string): Promise<CompanyModeChange> {
+export async function setCompanyMode(c: PoolClient, companyId: string, to: Mode, slugPrefix: string, via: string, adapters?: Adapters): Promise<CompanyModeChange> {
   const co = (await one<{ mode: Mode }>(c, "select mode from companies where id=$1", [companyId]))!;
   if (co.mode === to) return { ok: true, changed: false, mode: to };
   const up = WRITES_FOR_ALL.includes(to) && rank(to) > rank(co.mode);
+  const warnings: Issue[] = [];
   if (up) {
     const blockers = (await companyReadiness(c, companyId, slugPrefix)).issues.filter((i) => i.level === "blocker");
     // D289: every enabled workflow that will run on the new rung, against what it relies on, as the rungs will stand after the move
     const ids = (await many<{ id: string }>(c, "select id from workflows where company_id=$1 and enabled", [companyId])).map((w) => w.id);
     blockers.push(...(await relianceBlockers(c, companyId, ids, (w) => runMode(to, w.own), slugPrefix)));
+    const closer = await closerFieldBlockers(c, companyId, ids, (w) => runMode(to, w.own), slugPrefix, await gateAdapters(adapters));   // D339
+    blockers.push(...closer.filter((i) => i.level === "blocker")); warnings.push(...closer.filter((i) => i.level !== "blocker"));
     if (blockers.length) return { ok: false, blockers };
   }
   await c.query("begin");
@@ -129,25 +136,28 @@ export async function setCompanyMode(c: PoolClient, companyId: string, to: Mode,
     await c.query("update companies set mode=$2 where id=$1", [companyId, to]);
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'company.mode','company',$4,$2,$3)", [companyId, { mode: co.mode }, { mode: to, via, ...(cleared ? { cleared } : {}) }, companyId]);
     await c.query("commit");
-    return { ok: true, changed: true, mode: to, ...(cleared ? { cleared } : {}) };
+    return { ok: true, changed: true, mode: to, ...(cleared ? { cleared } : {}), ...(warnings.length ? { warnings } : {}) };
   } catch (e) { await c.query("rollback"); throw e; }
 }
 
-export type WorkflowModeChange = { ok: true; changed: boolean; mode: Mode | null; runs_in: Mode; cleared?: Cleared } | { ok: false; status: number; error: string; blockers?: Issue[] };
+export type WorkflowModeChange = { ok: true; changed: boolean; mode: Mode | null; runs_in: Mode; cleared?: Cleared; /** D339: what the gate says without stopping the move */ warnings?: Issue[] } | { ok: false; status: number; error: string; blockers?: Issue[] };
 /**
  * D92: a workflow's own rung, or null to follow the company again. Whatever moves its runs up into quiet or live (its own rung,
  * or back to such a company) passes the gate narrowed to this workflow and clears its runs born below, as the company's move does (D51, D132).
  * `by` is who asked, `via` the door; both go to the audit log with the rung before and after.
  */
-export async function setWorkflowMode(c: PoolClient, workflowId: string, mode: Mode | null, by: string, via: string): Promise<WorkflowModeChange> {
+export async function setWorkflowMode(c: PoolClient, workflowId: string, mode: Mode | null, by: string, via: string, adapters?: Adapters): Promise<WorkflowModeChange> {
   const w = await one<{ company_id: string; name: string; own: Mode | null; company: Mode; slug: string }>(c, "select w.company_id, w.name, w.mode as own, co.mode as company, co.slug from workflows w join companies co on co.id=w.company_id where w.id=$1", [workflowId]);
   if (!w) return { ok: false, status: 404, error: "no such workflow" };
   const from = runMode(w.company, w.own), to = runMode(w.company, mode);
   if (w.own === mode) return { ok: true, changed: false, mode, runs_in: to };
   const up = WRITES_FOR_ALL.includes(to) && rank(to) > rank(from);
+  const warnings: Issue[] = [];
   if (up) {
     const blockers = await workflowLiveBlockers(c, w.company_id, workflowId, `/app/c/${w.slug}`);
     blockers.push(...(await relianceBlockers(c, w.company_id, [workflowId], afterOwn(w.company, workflowId, mode), `/app/c/${w.slug}`)));   // D289
+    const closer = await closerFieldBlockers(c, w.company_id, [workflowId], afterOwn(w.company, workflowId, mode), `/app/c/${w.slug}`, await gateAdapters(adapters));   // D339
+    blockers.push(...closer.filter((i) => i.level === "blocker")); warnings.push(...closer.filter((i) => i.level !== "blocker"));
     if (blockers.length) return { ok: false, status: 409, error: `${w.name} is not ready to go ${to}: ${blockers.map((b) => b.text).join(" ")}`, blockers };
   }
   await c.query("begin");
@@ -158,6 +168,6 @@ export async function setWorkflowMode(c: PoolClient, workflowId: string, mode: M
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'workflow.mode','workflow',$2,$3,$4)",
       [w.company_id, workflowId, { mode: w.own, runs_in: from }, { mode, runs_in: to, by, via, ...(cleared ? { cleared } : {}) }]);
     await c.query("commit");
-    return { ok: true, changed: true, mode, runs_in: to, ...(cleared ? { cleared } : {}) };
+    return { ok: true, changed: true, mode, runs_in: to, ...(cleared ? { cleared } : {}), ...(warnings.length ? { warnings } : {}) };
   } catch (e) { await c.query("rollback"); throw e; }
 }

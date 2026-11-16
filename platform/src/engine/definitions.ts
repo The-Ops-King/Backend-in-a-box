@@ -12,6 +12,13 @@ import { chartLayoutOf, notDrawable, type Layout } from "@/api/chart-verdict";
 import { RETIRED_EVENTS } from "./describe";
 import { templates } from "@/templates";
 import { relockIfOutboundChanged } from "./send-lock";
+import { describeUnreachable, recordStarted, unreachableMatches, type UnreachableMatch } from "./match-context";
+
+/** D339: the events the offer's other workflows start from a record step (they carry the run's whole recording), with the one being saved. */
+async function recordStartedFor(c: PoolClient, companyId: string, def: Definition, except?: string): Promise<Set<string>> {
+  const rows = await many<{ definition: unknown }>(c, "select v.definition from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version where w.company_id=$1 and ($2::uuid is null or w.id<>$2)", [companyId, except ?? null]);
+  return recordStarted([def, ...rows.flatMap((r) => { const p = Definition.safeParse(r.definition); return p.success ? [p.data] : []; })]);
+}
 
 /**
  * D100: a company's whole copy of a workflow saved at once (steps added and removed, edges rewired), for onboarding a client
@@ -147,6 +154,15 @@ export async function saveDefinition(c: PoolClient, args: { workflowId: string; 
   const unset = unsetReads(v.def), added = unset.filter((u) => !had.has(`${u.node}:${u.var}`));
   if (added.length) return { ok: false, status: 422, why: `${added.map((u) => `${u.title ?? u.node} reads vars.${u.var}, which the path through ${u.missing_on} never sets`).join("; ")}: set it on that path, or give it a fallback ({{vars.${added[0].var} | default:…}})`, unset: added };
   for (const u of unset) base.warnings = [...base.warnings, `${u.title ?? u.node} reads vars.${u.var}, which the path through ${u.missing_on} never sets (already so before this change)`];
+  // D339: a trigger match reading what its event never carries is always false: the workflow never starts (TRC's Call booked matching
+  // appointment.closer, 2026-11-16). A save that adds one is refused, naming the field and the branch to use; one the saved copy already
+  // had is said (a warning), so an unrelated change to an offer's workflow still saves as before
+  const started = await recordStartedFor(c, w.company_id, v.def, w.id);
+  const key = (u: UnreachableMatch) => `${u.node}:${u.event}:${u.path}`;
+  const hadMatch = new Set((before.success ? unreachableMatches(before.data, started) : []).map(key));
+  const never = unreachableMatches(v.def, started), newNever = never.filter((u) => !hadMatch.has(key(u)));
+  if (newNever.length) return { ok: false, status: 422, why: `${newNever.length === 1 ? "a trigger's match reads" : `${newNever.length} trigger matches read`} what its event never carries, so the workflow would never start`, problems: newNever.map(describeUnreachable) };
+  for (const u of never) base.warnings = [...base.warnings, `${describeUnreachable(u)} (already so before this change)`];
   if (args.dryRun) return { ok: true, saved: false, dryRun: true, version: w.current_version + 1, ...base };
   const next = w.current_version + 1;
   await c.query("insert into workflow_versions (workflow_id, version, definition, manifest, note) values ($1,$2,$3,$4,$5)", [w.id, next, v.def, v.manifest, args.note.trim()]);
@@ -198,6 +214,8 @@ export async function createCompanyWorkflow(c: PoolClient, args: { companyId: st
   if (!v.ok) return { ok: false, status: 422, why: `the definition does not validate (${v.problems.length} problem${v.problems.length === 1 ? "" : "s"})`, problems: v.problems };
   const chart = await chartLayoutOf(v.def);
   if (chart.layout === "list") return { ok: false, status: 422, why: notDrawable(chart.problems), problems: chart.problems };
+  const never = unreachableMatches(v.def, await recordStartedFor(c, args.companyId, v.def));   // D339
+  if (never.length) return { ok: false, status: 422, why: `${never.length === 1 ? "a trigger's match reads" : `${never.length} trigger matches read`} what its event never carries, so the workflow would never start`, problems: never.map(describeUnreachable) };
   const base = { name, takesOver, missing: v.missing, warnings: v.warnings, layout: chart.layout };
   if (args.dryRun) return { ok: true, created: false, dryRun: true, ...base };
   const wf = (await one<{ id: string }>(c, `insert into workflows (company_id, name, reentry_policy, reentry_window, stage, sort, origin, takes_over) values ($1,$2,$3,$4,$5,$6,'company',$7) returning id`,

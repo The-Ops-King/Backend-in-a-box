@@ -7775,3 +7775,34 @@ The history pass writes recordings with no event (D115), so nothing could run th
   event a live delivery would have made (`recording.received` linked, `recording.unlinked` not), marked `released`, audited. Only
   the event: `/api/admin/events/replay` then runs it through the one workflow named, dry run first.
 - Refused: a recording not brought in by the history pass, or one that already has a recording event (never twice).
+
+## D339 — A match that can never hold, and a Closer GHL refuses, are stopped at save and at go-live (2026-11-16)
+
+Two things on TRC (2026-11-16) let a workflow fail silently. Call booked was saved with a trigger match on
+`{{appointment.closer.ghl_user_id}}`; a booking's match context (poll.ts, replay.ts) has no closer, so the match was always false
+and Call booked never ran. The dry run passed. Separately, TRC's Sales Call Closer field is a dropdown (`nick`, `tiffany`) and
+`sales_call.closer_options` was `{}`, so the engine wrote "Nick Rowe" and GHL refused every write ("isn't an allowed option for
+Closer"). Only the health sweep's ledger drift saw it; go-live did not. TRC itself was fixed with a branch as Call booked's first step.
+
+- The save (engine/match-context.ts, used by saveDefinition and createCompanyWorkflow): a trigger match that reads a path its event
+  never carries when it is dispatched is refused (422), naming the step, the path, what the event does carry, and the fix (a branch
+  as the first step, where the run's context has the full appointment or recording). `MATCH_CONTEXT` lists what each event carries,
+  taken from its dispatch sites; a site that starts carrying more adds it there in the same change. `event.*` is always carried. An
+  event a record step starts (D87) carries the run's whole recording. The test harness and the operator's event replay are not
+  counted: a match that holds only there never starts the workflow by itself.
+- Existing offers: a match the saved copy already had is a warning, not a refusal (as D304), so an unrelated edit to an offer's
+  workflow saves as before. Nothing about dispatch changed: a workflow saved with such a match keeps not firing until someone fixes
+  it, as it did.
+- Go-live (engine/golive-closer.ts, from setCompanyMode and setWorkflowMode beside D289): a workflow moving into quiet or live that
+  writes the Sales Call's `closer` is refused while the value the engine would write for an active roster closer is not one of the
+  field's options (key or label, any case, as D302's executor check takes them). That covers an unmapped name (TRC) and a mapped key
+  GHL doesn't have. A closer a declared map leaves out is written blank: said in the move's `warnings`, not blocking. The options are
+  read from GHL at the move, only when such a workflow moves; a failed read is a blocker, so the check never drops out quietly. The
+  readiness pages don't call GHL.
+- What this means for offers already set up: copies of Call booked and Sales call recorded from before D118 (fixtures/before-d118)
+  write the closer's name without `option:sales_call_closer`. On a dropdown whose options don't include the names, their next move up
+  is refused. Their writes would already fail there, so this only names it. Offers already live are not re-gated.
+- Tests first in match-guards.test.ts: TRC's match refused on the dry run; the recording.received closer match refused; an already
+  saved bad match still saves with a warning; every template and every frozen fixture saves; TRC's closer refused at go-live; mapped
+  closers, a names dropdown and a text field go live; a bad mapped key, a failed read and an engine that can't read are refused; a
+  workflow that doesn't write the closer never reads GHL.

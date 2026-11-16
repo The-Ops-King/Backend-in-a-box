@@ -424,7 +424,7 @@ export async function installCompany(input: InstallInput, adapters: Adapters, ty
   });
   if (input.mode && WRITES_FOR_ALL.includes(input.mode)) {
     const to = input.mode;
-    const r = await asOperator((c) => setCompanyMode(c, out.companyId, to, `/app/c/${input.slug}`, "install"));
+    const r = await asOperator((c) => setCompanyMode(c, out.companyId, to, `/app/c/${input.slug}`, "install", adapters));
     if (!r.ok) throw new Error(`Installed, but not ready to go ${to} (the company stays in its current mode): ${r.blockers.map((b) => b.text).join(" ")}`);
     if (r.cleared) return { ...out, ...(to === "live" ? { wentLive: r.cleared } : { wentQuiet: r.cleared }) };
   }
