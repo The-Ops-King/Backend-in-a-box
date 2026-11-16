@@ -151,6 +151,9 @@ describe("Whop webhook verification and parsing", () => {
     const r = parseWhopEvent({ id: "msg_3", type: "refund.created", data: { id: "rfnd_1", payment_id: "pay_9", amount: { amount: "500.00" }, created_at: "2026-02-01T00:00:00Z" } })!;
     expect(r).toMatchObject({ providerPaymentId: "rfnd_1", amount: -500, status: "refunded" });
     expect(parseWhopEvent({ id: "msg_4", type: "membership.activated", data: {} })).toBeNull();
+    // D342: accepted, not yet collected
+    const pe = parseWhopEvent({ id: "msg_5", type: "payment.pending", data: { id: "pay_11", status: "pending", substatus: "pending", total: { amount: "10000.00" }, created_at: "2026-11-16T18:00:00Z", user: { email: "razia@x.com" } } })!;
+    expect(pe).toMatchObject({ providerPaymentId: "pay_11", amount: 10000, status: "pending", email: "razia@x.com" }); expect(pe.raw).toMatchObject({ substatus: "pending" });
   });
 });
 

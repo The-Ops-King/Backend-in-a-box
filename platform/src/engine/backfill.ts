@@ -9,8 +9,8 @@ import { recordPhoneCall, recordRecording, settlePhoneCall } from "./recordings"
 import { parseFathomMeeting } from "./webhooks/fathom";
 import { outcomeTermFor } from "./disposition";
 import { rollupRange } from "./metrics";
-import { dropUnmatchedFailure, recordPayment, type PaymentInput } from "./payments";
-import { paymentInputs, whopListPayments } from "@/adapters/whop/client";
+import { dropUnmatchedFailure, recordPayment, recordPending, type PaymentInput } from "./payments";
+import { paymentInputs, pendingInput, whopListPayments } from "@/adapters/whop/client";
 import { carriesTag, inScope, scopeTag } from "./scope";
 import { objectKey } from "./sales-call";
 
@@ -22,7 +22,7 @@ import { objectKey } from "./sales-call";
  * Hair; the Whop Zap never wrote them), and the meeting recorder's recordings (D115), linked by the same ladder and emitting
  * nothing. Re-running is safe: every write is keyed on the source's id.
  */
-export type BackfillReport = { from: string; to: string; contacts: number; calls: number; callsWithTranscript: number; appointments: number; recordings: number; recordingsUnlinked: number; outcomes: number; outcomesUnmatched: number; won: number; payments: number; paymentsUnlinked: number; days: number; errors: string[] };
+export type BackfillReport = { from: string; to: string; contacts: number; calls: number; callsWithTranscript: number; appointments: number; recordings: number; recordingsUnlinked: number; outcomes: number; outcomesUnmatched: number; won: number; payments: number; paymentsUnlinked: number; paymentsPending?: number; days: number; errors: string[] };
 export type PaymentsSource = (from: Date, to: Date) => Promise<PaymentInput[]>;
 
 const OUTCOME_CATEGORY: Record<string, string> = { showed: "showed", show: "showed", no_show: "noshow", noshow: "noshow", "no-show": "noshow", cancelled: "cancelled", canceled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" };
@@ -117,7 +117,14 @@ export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company
 
   await step("payments", async () => {
     // the processor's own list (Whop API key bound), through the same ledger path as a webhook: linked by email / phone / member id, else unlinked for the dashboard to fix
-    const source = payments ?? (bindings["secret.whop_api_key"] ? async (f: Date, t: Date) => (await whopListPayments(bindings["secret.whop_api_key"], f, t)).flatMap(paymentInputs) : null);
+    // D342: one still pending in Whop is recorded as payment.pending (no money), starting nothing; a replay can run it through Payment pending
+    const whopKey = bindings["secret.whop_api_key"];
+    const raw = !payments && whopKey ? await whopListPayments(whopKey, window.from, window.to) : null;
+    for (const w of raw ?? []) {
+      const pend = pendingInput(w);
+      if (pend && (await recordPending(c, co.id, pend)).outcome === "recorded") rep.paymentsPending = (rep.paymentsPending ?? 0) + 1;
+    }
+    const source = payments ?? (raw ? async () => raw.flatMap(paymentInputs) : null);
     if (!source) return;
     for (const p of await source(window.from, window.to)) {
       if (await dropUnmatchedFailure(c, co.id, p)) continue;   // D229

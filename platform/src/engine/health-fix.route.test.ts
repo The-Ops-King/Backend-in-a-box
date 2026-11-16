@@ -1,4 +1,4 @@
-/** D341: the Health page's "Register the Whop webhook" (POST /api/v1/companies/:slug/health/fix) makes the webhook and keeps it. */
+/** D341, D342: the Health page's "Register the Whop webhook" (POST /api/v1/companies/:slug/health/fix) makes the webhook and keeps it. */
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -10,7 +10,10 @@ import { loadCompany } from "@/engine/context";
 vi.mock("@/adapters/whop/client", async (orig) => ({
   ...(await orig<typeof import("@/adapters/whop/client")>()),
   whopCreateWebhook: vi.fn(async (_key: string, url: string) => ({ id: "hook_d341", url, enabled: true, events: [], api_version: "v1", webhook_secret: "ws_d341" })),
+  whopGetWebhook: vi.fn(async () => ({ ok: true, found: true, enabled: true, events: ["payment.succeeded", "payment.failed", "refund.created"] })),
+  whopUpdateWebhook: vi.fn(async (_key: string, id: string, events: string[]) => ({ id, events, enabled: true })),
 }));
+import { whopCreateWebhook, whopUpdateWebhook } from "@/adapters/whop/client";
 import { POST as fixRoute } from "../../app/api/v1/companies/[slug]/health/fix/route";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -32,5 +35,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D341: register the Whop webhook from
     expect(bindings["whop.webhook_id"]).toBe("hook_d341");
     const audit = await asOperator((c) => one<{ target_id: string }>(c, "select target_id from audit_log where company_id=$1 and action='webhook.reregistered'", [co]));
     expect(audit?.target_id).toBe(co);
+  });
+
+  it("D342: pressed again with that webhook still at Whop, it is updated in place: every event the engine takes, the same id and secret, no second webhook", async () => {
+    const press = () => fixRoute(new Request(`http://x/api/v1/companies/${SLUG}/health/fix`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "whop" }) }), { params: Promise.resolve({ slug: SLUG }) });
+    const res = await press();
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(vi.mocked(whopCreateWebhook)).toHaveBeenCalledTimes(1);   // the first press only
+    expect(vi.mocked(whopUpdateWebhook)).toHaveBeenCalledWith("apik_fake", "hook_d341", ["payment.succeeded", "payment.failed", "refund.created", "payment.pending"]);
+    const { bindings } = await asOperator((c) => loadCompany(c, co));
+    expect([bindings["secret.whop_webhook"], bindings["whop.webhook_id"]]).toEqual(["ws_d341", "hook_d341"]);
   });
 });

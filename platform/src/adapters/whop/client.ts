@@ -1,4 +1,4 @@
-import type { PaymentInput } from "@/engine/payments";
+import type { PaymentInput, ProviderPayment } from "@/engine/payments";
 
 /**
  * Whop REST API (docs.whop.com, verified 2026-10-07 on Hair's key): base https://api.whop.com/api/v1, Bearer API key.
@@ -65,8 +65,17 @@ export function paymentInputs(p: WhopPayment): PaymentInput[] {
   return out;
 }
 
+/** D342: a Whop payment accepted and not yet collected (status or substatus "pending"), as the ledger's pending path takes it; else null. */
+export function pendingInput(p: WhopPayment): ProviderPayment | null {
+  if (p.status !== "pending" && p.substatus !== "pending") return null;
+  const total = amt(p.total) || amt(p.usd_total); if (!Number.isFinite(total)) return null;
+  const b = whopBuyer(p as unknown as Record<string, unknown>);
+  return { provider: "whop", providerPaymentId: p.id, amount: total, status: "pending", paidAt: new Date(p.created_at), currency: (p.currency ?? p.total?.currency ?? "usd").toUpperCase(),
+    email: b.email, phone: b.phone, memberId: b.memberId, raw: { billing_reason: p.billing_reason, plan_id: b.plan_id, product_id: b.product_id, ...whopNames(p as unknown as Record<string, unknown>), substatus: p.substatus, backfill: true } };
+}
+
 export type WhopWebhook = { id: string; url: string; enabled: boolean; events: string[]; api_version: string; webhook_secret: string };
-export const WHOP_EVENTS = ["payment.succeeded", "payment.failed", "refund.created"];
+export const WHOP_EVENTS = ["payment.succeeded", "payment.failed", "refund.created", "payment.pending"];   // D342: pending (accepted, not yet collected)
 export async function whopCreateWebhook(apiKey: string, url: string): Promise<WhopWebhook> {
   // `api_version` is rejected since 2026-10 ("new webhooks always use the v1 events"); payload shape is pinned with api_version_date, left unpinned here
   const res = await fetch(`${BASE}/webhooks`, { method: "POST", headers: headers(apiKey), body: JSON.stringify({ url, enabled: true, events: WHOP_EVENTS }) });
@@ -75,14 +84,23 @@ export async function whopCreateWebhook(apiKey: string, url: string): Promise<Wh
   if (!w.webhook_secret) throw new Error("whop: webhook created but no signing secret returned (the key may lack developer:manage_webhook)");
   return w;
 }
+/** D342: turn the engine's webhook on with these events, in place (PATCH /webhooks/{id}): its id and signing secret stay. */
+export async function whopUpdateWebhook(apiKey: string, id: string, events: string[]): Promise<{ id: string; events: string[]; enabled: boolean }> {
+  const res = await fetch(`${BASE}/webhooks/${encodeURIComponent(id)}`, { method: "PATCH", headers: headers(apiKey), body: JSON.stringify({ enabled: true, events }) });
+  if (!res.ok) throw new Error(`whop: update webhook ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const w = (await res.json()) as { id: string; events?: string[]; enabled?: boolean };
+  return { id: w.id, events: w.events ?? events, enabled: w.enabled !== false };
+}
+/** D342: the Whop events a workflow that is on needs beyond the ones every webhook has had (WHOP_EVENTS before D342). */
+export const WHOP_EVENT_FOR: Record<string, string> = { "payment.pending": "payment.pending" };
 /** The webhook the engine made, as Whop sees it now (D33 sweep). `found: false` on 404; `ok: false` when the key cannot read webhooks. */
-export async function whopGetWebhook(apiKey: string, id: string): Promise<{ ok: true; found: boolean; enabled?: boolean; url?: string } | { ok: false; error: string }> {
+export async function whopGetWebhook(apiKey: string, id: string): Promise<{ ok: true; found: boolean; enabled?: boolean; url?: string; events?: string[] } | { ok: false; error: string }> {
   try {
     const res = await fetch(`${BASE}/webhooks/${encodeURIComponent(id)}`, { headers: headers(apiKey) });
     if (res.status === 404) return { ok: true, found: false };
     if (!res.ok) return { ok: false, error: `${res.status} ${(await res.text()).slice(0, 160)}` };
-    const w = (await res.json()) as { enabled?: boolean; url?: string };
-    return { ok: true, found: true, enabled: w.enabled, url: w.url };
+    const w = (await res.json()) as { enabled?: boolean; url?: string; events?: string[] };
+    return { ok: true, found: true, enabled: w.enabled, url: w.url, events: Array.isArray(w.events) ? w.events : undefined };
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 160) }; }
 }
 /**

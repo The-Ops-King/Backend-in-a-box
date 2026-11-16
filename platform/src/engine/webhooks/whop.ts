@@ -1,4 +1,4 @@
-import type { PaymentInput } from "../payments";
+import type { PaymentInput, ProviderPayment } from "../payments";
 import { verifyStandardWebhook } from "./standard";
 import { whopBuyer, whopGetPayment, whopNames } from "@/adapters/whop/client";
 
@@ -13,7 +13,7 @@ const amountOf = (v: unknown): number | undefined => {
 };
 
 /** v1 envelope → what the ledger needs. Returns null for events the ledger does not record. D119 addendum: the product's and plan's names ride along in raw (`product_name`, `plan_name`). */
-export function parseWhopEvent(env: WhopEnvelope): (PaymentInput & { deliveryId: string; eventType: string }) | null {
+export function parseWhopEvent(env: WhopEnvelope): (ProviderPayment & { deliveryId: string; eventType: string }) | null {
   const d = env.data ?? {};
   const b = whopBuyer(d);
   const base = { deliveryId: env.id, eventType: env.type, provider: "whop" as const, currency: String(d.currency ?? (d.total as { currency?: string } | undefined)?.currency ?? "usd"),
@@ -24,6 +24,11 @@ export function parseWhopEvent(env: WhopEnvelope): (PaymentInput & { deliveryId:
     case "payment.succeeded": {
       const amount = amountOf(d.total) ?? amountOf(d.subtotal); if (amount === undefined) return null;
       return { ...base, providerPaymentId: String(d.id), amount, status: "succeeded", paidAt: when(d.paid_at ?? d.created_at) };
+    }
+    case "payment.pending": {
+      // D342: accepted, not yet collected (financing, a bank transfer clearing): no money in the ledger until it succeeds or fails
+      const amount = amountOf(d.total) ?? amountOf(d.subtotal); if (amount === undefined) return null;
+      return { ...base, providerPaymentId: String(d.id), amount, status: "pending", paidAt: when(d.created_at), raw: { ...base.raw, substatus: d.substatus } };
     }
     case "payment.failed": {
       const amount = amountOf(d.total) ?? amountOf(d.subtotal) ?? 0;
@@ -45,7 +50,7 @@ export function parseWhopEvent(env: WhopEnvelope): (PaymentInput & { deliveryId:
  * is left alone (it links through the payment it reverses). When Whop cannot be read the payment goes in as it came, and
  * unlinked it is the team's, as before; `raw.buyer_lookup` says why.
  */
-export async function fillWhopBuyer<T extends PaymentInput>(p: T, apiKey: string | undefined, get: typeof whopGetPayment = whopGetPayment): Promise<T> {
+export async function fillWhopBuyer<T extends ProviderPayment>(p: T, apiKey: string | undefined, get: typeof whopGetPayment = whopGetPayment): Promise<T> {
   if (p.status === "refunded" || p.email || p.phone || p.memberId) return p;
   if (!apiKey) return { ...p, raw: { ...p.raw, buyer_lookup: "no buyer in the webhook and no Whop API key bound" } };
   try {

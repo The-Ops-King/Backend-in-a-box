@@ -132,4 +132,8 @@ export const MIGRATIONS: Migration[] = [
   { id: "0015-deal-price-source", run: async (c) => {
     await c.query("alter table opportunities add column if not exists price_source text");
   } },
+  // D342: a payment the processor accepted and has not collected (Whop's payment.pending), and the moment it cleared or failed
+  { id: "0016-payment-pending", run: async (c) => {
+    await c.query("insert into event_types values ('payment.pending','payment'), ('payment.pending_resolved','payment') on conflict do nothing");
+  } },
 ];

@@ -13,7 +13,7 @@ import { ghlCalendarTeam, ghlFreeSlots, ghlLocationOk } from "@/adapters/ghl/hea
 import { calendlyWhoAmI } from "@/adapters/calendly/read";
 import { calendlyAvailableTimes, calendlyBusyTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, type CalendlyHost, type CalendlySchedule } from "@/adapters/calendly/health";
 import { formatAvailability } from "./bot-format";
-import { whopGetWebhook, whopPing } from "@/adapters/whop/client";
+import { WHOP_EVENT_FOR, whopGetWebhook, whopPing } from "@/adapters/whop/client";
 import { fathomListWebhooks, fathomPing } from "@/adapters/fathom/client";
 import { anthropicPing } from "@/adapters/anthropic/health";
 import { jevPing } from "@/adapters/jev/classifier";
@@ -193,11 +193,20 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
   // Whop
   if (on("whop_key") && bindings["secret.whop_api_key"]) { if (await probes.whopPing(bindings["secret.whop_api_key"])) ok("whop_key", "Key reads payments."); else bad("whop_key", "error", "Whop API key rejected (or lost payment:basic:read)."); }
   if (on("whop_webhook") && bindings["secret.whop_api_key"] && bindings["whop.webhook_id"]) {
+    // D342: what the workflows that are on start on (their triggers), to hold the webhook's events to
+    const onEvents = new Set((await many<{ e: string }>(c, `select distinct n->>'event' as e from workflows w join workflow_versions v on v.workflow_id=w.id and v.version=w.current_version,
+      jsonb_array_elements(v.definition->'nodes') n where w.company_id=$1 and w.enabled and n->>'type'='trigger'`, [company.id])).map((r) => r.e));
     const r = await probes.whopGetWebhook(bindings["secret.whop_api_key"], bindings["whop.webhook_id"]);
     if (!r.ok) bad("whop_webhook", "warning", `Cannot read the Whop webhook: ${r.error}`);
     else if (!r.found) bad("whop_webhook", "error", `The Whop payment webhook (${bindings["whop.webhook_id"]}) no longer exists. Payments will stop arriving.`, undefined, undefined, { label: "Re-register the Whop webhook", action: "reregister_whop" });
     else if (r.enabled === false) bad("whop_webhook", "error", `The Whop payment webhook is disabled.`, undefined, undefined, { label: "Re-register the Whop webhook", action: "reregister_whop" });
-    else ok("whop_webhook", `Webhook ${bindings["whop.webhook_id"]} is registered and enabled.`);
+    else {
+      // D342: a workflow that is on and starts on an event Whop only sends when asked (payment.pending): the webhook must ask for it
+      const needed = Object.entries(WHOP_EVENT_FOR).filter(([ev]) => onEvents.has(ev)).map(([, w]) => w);
+      const lacking = r.events ? needed.filter((e) => !r.events!.includes(e)) : [];
+      if (lacking.length) bad("whop_webhook", "error", `The Whop payment webhook does not send ${lacking.join(", ")}, which a workflow that is on starts on.`, undefined, undefined, { label: "Update the Whop webhook", action: "reregister_whop" });
+      else ok("whop_webhook", `Webhook ${bindings["whop.webhook_id"]} is registered and enabled.`);
+    }
   }
   // D340 (TRC, 2026-11-16): a key saved with no webhook made from it (the key pasted on Connections, which registers nothing) looked
   // connected while no payment ever arrived. A signing secret bound by hand (an install's whop.webhookSecret) is a webhook too.

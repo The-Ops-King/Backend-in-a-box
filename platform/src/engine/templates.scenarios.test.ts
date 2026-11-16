@@ -9,6 +9,7 @@ import { installCompany } from "@/engine/install";
 import { emitEvent, dispatchEvent } from "@/engine/dispatch";
 import { applyAppointment } from "@/engine/poll";
 import { applyPayment } from "@/engine/lifecycle";
+import { recordPayment, recordPending } from "@/engine/payments";
 import { recordDisposition } from "@/engine/disposition";
 import { loadCompany } from "@/engine/context";
 import { tick } from "@/engine/runner";
@@ -217,6 +218,49 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     const slack = await asOperator((c) => one<{ status: string; suppressed_reason: string; rendered_body: string }>(c, "select status, suppressed_reason, rendered_body from sends where run_id=$1 and channel='slack'", [r.id]));
     expect(slack?.status).toBe("suppressed"); expect(slack?.suppressed_reason).toMatch(/unbound: slack/);
     expect(slack?.rendered_body).toMatch(/^\*Payment failed:\* \$2,500/); expect(slack?.rendered_body).toMatch(/\*Closer:\* /);
+  });
+
+  it("D342 payment-pending: posted and tagged pay-pending; cleared or failed it says so under the post and takes the tag off; still pending after 7 days the team is told; a repeat or a settled one starts nothing", async () => {
+    const id = await newContact("CPEND", "pend@x.com");
+    const pend = (pid: string) => ({ provider: "whop", providerPaymentId: pid, amount: 10000, currency: "USD", status: "pending" as const, paidAt: new Date(), email: "pend@x.com", raw: { product_name: "Mastermind" } });
+    const start = async (pid: string) => {
+      const r = await asOperator((c) => recordPending(c, companyId, pend(pid)));
+      expect(r.outcome).toBe("recorded"); if (r.outcome !== "recorded") throw new Error("not recorded");
+      expect(r.contactId).toBe(id);
+      await asOperator((c) => dispatchEvent(c, r.event, { contact: { id } }));
+      const n = since(), nt = tags.length; await tick(fake, undefined, companyId);
+      expect(sent.slice(n)).toEqual([]);   // nothing to the client
+      expect(tags.slice(nt)).toEqual(["pay-pending"]);
+      const run = (await runsFor("payment-pending")).find((x) => x.status === "waiting" && x.current_node === "w1")!;
+      const posts = (await asOperator((c) => many<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]))).map((x) => x.rendered_body);
+      expect(posts).toHaveLength(1); expect(posts[0]).toMatch(/^\*Payment pending:\* \$10,000\n/); expect(posts[0]).toMatch(/\*Product:\* Mastermind/);
+      return run.id;
+    };
+    const exitOf = async (runId: string) => (await runsFor("payment-pending")).find((x) => x.id === runId)!;
+
+    // cleared
+    const r1 = await start("pay_pend1");
+    expect((await asOperator((c) => recordPending(c, companyId, pend("pay_pend1")))).outcome).toBe("duplicate");
+    let nr = removedTags.length;
+    await asOperator((c) => recordPayment(c, companyId, { ...pend("pay_pend1"), status: "succeeded" }));
+    await tick(fake, undefined, companyId);
+    expect((await exitOf(r1)).exit_reason).toBe("cleared"); expect(removedTags.slice(nr)).toContain("pay-pending");
+    expect((await asOperator((c) => recordPending(c, companyId, pend("pay_pend1")))).outcome).toBe("settled");   // already in the ledger
+
+    // failed
+    const r2 = await start("pay_pend2");
+    nr = removedTags.length;
+    await asOperator((c) => recordPayment(c, companyId, { ...pend("pay_pend2"), status: "failed" }));
+    await tick(fake, undefined, companyId);
+    expect((await exitOf(r2)).exit_reason).toBe("failed"); expect(removedTags.slice(nr)).toContain("pay-pending");
+
+    // still pending after 7 days
+    const r3 = await start("pay_pend3");
+    await asOperator((c) => c.query("update runs set next_run_at=now(), context = jsonb_set(context, '{vars,__wait_for_event,w1,until}', to_jsonb($2::text), true) where id=$1", [r3, new Date(Date.now() - 60e3).toISOString()]));
+    await tick(fake, undefined, companyId);
+    const stuck = await exitOf(r3); expect(stuck.exit_reason).toBe("still pending");
+    const bodies = (await asOperator((c) => many<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [r3]))).map((x) => x.rendered_body);
+    expect(bodies.filter((b) => /^\*Still pending after 7 days:\* \$10,000 from /.test(b))).toHaveLength(1);
   });
 
   it("reactivation: tag starts the sequence; a second tag inside 90 days is blocked", async () => {

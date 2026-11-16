@@ -1,7 +1,7 @@
 import { asOperator, one } from "@/db/client";
 import { liveAdapters } from "@/adapters";
 import { loadCompany } from "@/engine/context";
-import { dropUnmatchedFailure, recordPayment } from "@/engine/payments";
+import { dropUnmatchedFailure, recordPayment, recordPending, type PaymentInput } from "@/engine/payments";
 import { dispatchEvent } from "@/engine/dispatch";
 import { fillWhopBuyer, parseWhopEvent, verifyWhopSignature, type WhopEnvelope } from "@/engine/webhooks/whop";
 import { respondAndRun } from "@/api/run-soon";
@@ -26,10 +26,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ company
     if (!first) return respondAndRun(companyId, { ok: true, duplicate_delivery: true });
     const parsed = parseWhopEvent(env);
     if (!parsed) return respondAndRun(companyId, { ok: true, ignored: env.type });
-    const p = await fillWhopBuyer(parsed, bindings["secret.whop_api_key"]);   // D229: a webhook with no buyer is read back from Whop's API
+    const pp = await fillWhopBuyer(parsed, bindings["secret.whop_api_key"]);   // D229: a webhook with no buyer is read back from Whop's API
+    const ghl = { ac: adapterCompany, adapters: liveAdapters, bindings, tz: row.timezone };
+    // D342: a payment accepted and not yet collected is news, not money: payment.pending about its buyer, nothing in the ledger
+    if (pp.status === "pending") {
+      const r = await recordPending(c, companyId, pp, { ghl });
+      if (r.outcome !== "recorded") return respondAndRun(companyId, { ok: true, pending: r.outcome });
+      const started = r.contactId ? await dispatchEvent(c, r.event, { contact: { id: r.contactId } }) : [];
+      return respondAndRun(companyId, { ok: true, pending: "recorded", event: r.event.id, matched: !!r.contactId, runs_started: started.length });
+    }
+    const p = pp as PaymentInput;
     const dropped = await dropUnmatchedFailure(c, companyId, p);   // D229
     if (dropped) return respondAndRun(companyId, { ok: true, ignored: dropped });
-    const r = await recordPayment(c, companyId, p, undefined, { ghl: { ac: adapterCompany, adapters: liveAdapters, bindings, tz: row.timezone } });   // D270: GHL decides the buyer and what they paid
+    const r = await recordPayment(c, companyId, p, undefined, { ghl });   // D270: GHL decides the buyer and what they paid
     if (r.outcome === "duplicate") return respondAndRun(companyId, { ok: true, duplicate: true, payment: r.payment.id });
     if (r.outcome === "skipped") return respondAndRun(companyId, { ok: true, ignored: r.why });   // D270
     if (r.outcome === "unlinked") {

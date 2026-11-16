@@ -376,6 +376,8 @@ export async function recordPayment(c: PoolClient, companyId: string, input: Pay
     const prior = (await one<PaymentRow>(c, "select * from payments where company_id=$1 and provider=$2 and whop_payment_id=$3", [companyId, provider, input.providerPaymentId]))!;
     return { outcome: "duplicate", payment: prior };
   }
+  // D342: a payment that came in pending earlier has now cleared or failed: its wait (Payment pending) wakes on this
+  if (input.status !== "refunded") await resolvePending(c, companyId, input.providerPaymentId, input.status, Number(input.amount));
   // D119 addendum: a new payment without its product's or plan's name gets them from Whop (flagged and alerted when it cannot), so its kind can be told by the name
   const named = await nameThePayment(c, companyId, inserted, await companyDepositProducts(c, companyId));
   if (named) { await c.query("update payments set raw=$2 where id=$1", [inserted.id, named]); inserted.raw = named; }
@@ -435,3 +437,35 @@ export async function linkPicked(c: PoolClient, companyId: string, paymentId: st
 }
 
 export const unlinkedPayments = (c: PoolClient, companyId: string) => many<PaymentRow>(c, "select * from payments where company_id=$1 and link_status='unlinked' order by paid_at desc", [companyId]);
+
+/** D342: what a processor reports about one payment, a pending one included (Whop's payment.pending: accepted, not yet collected). */
+export type ProviderPayment = Omit<PaymentInput, "status"> & { status: PaymentInput["status"] | "pending" };
+export type PendingResult = { outcome: "settled" | "duplicate" } | { outcome: "recorded"; event: EventRow; contactId: string | null };
+
+/**
+ * D342: a payment accepted and not yet collected. Nothing goes in the ledger (no money has moved): `payment.pending` is written once
+ * per processor payment, about the buyer the ledger's ladder finds (GHL first when the offer's GHL is given, as recordPayment does),
+ * or about nobody when none is found. One that has already cleared or failed (its row is in the ledger) writes nothing.
+ */
+export async function recordPending(c: PoolClient, companyId: string, input: ProviderPayment, opts: { ghl?: GhlPay } = {}): Promise<PendingResult> {
+  const provider = input.provider ?? "whop";
+  if (await one(c, "select 1 from payments where company_id=$1 and provider=$2 and whop_payment_id=$3", [companyId, provider, input.providerPaymentId])) return { outcome: "settled" };
+  if (await one(c, "select 1 from events where company_id=$1 and event_type='payment.pending' and data->>'provider_payment_id'=$2", [companyId, input.providerPaymentId])) return { outcome: "duplicate" };
+  const who = { email: input.email, phone: input.phone, memberId: input.memberId };
+  const match = opts.ghl ? await resolvePayerGhl(c, companyId, opts.ghl, who, await cashRecords(opts.ghl)) : await resolvePayer(c, companyId, who);
+  const raw = input.raw ?? {};
+  const event = await emitEvent(c, { company_id: companyId, contact_id: match?.contactId ?? null, opportunity_id: null, appointment_id: null, event_type: "payment.pending", source: provider, occurred_at: input.paidAt,
+    data: { provider_payment_id: input.providerPaymentId, amount: Number(input.amount), currency: (input.currency ?? "USD").toUpperCase(), pending_at: input.paidAt.toISOString(),
+      customer_email: normEmail(input.email) ?? null, customer_phone: input.phone?.trim() || null, whop_member_id: input.memberId ?? null,
+      product_name: raw.product_name ?? null, plan_name: raw.plan_name ?? null, substatus: raw.substatus ?? null } });
+  return { outcome: "recorded", event, contactId: match?.contactId ?? null };
+}
+
+/** D342: the pending payment with this id (if one was reported) has cleared or failed: `payment.pending_resolved`, once, about the same person. */
+async function resolvePending(c: PoolClient, companyId: string, providerPaymentId: string, status: "succeeded" | "failed", amount: number): Promise<void> {
+  const pending = await one<{ contact_id: string | null }>(c, "select contact_id from events where company_id=$1 and event_type='payment.pending' and data->>'provider_payment_id'=$2 order by id limit 1", [companyId, providerPaymentId]);
+  if (!pending) return;
+  if (await one(c, "select 1 from events where company_id=$1 and event_type='payment.pending_resolved' and data->>'provider_payment_id'=$2", [companyId, providerPaymentId])) return;
+  await emitEvent(c, { company_id: companyId, contact_id: pending.contact_id, opportunity_id: null, appointment_id: null, event_type: "payment.pending_resolved", source: "engine",
+    data: { provider_payment_id: providerPaymentId, status, amount } });
+}

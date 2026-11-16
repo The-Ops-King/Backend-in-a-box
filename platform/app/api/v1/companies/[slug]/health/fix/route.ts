@@ -4,7 +4,7 @@ import { fail, ok, readJson } from "@/api/http";
 import { loadCompany } from "@/engine/context";
 import { setBinding } from "@/engine/settings";
 import { fathomCreateWebhook } from "@/adapters/fathom/client";
-import { whopCreateWebhook } from "@/adapters/whop/client";
+import { WHOP_EVENTS, whopCreateWebhook, whopGetWebhook, whopUpdateWebhook } from "@/adapters/whop/client";
 import { fireNow, workflowWithStep } from "@/engine/clock";
 import { registerTypeform } from "@/engine/typeform";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const { bindings } = await loadCompany(c, co.id);
     try {
       let note: string;
-      if (provider === "whop") { if (!bindings["secret.whop_api_key"]) throw new Error("no Whop API key"); const hook = await whopCreateWebhook(bindings["secret.whop_api_key"], `${base}/api/webhooks/whop/${co.id}`); await setBinding(c, co.id, "secret.whop_webhook", "secret", hook.webhook_secret); await setBinding(c, co.id, "whop.webhook_id", "id", hook.id); note = `Whop webhook re-registered (${hook.id}).`; }
+      // D342: a webhook the engine bound that Whop still has is turned on with every event the engine takes, in place (its secret stays, no second webhook)
+      const existing = provider === "whop" && bindings["secret.whop_api_key"] && bindings["whop.webhook_id"] && bindings["secret.whop_webhook"] ? await whopGetWebhook(bindings["secret.whop_api_key"], bindings["whop.webhook_id"]) : null;
+      if (existing?.ok && existing.found) { const hook = await whopUpdateWebhook(bindings["secret.whop_api_key"], bindings["whop.webhook_id"], [...new Set([...(existing.events ?? []), ...WHOP_EVENTS])]); note = `Whop webhook updated (${hook.id}): on, sending ${hook.events.join(", ")}.`; }
+      else if (provider === "whop") { if (!bindings["secret.whop_api_key"]) throw new Error("no Whop API key"); const hook = await whopCreateWebhook(bindings["secret.whop_api_key"], `${base}/api/webhooks/whop/${co.id}`); await setBinding(c, co.id, "secret.whop_webhook", "secret", hook.webhook_secret); await setBinding(c, co.id, "whop.webhook_id", "id", hook.id); note = `Whop webhook re-registered (${hook.id}).`; }
       // D122: the same tag and secret go back on every mapped form (a PUT replaces whatever Typeform holds under the tag)
       else if (provider === "typeform") { const lines = await registerTypeform(co.id, co.slug, bindings, (k, kind, v) => setBinding(c, co.id, k, kind, v)); note = `Typeform: ${lines.join("; ")}.`; }
       else { if (!bindings["secret.fathom_api_key"]) throw new Error("no Fathom API key"); const hook = await fathomCreateWebhook(bindings["secret.fathom_api_key"], `${base}/api/webhooks/fathom/${co.id}`); await setBinding(c, co.id, "secret.fathom_webhook", "secret", hook.secret); await setBinding(c, co.id, "fathom.webhook_id", "id", hook.id); note = `Fathom webhook re-registered (${hook.id}).`; }

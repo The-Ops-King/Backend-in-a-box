@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one, many } from "@/db/client";
 import { migrate } from "@/db/migrate";
-import { recordPayment, dropUnmatchedFailure } from "./payments";
+import { recordPayment, dropUnmatchedFailure, type PaymentInput } from "./payments";
 import { fillWhopBuyer, parseWhopEvent } from "./webhooks/whop";
 import { relinkWhopBuyers } from "./whop-relink";
 import { whopBuyer } from "@/adapters/whop/client";
@@ -48,7 +48,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D229: relinking payments stuck witho
   it("dry run says who each links to and changes nothing; applied, both link to her oldest first with no workflow started, and a buyer nobody has stays unlinked", async () => {
     for (const [id, amt, prod] of [["pay_250", "250.00", "Beauty Moguls Method"], ["pay_9750", "9750.00", undefined], ["pay_other", "100.00", undefined]] as const) {
       const p = parseWhopEvent({ ...live(id, amt, prod), data: { ...live(id, amt, prod).data, paid_at: id === "pay_9750" ? "2026-10-23T00:04:34Z" : "2026-10-22T19:25:41Z" } })!;
-      expect((await asOperator((c) => recordPayment(c, companyId, p))).outcome).toBe("unlinked");
+      expect((await asOperator((c) => recordPayment(c, companyId, p as PaymentInput))).outcome).toBe("unlinked");
     }
     const get = async (k: string, id: string) => id === "pay_other" ? { id, customer_email: "stranger@x.com" } : whop("JEN@x.com")(k, id);
     const dry = await asOperator((c) => relinkWhopBuyers(c, companyId, "apik_x", { dryRun: true, get }));
@@ -70,7 +70,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D229: relinking payments stuck witho
 
   it("a person's pick links a payment the ladder cannot place, only the payments named are touched, and the picked person keeps Whop's email", async () => {
     const kim = (await asOperator((c) => one<{ id: string }>(c, "insert into contacts (company_id, ghl_contact_id, first_name) values ($1,'GK','Kim') returning id", [companyId])))!.id;
-    for (const id of ["pay_kim", "pay_left"]) await asOperator((c) => recordPayment(c, companyId, parseWhopEvent(live(id, "500.00"))!));
+    for (const id of ["pay_kim", "pay_left"]) await asOperator((c) => recordPayment(c, companyId, parseWhopEvent(live(id, "500.00"))! as PaymentInput));
     const get = async (_k: string, id: string) => ({ id, customer_email: id === "pay_kim" ? "kim.other@x.com" : "left@x.com" });
     const dry = await asOperator((c) => relinkWhopBuyers(c, companyId, "apik_x", { dryRun: true, pick: { pay_kim: kim }, get }));
     expect(dry.map((r) => [r.whop_payment_id, r.links_to?.by])).toEqual([["pay_kim", "manual"]]);
