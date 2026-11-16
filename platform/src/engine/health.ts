@@ -199,6 +199,11 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
     else if (r.enabled === false) bad("whop_webhook", "error", `The Whop payment webhook is disabled.`, undefined, undefined, { label: "Re-register the Whop webhook", action: "reregister_whop" });
     else ok("whop_webhook", `Webhook ${bindings["whop.webhook_id"]} is registered and enabled.`);
   }
+  // D340 (TRC, 2026-11-16): a key saved with no webhook made from it (the key pasted on Connections, which registers nothing) looked
+  // connected while no payment ever arrived. A signing secret bound by hand (an install's whop.webhookSecret) is a webhook too.
+  else if (on("whop_webhook") && bindings["secret.whop_api_key"] && !bindings["secret.whop_webhook"]) {
+    bad("whop_webhook", "error", "A Whop API key is saved but no payment webhook is registered: no payment reaches the engine.", undefined, undefined, { label: "Register the Whop webhook", action: "reregister_whop" });
+  }
 
   // Fathom
   if (on("fathom_key") && bindings["secret.fathom_api_key"]) {
