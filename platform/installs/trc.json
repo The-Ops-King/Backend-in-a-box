@@ -1,5 +1,5 @@
 {
-  "_note": "TRC (Tiffany Rose Coaching) install file. No secrets: the GHL PIT and the Whop key are pasted by Tyler on the company's Settings/Connections page and read from the stored bindings (install.ts: pit omitted -> secret.ghl_pit). GHL side built by scripts/provision-ghl.ts from installs/trc/ghl-setup.json (2026-11-08). Setter + closer boards (playbook setter-closer). scopeTag trc-lead: TRC's location holds ~46k webinar contacts; only contacts tagged trc-lead (ad opt-ins asking for a call, later the Typeform) or booked on TRC's calendars are the company's. Calendars (Tyler, 2026-11-13): Leap Welcome Calls + its Reschedule calendar are the closing call; only bookings assigned to Nick or Tiffany go through: a branch as the first step of TRC's Call booked and Sales call recorded (v4, 2026-11-16; a trigger's match only sees the booking's call type, time and status, not its closer, so a closer condition there never matches). Sales Call Closer dropdown keys: nick, tiffany (sales_call.closer_options; without it the engine writes the name, which GHL refuses); Tiffany is not a closer, so no end of day for her. Closer: Nick (nick@tiffanyrosecoaching.com, a GHL user). Runs in ghost, every workflow off.",
+  "_note": "TRC (Tiffany Rose Coaching) install file. No secrets: the GHL PIT and the Whop key are pasted by Tyler on the company's Settings/Connections page and read from the stored bindings (install.ts: pit omitted -> secret.ghl_pit). GHL side built by scripts/provision-ghl.ts from installs/trc/ghl-setup.json (2026-11-08). Setter + closer boards (playbook setter-closer). scopeTag trc-lead: TRC's location holds ~46k webinar contacts; only contacts tagged trc-lead (ad opt-ins asking for a call, later the Typeform) or booked on TRC's calendars are the company's. Calendars (Tyler, 2026-11-13): Leap Welcome Calls + its Reschedule calendar are the closing call; Nick gets everything (Call booked, Sales call recorded, Call outcome filed, end of day); Tiffany (the owner, taking calls for now) gets the booking alert only: no Sales Call, cards, call review or end of day (Tyler, 2026-11-16). Both are a branch as the first step of TRC's own copies (Call booked v5, Sales call recorded v5, Call outcome filed v2; a trigger's match only sees the booking's call type, time and status, not its closer, so a closer condition there never matches). Sales Call Closer dropdown keys: nick, tiffany (sales_call.closer_options; without it the engine writes the name, which GHL refuses); Tiffany is not a closer, so no end of day for her. Closer: Nick (nick@tiffanyrosecoaching.com, a GHL user). Runs in ghost, every workflow off.",
   "name": "TRC",
   "slug": "trc",
   "timezone": "America/Los_Angeles",
@@ -118,5 +118,8 @@
       "term": "closing",
       "name": "Leap Welcome Call"
     }
+  },
+  "slackUsers": {
+    "nick@tiffanyrosecoaching.com": "U0CEZF9HN3U"
   }
 }
