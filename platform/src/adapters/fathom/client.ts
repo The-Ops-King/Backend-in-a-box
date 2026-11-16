@@ -16,6 +16,13 @@ export async function fathomCreateWebhook(apiKey: string, destinationUrl: string
   if (!res.ok) throw new Error(`fathom: create webhook ${res.status} ${(await res.text()).slice(0, 200)}`);
   return (await res.json()) as FathomWebhook;
 }
+/** D336: remove a webhook the key made. 204 (or 404: already gone) is done; anything else throws with Fathom's words. */
+export async function fathomDeleteWebhook(apiKey: string, id: string): Promise<"deleted" | "already gone"> {
+  const res = await fetch(`${BASE}/webhooks/${encodeURIComponent(id)}`, { method: "DELETE", headers: headers(apiKey) });
+  if (res.status === 404) return "already gone";
+  if (!res.ok) throw new Error(`fathom: delete webhook ${res.status} ${(await res.text()).slice(0, 160)}`);
+  return "deleted";
+}
 /** The webhooks registered on this key (D33 sweep). `null` when the API has no listing (then the sweep falls back to delivery age). */
 export async function fathomListWebhooks(apiKey: string): Promise<{ id: string; url?: string; destination_url?: string }[] | null> {
   const res = await fetch(`${BASE}/webhooks`, { headers: headers(apiKey) });

@@ -7743,3 +7743,15 @@ Judith's calendars got no booking posts and no pre-call reminders. When they wer
   "Triage call"; the calls ahead are handed to their workflows by replay-bookings.
 - So it cannot happen again: a calendar watched by kind alone takes the call type the offer's other calendars of that kind use;
   two in use and none named is refused ("say which"). A calendar already watched changes type only when one is named.
+
+## D336 — A new Fathom key brings its own webhook (2026-11-16)
+
+Tyler asked for Nelly's Fathom key to be the team account's (admin@nellysudri.com, which sees Taylor's and Judith's calls) in place
+of Nelly's own Gmail account (which saw only hers). There was no way to change a Fathom key after install, and a Fathom webhook
+belongs to the key that made it: a key changed alone leaves recordings arriving through the old user's webhook, or none.
+
+- `POST /api/admin/fathom/key { company, key, dryRun = true }` (engine/fathom-key.ts): the key is tested live (one page of
+  meetings); a refused, short or unchanged key changes nothing. Then a webhook is made on the new key, the key, its webhook secret
+  and id are bound, and only then is the old webhook removed with the old key (no gap). If Fathom won't remove the old one the new
+  key stays and the result says so. Audited (`fathom.key_replaced`, the key's last 4 only); the key never comes back.
+- One offer per call, as every key change.
