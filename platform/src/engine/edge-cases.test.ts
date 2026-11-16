@@ -325,6 +325,10 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
   it("a call booked three minutes out: the day-one messages are skipped as stale, nothing fails; the reply wait does not outlive the call (D58), so the run moves on: every reminder is stale but the 10-minute text, which goes, and the run completes", async () => {
     const id = await newContact("CE11", "e11@x.com", "+16025550011");
     const s = snap("AE11", "CE11", DateTime.now().plus({ minutes: 3 }));
+    // the 10-minute text is about how close the call is, not the hour: the send window is the whole day here, or before 7 AM it is held and this fails
+    const was = (await asOperator((c) => one<{ s: string; e: string }>(c, "select send_window_start::text s, send_window_end::text e from companies where id=$1", [companyId])))!;
+    await asOperator((c) => c.query("update companies set send_window_start='00:00', send_window_end='23:59' where id=$1", [companyId]));
+    try {
     await book(s);
     const n = sent.length;
     await tick(fake, undefined, companyId);
@@ -334,6 +338,7 @@ describe.skipIf(!HAS_DB)("edge cases", () => {
     expect(Object.fromEntries(steps.map((x) => [x.node_id, x.status]))).toEqual({ e1: "stale", s1: "stale", m72: "stale", m48: "stale", m24e: "stale", m24s: "stale", m1: "stale", m10: "ok" });
     expect(sent.slice(n).map((x) => x.body)).toEqual([expect.stringMatching(/10-minute text/)]);   // the one reminder with no validity rule: it always goes
     expect(tags).toContain("stat-unconfirmed");
+    } finally { await asOperator((c) => c.query("update companies set send_window_start=$2, send_window_end=$3 where id=$1", [companyId, was.s, was.e])); }
   });
 
   it("placeholder copy at go-live time is a warning, not a blocker: readiness names the workflow and the count", async () => {
