@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       // D122: the same tag and secret go back on every mapped form (a PUT replaces whatever Typeform holds under the tag)
       else if (provider === "typeform") { const lines = await registerTypeform(co.id, co.slug, bindings, (k, kind, v) => setBinding(c, co.id, k, kind, v)); note = `Typeform: ${lines.join("; ")}.`; }
       else { if (!bindings["secret.fathom_api_key"]) throw new Error("no Fathom API key"); const hook = await fathomCreateWebhook(bindings["secret.fathom_api_key"], `${base}/api/webhooks/fathom/${co.id}`); await setBinding(c, co.id, "secret.fathom_webhook", "secret", hook.secret); await setBinding(c, co.id, "fathom.webhook_id", "id", hook.id); note = `Fathom webhook re-registered (${hook.id}).`; }
-      await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'webhook.reregistered','company',$1,$2)", [co.id, { provider, note }]);
+      await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'webhook.reregistered','company',$2,$3)", [co.id, co.id, { provider, note }]);   // D341: $1 was both company_id (uuid) and target_id (text)
       const wf = await workflowWithStep(c, co.id, "health_check");
       if (wf?.enabled) { const r = await fireNow(c, co.id, wf.id); if (r.started.length) note += " Sweeping again now."; }
       return ok({ ok: true, note });
