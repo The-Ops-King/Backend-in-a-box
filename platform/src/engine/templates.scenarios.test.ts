@@ -232,8 +232,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
       expect(sent.slice(n)).toEqual([]);   // nothing to the client
       expect(tags.slice(nt)).toEqual(["pay-pending"]);
       const run = (await runsFor("payment-pending")).find((x) => x.status === "waiting" && x.current_node === "w1")!;
-      const post = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack' order by id limit 1", [run.id]));
-      expect(post?.rendered_body).toMatch(/^\*Payment pending:\* \$10,000\n/); expect(post?.rendered_body).toMatch(/\*Product:\* Mastermind/);
+      const posts = (await asOperator((c) => many<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [run.id]))).map((x) => x.rendered_body);
+      expect(posts).toHaveLength(1); expect(posts[0]).toMatch(/^\*Payment pending:\* \$10,000\n/); expect(posts[0]).toMatch(/\*Product:\* Mastermind/);
       return run.id;
     };
     const exitOf = async (runId: string) => (await runsFor("payment-pending")).find((x) => x.id === runId)!;
@@ -259,8 +259,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => c.query("update runs set next_run_at=now(), context = jsonb_set(context, '{vars,__wait_for_event,w1,until}', to_jsonb($2::text), true) where id=$1", [r3, new Date(Date.now() - 60e3).toISOString()]));
     await tick(fake, undefined, companyId);
     const stuck = await exitOf(r3); expect(stuck.exit_reason).toBe("still pending");
-    const alert = await asOperator((c) => one<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack' order by id desc limit 1", [r3]));
-    expect(alert?.rendered_body).toMatch(/^\*Still pending after 7 days:\* \$10,000 from /);
+    const bodies = (await asOperator((c) => many<{ rendered_body: string }>(c, "select rendered_body from sends where run_id=$1 and channel='slack'", [r3]))).map((x) => x.rendered_body);
+    expect(bodies.filter((b) => /^\*Still pending after 7 days:\* \$10,000 from /.test(b))).toHaveLength(1);
   });
 
   it("reactivation: tag starts the sequence; a second tag inside 90 days is blocked", async () => {
