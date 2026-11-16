@@ -7806,3 +7806,18 @@ Closer"). Only the health sweep's ledger drift saw it; go-live did not. TRC itse
   saved bad match still saves with a warning; every template and every frozen fixture saves; TRC's closer refused at go-live; mapped
   closers, a names dropdown and a text field go live; a bad mapped key, a failed read and an engine that can't read are refused; a
   workflow that doesn't write the closer never reads GHL.
+
+## D340 — A Whop key with no webhook is not "connected", and the health check offers to register it (2026-11-16)
+
+TRC had its Whop API key saved (pasted on Connections, which registers nothing) and no webhook. Readiness counted the key alone as
+Whop connected, and the health check looked at the webhook only when one had been registered, so the payment workflows looked ready
+while no payment could ever reach the engine. The only paths that made the webhook were an install handed the raw key, or the Health
+page's re-register button, which showed only for a webhook that had existed.
+
+- Readiness (engine/readiness.ts): Whop counts as a connected payment source only with its webhook signing secret bound
+  (`secret.whop_webhook`), or Commas' key. A key alone is not a source.
+- Health (engine/health.ts, check `whop_webhook`): a key with no webhook signing secret is an error, "A Whop API key is saved but no
+  payment webhook is registered", with the same fix as a lost webhook (`reregister_whop`: the Health page's button, which makes the
+  webhook from the stored key and binds its secret and id). A secret bound by hand counts as a webhook.
+- Existing offers: no workflow changes. On 2026-11-16 only TRC had a key without a webhook (PMU and Hair have theirs; Nelly has no
+  Whop), so only TRC gets the new finding.

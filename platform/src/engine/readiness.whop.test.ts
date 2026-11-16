@@ -51,11 +51,19 @@ describe.skipIf(!process.env.DATABASE_URL)("D128: payment workflows need Whop", 
     await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='secret.commas_api_key'", [co]));
   });
 
-  it("a Whop webhook secret or an API key connects it", async () => {
+  it("D340: an API key alone does not connect it, and the hourly check says the webhook is missing, with the button that makes it", async () => {
+    await asOperator((c) => setBinding(c, co, "secret.whop_api_key", "secret", "apik_fake", "test"));
+    expect(of(await ready(), "Deal closed").needs).toEqual(["Whop or Commas"]);
+    setProbeRetryMs(0);
+    const { findings } = await asOperator(async (c) => { const { row } = await loadCompany(c, co); return runHealthStep(c, row, fakeAdapters(), fakeProbes, { checks: {}, min_slots: 0, slots_days: 7 } as never); });
+    expect(findings.find((f) => f.check === "whop_webhook")).toMatchObject({ ok: false, level: "error", text: "A Whop API key is saved but no payment webhook is registered: no payment reaches the engine.", fix: { action: "reregister_whop" } });
+  });
+
+  it("a Whop webhook secret connects it, and with one bound the missing-webhook finding is gone", async () => {
     await asOperator((c) => setBinding(c, co, "secret.whop_webhook", "secret", "ws_fake", "test"));
     expect(of(await ready(), "Payment failed")).toMatchObject({ needs: [], ready: true });
-    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='secret.whop_webhook'", [co]));
-    await asOperator((c) => setBinding(c, co, "secret.whop_api_key", "secret", "apik_fake", "test"));
-    expect(of(await ready(), "Deal closed").needs).toEqual([]);
+    const { findings } = await asOperator(async (c) => { const { row } = await loadCompany(c, co); return runHealthStep(c, row, fakeAdapters(), fakeProbes, { checks: {}, min_slots: 0, slots_days: 7 } as never); });
+    expect(findings.find((f) => f.check === "whop_webhook" && !f.ok)).toBeUndefined();
+    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key in ('secret.whop_webhook','secret.whop_api_key')", [co]));
   });
 });
