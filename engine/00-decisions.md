@@ -7765,3 +7765,13 @@ disposition, objection and next step, but kept their outcome "scheduled": the hi
 - Put right: plan 5307 run again; those 4 now read showed.
 - So it cannot happen again: the Sales Call history pass (and the health check's own writes through it) treats an outcome of
   "scheduled" as blank when it has a settled one. Any other filed value still stays. Test first in sales-call-backfill.test.ts.
+
+## D338 — A silently backfilled recording can be released to its workflow (2026-11-16)
+
+Tyler wanted the 6 Fathom calls brought in by the history pass (D336) handled as if they had arrived live, Slack posts included.
+The history pass writes recordings with no event (D115), so nothing could run them.
+
+- `POST /api/admin/recordings/release { company, recordings, why, dryRun = true }` (engine/recording-release.ts): each gets the
+  event a live delivery would have made (`recording.received` linked, `recording.unlinked` not), marked `released`, audited. Only
+  the event: `/api/admin/events/replay` then runs it through the one workflow named, dry run first.
+- Refused: a recording not brought in by the history pass, or one that already has a recording event (never twice).
