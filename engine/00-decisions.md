@@ -7821,3 +7821,14 @@ page's re-register button, which showed only for a webhook that had existed.
   webhook from the stored key and binds its secret and id). A secret bound by hand counts as a webhook.
 - Existing offers: no workflow changes. On 2026-11-16 only TRC had a key without a webhook (PMU and Hair have theirs; Nelly has no
   Whop), so only TRC gets the new finding.
+
+## D341 — The Health page's webhook button works (2026-11-16)
+
+"Register the Whop webhook" (D340) on TRC answered "inconsistent types deduced for parameter $1": the fix route's audit insert used
+$1 for both `company_id` (uuid) and `target_id` (text). The insert runs after the webhook is made at the vendor, in the same
+transaction as the bindings, so every press made a webhook at Whop and then rolled back the secret and id: nothing was bound, and the
+webhook made was left at Whop with no secret the engine knows. Those deliveries fail the signature check; delete them in Whop.
+
+- The insert takes the company id as two parameters. The same reuse appears nowhere else.
+- Test: health-fix.route.test.ts presses the button through the route (the vendor faked) and checks the secret, the id and the audit
+  row. The route had no test, which is how it shipped broken.
