@@ -7903,3 +7903,6 @@ opening again).
   hour and said once the time is up if it is still open. A quiet one that clears says nothing.
 - A calendar Calendly or GHL cannot read (an error, same key) is never quieted. Every other alert is as before.
 - Platform behaviour (CLAUDE.md, Slack works the same on every offer): engine code, every offer at once; no saved workflow changes.
+- 2026-11-17 addendum (Tyler, on Razia's $10,000: "if that's the pending payment it should say pending payment received"): a
+  `payment.received` / `payment.failed` / `payment.refunded` for a payment that came in pending first carries `was_pending: true`
+  (false otherwise), so the payment post can say so. Data only: no workflow's behaviour changes until its copy reads it (TRC's).
