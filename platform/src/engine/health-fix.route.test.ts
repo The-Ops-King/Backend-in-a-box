@@ -1,4 +1,4 @@
-/** D341, D342: the Health page's "Register the Whop webhook" (POST /api/v1/companies/:slug/health/fix) makes the webhook and keeps it. */
+/** D341, D342, D343: the Health page's "Register the Whop webhook" (POST /api/v1/companies/:slug/health/fix) makes the webhook and keeps it. */
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -12,11 +12,14 @@ vi.mock("@/adapters/whop/client", async (orig) => ({
   whopCreateWebhook: vi.fn(async (_key: string, url: string) => ({ id: "hook_d341", url, enabled: true, events: [], api_version: "v1", webhook_secret: "ws_d341" })),
   whopGetWebhook: vi.fn(async () => ({ ok: true, found: true, enabled: true, events: ["payment.succeeded", "payment.failed", "refund.created"] })),
   whopUpdateWebhook: vi.fn(async (_key: string, id: string, events: string[]) => ({ id, events, enabled: true })),
+  whopListWebhooks: vi.fn(async () => []),
+  whopDeleteWebhook: vi.fn(async () => {}),
 }));
-import { whopCreateWebhook, whopUpdateWebhook } from "@/adapters/whop/client";
+import { whopCreateWebhook, whopDeleteWebhook, whopListWebhooks, whopUpdateWebhook } from "@/adapters/whop/client";
 import { POST as fixRoute } from "../../app/api/v1/companies/[slug]/health/fix/route";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
+process.env.PUBLIC_URL = "https://engine.test";
 const SLUG = `d341-${Date.now()}`;
 let co = "";
 
@@ -45,5 +48,16 @@ describe.skipIf(!process.env.DATABASE_URL)("D341: register the Whop webhook from
     expect(vi.mocked(whopUpdateWebhook)).toHaveBeenCalledWith("apik_fake", "hook_d341", ["payment.succeeded", "payment.failed", "refund.created", "payment.pending"]);
     const { bindings } = await asOperator((c) => loadCompany(c, co));
     expect([bindings["secret.whop_webhook"], bindings["whop.webhook_id"]]).toEqual(["ws_d341", "hook_d341"]);
+  });
+
+  it("D343: the press removes the engine's other webhooks for this offer (same URL, no secret kept), and nothing else", async () => {
+    const mine = `https://engine.test/api/webhooks/whop/${co}`;
+    vi.mocked(whopListWebhooks).mockResolvedValueOnce([{ id: "hook_d341", url: mine }, { id: "hook_stray1", url: mine }, { id: "hook_stray2", url: `${mine}/` }, { id: "hook_other_offer", url: "https://engine.test/api/webhooks/whop/someone-else" }, { id: "hook_zapier", url: "https://hooks.zapier.com/x" }]);
+    vi.mocked(whopDeleteWebhook).mockClear();
+    const res = await fixRoute(new Request(`http://x/api/v1/companies/${SLUG}/health/fix`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "whop" }) }), { params: Promise.resolve({ slug: SLUG }) });
+    const body = await res.json() as { note: string };
+    expect(res.status).toBe(200);
+    expect(vi.mocked(whopDeleteWebhook).mock.calls.map((x) => x[1])).toEqual(["hook_stray1", "hook_stray2"]);
+    expect(body.note).toMatch(/Removed 2 extra webhooks \(hook_stray1, hook_stray2\)\./);
   });
 });

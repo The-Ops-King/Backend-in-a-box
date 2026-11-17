@@ -26,7 +26,7 @@ export const fakeProbes: import("./health").HealthProbes = {
   ghlCalendarTeam: async () => ({ ok: true, userIds: ["U-HOST"] }),
   calendlyWhoAmI: async () => ({ user: "u", organization: "o", email: "host@test", name: "Host" }), calendlyAvailableTimes: async () => ({ ok: true, slots: 12, times: [] }),
   calendlyEventTypeHosts: async () => ({ ok: true, duration: 45, hosts: [{ uri: "u", email: "host@test", name: "Host" }] }), calendlyEventTypeSchedules: async () => ({ ok: true, schedules: [] }), calendlyBusyTimes: async () => ({ ok: true, busy: [] }),
-  whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
+  whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), whopListWebhooks: async () => [], fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
 };
 
 /**

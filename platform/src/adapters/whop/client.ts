@@ -91,6 +91,28 @@ export async function whopUpdateWebhook(apiKey: string, id: string, events: stri
   const w = (await res.json()) as { id: string; events?: string[]; enabled?: boolean };
   return { id: w.id, events: w.events ?? events, enabled: w.enabled !== false };
 }
+/** D343: every webhook the key's account has (Whop lists them newest first, paged). */
+export async function whopListWebhooks(apiKey: string): Promise<Array<{ id: string; url: string; enabled?: boolean; events?: string[] }>> {
+  const out: Array<{ id: string; url: string; enabled?: boolean; events?: string[] }> = [];
+  let after: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const q = new URLSearchParams({ first: "100" }); if (after) q.set("after", after);
+    const res = await fetch(`${BASE}/webhooks?${q}`, { headers: headers(apiKey) });
+    if (!res.ok) throw new Error(`whop: list webhooks ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const j = (await res.json()) as { data?: Array<{ id: string; url: string; enabled?: boolean; events?: string[] }>; page_info?: { has_next_page?: boolean; end_cursor?: string | null } };
+    out.push(...(j.data ?? []));
+    if (!j.page_info?.has_next_page || !j.page_info.end_cursor) break;
+    after = j.page_info.end_cursor;
+  }
+  return out;
+}
+/** D343: remove one webhook (one the engine made and keeps no secret for). A 404 is already gone. */
+export async function whopDeleteWebhook(apiKey: string, id: string): Promise<void> {
+  const res = await fetch(`${BASE}/webhooks/${encodeURIComponent(id)}`, { method: "DELETE", headers: headers(apiKey) });
+  if (!res.ok && res.status !== 404) throw new Error(`whop: delete webhook ${id} ${res.status} ${(await res.text()).slice(0, 200)}`);
+}
+/** D343: the engine's other webhooks for this offer: same delivery URL, not the one whose secret it keeps (left by a press that failed, D341). */
+export const strayWebhooks = (hooks: Array<{ id: string; url: string }>, url: string, keep: string | undefined) => hooks.filter((h) => h.url.replace(/\/$/, "") === url.replace(/\/$/, "") && h.id !== keep);
 /** D342: the Whop events a workflow that is on needs beyond the ones every webhook has had (WHOP_EVENTS before D342). */
 export const WHOP_EVENT_FOR: Record<string, string> = { "payment.pending": "payment.pending" };
 /** The webhook the engine made, as Whop sees it now (D33 sweep). `found: false` on 404; `ok: false` when the key cannot read webhooks. */

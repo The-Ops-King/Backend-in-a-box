@@ -128,7 +128,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
       calendlyEventTypeHosts: async () => { throw new Error("not used"); }, calendlyEventTypeSchedules: async () => { throw new Error("not used"); }, calendlyBusyTimes: async () => { throw new Error("not used"); },
       ghlCatalog: async () => ({ users: [{ id: "GA", name: "Ann Able" }, { id: "GB", name: "Ben Baker" }], pipelines: [{ id: "PIPE1", name: "Closer", stages: [{ id: "STAGE_OK", name: "Won" }] }], contactFields: [{ id: "FLD1", name: "Setter" }], opportunityFields: [], associations: [], objects: [], tags: [], errors: [] }),
       calendlyWhoAmI: async () => { throw new Error("not used"); }, calendlyAvailableTimes: async () => ({ ok: true, slots: 1, times: [] }),
-      whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
+      whopPing: async () => true, whopGetWebhook: async () => ({ ok: true, found: true, enabled: true }), whopListWebhooks: async () => [], fathomPing: async () => true, fathomListWebhooks: async () => null, anthropicPing: async () => ({ ok: true }), urlOk: async () => ({ ok: true, status: 200 }),
     };
     // the sweep and the availability watch are workflows: this company's copies post as "Health check" in CHEALTH and alert under 10 slots
     await asOperator((c) => c.query("update workflows set enabled=false where company_id=$1 and name='Health check'", [companyId]));
