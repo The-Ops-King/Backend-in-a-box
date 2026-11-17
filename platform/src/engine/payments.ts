@@ -319,9 +319,11 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
     await raiseAlert(c, { companyId, key: `payments:overpaid:${opp.id}`, level: "warning", source: "engine", text: `${who?.name} has paid $${running.toLocaleString("en-US")} on a $${opp.contract_value.toLocaleString("en-US")} deal: check the price or the charges.`, detail: { opportunity_id: opp.id, total: running, price: opp.contract_value } });
   }
   const type = payment.status === "succeeded" ? "payment.received" : payment.status === "refunded" ? "payment.refunded" : "payment.failed";
+  // D342 addendum (Tyler: "if that's the pending payment it should say pending payment received"): it came in pending before
+  const wasPending = !!(await one(c, "select 1 from events where company_id=$1 and event_type='payment.pending' and data->>'provider_payment_id'=$2", [companyId, payment.whop_payment_id]));
   const ev = await emitEvent(c, { company_id: companyId, contact_id: contactId, opportunity_id: opp.id, appointment_id: null, event_type: type, source: "whop", occurred_at: payment.paid_at,
     data: { payment_id: payment.id, provider_payment_id: payment.whop_payment_id, amount, currency: payment.currency, kind, paid_at: payment.paid_at.toISOString(), prior_total: prior, prior_non_deposit_total: priorPaid, running_total: running, contract_value: opp.contract_value, outstanding: opp.contract_value == null ? null : money(Math.max(opp.contract_value - running, 0)), cleared: isCleared, linked_by: linkedBy, customer_email: payment.customer_email, whop_member_id: payment.whop_member_id,
-      customer_phone: payment.customer_phone ?? null, billing_reason: reasonOf(payment.raw), full_price: fullPrice,
+      customer_phone: payment.customer_phone ?? null, billing_reason: reasonOf(payment.raw), full_price: fullPrice, was_pending: wasPending,
       // D270: whether its billing reason is one the offer counts for a purchase in full (a deposit's balance paid up front, not a renewal)
       full_reason: ruled ? fullReason(reasonOf(payment.raw), rules) : null,
       // D331: a deposit told only by its amount (no "deposit" in the product): the offer asks someone which it is

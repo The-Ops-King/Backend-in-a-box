@@ -245,6 +245,8 @@ describe.skipIf(!HAS_DB)("template scenarios", () => {
     await asOperator((c) => recordPayment(c, companyId, { ...pend("pay_pend1"), status: "succeeded" }));
     await tick(fake, undefined, companyId);
     expect((await exitOf(r1)).exit_reason).toBe("cleared"); expect(removedTags.slice(nr)).toContain("pay-pending");
+    const rec = await asOperator((c) => one<{ was: boolean }>(c, "select (data->>'was_pending')::boolean as was from events where company_id=$1 and event_type='payment.received' and data->>'provider_payment_id'='pay_pend1'", [companyId]));
+    expect(rec?.was).toBe(true);   // the payment post can say "Pending payment received"
     expect((await asOperator((c) => recordPending(c, companyId, pend("pay_pend1")))).outcome).toBe("settled");   // already in the ledger
 
     // failed
