@@ -104,6 +104,8 @@ export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalo
 const DAYS_AHEAD = 7;
 type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
 
+/** D345: up to this many unmarked GHL workflows are each their own alert; more at once are one alert that names them. */
+export const THEIR_WORKFLOWS_EACH = 5;
 /** Runs every enabled check for one company. Read-only against every vendor. */
 export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapters, probes: HealthProbes, row: HealthConfig, now = DateTime.now()): Promise<Finding[]> {
   const { adapterCompany: ac, bindings } = await loadCompany(c, company.id);
@@ -250,9 +252,13 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
       try {
         const list = await probes.theirWorkflows(ac.pit, ac.locationId);
         let flagged = 0;
+        // D345 (TRC, 2026-11-17: two marks woke the check on 190 legacy workflows and ~70 alerts posted): past a handful unmarked at
+        // once, one alert names them all; each its own alert only while they are few (a new one published since the last look)
+        const unmarked = list.filter((w) => !marks[w.id] && isOn(w.status));
+        if (unmarked.length > THEIR_WORKFLOWS_EACH) { flagged += unmarked.length; bad("their_workflows", "warning", `${unmarked.length} of their GHL workflows are published and not marked yet: open each in GHL, check it fires on nothing the engine does, and mark it. ${unmarked.slice(0, 8).map((w) => `"${w.name}"`).join(", ")}${unmarked.length > 8 ? `, and ${unmarked.length - 8} more` : ""}.`, "unmarked", { repeat: false, workflows: unmarked.map((w) => ({ id: w.id, name: w.name })) }); }
         for (const w of list) {
           const m = marks[w.id];
-          if (!m && isOn(w.status)) { flagged++; bad("their_workflows", "warning", `Their GHL workflow "${w.name}" is ${w.status} and not marked yet: open it in GHL, check it fires on nothing the engine does, and mark it.`, w.id, { repeat: false }); }
+          if (!m && isOn(w.status)) { if (unmarked.length > THEIR_WORKFLOWS_EACH) continue; flagged++; bad("their_workflows", "warning", `Their GHL workflow "${w.name}" is ${w.status} and not marked yet: open it in GHL, check it fires on nothing the engine does, and mark it.`, w.id, { repeat: false }); }
           else if (m?.mark === "off" && isOn(w.status)) { flagged++; bad("their_workflows", "warning", `Their GHL workflow "${w.name}" was marked off, but GHL says it is ${w.status}.`, w.id, { repeat: false }); }
         }
         if (!flagged) ok("their_workflows", `${list.length} GHL workflows, every published one marked.`);
