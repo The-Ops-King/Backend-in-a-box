@@ -7862,3 +7862,7 @@ extra webhooks, i don't know how to do it." Those still deliver to the offer's U
   warning, with the button. A list Whop refuses is not a finding.
 - The button (fix route, whop): after making or updating the webhook, it removes those, and says which. Only this offer's URL; a
   webhook for another offer, another app or a Zap is never touched.
+- 2026-11-17 addendum: Whop refuses the webhook list without `account_id` (400 "account_id is required", though its spec marks it
+  optional). The account is the bound webhook's `resource_id` (read with it). The button's cleanup now runs after the webhook is
+  right and never undoes it: a cleanup that fails is said in the note. The tests' fake list refuses a call without the account, as
+  Whop does.
