@@ -7879,3 +7879,14 @@ Tyler (TRC): a calendar for Nick alone, "same as Leap Welcome Calls", "can you n
   watch it until it is mapped to a call type.
 - GET /api/admin/ghl/templates?company (21 a page, as GHL allows): the Documents & Contracts templates (what /agreement sends), so `crm.agreement_template` is
   set from GHL's list, not typed.
+
+## D345 — Many unmarked GHL workflows are one alert, not one each (2026-11-17)
+
+On TRC, marking two of its 190 GHL workflows woke the "their GHL workflows" check (it runs once an offer has any mark), and it raised
+one alert per published unmarked workflow: about 70 posted to #trc-ops-alerts before TRC's check was turned off and the ~230 queued
+posts were drained (Health check off and on: queued runs exit with "workflow turned off").
+
+- More than `THEIR_WORKFLOWS_EACH` (5) unmarked at once: one finding (item `unmarked`) that counts them, names the first eight and
+  carries the full list in its detail. Up to five: each its own finding, as before (a new workflow published since the last look).
+- TRC: the check is off on its Health check (its copy, 2026-11-17) until its GHL workflows are reviewed; turning it back on now
+  raises one alert. Other offers: their marks are complete, so nothing they post changes.
