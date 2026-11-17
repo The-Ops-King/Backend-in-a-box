@@ -24,7 +24,10 @@ describe("D344: clone a GHL calendar", () => {
         if (bad.length) { refuse = []; throw new Error(`GHL 422 on /calendars/: {"message":[${bad.map((k) => `"property ${k} should not exist"`).join(",")}]}`); }
         posts.push(body); return { calendar: { id: "NEW1" } };
       }
-      if (method === "GET" && path.startsWith("/proposals/templates?")) return { data: [{ _id: "TPL1", name: "TRC Coaching Agreement" }] };
+      if (method === "GET" && path.startsWith("/proposals/templates?")) {
+        const limit = Number(new URL(`http://x${path}`).searchParams.get("limit")); if (limit > 21) throw new Error('GHL 422: ["limit must not be greater than 21"]');
+        return { data: Number(new URL(`http://x${path}`).searchParams.get("skip")) === 0 ? [{ _id: "TPL1", name: "TRC Coaching Agreement" }] : [] };
+      }
       throw new Error(`unexpected ${method} ${path}`);
     };
     return { http, posts };

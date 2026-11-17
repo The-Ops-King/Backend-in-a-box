@@ -7877,5 +7877,5 @@ Tyler (TRC): a calendar for Nick alone, "same as Leap Welcome Calls", "can you n
   stamps are never sent. A field GHL refuses ("property x should not exist") is left out, said, and the call made again (at most
   three times). A dry run without apply; one with that name already is never made twice; audited when made. The engine does not
   watch it until it is mapped to a call type.
-- GET /api/admin/ghl/templates?company: the Documents & Contracts templates (what /agreement sends), so `crm.agreement_template` is
+- GET /api/admin/ghl/templates?company (21 a page, as GHL allows): the Documents & Contracts templates (what /agreement sends), so `crm.agreement_template` is
   set from GHL's list, not typed.
