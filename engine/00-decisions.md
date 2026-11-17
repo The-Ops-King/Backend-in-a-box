@@ -7866,3 +7866,16 @@ extra webhooks, i don't know how to do it." Those still deliver to the offer's U
   optional). The account is the bound webhook's `resource_id` (read with it). The button's cleanup now runs after the webhook is
   right and never undoes it: a cleanup that fails is said in the note. The tests' fake list refuses a call without the account, as
   Whop does.
+
+## D344 — A GHL calendar copied whole, and the offer's document templates read (2026-11-17)
+
+Tyler (TRC): a calendar for Nick alone, "same as Leap Welcome Calls", "can you not make it?". Made from scratch through the setup
+(D149) a calendar has no meeting location, form, confirmations or reminders: clients could book with no Zoom link.
+
+- POST /api/admin/ghl/calendar-clone { company, from, name, team: [emails], apply }: the original read whole from GHL and made again
+  with only `team` on it (each takes the original primary member's meeting settings), a new name and booking link. GHL's own ids and
+  stamps are never sent. A field GHL refuses ("property x should not exist") is left out, said, and the call made again (at most
+  three times). A dry run without apply; one with that name already is never made twice; audited when made. The engine does not
+  watch it until it is mapped to a call type.
+- GET /api/admin/ghl/templates?company: the Documents & Contracts templates (what /agreement sends), so `crm.agreement_template` is
+  set from GHL's list, not typed.
