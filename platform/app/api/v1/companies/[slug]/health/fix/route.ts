@@ -26,11 +26,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       else if (provider === "typeform") { const lines = await registerTypeform(co.id, co.slug, bindings, (k, kind, v) => setBinding(c, co.id, k, kind, v)); note = `Typeform: ${lines.join("; ")}.`; }
       else { if (!bindings["secret.fathom_api_key"]) throw new Error("no Fathom API key"); const hook = await fathomCreateWebhook(bindings["secret.fathom_api_key"], `${base}/api/webhooks/fathom/${co.id}`); await setBinding(c, co.id, "secret.fathom_webhook", "secret", hook.secret); await setBinding(c, co.id, "fathom.webhook_id", "id", hook.id); note = `Fathom webhook re-registered (${hook.id}).`; }
       // D343: the webhooks the engine made for this offer that it keeps no secret for (each failed press before D341 left one) are removed
+      // the webhook is already right by here: a cleanup that fails says so in the note and leaves it (the sweep keeps warning)
       if (provider === "whop") {
-        const now = await loadCompany(c, co.id), key = now.bindings["secret.whop_api_key"];
-        const strays = strayWebhooks(await whopListWebhooks(key), `${base}/api/webhooks/whop/${co.id}`, now.bindings["whop.webhook_id"]);
-        for (const h of strays) await whopDeleteWebhook(key, h.id);
-        if (strays.length) note += ` Removed ${strays.length} extra webhook${strays.length === 1 ? "" : "s"} (${strays.map((h) => h.id).join(", ")}).`;
+        try {
+          const now = await loadCompany(c, co.id), key = now.bindings["secret.whop_api_key"];
+          const hook = await whopGetWebhook(key, now.bindings["whop.webhook_id"]);
+          if (!hook.ok || !hook.found || !hook.account_id) throw new Error(hook.ok ? "Whop did not say which account the webhook belongs to" : hook.error);
+          const strays = strayWebhooks(await whopListWebhooks(key, hook.account_id), `${base}/api/webhooks/whop/${co.id}`, now.bindings["whop.webhook_id"]);
+          for (const h of strays) await whopDeleteWebhook(key, h.id);
+          if (strays.length) note += ` Removed ${strays.length} extra webhook${strays.length === 1 ? "" : "s"} (${strays.map((h) => h.id).join(", ")}).`;
+        } catch (e) { note += ` Could not remove the extra webhooks: ${String((e as Error).message).slice(0, 160)}`; }
       }
       await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'webhook.reregistered','company',$2,$3)", [co.id, co.id, { provider, note }]);   // D341: $1 was both company_id (uuid) and target_id (text)
       const wf = await workflowWithStep(c, co.id, "health_check");

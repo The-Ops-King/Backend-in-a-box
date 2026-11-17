@@ -10,9 +10,9 @@ import { loadCompany } from "@/engine/context";
 vi.mock("@/adapters/whop/client", async (orig) => ({
   ...(await orig<typeof import("@/adapters/whop/client")>()),
   whopCreateWebhook: vi.fn(async (_key: string, url: string) => ({ id: "hook_d341", url, enabled: true, events: [], api_version: "v1", webhook_secret: "ws_d341" })),
-  whopGetWebhook: vi.fn(async () => ({ ok: true, found: true, enabled: true, events: ["payment.succeeded", "payment.failed", "refund.created"] })),
+  whopGetWebhook: vi.fn(async () => ({ ok: true, found: true, enabled: true, events: ["payment.succeeded", "payment.failed", "refund.created"], account_id: "biz_d343" })),
   whopUpdateWebhook: vi.fn(async (_key: string, id: string, events: string[]) => ({ id, events, enabled: true })),
-  whopListWebhooks: vi.fn(async () => []),
+  whopListWebhooks: vi.fn(async (_key: string, accountId?: string) => { if (!accountId) throw new Error('whop: list webhooks 400 {"error":{"message":"account_id is required"}}'); return []; }),
   whopDeleteWebhook: vi.fn(async () => {}),
 }));
 import { whopCreateWebhook, whopDeleteWebhook, whopListWebhooks, whopUpdateWebhook } from "@/adapters/whop/client";
@@ -57,7 +57,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D341: register the Whop webhook from
     const res = await fixRoute(new Request(`http://x/api/v1/companies/${SLUG}/health/fix`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "whop" }) }), { params: Promise.resolve({ slug: SLUG }) });
     const body = await res.json() as { note: string };
     expect(res.status).toBe(200);
+    expect(vi.mocked(whopListWebhooks).mock.calls.at(-1)).toEqual(["apik_fake", "biz_d343"]);
     expect(vi.mocked(whopDeleteWebhook).mock.calls.map((x) => x[1])).toEqual(["hook_stray1", "hook_stray2"]);
     expect(body.note).toMatch(/Removed 2 extra webhooks \(hook_stray1, hook_stray2\)\./);
+  });
+
+  it("D343: a cleanup Whop refuses keeps the webhook update and says why (it never undoes the press)", async () => {
+    vi.mocked(whopListWebhooks).mockRejectedValueOnce(new Error("whop: list webhooks 500 down"));
+    const res = await fixRoute(new Request(`http://x/api/v1/companies/${SLUG}/health/fix`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "whop" }) }), { params: Promise.resolve({ slug: SLUG }) });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { note: string }).note).toMatch(/Whop webhook updated .* Could not remove the extra webhooks: whop: list webhooks 500 down/);
   });
 });

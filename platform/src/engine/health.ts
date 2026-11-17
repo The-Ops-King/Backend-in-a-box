@@ -206,7 +206,7 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
       const lacking = r.events ? needed.filter((e) => !r.events!.includes(e)) : [];
       // D343: other webhooks of the engine's for this offer (same URL, no secret kept): their deliveries fail the signature
       const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
-      const strays = base ? strayWebhooks(await probes.whopListWebhooks(bindings["secret.whop_api_key"]).catch(() => []), `${base}/api/webhooks/whop/${company.id}`, bindings["whop.webhook_id"]) : [];
+      const strays = base && r.account_id ? strayWebhooks(await probes.whopListWebhooks(bindings["secret.whop_api_key"], r.account_id).catch(() => []), `${base}/api/webhooks/whop/${company.id}`, bindings["whop.webhook_id"]) : [];
       if (lacking.length) bad("whop_webhook", "error", `The Whop payment webhook does not send ${lacking.join(", ")}, which a workflow that is on starts on.`, undefined, undefined, { label: "Update the Whop webhook", action: "reregister_whop" });
       else if (strays.length) bad("whop_webhook", "warning", `${strays.length} extra Whop webhook${strays.length === 1 ? "" : "s"} deliver${strays.length === 1 ? "s" : ""} to this offer with a secret the engine does not have (${strays.map((h) => h.id).join(", ")}).`, undefined, undefined, { label: "Remove the extra Whop webhooks", action: "reregister_whop" });
       else ok("whop_webhook", `Webhook ${bindings["whop.webhook_id"]} is registered and enabled.`);

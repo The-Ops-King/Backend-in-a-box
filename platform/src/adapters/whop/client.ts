@@ -74,7 +74,7 @@ export function pendingInput(p: WhopPayment): ProviderPayment | null {
     email: b.email, phone: b.phone, memberId: b.memberId, raw: { billing_reason: p.billing_reason, plan_id: b.plan_id, product_id: b.product_id, ...whopNames(p as unknown as Record<string, unknown>), substatus: p.substatus, backfill: true } };
 }
 
-export type WhopWebhook = { id: string; url: string; enabled: boolean; events: string[]; api_version: string; webhook_secret: string };
+export type WhopWebhook = { id: string; url: string; enabled: boolean; events: string[]; api_version: string; webhook_secret: string; resource_id?: string };
 export const WHOP_EVENTS = ["payment.succeeded", "payment.failed", "refund.created", "payment.pending"];   // D342: pending (accepted, not yet collected)
 export async function whopCreateWebhook(apiKey: string, url: string): Promise<WhopWebhook> {
   // `api_version` is rejected since 2026-10 ("new webhooks always use the v1 events"); payload shape is pinned with api_version_date, left unpinned here
@@ -92,11 +92,12 @@ export async function whopUpdateWebhook(apiKey: string, id: string, events: stri
   return { id: w.id, events: w.events ?? events, enabled: w.enabled !== false };
 }
 /** D343: every webhook the key's account has (Whop lists them newest first, paged). */
-export async function whopListWebhooks(apiKey: string): Promise<Array<{ id: string; url: string; enabled?: boolean; events?: string[] }>> {
+/** Whop refuses the list without `account_id` (400 "account_id is required", 2026-11-17, though its spec says optional): the account is a webhook's `resource_id`. */
+export async function whopListWebhooks(apiKey: string, accountId: string): Promise<Array<{ id: string; url: string; enabled?: boolean; events?: string[] }>> {
   const out: Array<{ id: string; url: string; enabled?: boolean; events?: string[] }> = [];
   let after: string | undefined;
   for (let page = 0; page < 20; page++) {
-    const q = new URLSearchParams({ first: "100" }); if (after) q.set("after", after);
+    const q = new URLSearchParams({ account_id: accountId, first: "100" }); if (after) q.set("after", after);
     const res = await fetch(`${BASE}/webhooks?${q}`, { headers: headers(apiKey) });
     if (!res.ok) throw new Error(`whop: list webhooks ${res.status} ${(await res.text()).slice(0, 200)}`);
     const j = (await res.json()) as { data?: Array<{ id: string; url: string; enabled?: boolean; events?: string[] }>; page_info?: { has_next_page?: boolean; end_cursor?: string | null } };
@@ -116,13 +117,13 @@ export const strayWebhooks = (hooks: Array<{ id: string; url: string }>, url: st
 /** D342: the Whop events a workflow that is on needs beyond the ones every webhook has had (WHOP_EVENTS before D342). */
 export const WHOP_EVENT_FOR: Record<string, string> = { "payment.pending": "payment.pending" };
 /** The webhook the engine made, as Whop sees it now (D33 sweep). `found: false` on 404; `ok: false` when the key cannot read webhooks. */
-export async function whopGetWebhook(apiKey: string, id: string): Promise<{ ok: true; found: boolean; enabled?: boolean; url?: string; events?: string[] } | { ok: false; error: string }> {
+export async function whopGetWebhook(apiKey: string, id: string): Promise<{ ok: true; found: boolean; enabled?: boolean; url?: string; events?: string[]; account_id?: string } | { ok: false; error: string }> {
   try {
     const res = await fetch(`${BASE}/webhooks/${encodeURIComponent(id)}`, { headers: headers(apiKey) });
     if (res.status === 404) return { ok: true, found: false };
     if (!res.ok) return { ok: false, error: `${res.status} ${(await res.text()).slice(0, 160)}` };
-    const w = (await res.json()) as { enabled?: boolean; url?: string; events?: string[] };
-    return { ok: true, found: true, enabled: w.enabled, url: w.url, events: Array.isArray(w.events) ? w.events : undefined };
+    const w = (await res.json()) as { enabled?: boolean; url?: string; events?: string[]; resource_id?: string };
+    return { ok: true, found: true, enabled: w.enabled, url: w.url, events: Array.isArray(w.events) ? w.events : undefined, account_id: typeof w.resource_id === "string" ? w.resource_id : undefined };
   } catch (e) { return { ok: false, error: String((e as Error).message).slice(0, 160) }; }
 }
 /**
