@@ -21,7 +21,7 @@ export const DISPOSITION_DEFAULTS: Record<string, string> = { closed: "closed_wo
 export const CALL_SETTING_DEFAULTS = { "calls.transcript_wait_min": 120, "calls.conversation_gap_min": 15, "setter_result.set_within_min": 30, "calls.transcript_hold_hours": 48 } as const;
 /** D88, D135: an open alert is said again after this many minutes, only within these hours (Tyler's working day, Arizona); a poll failing this many times in a row is a problem. */
 export const REPEAT_AFTER_MIN = 60, POLL_FAILURES = 2, REPEAT_HOURS = "07:00-17:00", REPEAT_TZ = "America/Phoenix";
-/** D339: a calendar-availability alert is posted at most once in this many hours per calendar, however often it clears and opens again. */
+/** D346: a calendar-availability alert is posted at most once in this many hours per calendar, however often it clears and opens again. */
 export const CALENDAR_QUIET_HOURS = 24;
 
 /** `sales_call.dispositions` as an offer would set it ({value: meaning}): the keys the engine itself writes, pending included. */

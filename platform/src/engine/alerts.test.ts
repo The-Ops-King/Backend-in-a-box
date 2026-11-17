@@ -296,7 +296,7 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after .*Full/);
   });
 
-  it("D339: a calendar alert that clears and opens again is said at most once a day; said again once the day is up if still open; a read failure is never quieted", async () => {
+  it("D346: a calendar alert that clears and opens again is said at most once a day; said again once the day is up if still open; a read failure is never quieted", async () => {
     const at = new Date(Date.UTC(2026, 10, 18, 16, 0)); posts.length = 0;   // 9 am Arizona: inside the repeat hours
     const key = "health:availability:CAL-LOW";
     const say = async (mins: number) => { await asOperator((c) => announceDue(c, fake, new Date(at.getTime() + mins * 60e3), companyId)); await tick(fake, undefined, companyId); };

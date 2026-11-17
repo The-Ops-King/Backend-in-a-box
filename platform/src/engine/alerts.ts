@@ -222,7 +222,7 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
     return quietHours.get(companyId)!;
   };
   for (const a of due) {
-    // D339: a calendar-availability alert (Tyler: "only once a day at most, it's pinging me too much") is said at most once in
+    // D346: a calendar-availability alert (Tyler: "only once a day at most, it's pinging me too much") is said at most once in
     // `alerts.calendar_quiet_hours` (24) per calendar: one that opens again inside that time, after an earlier one for the same
     // calendar was said, stays quiet (looked at again each hour, said once the time is up if still open), and its clearing is not said
     if (a.company_id && AVAILABILITY.test(a.key) && a.level === "warning" && a.announce_count === 0) {   // a calendar Calendly or GHL cannot read (an error) is never quieted

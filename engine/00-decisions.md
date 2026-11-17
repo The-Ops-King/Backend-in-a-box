@@ -7891,7 +7891,7 @@ posts were drained (Health check off and on: queued runs exit with "workflow tur
 - TRC: the check is off on its Health check (its copy, 2026-11-17) until its GHL workflows are reviewed; turning it back on now
   raises one alert. Other offers: their marks are complete, so nothing they post changes.
 
-## D339 — A calendar-availability alert is said at most once a day (2026-11-17)
+## D346 — A calendar-availability alert is said at most once a day (2026-11-17)
 
 Tyler: "for no availability, can we have it be only once a day at most? it's pinging me too much." Nelly's Judith calendar and the
 DM round robin sat at 2 bookable calls against an alert line of 3; as times passed and bookings landed the count crossed 3 and
