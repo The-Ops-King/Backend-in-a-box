@@ -8,7 +8,7 @@ import type { TickReport } from "./runner";
 import { classifyError, plainError } from "./failures";
 import { runningSql } from "./running";
 import { slackBot } from "./slack-conn";
-import { POLL_FAILURES, REPEAT_AFTER_MIN, REPEAT_HOURS, REPEAT_TZ } from "./setting-defaults";
+import { CALENDAR_QUIET_HOURS, POLL_FAILURES, REPEAT_AFTER_MIN, REPEAT_HOURS, REPEAT_TZ } from "./setting-defaults";
 
 /**
  * D33. The engine tells the operator the minute something fails, and says so once.
@@ -213,7 +213,24 @@ export async function announceDue(c: PoolClient, adapters: Adapters, now = new D
     }
     return hours.get(k)!;
   };
+  const quietHours = new Map<string, number>();
+  const calendarQuiet = async (companyId: string) => {
+    if (!quietHours.has(companyId)) {
+      const v = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='alerts.calendar_quiet_hours'", [companyId]))?.value.toString("utf8");
+      const n = Number(v); quietHours.set(companyId, Number.isFinite(n) && n >= 0 && v !== undefined && v !== "" ? n : CALENDAR_QUIET_HOURS);
+    }
+    return quietHours.get(companyId)!;
+  };
   for (const a of due) {
+    // D346: a calendar-availability alert (Tyler: "only once a day at most, it's pinging me too much") is said at most once in
+    // `alerts.calendar_quiet_hours` (24) per calendar: one that opens again inside that time, after an earlier one for the same
+    // calendar was said, stays quiet (looked at again each hour, said once the time is up if still open), and its clearing is not said
+    if (a.company_id && AVAILABILITY.test(a.key) && a.level === "warning" && a.announce_count === 0) {   // a calendar Calendly or GHL cannot read (an error) is never quieted
+      if (a.resolved_at) { await c.query("update alerts set resolved_announced=true where id=$1", [a.id]); continue; }
+      const hrs = await calendarQuiet(a.company_id);
+      const said = hrs > 0 ? await one(c, `select 1 from alerts where company_id=$1 and key=$2 and id<>$3 and level='warning' and announce_count>0 and first_seen > $4::timestamptz - make_interval(hours => $5)`, [a.company_id, a.key, a.id, now, hrs]) : null;
+      if (said) { await c.query("update alerts set announced_at=$2 where id=$1", [a.id, now]); continue; }
+    }
     // D150: a paused alert is still checked, and its ✅ still goes out once it clears; it is never said again while open
     if (a.announce_count > 0 && !a.resolved_at && a.paused_at) {
       if (!aboutEngine(a) && (await stillTrue(c, adapters, a)) === "fixed" && (await resolve(c, a.company_id, a.key, now))) a.resolved_at = now;
