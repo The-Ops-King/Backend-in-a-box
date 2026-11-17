@@ -296,6 +296,34 @@ describe.skipIf(!process.env.DATABASE_URL)("alerts (D33)", () => {
     expect(posts.at(-1)!.text).toMatch(/^✅ Resolved after .*Full/);
   });
 
+  it("D339: a calendar alert that clears and opens again is said at most once a day; said again once the day is up if still open; a read failure is never quieted", async () => {
+    const at = new Date(Date.UTC(2026, 10, 18, 16, 0)); posts.length = 0;   // 9 am Arizona: inside the repeat hours
+    const key = "health:availability:CAL-LOW";
+    const say = async (mins: number) => { await asOperator((c) => announceDue(c, fake, new Date(at.getTime() + mins * 60e3), companyId)); await tick(fake, undefined, companyId); };
+    const low = (mins: number) => asOperator((c) => raise(c, { companyId, key, level: "warning", source: "health", text: "\"Low cal\" has only 2 bookable calls", detail: { repeat: false } }, new Date(at.getTime() + mins * 60e3)));
+    const clear = (mins: number) => asOperator((c) => resolve(c, companyId, key, new Date(at.getTime() + mins * 60e3)));
+    const lows = () => posts.filter((p) => /Low cal/.test(p.text));
+    await low(0); await say(0);
+    expect(lows()).toHaveLength(1);
+    await clear(30); await say(31);
+    expect(lows()).toHaveLength(2);   // the first one's ✅, in its thread
+    // flapping: opens and clears every hour through the day; nothing more is said
+    for (let h = 1; h <= 6; h++) { await low(h * 60); await say(h * 60); await clear(h * 60 + 30); await say(h * 60 + 31); }
+    expect(lows()).toHaveLength(2);
+    // opens again and stays open: quiet until the day is up, then said once
+    await low(8 * 60); await say(8 * 60); await say(20 * 60);
+    expect(lows()).toHaveLength(2);
+    await say(24 * 60 + 1);
+    expect(lows()).toHaveLength(3);
+    expect(lows().at(-1)!.text.split("\n")[0]).toBe("🟡 *Alert Co · Calendar availability*");
+    await clear(24 * 60 + 30);
+    // an error on the same calendar (Calendly will not answer) is said at once, quiet time or not
+    await asOperator((c) => raise(c, { companyId, key, level: "error", source: "health", text: "\"Low cal\" cannot be read" }, new Date(at.getTime() + (24 * 60 + 40) * 60e3)));
+    await say(24 * 60 + 40);
+    expect(posts.filter((p) => /cannot be read/.test(p.text))).toHaveLength(1);
+    await clear(24 * 60 + 50); await say(24 * 60 + 51);
+  });
+
   it("D150: a paused alert is never said again while open, is still checked, and still closes with a ✅; a manager or the operator pauses it", async () => {
     const at = new Date(); posts.length = 0;
     const say = async (mins: number) => { await asOperator((c) => announceDue(c, fake, new Date(at.getTime() + mins * 60e3), companyId)); await tick(fake, undefined, companyId); };

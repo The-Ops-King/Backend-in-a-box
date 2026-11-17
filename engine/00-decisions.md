@@ -7890,3 +7890,16 @@ posts were drained (Health check off and on: queued runs exit with "workflow tur
   carries the full list in its detail. Up to five: each its own finding, as before (a new workflow published since the last look).
 - TRC: the check is off on its Health check (its copy, 2026-11-17) until its GHL workflows are reviewed; turning it back on now
   raises one alert. Other offers: their marks are complete, so nothing they post changes.
+
+## D339 — A calendar-availability alert is said at most once a day (2026-11-17)
+
+Tyler: "for no availability, can we have it be only once a day at most? it's pinging me too much." Nelly's Judith calendar and the
+DM round robin sat at 2 bookable calls against an alert line of 3; as times passed and bookings landed the count crossed 3 and
+back, so the alert cleared and a new one opened most hours, each a fresh post (D142 kept each one from repeating, not from
+opening again).
+
+- An alert about a calendar's availability (low availability, no times in Calendly or GHL; warnings only) is said at most once in
+  `alerts.calendar_quiet_hours` (24) per calendar. One that opens again inside that time stays quiet; it is looked at again each
+  hour and said once the time is up if it is still open. A quiet one that clears says nothing.
+- A calendar Calendly or GHL cannot read (an error, same key) is never quieted. Every other alert is as before.
+- Platform behaviour (CLAUDE.md, Slack works the same on every offer): engine code, every offer at once; no saved workflow changes.
