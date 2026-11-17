@@ -58,7 +58,14 @@ export async function cloneCalendar(http: Http, locationId: string, o: { from: s
 }
 
 /** D344: the offer's Documents & Contracts templates (what /agreement and Send agreement manually send). */
+/** GHL pages them 21 at a time at most (422 "limit must not be greater than 21", 2026-11-17), as it does documents. */
 export async function documentTemplates(http: Http, locationId: string): Promise<{ id: string; name: string }[]> {
-  const r = (await http("GET", `/proposals/templates?locationId=${locationId}&limit=100`)) as { data?: Array<{ _id?: string; id?: string; name?: string }>; templates?: Array<{ _id?: string; id?: string; name?: string }> };
-  return (r.data ?? r.templates ?? []).map((t) => ({ id: String(t._id ?? t.id ?? ""), name: String(t.name ?? "") })).filter((t) => t.id);
+  const out: { id: string; name: string }[] = [];
+  for (let skip = 0; skip < 21 * 20; skip += 21) {
+    const r = (await http("GET", `/proposals/templates?locationId=${locationId}&limit=21&skip=${skip}`)) as { data?: Array<{ _id?: string; id?: string; name?: string }>; templates?: Array<{ _id?: string; id?: string; name?: string }> };
+    const page = (r.data ?? r.templates ?? []).map((t) => ({ id: String(t._id ?? t.id ?? ""), name: String(t.name ?? "") })).filter((t) => t.id);
+    out.push(...page);
+    if (page.length < 21) break;
+  }
+  return out;
 }
