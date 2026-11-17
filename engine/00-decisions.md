@@ -7852,3 +7852,13 @@ succeeded, failed and refunds, and its history read skipped anything not paid.
   says so only on an offer with a workflow that is on and starts on an event its webhook does not send, and its button now updates
   the engine's webhook in place (PATCH: same id and secret, no second webhook), creating one only when Whop no longer has it.
 - Other offers: no workflow, webhook or alert changes (none has Payment pending).
+
+## D343 — The engine removes its own stray Whop webhooks (2026-11-17)
+
+Every press of the Health page button before D341 made a webhook at Whop and kept no secret for it; Tyler: "you can delete the
+extra webhooks, i don't know how to do it." Those still deliver to the offer's URL and fail the signature check.
+
+- Health (`whop_webhook`): webhooks at Whop with this offer's delivery URL other than the one whose secret the engine keeps are a
+  warning, with the button. A list Whop refuses is not a finding.
+- The button (fix route, whop): after making or updating the webhook, it removes those, and says which. Only this offer's URL; a
+  webhook for another offer, another app or a Zap is never touched.

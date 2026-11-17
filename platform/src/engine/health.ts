@@ -13,7 +13,7 @@ import { ghlCalendarTeam, ghlFreeSlots, ghlLocationOk } from "@/adapters/ghl/hea
 import { calendlyWhoAmI } from "@/adapters/calendly/read";
 import { calendlyAvailableTimes, calendlyBusyTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, type CalendlyHost, type CalendlySchedule } from "@/adapters/calendly/health";
 import { formatAvailability } from "./bot-format";
-import { WHOP_EVENT_FOR, whopGetWebhook, whopPing } from "@/adapters/whop/client";
+import { WHOP_EVENT_FOR, strayWebhooks, whopGetWebhook, whopListWebhooks, whopPing } from "@/adapters/whop/client";
 import { fathomListWebhooks, fathomPing } from "@/adapters/fathom/client";
 import { anthropicPing } from "@/adapters/anthropic/health";
 import { jevPing } from "@/adapters/jev/classifier";
@@ -78,7 +78,7 @@ export type HealthProbes = {
   ghlLocationOk: typeof ghlLocationOk; ghlFreeSlots: typeof ghlFreeSlots; ghlCatalog: typeof ghlCatalog; ghlCalendarTeam: typeof ghlCalendarTeam;
   calendlyWhoAmI: typeof calendlyWhoAmI; calendlyAvailableTimes: typeof calendlyAvailableTimes;
   calendlyEventTypeHosts: typeof calendlyEventTypeHosts; calendlyEventTypeSchedules: typeof calendlyEventTypeSchedules; calendlyBusyTimes: typeof calendlyBusyTimes;
-  whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing; jevPing?: typeof jevPing;
+  whopPing: typeof whopPing; whopGetWebhook: typeof whopGetWebhook; whopListWebhooks: typeof whopListWebhooks; fathomPing: typeof fathomPing; fathomListWebhooks: typeof fathomListWebhooks; anthropicPing: typeof anthropicPing; jevPing?: typeof jevPing;
   typeformGetWebhook?: typeof typeformGetWebhook;
   /** D192: the company's own GHL workflows (id, name, status) */
   theirWorkflows?: typeof ghlWorkflows;
@@ -99,7 +99,7 @@ export async function urlOk(url: string): Promise<{ ok: boolean; status?: number
 /** Wait between re-asks of a vendor that did not answer; 0 in tests. */
 export let PROBE_RETRY_MS = 3000;
 export const setProbeRetryMs = (ms: number) => { PROBE_RETRY_MS = ms; };
-export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, ghlCalendarTeam, calendlyWhoAmI, calendlyAvailableTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, calendlyBusyTimes, whopPing, whopGetWebhook, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk, ghl: liveGhlReads, typeformGetWebhook, theirWorkflows: ghlWorkflows };
+export const liveProbes: HealthProbes = { ghlLocationOk, ghlFreeSlots, ghlCatalog, ghlCalendarTeam, calendlyWhoAmI, calendlyAvailableTimes, calendlyEventTypeHosts, calendlyEventTypeSchedules, calendlyBusyTimes, whopPing, whopGetWebhook, whopListWebhooks, fathomPing, fathomListWebhooks, anthropicPing, jevPing, urlOk, ghl: liveGhlReads, typeformGetWebhook, theirWorkflows: ghlWorkflows };
 
 const DAYS_AHEAD = 7;
 type SlotRead = { name: string; id: string; slots: number; href?: string; times: string[] };
@@ -204,7 +204,11 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
       // D342: a workflow that is on and starts on an event Whop only sends when asked (payment.pending): the webhook must ask for it
       const needed = Object.entries(WHOP_EVENT_FOR).filter(([ev]) => onEvents.has(ev)).map(([, w]) => w);
       const lacking = r.events ? needed.filter((e) => !r.events!.includes(e)) : [];
+      // D343: other webhooks of the engine's for this offer (same URL, no secret kept): their deliveries fail the signature
+      const base = (process.env.PUBLIC_URL ?? process.env.TICK_URL ?? "").replace(/\/$/, "");
+      const strays = base ? strayWebhooks(await probes.whopListWebhooks(bindings["secret.whop_api_key"]).catch(() => []), `${base}/api/webhooks/whop/${company.id}`, bindings["whop.webhook_id"]) : [];
       if (lacking.length) bad("whop_webhook", "error", `The Whop payment webhook does not send ${lacking.join(", ")}, which a workflow that is on starts on.`, undefined, undefined, { label: "Update the Whop webhook", action: "reregister_whop" });
+      else if (strays.length) bad("whop_webhook", "warning", `${strays.length} extra Whop webhook${strays.length === 1 ? "" : "s"} deliver${strays.length === 1 ? "s" : ""} to this offer with a secret the engine does not have (${strays.map((h) => h.id).join(", ")}).`, undefined, undefined, { label: "Remove the extra Whop webhooks", action: "reregister_whop" });
       else ok("whop_webhook", `Webhook ${bindings["whop.webhook_id"]} is registered and enabled.`);
     }
   }
