@@ -18,7 +18,7 @@ export type Setup = {
   /** a stage's `was` (D143): the name it had; a pipeline that still has that name and not this one gets the stage renamed in place (its id, cards and bindings kept), never a second stage */
   pipelines: { binding: string; name: string; stages: { binding: string; name: string; was?: string }[] }[];
   /** D122: `folder` puts a contact field in the setup's own contact-field folder of that name (the prefix goes in front). */
-  contactFields: { binding: string; name: string; type: string; folder?: string }[];
+  contactFields: { binding: string; name: string; type: string; folder?: string; options?: string[] }[];
   opportunityFields: { binding: string; name: string; type: string }[];
   objects: { binding: string; key: string; label: string; plural: string; primary: { key: string; name: string }; fields: { key: string; name: string; type: string; options?: Opt[] }[] }[];
   /** first / second: "contact", "opportunity", or an object's binding; the direction is the one the templates relate in */
@@ -171,10 +171,11 @@ async function pass(setup: Setup, s: State, loc: string, call: Http, apply: bool
     if (typeof id === "string" && id) folderIds.set(fname, id);
     else say("blocked", what, undefined, `GHL did not make it${r?.error ? ` (${r.error})` : " (no folder id in its answer)"}: its fields go in without a folder; make "${name}" in GHL and move them into it by hand`);
   }
-  for (const [model, list, have] of [["contact", setup.contactFields, s.contactFields], ["opportunity", setup.opportunityFields, s.opportunityFields]] as const) for (const f of list as { binding: string; name: string; type: string; folder?: string }[]) {
+  for (const [model, list, have] of [["contact", setup.contactFields, s.contactFields], ["opportunity", setup.opportunityFields, s.opportunityFields]] as const) for (const f of list as { binding: string; name: string; type: string; folder?: string; options?: string[] }[]) {
     const name = P + f.name, what = `${model} field "${name}"`, ex = have.find((x) => norm(x.name) === norm(name));
     const parentId = f.folder ? folderIds.get(f.folder) ?? undefined : undefined;
-    if (!ex) { say("create", what, undefined, `${f.type}${f.folder ? `, in "${P + f.folder}"` : ""}`); if (apply) await call("POST", `/locations/${loc}/customFields`, { body: { name, dataType: f.type, model, ...(parentId ? { parentId } : {}) } }); continue; }
+    // D348: a dropdown (SINGLE_OPTIONS / MULTIPLE_OPTIONS) is made with its options, so a smart list's filter matches exactly
+    if (!ex) { say("create", what, undefined, `${f.type}${f.options?.length ? ` [${f.options.join(", ")}]` : ""}${f.folder ? `, in "${P + f.folder}"` : ""}`); if (apply) await call("POST", `/locations/${loc}/customFields`, { body: { name, dataType: f.type, model, ...(f.options?.length ? { options: f.options } : {}), ...(parentId ? { parentId } : {}) } }); continue; }
     if (T(ex.dataType) !== T(f.type)) { say("exists-differs", what, ex.id, `is ${ex.dataType}, the setup wants ${f.type}: left alone and not bound`); continue; }
     crm[`field_${model}_${f.binding}`] = ex.id;
     // a field already made outside its folder stays where it is (a field is never PUT): said, so a person can move it

@@ -18,6 +18,18 @@ const foreign = (g: ReturnType<typeof empty>) => {
 };
 
 describe("provision-ghl", () => {
+  it("D348: a dropdown contact field is made with its options", async () => {
+    const f = fakeGhl(); const posts: { path: string; body: unknown }[] = [];
+    const http: Http = async (m, p, o) => { if (m === "POST") posts.push({ path: p, body: o?.body }); return f.http(m, p, o); };
+    const one = { ...setup, pipelines: [], opportunityFields: [], objects: [], associations: [], calendars: [], folders: [], contactFields: [{ binding: "cycle_status", name: "Cycle Status", type: "SINGLE_OPTIONS", options: ["Active", "Paused", "Completed"] }, { binding: "attempt_count", name: "Attempt Count", type: "NUMERICAL" }] } as unknown as Setup;
+    const dry = await provision(one, LOC, http, { apply: false });
+    expect(dry.plan.find((l) => /Cycle Status/.test(l.what ?? "") && l.action === "create")?.detail).toMatch(/SINGLE_OPTIONS \[Active, Paused, Completed\]/);
+    await provision(one, LOC, http, { apply: true });
+    const made = posts.filter((x) => /customFields$/.test(x.path)).map((x) => x.body as Record<string, unknown>);
+    expect(made.find((b) => /Cycle Status$/.test(String(b.name)))).toMatchObject({ dataType: "SINGLE_OPTIONS", options: ["Active", "Paused", "Completed"], model: "contact" });
+    expect(made.find((b) => /Attempt Count$/.test(String(b.name)))).not.toHaveProperty("options");
+  });
+
   it("a dry run only reads, and says everything would be made", async () => {
     const f = fakeGhl(foreign);
     const r = await provision(setup, LOC, f.http, { apply: false });
