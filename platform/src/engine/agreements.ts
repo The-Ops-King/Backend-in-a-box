@@ -9,7 +9,7 @@ import { emitEvent, type EventRow } from "./dispatch";
  * `signed_at` and that is `agreement.signed` — exactly once, whatever order the poll sees things in. A `send_document`
  * step writes the row first (sent_by 'engine') so the poll recognises its own document instead of announcing it again.
  */
-export type AgreementRow = { id: string; company_id: string; contact_id: string | null; external_id: string; name: string | null; status: string; sent_at: Date; signed_at: Date | null; sent_by: string | null; raw: Record<string, unknown>; updated_at: Date };
+export type AgreementRow = { id: string; company_id: string; contact_id: string | null; external_id: string; name: string | null; status: string; sent_at: Date; signed_at: Date | null; sent_by: string | null; raw: Record<string, unknown>; updated_at: Date; price?: string | null; price_read_at?: Date | null };
 export const isSigned = (status: string) => status === "completed" || status === "signed";
 
 export async function applyDocument(c: PoolClient, companyId: string, d: DocumentSnapshot, contactId: string | null, opts: { silent?: boolean } = {}): Promise<{ row: AgreementRow; events: EventRow[] }> {

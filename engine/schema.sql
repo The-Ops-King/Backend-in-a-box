@@ -731,6 +731,8 @@ create table agreements (
   signed_at      timestamptz,
   sent_by        text,                                       -- 'engine' when a send_document step created it, else null
   raw            jsonb not null default '{}',
+  price          numeric(12,2),                              -- D347: the price it went out at, read from the contact
+  price_read_at  timestamptz,                                -- D347: when that was read (every agreement held before then: read)
   updated_at     timestamptz not null default now(),
   unique (company_id, external_id)
 );
