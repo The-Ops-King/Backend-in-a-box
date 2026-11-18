@@ -4,7 +4,7 @@ import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { fakeAdapters } from "./test-install";
 import { encrypt } from "./crypto";
-import { isOut, priceRange, priceValue, pricedFromField, readAgreementPrice } from "./agreement-price";
+import { isOut, planAgreementPrice, priceRange, priceValue, pricedFromField, readAgreementPrice } from "./agreement-price";
 import type { AgreementRow } from "./agreements";
 import type { Adapters, Company } from "@/adapters/types";
 
@@ -111,5 +111,20 @@ describe.skipIf(!process.env.DATABASE_URL)("D347: the price an agreement went ou
     expect(await read(await doc(ct, "($12,000) Beauty Moguls Service Agreement", "sent"))).toBeNull();
     expect((await deal(ct))!.contract_value).toBe("10000.00");
     expect(await read({ ...draft, status: "sent" })).toMatchObject({ price: 8000, problem: "none" });
+  });
+
+  it("an operator's re-check: the plan writes nothing; asked again, it reads the field as it is now", async () => {
+    const ct = await person("Again", "G-AGAIN", "9000");
+    const row = await doc(ct, "Beauty Moguls Service Agreement", "sent");
+    await asOperator((c) => c.query("update agreements set price_read_at=now() where id=$1", [row.id]));   // held before the feature: read
+    const held = (await asOperator((c) => one<AgreementRow>(c, "select * from agreements where id=$1", [row.id])))!;
+    expect(await read(held)).toBeNull();
+    const n = posts.length;
+    const plan = await asOperator((c) => planAgreementPrice(c, { companyId: co, ac, adapters, bindings }, held));
+    expect(plan).toMatchObject({ ok: true, price: 9000, problem: "none", channel: "CAGR", text: 'Agreement sent to Again Doe at $9,000 ("Beauty Moguls Service Agreement").' });
+    expect(posts.length).toBe(n);
+    expect((await deal(ct))!.contract_value).toBe("10000.00");
+    expect(await asOperator((c) => readAgreementPrice(c, { companyId: co, ac, adapters, bindings }, held, { again: true }))).toEqual({ price: 9000, problem: "none", posted: true });
+    expect(await deal(ct)).toEqual({ contract_value: "9000.00", price_source: "agreement_sent" });
   });
 });

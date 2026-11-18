@@ -7925,3 +7925,7 @@ no price."
   `agreements.price_range` ("3000-15000") it is still the price, with a warning line and alert to check it for a typo.
 - Every agreement already held when 0017 ran counts as read, so only contracts sent from then on are read and announced.
 - Engine code for every offer; an offer without `agreements.price_templates` is untouched. PMU only for now.
+- 2026-11-18 addendum (Tyler: test it on the contracts already sent, without sending another): `POST /api/admin/agreements/price`
+  { company, agreement, why, dryRun = true } reads one priced agreement's price again, as the poll does the first time. The dry
+  run says what it would read and post, writing nothing; live, it keeps the price, sets the deal's, posts the line and raises any
+  alert. Also how a contract whose price was fixed after it went out is read again.

@@ -54,30 +54,21 @@ export type PriceRead = { price: number | null; problem: "none" | "missing" | "o
 
 type Deps = { companyId: string; ac: Company; adapters: Adapters; bindings: Record<string, string> };
 
-/**
- * The price of a document priced from the contact: read once when it is out, then the deal's price. Called by the agreements poll
- * for every document of the offer; does nothing for one it does not price, one still a draft, or one already read.
- */
-export async function readAgreementPrice(c: PoolClient, d: Deps, row: AgreementRow): Promise<PriceRead | null> {
-  if (!row.contact_id || !pricedFromField(row.name, d.bindings) || !isOut(row.status) || row.price_read_at) return null;
+export type PricePlan = { ok: true; fieldId: string; contactName: string; price: number | null; problem: PriceRead["problem"]; text: string; channel: string | null }
+  | { ok: false; error: string };
+
+/** What reading this agreement's price would find and say, writing nothing: the live field, the problem if any, the Slack line. */
+export async function planAgreementPrice(c: PoolClient, d: Deps, row: AgreementRow): Promise<PricePlan> {
   const binding = d.bindings["agreements.price_field"] ?? "";
   const fieldId = binding.startsWith("crm.") ? d.bindings[binding] : binding;
-  const contact = await one<{ ghl_contact_id: string | null; name: string; assigned_ghl_user_id: string | null }>(c,
-    "select ghl_contact_id, coalesce(nullif(trim(concat_ws(' ', first_name, last_name)), ''), 'them') as name, assigned_ghl_user_id from contacts where id=$1", [row.contact_id]);
-  if (!fieldId || !contact?.ghl_contact_id) {
-    await raise(c, { companyId: d.companyId, key: `agreements:price-setup:${d.companyId}`, level: "warning", source: "engine",
-      text: `"${row.name}" takes its price from the contact, but ${fieldId ? "the contact isn't in GHL" : `agreements.price_field (${binding || "unset"}) doesn't name a field`}: its price can't be read.` });
-    return null;
-  }
+  if (!fieldId) return { ok: false, error: `agreements.price_field (${binding || "unset"}) doesn't name a field` };
+  const contact = row.contact_id ? await one<{ ghl_contact_id: string | null; name: string; assigned_ghl_user_id: string | null }>(c,
+    "select ghl_contact_id, coalesce(nullif(trim(concat_ws(' ', first_name, last_name)), ''), 'them') as name, assigned_ghl_user_id from contacts where id=$1", [row.contact_id]) : null;
+  if (!contact?.ghl_contact_id) return { ok: false, error: "the contact isn't in GHL" };
   const live = await d.adapters.read.getContact(d.ac, contact.ghl_contact_id);
   const price = priceValue(live?.customFields?.[fieldId]);
   const range = priceRange(d.bindings["agreements.price_range"]);
   const problem: PriceRead["problem"] = price === null ? "missing" : range && (price < range[0] || price > range[1]) ? "out_of_range" : "none";
-  // kept on the agreement, so a later change to the field never re-prices a contract already sent
-  await c.query("update agreements set price=$2, price_read_at=now() where id=$1", [row.id, price]);
-  if (price !== null)
-    await setDealPrice(c, { ...d, contactId: row.contact_id, price, source: row.signed_at ? "agreement" : "agreement_sent", what: `"${row.name}"` });
-
   const owner = contact.assigned_ghl_user_id
     ? await one<{ slack_user_id: string | null }>(c, "select slack_user_id from users where company_id=$1 and ghl_user_id=$2 and active", [d.companyId, contact.assigned_ghl_user_id]) : null;
   const tag = owner?.slack_user_id ? ` <@${owner.slack_user_id}>` : "";
@@ -86,11 +77,31 @@ export async function readAgreementPrice(c: PoolClient, d: Deps, row: AgreementR
     : problem === "out_of_range"
       ? `:warning:${tag} "${row.name}" went to ${contact.name} at *${usd(price!)}*, outside the usual ${usd(range![0])} to ${usd(range![1])}. If that's a typo, void it in GHL before they sign, fix Contract Value and send it again.`
       : `Agreement sent to ${contact.name} at ${usd(price!)} ("${row.name}").`;
+  return { ok: true, fieldId, contactName: contact.name, price, problem, text, channel: d.bindings["slack.channel.agreements"] || null };
+}
+
+/**
+ * The price of a document priced from the contact: read once when it is out, then the deal's price. Called by the agreements poll
+ * for every document of the offer; does nothing for one it does not price, one still a draft, or one already read (`again`: an
+ * operator asks for it to be read once more, D347's re-check).
+ */
+export async function readAgreementPrice(c: PoolClient, d: Deps, row: AgreementRow, opts: { again?: boolean } = {}): Promise<PriceRead | null> {
+  if (!row.contact_id || !pricedFromField(row.name, d.bindings) || !isOut(row.status) || (row.price_read_at && !opts.again)) return null;
+  const plan = await planAgreementPrice(c, d, row);
+  if (!plan.ok) {
+    await raise(c, { companyId: d.companyId, key: `agreements:price-setup:${d.companyId}`, level: "warning", source: "engine",
+      text: `"${row.name}" takes its price from the contact, but ${plan.error}: its price can't be read.` });
+    return null;
+  }
+  const { price, problem, text, channel, fieldId } = plan;
+  // kept on the agreement, so a later change to the field never re-prices a contract already sent
+  await c.query("update agreements set price=$2, price_read_at=now() where id=$1", [row.id, price]);
+  if (price !== null)
+    await setDealPrice(c, { ...d, contactId: row.contact_id, price, source: row.signed_at ? "agreement" : "agreement_sent", what: `"${row.name}"` });
   if (problem !== "none")
     await raise(c, { companyId: d.companyId, key: `agreements:price:${row.id}`, level: problem === "missing" ? "error" : "warning", source: "engine",
       text: text.replace(/^:\w+:\s*(<@\w+>\s*)?/, ""), detail: { agreement_id: row.id, price, problem } });
 
-  const channel = d.bindings["slack.channel.agreements"];
   const bot = channel ? await slackBot(c, d.companyId) : null;
   let posted = false;
   if (bot && channel) {
@@ -101,6 +112,6 @@ export async function readAgreementPrice(c: PoolClient, d: Deps, row: AgreementR
     }
   }
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'agreement.price_read','agreement',$2,$3)",
-    [d.companyId, row.id, { name: row.name, price, problem, field: fieldId, posted }]);
+    [d.companyId, row.id, { name: row.name, price, problem, field: fieldId, posted, again: !!opts.again }]);
   return { price, problem, posted };
 }
