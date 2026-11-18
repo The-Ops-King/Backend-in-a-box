@@ -7929,3 +7929,10 @@ no price."
   { company, agreement, why, dryRun = true } reads one priced agreement's price again, as the poll does the first time. The dry
   run says what it would read and post, writing nothing; live, it keeps the price, sets the deal's, posts the line and raises any
   alert. Also how a contract whose price was fixed after it went out is read again.
+
+## D346 — A GHL pipeline's cards and their people's tags, read (2026-11-18)
+
+Tyler (TRC): about 413 cards on the new Reactivation pipeline, 54 of them people tagged "ignition", to come off the board and lose
+the reactivation tag; "Confirm with me that you understand and can see those before acting." GET /api/admin/ghl/pipeline-cards
+?company&pipeline: every card on one board, any status, its stage's name and its person's tags. Read only; whatever is then done to
+them is its own route, dry run first.
