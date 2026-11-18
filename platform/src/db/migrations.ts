@@ -136,4 +136,12 @@ export const MIGRATIONS: Migration[] = [
   { id: "0016-payment-pending", run: async (c) => {
     await c.query("insert into event_types values ('payment.pending','payment'), ('payment.pending_resolved','payment') on conflict do nothing");
   } },
+  // D347: the price an agreement went out at, read from the contact once it was out; every agreement already held counts as read,
+  // so only what is sent from now on is read and announced
+  { id: "0017-agreement-price", run: async (c) => {
+    await c.tx(async (t) => {
+      await t.query("alter table agreements add column if not exists price numeric(12,2), add column if not exists price_read_at timestamptz");
+      await t.query("update agreements set price_read_at = now() where price_read_at is null");
+    });
+  } },
 ];

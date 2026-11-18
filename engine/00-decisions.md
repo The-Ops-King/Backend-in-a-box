@@ -7906,3 +7906,26 @@ opening again).
 - 2026-11-17 addendum (Tyler, on Razia's $10,000: "if that's the pending payment it should say pending payment received"): a
   `payment.received` / `payment.failed` / `payment.refunded` for a payment that came in pending first carries `was_pending: true`
   (false otherwise), so the payment post can say so. Data only: no workflow's behaviour changes until its copy reads it (TRC's).
+
+## D347 — A custom-priced agreement takes its price from the contact, and never goes out unpriced unseen (2026-11-18)
+
+Tyler: PMU is enrolling at lower prices to bring cash in ($7,000 where it is normally $12,000), on two new GHL contracts, "Beauty
+Moguls Service Agreement" and the same with "(Guarantee)", whose price is the contact's Contract Value merged into the text. The
+closer sets Contract Value, then sends the contract from GHL as usual (no Slack required). "We just cannot risk it going out with
+no price."
+
+- An offer names the agreements priced this way (`agreements.price_templates`, document names, any case) and the field
+  (`agreements.price_field`, a field binding or GHL id). Once such a document is out (sent, viewed or completed; a GHL draft is
+  not), the poll reads the field once, live from GHL, and keeps it on the agreement (`agreements.price`, `price_read_at`,
+  migration 0017): the price the client was sent. A later change to the field never re-prices it.
+- That price is the deal's price at agreement level (D322): `agreement_sent`, and `agreement` once signed. Payments reconcile
+  against it, so one $7,000 one-time Whop charge is paid in full and $3,500 + $3,500 is a plan.
+- One line goes to `slack.channel.agreements`: "Agreement sent to Jane Doe at $7,000". With Contract Value empty or zero, the line
+  says it went out with no price, tags the contact's owner, and an error alert opens; the deal's price is left alone. Outside
+  `agreements.price_range` ("3000-15000") it is still the price, with a warning line and alert to check it for a typo.
+- Every agreement already held when 0017 ran counts as read, so only contracts sent from then on are read and announced.
+- Engine code for every offer; an offer without `agreements.price_templates` is untouched. PMU only for now.
+- 2026-11-18 addendum (Tyler: test it on the contracts already sent, without sending another): `POST /api/admin/agreements/price`
+  { company, agreement, why, dryRun = true } reads one priced agreement's price again, as the poll does the first time. The dry
+  run says what it would read and post, writing nothing; live, it keeps the price, sets the deal's, posts the line and raises any
+  alert. Also how a contract whose price was fixed after it went out is read again.
