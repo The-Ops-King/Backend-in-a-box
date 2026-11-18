@@ -7940,3 +7940,9 @@ them is its own route, dry run first.
   POST /api/admin/ghl/pipeline-cards/cleanup { company, pipeline, tag, delete_cards: true, remove_tag?, expect, why, dryRun }. The dry
   run lists exactly the cards; applied it acts only when it finds `expect` cards (the dry run's count), and writes every card (its
   person, stage, status, value and tags) to the audit log before deleting, since a deleted card cannot be brought back.
+
+## D348 — The GHL setup makes dropdown contact fields with their options (2026-11-18)
+
+TRC's Smart List SOP needs dropdowns on the contact (Cycle Status, Entry Reason, Last Outcome, Assigned Rep) so a smart list's filter
+matches exactly. A contact or opportunity field in a setup may carry `options: [labels]`; it is made with them. An existing field is
+never changed (as before).
