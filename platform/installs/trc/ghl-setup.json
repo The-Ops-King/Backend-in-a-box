@@ -143,6 +143,91 @@
       "binding": "revenue_generated",
       "name": "Revenue Generated",
       "type": "NUMERICAL"
+    },
+    {
+      "binding": "assigned_rep",
+      "name": "Assigned Rep",
+      "type": "SINGLE_OPTIONS",
+      "options": [
+        "Nick Rowe",
+        "Tiffany Rose"
+      ],
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "cycle_status",
+      "name": "Cycle Status",
+      "type": "SINGLE_OPTIONS",
+      "options": [
+        "Active",
+        "Paused",
+        "Completed",
+        "Long-term Nurture",
+        "Removed"
+      ],
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "entry_reason",
+      "name": "Entry Reason",
+      "type": "SINGLE_OPTIONS",
+      "options": [
+        "Never booked",
+        "No-show"
+      ],
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "cycle_start",
+      "name": "Cycle Start",
+      "type": "DATE",
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "attempt_count",
+      "name": "Attempt Count",
+      "type": "NUMERICAL",
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "last_call_at",
+      "name": "Last Call At",
+      "type": "DATE",
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "next_call_due",
+      "name": "Next Call Due",
+      "type": "DATE",
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "last_outcome",
+      "name": "Last Outcome",
+      "type": "SINGLE_OPTIONS",
+      "options": [
+        "No Answer",
+        "Voicemail",
+        "Wrong Number",
+        "Connected, Callback Set",
+        "Connected, Not Interested",
+        "Financial DQ",
+        "Booked",
+        "Do Not Call"
+      ],
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "no_show_resets",
+      "name": "No-Show Resets",
+      "type": "NUMERICAL",
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
+    },
+    {
+      "binding": "paused_at",
+      "name": "Paused At",
+      "type": "DATE",
+      "_note": "Smart List SOP (Tyler 2026-11-18): made in GHL; not bound, nothing fills it yet"
     }
   ],
   "opportunityFields": [
