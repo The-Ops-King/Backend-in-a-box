@@ -7936,3 +7936,7 @@ Tyler (TRC): about 413 cards on the new Reactivation pipeline, 54 of them people
 the reactivation tag; "Confirm with me that you understand and can see those before acting." GET /api/admin/ghl/pipeline-cards
 ?company&pipeline: every card on one board, any status, its stage's name and its person's tags. Read only; whatever is then done to
 them is its own route, dry run first.
+- Clean-up (Tyler, 2026-11-18: delete the 54 Reactivation cards of people tagged `ignite` and take `leap-buyer-sms-ready` off them):
+  POST /api/admin/ghl/pipeline-cards/cleanup { company, pipeline, tag, delete_cards: true, remove_tag?, expect, why, dryRun }. The dry
+  run lists exactly the cards; applied it acts only when it finds `expect` cards (the dry run's count), and writes every card (its
+  person, stage, status, value and tags) to the audit log before deleting, since a deleted card cannot be brought back.
