@@ -7982,3 +7982,12 @@ appointments when a call is booked?"
 - `GET /api/admin/calendars/ghl-mirror?company=` lists the GHL calendars (id, name, team), the map, and a dry run of the next pass.
 - The settings live under `booking.`, not `calendar.`: every `calendar.*` setting is read as a calendar a workflow can name.
 - Engine code for every offer; an offer without `booking.ghl_mirror` is untouched. PMU only.
+
+## D351 — Waits that keep to calling hours and days (2026-11-19)
+
+TRC's dial cadence (its Smart List SOP): "Only call between 8am and 8pm in the prospect's local time. Attempts due on a Sunday or US
+federal holiday move to the next permitted day." A wait rule's `earliest`/`latest` moved a late time back to `latest` the same day
+(right for a reminder before an evening call, wrong for a call). New, opt-in on the rule: `after_latest: "next_day"` (after `latest`
+→ the next day's `earliest`), `skip_days` (1 Mon .. 7 Sun) and `skip_holidays: "us_federal"` (New Year's, MLK, Presidents', Memorial,
+Juneteenth, Independence, Labor, Columbus, Veterans, Thanksgiving, Christmas; a fixed-date one skipped on its date and on its
+observed weekday). A skipped day moves to the next at `earliest`. A rule without them computes exactly as before.

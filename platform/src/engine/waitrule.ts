@@ -31,9 +31,50 @@ export function computeWaitUntil(rule: WaitRule, t: TimeCtx): { at: DateTime; us
     const minLead = parseDuration(rule.guard.min_lead);
     if (at > anchor.minus(minLead)) { at = applyOffset(anchor, rule.guard.fallback, tz); usedFallback = true; }
   }
-  at = clampToWindow(at, tz, rule.earliest, rule.latest);
-  if (at < t.now) at = t.now;
+  const forward = rule.after_latest === "next_day" || !!rule.skip_days?.length || !!rule.skip_holidays;
+  at = forward ? permittedTime(at, tz, rule) : clampToWindow(at, tz, rule.earliest, rule.latest);
+  if (at < t.now) at = forward ? permittedTime(t.now, tz, rule) : t.now;
   return { at, usedFallback };
+}
+
+const hm = (s: string) => s.split(":").map(Number) as [number, number];
+/**
+ * D351: the first moment at or after `at` that is a permitted time: inside [earliest, latest] (after `latest`: the next day's
+ * `earliest` when `after_latest` is next_day, else back to `latest` as clampToWindow does), on a day that is neither in
+ * `skip_days` nor, with `skip_holidays`, a US federal holiday (observed). A skipped day moves to the next one at `earliest`.
+ */
+export function permittedTime(at: DateTime, tz: string, rule: Pick<WaitRule, "earliest" | "latest" | "after_latest" | "skip_days" | "skip_holidays">): DateTime {
+  let local: DateTime = at.setZone(tz) as DateTime;
+  const startOf = (d: DateTime): DateTime => (rule.earliest ? d.set({ hour: hm(rule.earliest)[0], minute: hm(rule.earliest)[1], second: 0, millisecond: 0 }) : d.startOf("day"));
+  for (let i = 0; i < 31; i++) {
+    if (rule.earliest && local < startOf(local)) local = startOf(local);
+    if (rule.latest) {
+      const close = local.set({ hour: hm(rule.latest)[0], minute: hm(rule.latest)[1], second: 0, millisecond: 0 });
+      if (local > close) { if (rule.after_latest === "next_day") { local = startOf(local.plus({ days: 1 })); continue; } local = close; }
+    }
+    const skip = rule.skip_days?.includes(local.weekday) || (rule.skip_holidays === "us_federal" && isUsFederalHoliday(local));
+    if (!skip) return local;
+    local = startOf(local.plus({ days: 1 }));
+  }
+  return local;
+}
+
+/** US federal holidays: each on its date and, when that is a weekend, its observed weekday (Friday before / Monday after), for the date in its own zone. */
+export function isUsFederalHoliday(d: DateTime): boolean {
+  const key = d.toFormat("yyyy-MM-dd");
+  return [d.year - 1, d.year, d.year + 1].some((y) => usFederalHolidays(y).has(key));
+}
+const holidayCache = new Map<number, Set<string>>();
+export function usFederalHolidays(year: number): Set<string> {
+  const hit = holidayCache.get(year); if (hit) return hit;
+  const nth = (month: number, weekday: number, n: number) => { let d = DateTime.utc(year, month, 1); while (d.weekday !== weekday) d = d.plus({ days: 1 }); return d.plus({ weeks: n - 1 }); };
+  const last = (month: number, weekday: number) => { let d = DateTime.utc(year, month, 1).endOf("month").startOf("day"); while (d.weekday !== weekday) d = d.minus({ days: 1 }); return d; };
+  const observed = (d: DateTime) => (d.weekday === 6 ? d.minus({ days: 1 }) : d.weekday === 7 ? d.plus({ days: 1 }) : d);
+  // a fixed-date holiday is skipped both on its own date and on the weekday it is observed (July 4th on a Saturday: Fri 3 and Sat 4)
+  const fixed = [[1, 1], [6, 19], [7, 4], [11, 11], [12, 25]].flatMap(([m, d]) => { const x = DateTime.utc(year, m, d); return [x, observed(x)]; });
+  const days = [...fixed, nth(1, 1, 3), nth(2, 1, 3), last(5, 1), nth(9, 1, 1), nth(10, 1, 2), nth(11, 4, 4)];
+  const out = new Set(days.map((d) => d.toFormat("yyyy-MM-dd")));
+  holidayCache.set(year, out); return out;
 }
 
 /** The wait's own daily window: before `earliest` → that time the same day; after `latest` → that time the same day (the message still goes out the right day, at a human hour). */

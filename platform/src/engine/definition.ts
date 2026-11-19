@@ -28,6 +28,13 @@ export const WaitRule = z.object({
   // D193: "before" — a time after the company's send window closes (the person's zone) moves back to just before it closes, the same
   // day, instead of waiting for the next morning (a reminder before an evening call still goes the right day). Unset: forward, as ever.
   window: z.enum(["before"]).optional(),
+  // D351 (TRC's dial cadence: "8am to 8pm in the prospect's local time; attempts due on a Sunday or US federal holiday move to the
+  // next permitted day"): `after_latest: "next_day"` moves a time after `latest` forward to the next day's `earliest` (a call is not
+  // made earlier the same day, as a reminder is); `skip_days` (1 Mon .. 7 Sun) and `skip_holidays: "us_federal"` move a time that
+  // lands on one to the next permitted day, at `earliest` when there is one. Unset: as before.
+  after_latest: z.enum(["same_day", "next_day"]).optional(),
+  skip_days: z.array(z.number().int().min(1).max(7)).optional(),
+  skip_holidays: z.enum(["us_federal"]).optional(),
 });
 export type WaitRule = z.infer<typeof WaitRule>;
 
