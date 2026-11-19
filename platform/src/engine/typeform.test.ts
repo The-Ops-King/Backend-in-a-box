@@ -161,7 +161,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Typeform into the engine (D122)", ()
     // in scope by the submission alone, before anything has run, untagged (D117/D122)
     expect(await events("tag.added", p!.id)).toEqual([]);
     expect(await events("lead.created", p!.id)).toEqual([]);
-    expect(await asOperator((c) => inScope(c, p!.id, "dating"))).toBe(true);
+    expect(await asOperator((c) => inScope(c, p!.id, ["dating"]))).toBe(true);
     await settle();
     expect(writes).toEqual([]);
     expect((await events("tag.added", p!.id)).filter((e) => e.data.tag === "dating")).toEqual([expect.objectContaining({ source: "engine", data: { tag: "dating", ghost: true } })]);

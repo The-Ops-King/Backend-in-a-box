@@ -8,7 +8,7 @@ import type { Finding } from "./health";
 import { effectiveMode, handlerMode, isTestContact, testContactSql, testDomains, MODES, runMode, type Mode } from "./mode";
 import { RELIES } from "./golive-deps";
 import { paymentRecords, salesCallConfig, salesCallsFor, type Payment, type SalesCall } from "./ghl-metrics";
-import { carriesTag, scopeTag } from "./scope";
+import { carriesAny, scopeTag, scopeTags } from "./scope";
 
 /**
  * D73. "Always GHL. It's the truth. If the two are different, that's an issue." And: "the engine is only the mirror of the
@@ -99,7 +99,7 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
 
   // 1. contacts GHL added that the ledger does not hold: pulled in as the poll would. D117: with a scope tag, only those carrying
   // it (a booker comes in with their booking); the location's other people are no drift. Presence (2) still reads every one
-  const tag = scopeTag(bindings), mine = tag ? ghl.filter((k) => carriesTag(k.tags, tag)) : ghl;
+  const tags = scopeTags(bindings), mine = tags ? ghl.filter((k) => carriesAny(k.tags, tags)) : ghl;   // D349: any tag that makes them the company's
   const known = new Set((await many<{ id: string }>(c, `select x.id from unnest($2::text[]) as x(id) where exists (select 1 from contacts ct where ct.company_id=$1 and ct.ghl_contact_id=x.id)
     or exists (select 1 from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.id)`, [company.id, mine.map((k) => k.id)])).map((r) => r.id));
   const missing = mine.filter((k) => !known.has(k.id));
@@ -402,6 +402,6 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     out.push({ check, ok: false, level: "warning", text: `${left.length} ${left.length === 1 ? "question" : "questions"} about records in the engine that don't match GHL${fixed ? ` (${fixed} more updated from GHL)` : ""}.`,
       detail: { items: left, q, fixed, count: left.length, more: Math.max(0, left.length - NAMES) || null, days, shape: fixed ? (left.length === 1 ? "fixed_one" : "fixed_many") : left.length === 1 ? "one" : "many" } });
   }
-  else if (!out.length) out.push({ check, ok: true, level: "warning", text: `${mine.length} contact${mine.length === 1 ? "" : "s"}${tag ? ` tagged ${tag}` : ""} added in GHL in the last ${days} days, all in the ledger${cfg ? `; ${calls.length} Sales Call${calls.length === 1 ? "" : "s"} agree with the ledger` : ""}.` });
+  else if (!out.length) out.push({ check, ok: true, level: "warning", text: `${mine.length} contact${mine.length === 1 ? "" : "s"}${tags ? ` tagged ${tags.join(" or ")}` : ""} added in GHL in the last ${days} days, all in the ledger${cfg ? `; ${calls.length} Sales Call${calls.length === 1 ? "" : "s"} agree with the ledger` : ""}.` });
   return out;
 }

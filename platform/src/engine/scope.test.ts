@@ -151,6 +151,24 @@ describe.skipIf(!process.env.DATABASE_URL)("a company's scope tag (D117)", () =>
     expect((await pay("P-O1", "o1@x.com")).outcome).toBe("unlinked");
     expect((await pay("P-B1", "b1@x.com")).outcome).toBe("linked");
   });
+
+  it("D349: scope.also_tags make a person the company's (searched, replicated, matched to a payment), never a lead in the numbers; the scope tag alone is ever written", async () => {
+    await asOperator((c) => c.query("insert into bindings (company_id, key, kind, value) values ($1,'scope.also_tags','text',$2) on conflict (company_id, key) do update set value=excluded.value", [companyId, Buffer.from("Leap-Buyer, other-tag")]));
+    searched.length = 0;
+    updated = [person("L1", ["leap-buyer"]), person("U6", ["hair-client"])];
+    await poll();
+    expect(new Set(searched)).toEqual(new Set(["dating", "leap-buyer", "other-tag"]));   // one tagged search each, the scope tag first
+    expect(await contactOf("L1")).not.toBeNull();
+    expect(await contactOf("U6")).toBeNull();
+    await asOperator((c) => c.query("insert into contact_identifiers (company_id, contact_id, kind, value) select $1, id, 'email', 'l1@x.com' from contacts where company_id=$1 and ghl_contact_id='L1' on conflict do nothing", [companyId]));
+    expect((await asOperator((c) => recordPayment(c, companyId, { providerPaymentId: "P-L1", amount: 97, status: "succeeded", paidAt: new Date(), email: "l1@x.com" }))).outcome).toBe("linked");
+    const from = NOW.minus({ days: 1 }).toISODate()!, to = NOW.toISODate()!;
+    const r = await asOperator((c) => getMetric(c, companyId, { metric: "leads", period: { from, to, label: "since yesterday", name: "since yesterday" }, now: NOW.toJSDate() }, reads([person("L2", ["leap-buyer"]), person("T4", ["dating"])])));
+    expect(r.value).toBe(1);   // the Leap buyer is the company's, not a lead
+    expect(tagged.filter((t) => t.tag !== "dating")).toEqual([]);
+    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='scope.also_tags'", [companyId]));
+    updated = [];
+  });
 });
 
 describe("money read back from GHL (D116 hardening)", () => {

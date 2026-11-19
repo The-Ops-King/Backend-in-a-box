@@ -106,9 +106,9 @@ export async function dispatchEvent(c: PoolClient, e: EventRow, matchCtx: Record
   // (every one today is in scope; this holds the rule for a door or a workflow step added later). In scope is the replica's
   // answer (tagged, a booker, or a form submitter), so a booker or applicant untagged in ghost still passes.
   if (e.event_type === "lead.created" && e.contact_id) {
-    const { companyScopeTag, inScope } = await import("./scope");
-    const tag = await companyScopeTag(c, e.company_id);
-    if (tag && !(await inScope(c, e.contact_id, tag))) {
+    const { companyScopeTags, inScope } = await import("./scope");
+    const tags = await companyScopeTags(c, e.company_id), tag = tags?.join(", ");
+    if (tags && !(await inScope(c, e.contact_id, tags))) {
       await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'scope.lead_refused','contact',$2,$3)", [e.company_id, e.contact_id, { event_id: e.id, tag, source: e.source }]);
       return [];
     }

@@ -17,7 +17,7 @@ import { priceFrom, priceFromName, setDealPrice } from "./deal-price";
 import { readAgreementPrice } from "./agreement-price";
 import { foldCard } from "./cards";
 import { handMoved } from "./card-moves";
-import { carriesTag, companyScopeTag, inScope, scopeTag, stillInScope, tagIntoScope } from "./scope";
+import { carriesAny, carriesTag, companyScopeTag, inScope, scopeTag, scopeTags, stillInScope, tagIntoScope } from "./scope";
 import { raiseSetterMissing, settleSetterAlerts } from "./setter-missing";
 import { raise, resolve } from "./alerts";
 import { runningSql } from "./running";
@@ -109,13 +109,15 @@ export const boundFieldIds = (bindings: Record<string, string>) => new Set(Objec
 async function pollContacts(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
   const { since, isBaseline } = await cursor(c, co.id, "contacts", DateTime.now().minus({ days: 7 }));
   // D117: a scoped company reads only its own people; anyone else the location holds is never replicated and starts nothing
-  const tag = scopeTag(bindings);
-  const rows = tag ? await adapters.read.contactsChangedSince(ac, since.toISO()!, tag) : await adapters.read.contactsChangedSince(ac, since.toISO()!);
+  // D349: each tag that makes a person the company's is its own tagged search; a person carrying two is read once
+  const tags = scopeTags(bindings);
+  const rows = tags ? [...new Map((await Promise.all(tags.map((t) => adapters.read.contactsChangedSince(ac, since.toISO()!, t)))).flat().map((s) => [s.id, s])).values()].sort((a, b) => a.dateUpdated.localeCompare(b.dateUpdated))
+    : await adapters.read.contactsChangedSince(ac, since.toISO()!);
   let max = since;
   const keep = boundFieldIds(bindings);
   for (const s of rows) {
     const u = DateTime.fromISO(s.dateUpdated); if (u > max) max = u;
-    if (tag && !carriesTag(s.tags, tag)) continue;   // the search's own filter, held to the exact tag
+    if (tags && !carriesAny(s.tags, tags)) continue;   // the search's own filter, held to the exact tags
     const up = await upsertContact(c, co.id, co.timezone, s, keep), { id, prevTags } = up;
     rep.contacts++;
     if (isBaseline) { rep.baselined++; continue; }
@@ -347,9 +349,9 @@ async function pollCalendar(c: PoolClient, co: CompanyRow, ac: Company, adapters
 
 async function pollInbound(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, rep: PollReport, bindings: Record<string, string>) {
   const { since, isBaseline } = await cursor(c, co.id, "conversations", DateTime.now().minus({ hours: 24 }));
-  const tag = scopeTag(bindings);
+  const tag = scopeTag(bindings), tags = scopeTags(bindings);
   // D117: a thread of someone out of scope is the location's other business: no call row, no reply, nothing started. The baseline asks only the replica
-  const mine = (contactId: string) => (isBaseline ? inScope(c, contactId, tag) : stillInScope(c, co, ac, adapters, contactId, tag));
+  const mine = (contactId: string) => (isBaseline ? inScope(c, contactId, tags) : stillInScope(c, co, ac, adapters, contactId, tags));
   // audit risk 11: a tick that could not read every thread touched since the cursor leaves the cursor where it is and says where it stopped
   const resume = await one<{ cursor: string }>(c, "select cursor from poll_cursors where company_id=$1 and entity=$2", [co.id, INBOUND_RESUME]);
   const after = resume?.cursor && /^\d+$/.test(resume.cursor) ? Number(resume.cursor) : undefined;
@@ -452,16 +454,16 @@ async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapte
   // D202: the minute tick and GHL's nudge can read the same documents at once; one at a time per company, so a signature is news once
   await c.query("select pg_advisory_xact_lock(hashtextextended('poll:agreements:' || $1::text, 0))", [co.id]);
   const { isBaseline } = await cursor(c, co.id, "agreements", DateTime.now());
-  const tag = scopeTag(bindings);
+  const tags = scopeTags(bindings);
   for (const d of await adapters.read.documents(ac)) {
     const contact = d.contactId ? await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id=$2", [co.id, d.contactId]) : null;
     // D117: every document is still mirrored (so one signed while its person was out of scope is never news later), but only an in-scope
     // person's is theirs and says anything. GHL is asked only when the document would say something (new, or newly signed)
     let ours = !!contact;
-    if (tag && contact) {
+    if (tags && contact) {
       const held = await one<{ signed_at: Date | null }>(c, "select signed_at from agreements where company_id=$1 and external_id=$2", [co.id, d.id]);
       const news = !isBaseline && (!held || (!held.signed_at && isSigned(d.status)));
-      ours = news ? await stillInScope(c, co, ac, adapters, contact.id, tag) : await inScope(c, contact.id, tag);
+      ours = news ? await stillInScope(c, co, ac, adapters, contact.id, tags) : await inScope(c, contact.id, tags);
     }
     const { row, events } = await applyDocument(c, co.id, d, ours ? contact!.id : null, { silent: isBaseline || (!!contact && !ours) });
     for (const ev of events) { rep.agreements++; rep.eventsDispatched += (await dispatchEvent(c, ev, { contact: { id: row.contact_id }, agreement: agreementFacts(row) })).length; }
