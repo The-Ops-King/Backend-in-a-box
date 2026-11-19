@@ -39,7 +39,7 @@ export function computeWaitUntil(rule: WaitRule, t: TimeCtx): { at: DateTime; us
 
 const hm = (s: string) => s.split(":").map(Number) as [number, number];
 /**
- * D351: the first moment at or after `at` that is a permitted time: inside [earliest, latest] (after `latest`: the next day's
+ * D353: the first moment at or after `at` that is a permitted time: inside [earliest, latest] (after `latest`: the next day's
  * `earliest` when `after_latest` is next_day, else back to `latest` as clampToWindow does), on a day that is neither in
  * `skip_days` nor, with `skip_holidays`, a US federal holiday (observed). A skipped day moves to the next one at `earliest`.
  */

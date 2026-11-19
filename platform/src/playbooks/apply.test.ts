@@ -119,7 +119,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D170: putting a playbook on a compan
 
   it("#48: every workflow's starting rung follows what it does", async () => {
     const plan = await asOperator((c) => rungPlan(c, dst));
-    expect(plan.length).toBe(templates.filter((t) => !(t as { optional?: boolean }).optional).length);   // D352: an optional template is installed only where named
+    expect(plan.length).toBe(templates.filter((t) => !(t as { optional?: boolean }).optional).length);   // D354: an optional template is installed only where named
     const of = (w: string) => plan.find((p) => p.workflow === w)!;
     expect(of("pre-call-sequence")).toMatchObject({ rung: "test", why: expect.stringMatching(/texts the contact/) });
     expect(of("deal-closed").rung).toBe("test");

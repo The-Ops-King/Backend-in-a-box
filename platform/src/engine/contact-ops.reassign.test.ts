@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
 import { installCompany } from "./install";
-import { calendarOwner, calendarWatch, callCloser, callsByTime, contactsReassign } from "./contact-ops";
+import { calendarOwner, calendarWatch, callCloser, callSetter, callsByTime, contactsReassign } from "./contact-ops";
 import { fakeAdapters } from "./test-install";
 import type { Adapters, ContactSnapshot } from "@/adapters/types";
 
@@ -134,6 +134,24 @@ describe.skipIf(!process.env.DATABASE_URL)("D204: reassign and calendar owner", 
     expect(recs).toEqual([["SC-1", { closer: "nonie" }]]);
     expect(await asOperator((c) => one(c, "select u.email from appointments a join users u on u.id=a.assigned_user_id where a.id=$1", [appt]))).toEqual({ email: "nonie@x.com" });
     expect(await asOperator((c) => callCloser(c, w, { ...args, closer: "nobody@x.com" }))).toMatchObject({ ok: false, status: 404 });
+  });
+  it("D351: who set a call, on the booking, its Sales Call (Setter, Set Via, Booking Source) and the person's Setter field; a dry run changes nothing", async () => {
+    const recs: [string, Record<string, unknown>][] = [], contacts: [string, unknown][] = [];
+    const w: Adapters = { ...fake, write: { ...fake.write, updateRecord: async (_c, _o, id, p) => { recs.push([id, p]); }, updateContact: async (_c, id, p) => { contacts.push([id, p.customFields]); } } } as Adapters;
+    const appt = await asOperator(async (c) => {
+      await c.query("insert into bindings (company_id, key, kind, value) values ($1,'crm.field_contact_setter','id',$2) on conflict do nothing", [co, Buffer.from("FLD-SETTER")]);
+      await c.query("update appointments set set_by='Mitch Sapoff', self_booked=false where company_id=$1 and external_id='HOSTLESS'", [co]);
+      return (await one<{ id: string }>(c, "select id from appointments where company_id=$1 and external_id='HOSTLESS'", [co]))!.id;
+    });
+    const args = { company: SLUG, appointments: ["HOSTLESS"], setter: "nonie@x.com", via: "dm", why: "test" };
+    expect(await asOperator((c) => callSetter(c, w, args))).toMatchObject({ ok: true, dryRun: true, setter: "Nonie Wallace", via: "dm", calls: [{ id: appt, was: "Mitch Sapoff", sales_call: "SC-1" }] });
+    expect([recs, contacts]).toEqual([[], []]);
+    expect(await asOperator((c) => callSetter(c, w, { ...args, dryRun: false }))).toMatchObject({ ok: true, dryRun: false });
+    expect(recs).toEqual([["SC-1", { setter: "Nonie Wallace", booking_source: "setter_set", set_via: "dm" }]]);
+    expect(contacts).toEqual([["B", [{ id: "FLD-SETTER", field_value: "Nonie Wallace" }]]]);
+    expect(await asOperator((c) => one(c, "select set_by, self_booked from appointments where id=$1", [appt]))).toEqual({ set_by: "Nonie Wallace", self_booked: false });
+    expect(await asOperator((c) => callSetter(c, w, { ...args, setter: "nobody@x.com" }))).toMatchObject({ ok: false, status: 404 });
+    expect(await asOperator((c) => callSetter(c, w, { ...args, via: "email" }))).toMatchObject({ ok: false, status: 400 });
   });
   it("D205: upcoming calls to Nonie, past ones to Mitch, in the replica and on their Discovery records (Setter and owner, checked read back); limit proves one first", async () => {
     const recWrites: [string, Record<string, unknown>, string | undefined, string[] | undefined][] = [];

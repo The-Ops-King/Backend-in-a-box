@@ -1,4 +1,4 @@
-/** D352: the dial cadence (TRC's Smart List SOP) through the real engine: Jose's three test contacts and the edges around them. */
+/** D354: the dial cadence (TRC's Smart List SOP) through the real engine: Jose's three test contacts and the edges around them. */
 import { describe, it, expect, beforeAll, vi } from "vitest";
 vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), after: () => undefined }));   // the route works its runs after answering; here the test ticks
 import { DateTime } from "luxon";
@@ -31,10 +31,10 @@ const run = async (now: DateTime) => { await asOperator((c) => c.query("update r
 const pastBooking = (contactId: string, ext: string) => asOperator(async (c) => (await one<{ id: string }>(c, `insert into appointments (company_id, contact_id, source, external_id, appointment_term, starts_at, ends_at, booked_at, status)
   values ($1,$2,'test',$3,(select id from company_terms where company_id=$1 and category='closing' order by sort limit 1), now() - interval '2 days', now() - interval '2 days' + interval '30 minutes', now() - interval '5 days', 'noshow') returning id`, [co, contactId, ext]))!.id);
 
-describe.skipIf(!process.env.DATABASE_URL)("D352: dial cadence", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D354: dial cadence", () => {
   beforeAll(async () => {
     await migrate();
-    co = (await installCompany({ name: "Cadence", slug: `d352-${Date.now()}`, timezone: TZ, locationId: "LOC-D352", pit: "pit-fake", calendars: {}, templates: ["dial-cadence", "dial-cadence-exits"], enable: true,
+    co = (await installCompany({ name: "Cadence", slug: `d352-${Date.now()}`, timezone: TZ, locationId: "LOC-D354", pit: "pit-fake", calendars: {}, templates: ["dial-cadence", "dial-cadence-exits"], enable: true,
       crm: Object.fromEntries(FIELDS.map((f) => [`field_contact_${f}`, `F-${f}`])) } as never, fake)).companyId;
     await asOperator((c) => c.query("update companies set mode='live' where id=$1", [co]));
   }, 60_000);

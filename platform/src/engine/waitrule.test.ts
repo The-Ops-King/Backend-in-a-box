@@ -55,7 +55,7 @@ describe("D193: a reminder after the window closes goes back to just before it, 
   });
 });
 
-describe("D351: calls only in the person's permitted hours and days", () => {
+describe("D353: calls only in the person's permitted hours and days", () => {
   const ny = "America/New_York";
   const at = (nowIso: string, rule: Record<string, unknown>) => computeWaitUntil({ anchor: "now", offset: "+0m", tz: "contact", ...rule } as never, { now: DateTime.fromISO(nowIso, { zone: ny }), contactTz: ny, companyTz: tz, ctx: {} }).at.setZone(ny).toFormat("yyyy-MM-dd HH:mm");
   const calls = { earliest: "08:00", latest: "20:00", after_latest: "next_day", skip_days: [7], skip_holidays: "us_federal" };

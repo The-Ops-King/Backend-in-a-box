@@ -8,7 +8,7 @@ import { runCompanyNow } from "@/api/run-soon";
 export const dynamic = "force-dynamic"; export const maxDuration = 300;
 
 /**
- * D352: POST { company, workflow (name | id | slug), contacts: [engine contact ids], data?: {..}, why, dryRun = true } with
+ * D354: POST { company, workflow (name | id | slug), contacts: [engine contact ids], data?: {..}, why, dryRun = true } with
  * Authorization: Bearer $CRON_SECRET: people who were already there when a workflow was built (TRC's dial cadence: Leap buyers who
  * never booked) are started in it as if they had just arrived. Each becomes one `operator.enrolled` event about them (`data` and
  * `why` as event.*), handed to that one workflow only, which must have a trigger on it. Its reentry rules hold (someone already in it

@@ -1,4 +1,4 @@
-# D352: generates src/templates/dial-cadence.json and dial-cadence-exits.json (python3 scripts/gen-dial-cadence.py src/templates)
+# D354: generates src/templates/dial-cadence.json and dial-cadence-exits.json (python3 scripts/gen-dial-cadence.py src/templates)
 import json, sys
 F = lambda b: "{{crm.field_contact_%s}}" % b
 FV = lambda b: "{{contact.fields.%s | default:}}" % b
@@ -38,7 +38,7 @@ N(id="n_enter", type="update_contact", title="Enter the cycle: status, reason, s
 N(id="v_reason", type="set_var", key="reason", value="{{event._type}}", pick={"appointment.status_changed": "No-show", "operator.enrolled": "{{event.entry_reason | default:Never booked}}"}, else_value="Never booked", title="Entry reason: no-show, what the operator said, else never booked")
 E("c_dq", "v_reason"); E("v_reason", "v_start"); E("v_start", "v_last"); E("v_last", "n_enter")
 
-# ---- the 12 calls as one loop: vars.n is the call due next; only the waits differ by call (D352: one shared body keeps the chart small)
+# ---- the 12 calls as one loop: vars.n is the call due next; only the waits differ by call (D354: one shared body keeps the chart small)
 N(id="v_n", type="set_var", key="n", value="{{event.start_at | default:1}}", title="The call they start at (1, or the backfill's)")
 E("n_enter", "v_n")
 N(id="b_next", type="branch", title="Which call is next?")

@@ -148,7 +148,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0018-appointment-crm-copy", run: async (c) => {
     await c.query("alter table appointments add column if not exists crm_appointment_id text, add column if not exists crm_status text, add column if not exists crm_starts_at timestamptz");
   } },
-  // D352: a person the operator enrolled in a workflow by hand (people already there when it was built: TRC's dial cadence)
+  // D354: a person the operator enrolled in a workflow by hand (people already there when it was built: TRC's dial cadence)
   { id: "0019-operator-enrolled", run: async (c) => {
     await c.query("insert into event_types values ('operator.enrolled','crm') on conflict do nothing");
   } },
