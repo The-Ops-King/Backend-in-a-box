@@ -206,14 +206,21 @@
         "title": "Entry reason: no-show, what the operator said, else never booked"
       },
       {
-        "id": "b_start",
-        "type": "branch",
-        "title": "Which call do they start at?"
+        "id": "v_n",
+        "type": "set_var",
+        "key": "n",
+        "value": "{{event.start_at | default:1}}",
+        "title": "The call they start at (1, or the backfill's)"
       },
       {
-        "id": "w1a",
+        "id": "b_next",
+        "type": "branch",
+        "title": "Which call is next?"
+      },
+      {
+        "id": "w1",
         "type": "wait",
-        "title": "Call #1 not before entry +0m",
+        "title": "Call #1: at once, in calling hours",
         "rule": {
           "anchor": "now",
           "offset": "+0m",
@@ -228,159 +235,9 @@
         }
       },
       {
-        "id": "s1",
-        "type": "branch",
-        "title": "Still in the cycle for call #1?"
-      },
-      {
-        "id": "x_left1",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p1",
-        "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r1",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due1",
-        "type": "update_contact",
-        "title": "Call #1 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial1",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #1 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d1",
-        "respect_send_window": false
-      },
-      {
-        "id": "late1",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #1 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial1b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d1",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl1",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec1",
-        "type": "update_contact",
-        "title": "Dial #1 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "1"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last1",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #1 done (dialed or missed)"
-      },
-      {
         "id": "w2a",
         "type": "wait",
-        "title": "Call #2 not before cycle start +30m",
+        "title": "Call #2: 30 minutes after entry",
         "rule": {
           "anchor": "vars.start",
           "offset": "+30m",
@@ -397,7 +254,7 @@
       {
         "id": "w2b",
         "type": "wait",
-        "title": "Call #2 not before the last call +25m",
+        "title": "and 25 minutes after the last call",
         "rule": {
           "anchor": "vars.last",
           "offset": "+25m",
@@ -412,159 +269,9 @@
         }
       },
       {
-        "id": "s2",
-        "type": "branch",
-        "title": "Still in the cycle for call #2?"
-      },
-      {
-        "id": "x_left2",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p2",
-        "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r2",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due2",
-        "type": "update_contact",
-        "title": "Call #2 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial2",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #2 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d2",
-        "respect_send_window": false
-      },
-      {
-        "id": "late2",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #2 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial2b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d2",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl2",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec2",
-        "type": "update_contact",
-        "title": "Dial #2 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "2"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last2",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #2 done (dialed or missed)"
-      },
-      {
         "id": "w3a",
         "type": "wait",
-        "title": "Call #3 not before cycle start +2h",
+        "title": "Call #3: 2 hours after entry",
         "rule": {
           "anchor": "vars.start",
           "offset": "+2h",
@@ -581,7 +288,7 @@
       {
         "id": "w3b",
         "type": "wait",
-        "title": "Call #3 not before the last call +90m",
+        "title": "and 90 minutes after the last call",
         "rule": {
           "anchor": "vars.last",
           "offset": "+90m",
@@ -596,159 +303,9 @@
         }
       },
       {
-        "id": "s3",
-        "type": "branch",
-        "title": "Still in the cycle for call #3?"
-      },
-      {
-        "id": "x_left3",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p3",
+        "id": "wd4",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r3",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due3",
-        "type": "update_contact",
-        "title": "Call #3 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial3",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #3 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d3",
-        "respect_send_window": false
-      },
-      {
-        "id": "late3",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #3 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial3b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d3",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl3",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec3",
-        "type": "update_contact",
-        "title": "Dial #3 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "3"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last3",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #3 done (dialed or missed)"
-      },
-      {
-        "id": "w4a",
-        "type": "wait",
-        "title": "Call #4 not before cycle start +1d",
+        "title": "Call #4: day 2, 8-11am",
         "rule": {
           "anchor": "vars.start",
           "offset": "+1d",
@@ -763,9 +320,9 @@
         }
       },
       {
-        "id": "w4b",
+        "id": "wl4",
         "type": "wait",
-        "title": "Call #4 not before the last call +12h",
+        "title": "and 12 hours after the last call",
         "rule": {
           "anchor": "vars.last",
           "offset": "+12h",
@@ -780,159 +337,9 @@
         }
       },
       {
-        "id": "s4",
-        "type": "branch",
-        "title": "Still in the cycle for call #4?"
-      },
-      {
-        "id": "x_left4",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p4",
+        "id": "wd5",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r4",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due4",
-        "type": "update_contact",
-        "title": "Call #4 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial4",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #4 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d4",
-        "respect_send_window": false
-      },
-      {
-        "id": "late4",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #4 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial4b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d4",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl4",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec4",
-        "type": "update_contact",
-        "title": "Dial #4 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "4"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last4",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #4 done (dialed or missed)"
-      },
-      {
-        "id": "w5a",
-        "type": "wait",
-        "title": "Call #5 not before cycle start +2d",
+        "title": "Call #5: day 3, 12-4pm",
         "rule": {
           "anchor": "vars.start",
           "offset": "+2d",
@@ -947,9 +354,9 @@
         }
       },
       {
-        "id": "w5b",
+        "id": "wl5",
         "type": "wait",
-        "title": "Call #5 not before the last call +12h",
+        "title": "and 12 hours after the last call",
         "rule": {
           "anchor": "vars.last",
           "offset": "+12h",
@@ -964,159 +371,9 @@
         }
       },
       {
-        "id": "s5",
-        "type": "branch",
-        "title": "Still in the cycle for call #5?"
-      },
-      {
-        "id": "x_left5",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p5",
+        "id": "wd6",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r5",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due5",
-        "type": "update_contact",
-        "title": "Call #5 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial5",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #5 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d5",
-        "respect_send_window": false
-      },
-      {
-        "id": "late5",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #5 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial5b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d5",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl5",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec5",
-        "type": "update_contact",
-        "title": "Dial #5 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "5"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last5",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #5 done (dialed or missed)"
-      },
-      {
-        "id": "w6a",
-        "type": "wait",
-        "title": "Call #6 not before cycle start +3d",
+        "title": "Call #6: day 4, 4-8pm",
         "rule": {
           "anchor": "vars.start",
           "offset": "+3d",
@@ -1131,9 +388,9 @@
         }
       },
       {
-        "id": "w6b",
+        "id": "wl6",
         "type": "wait",
-        "title": "Call #6 not before the last call +12h",
+        "title": "and 12 hours after the last call",
         "rule": {
           "anchor": "vars.last",
           "offset": "+12h",
@@ -1148,159 +405,9 @@
         }
       },
       {
-        "id": "s6",
-        "type": "branch",
-        "title": "Still in the cycle for call #6?"
-      },
-      {
-        "id": "x_left6",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p6",
+        "id": "wd7",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r6",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due6",
-        "type": "update_contact",
-        "title": "Call #6 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial6",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #6 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d6",
-        "respect_send_window": false
-      },
-      {
-        "id": "late6",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #6 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial6b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d6",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl6",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec6",
-        "type": "update_contact",
-        "title": "Dial #6 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "6"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last6",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #6 done (dialed or missed)"
-      },
-      {
-        "id": "w7a",
-        "type": "wait",
-        "title": "Call #7 not before cycle start +4d",
+        "title": "Call #7: day 5, 8-11am",
         "rule": {
           "anchor": "vars.start",
           "offset": "+4d",
@@ -1315,9 +422,9 @@
         }
       },
       {
-        "id": "w7b",
+        "id": "wl7",
         "type": "wait",
-        "title": "Call #7 not before the last call +12h",
+        "title": "and 12 hours after the last call",
         "rule": {
           "anchor": "vars.last",
           "offset": "+12h",
@@ -1332,159 +439,9 @@
         }
       },
       {
-        "id": "s7",
-        "type": "branch",
-        "title": "Still in the cycle for call #7?"
-      },
-      {
-        "id": "x_left7",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p7",
+        "id": "ww8",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r7",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due7",
-        "type": "update_contact",
-        "title": "Call #7 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial7",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #7 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d7",
-        "respect_send_window": false
-      },
-      {
-        "id": "late7",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #7 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial7b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d7",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl7",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec7",
-        "type": "update_contact",
-        "title": "Dial #7 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "7"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last7",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #7 done (dialed or missed)"
-      },
-      {
-        "id": "w8a",
-        "type": "wait",
-        "title": "Call #8 not before the last call +7d",
+        "title": "Call #8: a week after the last, 8-11am",
         "rule": {
           "anchor": "vars.last",
           "offset": "+7d",
@@ -1499,159 +456,9 @@
         }
       },
       {
-        "id": "s8",
-        "type": "branch",
-        "title": "Still in the cycle for call #8?"
-      },
-      {
-        "id": "x_left8",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p8",
+        "id": "ww9",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r8",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due8",
-        "type": "update_contact",
-        "title": "Call #8 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial8",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #8 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d8",
-        "respect_send_window": false
-      },
-      {
-        "id": "late8",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #8 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial8b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d8",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl8",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec8",
-        "type": "update_contact",
-        "title": "Dial #8 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "8"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last8",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #8 done (dialed or missed)"
-      },
-      {
-        "id": "w9a",
-        "type": "wait",
-        "title": "Call #9 not before the last call +7d",
+        "title": "Call #9: a week after the last, 12-4pm",
         "rule": {
           "anchor": "vars.last",
           "offset": "+7d",
@@ -1666,159 +473,9 @@
         }
       },
       {
-        "id": "s9",
-        "type": "branch",
-        "title": "Still in the cycle for call #9?"
-      },
-      {
-        "id": "x_left9",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p9",
+        "id": "ww10",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r9",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due9",
-        "type": "update_contact",
-        "title": "Call #9 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial9",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #9 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d9",
-        "respect_send_window": false
-      },
-      {
-        "id": "late9",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #9 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial9b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d9",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl9",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec9",
-        "type": "update_contact",
-        "title": "Dial #9 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "9"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last9",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #9 done (dialed or missed)"
-      },
-      {
-        "id": "w10a",
-        "type": "wait",
-        "title": "Call #10 not before the last call +7d",
+        "title": "Call #10: a week after the last, 4-8pm",
         "rule": {
           "anchor": "vars.last",
           "offset": "+7d",
@@ -1833,159 +490,9 @@
         }
       },
       {
-        "id": "s10",
-        "type": "branch",
-        "title": "Still in the cycle for call #10?"
-      },
-      {
-        "id": "x_left10",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p10",
+        "id": "ww11",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r10",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due10",
-        "type": "update_contact",
-        "title": "Call #10 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial10",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #10 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d10",
-        "respect_send_window": false
-      },
-      {
-        "id": "late10",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #10 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial10b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d10",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl10",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec10",
-        "type": "update_contact",
-        "title": "Dial #10 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "10"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last10",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #10 done (dialed or missed)"
-      },
-      {
-        "id": "w11a",
-        "type": "wait",
-        "title": "Call #11 not before the last call +7d",
+        "title": "Call #11: a week after the last, 8-11am",
         "rule": {
           "anchor": "vars.last",
           "offset": "+7d",
@@ -2000,159 +507,9 @@
         }
       },
       {
-        "id": "s11",
-        "type": "branch",
-        "title": "Still in the cycle for call #11?"
-      },
-      {
-        "id": "x_left11",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p11",
+        "id": "ww12",
         "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r11",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due11",
-        "type": "update_contact",
-        "title": "Call #11 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial11",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #11 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d11",
-        "respect_send_window": false
-      },
-      {
-        "id": "late11",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #11 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial11b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d11",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl11",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec11",
-        "type": "update_contact",
-        "title": "Dial #11 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "11"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last11",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #11 done (dialed or missed)"
-      },
-      {
-        "id": "w12a",
-        "type": "wait",
-        "title": "Call #12 not before the last call +7d",
+        "title": "Call #12: a week after the last, 12-4pm",
         "rule": {
           "anchor": "vars.last",
           "offset": "+7d",
@@ -2165,156 +522,6 @@
           ],
           "skip_holidays": "us_federal"
         }
-      },
-      {
-        "id": "s12",
-        "type": "branch",
-        "title": "Still in the cycle for call #12?"
-      },
-      {
-        "id": "x_left12",
-        "type": "exit",
-        "reason": "left the cycle"
-      },
-      {
-        "id": "p12",
-        "type": "wait",
-        "title": "Paused: resume 24 hours later",
-        "rule": {
-          "anchor": "now",
-          "offset": "+24h",
-          "tz": "contact",
-          "earliest": "08:00",
-          "latest": "20:00",
-          "after_latest": "next_day",
-          "skip_days": [
-            7
-          ],
-          "skip_holidays": "us_federal"
-        }
-      },
-      {
-        "id": "r12",
-        "type": "update_contact",
-        "title": "Resume after the pause",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_cycle_status}}",
-            "value": "Active"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_paused_at}}"
-        ]
-      },
-      {
-        "id": "due12",
-        "type": "update_contact",
-        "title": "Call #12 is due: Next Call Due = today",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_next_call_due}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ]
-      },
-      {
-        "id": "dial12",
-        "type": "wait_for_event",
-        "title": "Wait for Nick's dial #12 (4 hours)",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "until": {
-          "anchor": "now",
-          "offset": "+4h",
-          "tz": "contact"
-        },
-        "into": "d12",
-        "respect_send_window": false
-      },
-      {
-        "id": "late12",
-        "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
-        "channel": "{{slack.channel.alerts}}",
-        "fallback_channel": "{{slack.channel.bookings}}",
-        "as": {
-          "name": "Dial cadence",
-          "icon": ":telephone_receiver:"
-        },
-        "template": "Call #12 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
-      },
-      {
-        "id": "dial12b",
-        "type": "wait_for_event",
-        "title": "Still due: wait for the dial",
-        "event": "call.logged",
-        "match": {
-          "eq": [
-            "{{data.direction}}",
-            "outbound"
-          ]
-        },
-        "into": "d12",
-        "respect_send_window": false
-      },
-      {
-        "id": "cl12",
-        "type": "check",
-        "title": "Still in the cycle before saying it is late",
-        "when": {
-          "not": {
-            "or": [
-              {
-                "in": [
-                  "{{contact.fields.cycle_status | default:}}",
-                  [
-                    "Removed",
-                    "Completed",
-                    "Long-term Nurture"
-                  ]
-                ]
-              },
-              {
-                "eq": [
-                  "{{contact.has_upcoming_call}}",
-                  true
-                ]
-              }
-            ]
-          }
-        },
-        "else_exit": "left the cycle"
-      },
-      {
-        "id": "rec12",
-        "type": "update_contact",
-        "title": "Dial #12 made: count it, off the lists until the next one is due",
-        "fields": [
-          {
-            "id": "{{crm.field_contact_attempt_count}}",
-            "value": "12"
-          },
-          {
-            "id": "{{crm.field_contact_last_call_at}}",
-            "value": "{{now | date_company:yyyy-MM-dd}}"
-          }
-        ],
-        "clear": [
-          "{{crm.field_contact_next_call_due}}"
-        ]
-      },
-      {
-        "id": "last12",
-        "type": "set_var",
-        "key": "last",
-        "value": "{{now}}",
-        "title": "Call #12 done (dialed or missed)"
       },
       {
         "id": "n_done",
@@ -2339,6 +546,165 @@
         "id": "x_done",
         "type": "exit",
         "reason": "completed: long-term nurture"
+      },
+      {
+        "id": "s_in",
+        "type": "check",
+        "title": "Still in the cycle",
+        "when": {
+          "not": {
+            "or": [
+              {
+                "in": [
+                  "{{contact.fields.cycle_status | default:}}",
+                  [
+                    "Removed",
+                    "Completed",
+                    "Long-term Nurture"
+                  ]
+                ]
+              },
+              {
+                "eq": [
+                  "{{contact.has_upcoming_call}}",
+                  true
+                ]
+              }
+            ]
+          }
+        },
+        "else_exit": "left the cycle"
+      },
+      {
+        "id": "due",
+        "type": "update_contact",
+        "title": "The call is due: Next Call Due = today",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_next_call_due}}",
+            "value": "{{now | date_company:yyyy-MM-dd}}"
+          }
+        ]
+      },
+      {
+        "id": "dial",
+        "type": "wait_for_event",
+        "title": "Wait for Nick's dial (4 hours)",
+        "event": "call.logged",
+        "match": {
+          "eq": [
+            "{{data.direction}}",
+            "outbound"
+          ]
+        },
+        "until": {
+          "anchor": "now",
+          "offset": "+4h",
+          "tz": "contact"
+        },
+        "into": "dial",
+        "respect_send_window": false
+      },
+      {
+        "id": "cl",
+        "type": "check",
+        "title": "Still in the cycle before saying it is late",
+        "when": {
+          "not": {
+            "or": [
+              {
+                "in": [
+                  "{{contact.fields.cycle_status | default:}}",
+                  [
+                    "Removed",
+                    "Completed",
+                    "Long-term Nurture"
+                  ]
+                ]
+              },
+              {
+                "eq": [
+                  "{{contact.has_upcoming_call}}",
+                  true
+                ]
+              }
+            ]
+          }
+        },
+        "else_exit": "left the cycle"
+      },
+      {
+        "id": "late",
+        "type": "slack_post",
+        "title": "Not dialed 4 hours after it was due: tell the team",
+        "channel": "{{slack.channel.alerts}}",
+        "fallback_channel": "{{slack.channel.bookings}}",
+        "as": {
+          "name": "Dial cadence",
+          "icon": ":telephone_receiver:"
+        },
+        "template": "Call #{{vars.n}} to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
+      },
+      {
+        "id": "dial_b",
+        "type": "wait_for_event",
+        "title": "Still due: wait for the dial",
+        "event": "call.logged",
+        "match": {
+          "eq": [
+            "{{data.direction}}",
+            "outbound"
+          ]
+        },
+        "into": "dial",
+        "respect_send_window": false
+      },
+      {
+        "id": "rec",
+        "type": "update_contact",
+        "title": "Dial made: count it, off the lists until the next one is due",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_attempt_count}}",
+            "value": "{{vars.n}}"
+          },
+          {
+            "id": "{{crm.field_contact_last_call_at}}",
+            "value": "{{now | date_company:yyyy-MM-dd}}"
+          }
+        ],
+        "clear": [
+          "{{crm.field_contact_next_call_due}}"
+        ]
+      },
+      {
+        "id": "v_last2",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "The last call is now"
+      },
+      {
+        "id": "v_inc",
+        "type": "set_var",
+        "key": "n",
+        "value": "{{vars.n}}",
+        "pick": {
+          "1": "2",
+          "2": "3",
+          "3": "4",
+          "4": "5",
+          "5": "6",
+          "6": "7",
+          "7": "8",
+          "8": "9",
+          "9": "10",
+          "10": "11",
+          "11": "12",
+          "12": "13"
+        },
+        "else_value": "13",
+        "title": "Next call"
       }
     ],
     "edges": [
@@ -2428,1226 +794,173 @@
       },
       {
         "from": "n_enter",
-        "to": "b_start"
+        "to": "v_n"
       },
       {
-        "from": "b_start",
-        "to": "w1a",
-        "else": true,
+        "from": "v_n",
+        "to": "b_next"
+      },
+      {
+        "from": "b_next",
+        "to": "w1",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "1"
+          ]
+        },
         "label": "call #1"
       },
       {
-        "from": "w1a",
-        "to": "s1"
-      },
-      {
-        "from": "s1",
-        "to": "x_left1",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s1",
-        "to": "p1",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p1",
-        "to": "r1"
-      },
-      {
-        "from": "s1",
-        "to": "due1",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r1",
-        "to": "due1"
-      },
-      {
-        "from": "due1",
-        "to": "dial1"
-      },
-      {
-        "from": "dial1",
-        "to": "rec1",
-        "label": "event"
-      },
-      {
-        "from": "dial1",
-        "to": "cl1",
-        "label": "until"
-      },
-      {
-        "from": "cl1",
-        "to": "late1"
-      },
-      {
-        "from": "late1",
-        "to": "dial1b"
-      },
-      {
-        "from": "dial1b",
-        "to": "rec1",
-        "label": "event"
-      },
-      {
-        "from": "rec1",
-        "to": "last1"
-      },
-      {
-        "from": "b_start",
+        "from": "b_next",
         "to": "w2a",
         "when": {
           "eq": [
-            "{{event.start_at | default:1}}",
-            2
+            "{{vars.n}}",
+            "2"
           ]
         },
-        "label": "backfilled: call #2"
+        "label": "call #2"
       },
       {
-        "from": "last1",
-        "to": "w2a"
+        "from": "b_next",
+        "to": "w3a",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "3"
+          ]
+        },
+        "label": "call #3"
       },
       {
         "from": "w2a",
         "to": "w2b"
       },
       {
-        "from": "w2b",
-        "to": "s2"
-      },
-      {
-        "from": "s2",
-        "to": "x_left2",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s2",
-        "to": "p2",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p2",
-        "to": "r2"
-      },
-      {
-        "from": "s2",
-        "to": "due2",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r2",
-        "to": "due2"
-      },
-      {
-        "from": "due2",
-        "to": "dial2"
-      },
-      {
-        "from": "dial2",
-        "to": "rec2",
-        "label": "event"
-      },
-      {
-        "from": "dial2",
-        "to": "cl2",
-        "label": "until"
-      },
-      {
-        "from": "cl2",
-        "to": "late2"
-      },
-      {
-        "from": "late2",
-        "to": "dial2b"
-      },
-      {
-        "from": "dial2b",
-        "to": "rec2",
-        "label": "event"
-      },
-      {
-        "from": "rec2",
-        "to": "last2"
-      },
-      {
-        "from": "b_start",
-        "to": "w3a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            3
-          ]
-        },
-        "label": "backfilled: call #3"
-      },
-      {
-        "from": "last2",
-        "to": "w3a"
-      },
-      {
         "from": "w3a",
         "to": "w3b"
       },
       {
-        "from": "w3b",
-        "to": "s3"
-      },
-      {
-        "from": "s3",
-        "to": "x_left3",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s3",
-        "to": "p3",
+        "from": "b_next",
+        "to": "wd4",
         "when": {
           "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
+            "{{vars.n}}",
+            "4"
           ]
         },
-        "label": "paused"
+        "label": "call #4"
       },
       {
-        "from": "p3",
-        "to": "r3"
+        "from": "wd4",
+        "to": "wl4"
       },
       {
-        "from": "s3",
-        "to": "due3",
+        "from": "b_next",
+        "to": "wd5",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "5"
+          ]
+        },
+        "label": "call #5"
+      },
+      {
+        "from": "wd5",
+        "to": "wl5"
+      },
+      {
+        "from": "b_next",
+        "to": "wd6",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "6"
+          ]
+        },
+        "label": "call #6"
+      },
+      {
+        "from": "wd6",
+        "to": "wl6"
+      },
+      {
+        "from": "b_next",
+        "to": "wd7",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "7"
+          ]
+        },
+        "label": "call #7"
+      },
+      {
+        "from": "wd7",
+        "to": "wl7"
+      },
+      {
+        "from": "b_next",
+        "to": "ww8",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "8"
+          ]
+        },
+        "label": "call #8"
+      },
+      {
+        "from": "b_next",
+        "to": "ww9",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "9"
+          ]
+        },
+        "label": "call #9"
+      },
+      {
+        "from": "b_next",
+        "to": "ww10",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "10"
+          ]
+        },
+        "label": "call #10"
+      },
+      {
+        "from": "b_next",
+        "to": "ww11",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "11"
+          ]
+        },
+        "label": "call #11"
+      },
+      {
+        "from": "b_next",
+        "to": "ww12",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "12"
+          ]
+        },
+        "label": "call #12"
+      },
+      {
+        "from": "b_next",
+        "to": "n_done",
         "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r3",
-        "to": "due3"
-      },
-      {
-        "from": "due3",
-        "to": "dial3"
-      },
-      {
-        "from": "dial3",
-        "to": "rec3",
-        "label": "event"
-      },
-      {
-        "from": "dial3",
-        "to": "cl3",
-        "label": "until"
-      },
-      {
-        "from": "cl3",
-        "to": "late3"
-      },
-      {
-        "from": "late3",
-        "to": "dial3b"
-      },
-      {
-        "from": "dial3b",
-        "to": "rec3",
-        "label": "event"
-      },
-      {
-        "from": "rec3",
-        "to": "last3"
-      },
-      {
-        "from": "b_start",
-        "to": "w4a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            4
-          ]
-        },
-        "label": "backfilled: call #4"
-      },
-      {
-        "from": "last3",
-        "to": "w4a"
-      },
-      {
-        "from": "w4a",
-        "to": "w4b"
-      },
-      {
-        "from": "w4b",
-        "to": "s4"
-      },
-      {
-        "from": "s4",
-        "to": "x_left4",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s4",
-        "to": "p4",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p4",
-        "to": "r4"
-      },
-      {
-        "from": "s4",
-        "to": "due4",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r4",
-        "to": "due4"
-      },
-      {
-        "from": "due4",
-        "to": "dial4"
-      },
-      {
-        "from": "dial4",
-        "to": "rec4",
-        "label": "event"
-      },
-      {
-        "from": "dial4",
-        "to": "cl4",
-        "label": "until"
-      },
-      {
-        "from": "cl4",
-        "to": "late4"
-      },
-      {
-        "from": "late4",
-        "to": "dial4b"
-      },
-      {
-        "from": "dial4b",
-        "to": "rec4",
-        "label": "event"
-      },
-      {
-        "from": "rec4",
-        "to": "last4"
-      },
-      {
-        "from": "b_start",
-        "to": "w5a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            5
-          ]
-        },
-        "label": "backfilled: call #5"
-      },
-      {
-        "from": "last4",
-        "to": "w5a"
-      },
-      {
-        "from": "w5a",
-        "to": "w5b"
-      },
-      {
-        "from": "w5b",
-        "to": "s5"
-      },
-      {
-        "from": "s5",
-        "to": "x_left5",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s5",
-        "to": "p5",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p5",
-        "to": "r5"
-      },
-      {
-        "from": "s5",
-        "to": "due5",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r5",
-        "to": "due5"
-      },
-      {
-        "from": "due5",
-        "to": "dial5"
-      },
-      {
-        "from": "dial5",
-        "to": "rec5",
-        "label": "event"
-      },
-      {
-        "from": "dial5",
-        "to": "cl5",
-        "label": "until"
-      },
-      {
-        "from": "cl5",
-        "to": "late5"
-      },
-      {
-        "from": "late5",
-        "to": "dial5b"
-      },
-      {
-        "from": "dial5b",
-        "to": "rec5",
-        "label": "event"
-      },
-      {
-        "from": "rec5",
-        "to": "last5"
-      },
-      {
-        "from": "b_start",
-        "to": "w6a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            6
-          ]
-        },
-        "label": "backfilled: call #6"
-      },
-      {
-        "from": "last5",
-        "to": "w6a"
-      },
-      {
-        "from": "w6a",
-        "to": "w6b"
-      },
-      {
-        "from": "w6b",
-        "to": "s6"
-      },
-      {
-        "from": "s6",
-        "to": "x_left6",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s6",
-        "to": "p6",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p6",
-        "to": "r6"
-      },
-      {
-        "from": "s6",
-        "to": "due6",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r6",
-        "to": "due6"
-      },
-      {
-        "from": "due6",
-        "to": "dial6"
-      },
-      {
-        "from": "dial6",
-        "to": "rec6",
-        "label": "event"
-      },
-      {
-        "from": "dial6",
-        "to": "cl6",
-        "label": "until"
-      },
-      {
-        "from": "cl6",
-        "to": "late6"
-      },
-      {
-        "from": "late6",
-        "to": "dial6b"
-      },
-      {
-        "from": "dial6b",
-        "to": "rec6",
-        "label": "event"
-      },
-      {
-        "from": "rec6",
-        "to": "last6"
-      },
-      {
-        "from": "b_start",
-        "to": "w7a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            7
-          ]
-        },
-        "label": "backfilled: call #7"
-      },
-      {
-        "from": "last6",
-        "to": "w7a"
-      },
-      {
-        "from": "w7a",
-        "to": "w7b"
-      },
-      {
-        "from": "w7b",
-        "to": "s7"
-      },
-      {
-        "from": "s7",
-        "to": "x_left7",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s7",
-        "to": "p7",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p7",
-        "to": "r7"
-      },
-      {
-        "from": "s7",
-        "to": "due7",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r7",
-        "to": "due7"
-      },
-      {
-        "from": "due7",
-        "to": "dial7"
-      },
-      {
-        "from": "dial7",
-        "to": "rec7",
-        "label": "event"
-      },
-      {
-        "from": "dial7",
-        "to": "cl7",
-        "label": "until"
-      },
-      {
-        "from": "cl7",
-        "to": "late7"
-      },
-      {
-        "from": "late7",
-        "to": "dial7b"
-      },
-      {
-        "from": "dial7b",
-        "to": "rec7",
-        "label": "event"
-      },
-      {
-        "from": "rec7",
-        "to": "last7"
-      },
-      {
-        "from": "b_start",
-        "to": "w8a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            8
-          ]
-        },
-        "label": "backfilled: call #8"
-      },
-      {
-        "from": "last7",
-        "to": "w8a"
-      },
-      {
-        "from": "w8a",
-        "to": "s8"
-      },
-      {
-        "from": "s8",
-        "to": "x_left8",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s8",
-        "to": "p8",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p8",
-        "to": "r8"
-      },
-      {
-        "from": "s8",
-        "to": "due8",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r8",
-        "to": "due8"
-      },
-      {
-        "from": "due8",
-        "to": "dial8"
-      },
-      {
-        "from": "dial8",
-        "to": "rec8",
-        "label": "event"
-      },
-      {
-        "from": "dial8",
-        "to": "cl8",
-        "label": "until"
-      },
-      {
-        "from": "cl8",
-        "to": "late8"
-      },
-      {
-        "from": "late8",
-        "to": "dial8b"
-      },
-      {
-        "from": "dial8b",
-        "to": "rec8",
-        "label": "event"
-      },
-      {
-        "from": "rec8",
-        "to": "last8"
-      },
-      {
-        "from": "b_start",
-        "to": "w9a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            9
-          ]
-        },
-        "label": "backfilled: call #9"
-      },
-      {
-        "from": "last8",
-        "to": "w9a"
-      },
-      {
-        "from": "w9a",
-        "to": "s9"
-      },
-      {
-        "from": "s9",
-        "to": "x_left9",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s9",
-        "to": "p9",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p9",
-        "to": "r9"
-      },
-      {
-        "from": "s9",
-        "to": "due9",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r9",
-        "to": "due9"
-      },
-      {
-        "from": "due9",
-        "to": "dial9"
-      },
-      {
-        "from": "dial9",
-        "to": "rec9",
-        "label": "event"
-      },
-      {
-        "from": "dial9",
-        "to": "cl9",
-        "label": "until"
-      },
-      {
-        "from": "cl9",
-        "to": "late9"
-      },
-      {
-        "from": "late9",
-        "to": "dial9b"
-      },
-      {
-        "from": "dial9b",
-        "to": "rec9",
-        "label": "event"
-      },
-      {
-        "from": "rec9",
-        "to": "last9"
-      },
-      {
-        "from": "b_start",
-        "to": "w10a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            10
-          ]
-        },
-        "label": "backfilled: call #10"
-      },
-      {
-        "from": "last9",
-        "to": "w10a"
-      },
-      {
-        "from": "w10a",
-        "to": "s10"
-      },
-      {
-        "from": "s10",
-        "to": "x_left10",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s10",
-        "to": "p10",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p10",
-        "to": "r10"
-      },
-      {
-        "from": "s10",
-        "to": "due10",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r10",
-        "to": "due10"
-      },
-      {
-        "from": "due10",
-        "to": "dial10"
-      },
-      {
-        "from": "dial10",
-        "to": "rec10",
-        "label": "event"
-      },
-      {
-        "from": "dial10",
-        "to": "cl10",
-        "label": "until"
-      },
-      {
-        "from": "cl10",
-        "to": "late10"
-      },
-      {
-        "from": "late10",
-        "to": "dial10b"
-      },
-      {
-        "from": "dial10b",
-        "to": "rec10",
-        "label": "event"
-      },
-      {
-        "from": "rec10",
-        "to": "last10"
-      },
-      {
-        "from": "b_start",
-        "to": "w11a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            11
-          ]
-        },
-        "label": "backfilled: call #11"
-      },
-      {
-        "from": "last10",
-        "to": "w11a"
-      },
-      {
-        "from": "w11a",
-        "to": "s11"
-      },
-      {
-        "from": "s11",
-        "to": "x_left11",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s11",
-        "to": "p11",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p11",
-        "to": "r11"
-      },
-      {
-        "from": "s11",
-        "to": "due11",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r11",
-        "to": "due11"
-      },
-      {
-        "from": "due11",
-        "to": "dial11"
-      },
-      {
-        "from": "dial11",
-        "to": "rec11",
-        "label": "event"
-      },
-      {
-        "from": "dial11",
-        "to": "cl11",
-        "label": "until"
-      },
-      {
-        "from": "cl11",
-        "to": "late11"
-      },
-      {
-        "from": "late11",
-        "to": "dial11b"
-      },
-      {
-        "from": "dial11b",
-        "to": "rec11",
-        "label": "event"
-      },
-      {
-        "from": "rec11",
-        "to": "last11"
-      },
-      {
-        "from": "b_start",
-        "to": "w12a",
-        "when": {
-          "eq": [
-            "{{event.start_at | default:1}}",
-            12
-          ]
-        },
-        "label": "backfilled: call #12"
-      },
-      {
-        "from": "last11",
-        "to": "w12a"
-      },
-      {
-        "from": "w12a",
-        "to": "s12"
-      },
-      {
-        "from": "s12",
-        "to": "x_left12",
-        "when": {
-          "or": [
-            {
-              "in": [
-                "{{contact.fields.cycle_status | default:}}",
-                [
-                  "Removed",
-                  "Completed",
-                  "Long-term Nurture"
-                ]
-              ]
-            },
-            {
-              "eq": [
-                "{{contact.has_upcoming_call}}",
-                true
-              ]
-            }
-          ]
-        },
-        "label": "booked or out"
-      },
-      {
-        "from": "s12",
-        "to": "p12",
-        "when": {
-          "eq": [
-            "{{contact.fields.cycle_status | default:}}",
-            "Paused"
-          ]
-        },
-        "label": "paused"
-      },
-      {
-        "from": "p12",
-        "to": "r12"
-      },
-      {
-        "from": "s12",
-        "to": "due12",
-        "else": true,
-        "label": "active"
-      },
-      {
-        "from": "r12",
-        "to": "due12"
-      },
-      {
-        "from": "due12",
-        "to": "dial12"
-      },
-      {
-        "from": "dial12",
-        "to": "rec12",
-        "label": "event"
-      },
-      {
-        "from": "dial12",
-        "to": "cl12",
-        "label": "until"
-      },
-      {
-        "from": "cl12",
-        "to": "late12"
-      },
-      {
-        "from": "late12",
-        "to": "dial12b"
-      },
-      {
-        "from": "dial12b",
-        "to": "rec12",
-        "label": "event"
-      },
-      {
-        "from": "rec12",
-        "to": "last12"
-      },
-      {
-        "from": "last12",
-        "to": "n_done"
+        "label": "12 calls made"
       },
       {
         "from": "n_done",
@@ -3656,6 +969,97 @@
       {
         "from": "g_done",
         "to": "x_done"
+      },
+      {
+        "from": "w1",
+        "to": "s_in"
+      },
+      {
+        "from": "w2b",
+        "to": "s_in"
+      },
+      {
+        "from": "w3b",
+        "to": "s_in"
+      },
+      {
+        "from": "wl4",
+        "to": "s_in"
+      },
+      {
+        "from": "wl5",
+        "to": "s_in"
+      },
+      {
+        "from": "wl6",
+        "to": "s_in"
+      },
+      {
+        "from": "wl7",
+        "to": "s_in"
+      },
+      {
+        "from": "ww8",
+        "to": "s_in"
+      },
+      {
+        "from": "ww9",
+        "to": "s_in"
+      },
+      {
+        "from": "ww10",
+        "to": "s_in"
+      },
+      {
+        "from": "ww11",
+        "to": "s_in"
+      },
+      {
+        "from": "ww12",
+        "to": "s_in"
+      },
+      {
+        "from": "s_in",
+        "to": "due"
+      },
+      {
+        "from": "due",
+        "to": "dial"
+      },
+      {
+        "from": "dial",
+        "to": "rec",
+        "label": "event"
+      },
+      {
+        "from": "dial",
+        "to": "cl",
+        "label": "until"
+      },
+      {
+        "from": "cl",
+        "to": "late"
+      },
+      {
+        "from": "late",
+        "to": "dial_b"
+      },
+      {
+        "from": "dial_b",
+        "to": "rec",
+        "label": "event"
+      },
+      {
+        "from": "rec",
+        "to": "v_last2"
+      },
+      {
+        "from": "v_last2",
+        "to": "v_inc"
+      },
+      {
+        "from": "v_inc",
+        "to": "b_next"
       }
     ]
   }

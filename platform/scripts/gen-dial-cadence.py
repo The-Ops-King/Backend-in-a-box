@@ -38,60 +38,49 @@ N(id="n_enter", type="update_contact", title="Enter the cycle: status, reason, s
 N(id="v_reason", type="set_var", key="reason", value="{{event._type}}", pick={"appointment.status_changed": "No-show", "operator.enrolled": "{{event.entry_reason | default:Never booked}}"}, else_value="Never booked", title="Entry reason: no-show, what the operator said, else never booked")
 E("c_dq", "v_reason"); E("v_reason", "v_start"); E("v_start", "v_last"); E("v_last", "n_enter")
 
-# ---- the 12 attempts: (waits before it is due)
-sched = {
- 1: [("now", "+0m", CALLS)],
- 2: [("vars.start", "+30m", CALLS), ("vars.last", "+25m", CALLS)],
- 3: [("vars.start", "+2h", CALLS), ("vars.last", "+90m", CALLS)],
- 4: [("vars.start", "+1d", MORN), ("vars.last", "+12h", MORN)],
- 5: [("vars.start", "+2d", AFT), ("vars.last", "+12h", AFT)],
- 6: [("vars.start", "+3d", EVE), ("vars.last", "+12h", EVE)],
- 7: [("vars.start", "+4d", MORN), ("vars.last", "+12h", MORN)],
-}
-weekly = [MORN, AFT, EVE, MORN, AFT]
-for i, n in enumerate(range(8, 13)): sched[n] = [("vars.last", "+7d", weekly[i])]
-N(id="b_start", type="branch", title="Which call do they start at?")
-E("n_enter", "b_start")
-prev = None
-for n in range(1, 13):
-  waits = sched[n]
-  for k, (anchor, off, rule) in enumerate(waits):
-    wid = "w%d%s" % (n, "abc"[k])
-    if k == 0:
-      if n == 1: E("b_start", wid, **{"else": True, "label": "call #1"})
-      else: E("b_start", wid, when={"eq": ["{{event.start_at | default:1}}", n]}, label="backfilled: call #%d" % n)
-    N(id=wid, type="wait", title="Call #%d not before %s %s" % (n, {"now": "entry", "vars.start": "cycle start", "vars.last": "the last call"}[anchor], off), rule={"anchor": anchor, "offset": off, "tz": "contact", **rule})
-    if prev: E(prev, wid)
-    prev = wid
-  sid, pid = "s%d" % n, "p%d" % n
-  N(id=sid, type="branch", title="Still in the cycle for call #%d?" % n)
-  N(id="x_left%d" % n, type="exit", reason="left the cycle")
-  N(id=pid, type="wait", title="Paused: resume 24 hours later", rule={"anchor": "now", "offset": "+24h", "tz": "contact", **CALLS})
-  N(id="r%d" % n, type="update_contact", title="Resume after the pause", fields=[{"id": F("cycle_status"), "value": "Active"}], clear=[F("paused_at")])
-  E(prev, sid)
-  E(sid, "x_left%d" % n, when=LEFT, label="booked or out")
-  E(sid, pid, when={"eq": [FV("cycle_status"), "Paused"]}, label="paused")
-  E(pid, "r%d" % n)
-  did = "due%d" % n
-  N(id=did, type="update_contact", title="Call #%d is due: Next Call Due = today" % n, fields=[{"id": F("next_call_due"), "value": TODAY}])
-  E(sid, did, **{"else": True, "label": "active"}); E("r%d" % n, did)
-  eid, aid, e2 = "dial%d" % n, "late%d" % n, "dial%db" % n
-  N(id=eid, type="wait_for_event", title="Wait for Nick's dial #%d (4 hours)" % n, event="call.logged", match={"eq": ["{{data.direction}}", "outbound"]}, until={"anchor": "now", "offset": "+4h", "tz": "contact"}, into="d%d" % n, respect_send_window=False)
-  N(id=aid, type="slack_post", title="Not dialed 4 hours after it was due: tell the team", channel="{{slack.channel.alerts}}", fallback_channel="{{slack.channel.bookings}}",
-    **{"as": {"name": "Dial cadence", "icon": ":telephone_receiver:"}}, template="Call #%d to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is." % n)
-  # Tyler, 2026-11-19: no auto-advance and no attempt that did not happen: not dialed, they stay due (Speed to lead shows them waiting) until Nick dials
-  N(id=e2, type="wait_for_event", title="Still due: wait for the dial", event="call.logged", match={"eq": ["{{data.direction}}", "outbound"]}, into="d%d" % n, respect_send_window=False)
-  N(id="cl%d" % n, type="check", title="Still in the cycle before saying it is late", when={"not": LEFT}, else_exit="left the cycle")
-  E(did, eid); E(eid, "rec%d" % n, label="event"); E(eid, "cl%d" % n, label="until"); E("cl%d" % n, aid); E(aid, e2); E(e2, "rec%d" % n, label="event")
-  N(id="rec%d" % n, type="update_contact", title="Dial #%d made: count it, off the lists until the next one is due" % n,
-    fields=[{"id": F("attempt_count"), "value": str(n)}, {"id": F("last_call_at"), "value": TODAY}], clear=[F("next_call_due")])
-  lid = "last%d" % n
-  N(id=lid, type="set_var", key="last", value="{{now}}", title="Call #%d done (dialed or missed)" % n)
-  E("rec%d" % n, lid)
-  prev = lid
+# ---- the 12 calls as one loop: vars.n is the call due next; only the waits differ by call (D352: one shared body keeps the chart small)
+N(id="v_n", type="set_var", key="n", value="{{event.start_at | default:1}}", title="The call they start at (1, or the backfill's)")
+E("n_enter", "v_n")
+N(id="b_next", type="branch", title="Which call is next?")
+E("v_n", "b_next")
+def W(wid, anchor, off, rule, title):
+  N(id=wid, type="wait", title=title, rule={"anchor": anchor, "offset": off, "tz": "contact", **rule}); return wid
+# day 1
+W("w1", "now", "+0m", CALLS, "Call #1: at once, in calling hours")
+W("w2a", "vars.start", "+30m", CALLS, "Call #2: 30 minutes after entry"); W("w2b", "vars.last", "+25m", CALLS, "and 25 minutes after the last call")
+W("w3a", "vars.start", "+2h", CALLS, "Call #3: 2 hours after entry"); W("w3b", "vars.last", "+90m", CALLS, "and 90 minutes after the last call")
+E("b_next", "w1", when={"eq": ["{{vars.n}}", "1"]}, label="call #1"); E("b_next", "w2a", when={"eq": ["{{vars.n}}", "2"]}, label="call #2"); E("b_next", "w3a", when={"eq": ["{{vars.n}}", "3"]}, label="call #3")
+E("w2a", "w2b"); E("w3a", "w3b")
+# days 2-5: one a day, rotating windows, at least 12 hours after the last call
+WIN = {"MORN": MORN, "AFT": AFT, "EVE": EVE}
+# each call its own waits (a wait two calls shared is lost from a run's path drawing)
+HOURS = {"MORN": "8-11am", "AFT": "12-4pm", "EVE": "4-8pm"}
+for n, d, w in [(4, 1, "MORN"), (5, 2, "AFT"), (6, 3, "EVE"), (7, 4, "MORN")]:
+  W("wd%d" % n, "vars.start", "+%dd" % d, WIN[w], "Call #%d: day %d, %s" % (n, d + 1, HOURS[w]))
+  W("wl%d" % n, "vars.last", "+12h", WIN[w], "and 12 hours after the last call")
+  E("b_next", "wd%d" % n, when={"eq": ["{{vars.n}}", str(n)]}, label="call #%d" % n); E("wd%d" % n, "wl%d" % n)
+# weeks: one a week after the last call, rotating windows
+for n, w in [(8, "MORN"), (9, "AFT"), (10, "EVE"), (11, "MORN"), (12, "AFT")]:
+  W("ww%d" % n, "vars.last", "+7d", WIN[w], "Call #%d: a week after the last, %s" % (n, HOURS[w])); E("b_next", "ww%d" % n, when={"eq": ["{{vars.n}}", str(n)]}, label="call #%d" % n)
+# 12 calls made
 N(id="n_done", type="update_contact", title="12 calls made: completed", fields=[{"id": F("cycle_status"), "value": "Completed"}], clear=[F("next_call_due")])
 N(id="g_done", type="tags", add="long-term-nurture"); N(id="x_done", type="exit", reason="completed: long-term nurture")
-E(prev, "n_done"); E("n_done", "g_done"); E("g_done", "x_done")
+E("b_next", "n_done", **{"else": True, "label": "12 calls made"}); E("n_done", "g_done"); E("g_done", "x_done")
+# the call itself, shared
+N(id="s_in", type="check", title="Still in the cycle", when={"not": LEFT}, else_exit="left the cycle")
+for wid in ["w1", "w2b", "w3b", "wl4", "wl5", "wl6", "wl7", "ww8", "ww9", "ww10", "ww11", "ww12"]: E(wid, "s_in")
+N(id="due", type="update_contact", title="The call is due: Next Call Due = today", fields=[{"id": F("next_call_due"), "value": TODAY}])
+N(id="dial", type="wait_for_event", title="Wait for Nick's dial (4 hours)", event="call.logged", match={"eq": ["{{data.direction}}", "outbound"]}, until={"anchor": "now", "offset": "+4h", "tz": "contact"}, into="dial", respect_send_window=False)
+N(id="cl", type="check", title="Still in the cycle before saying it is late", when={"not": LEFT}, else_exit="left the cycle")
+N(id="late", type="slack_post", title="Not dialed 4 hours after it was due: tell the team", channel="{{slack.channel.alerts}}", fallback_channel="{{slack.channel.bookings}}",
+  **{"as": {"name": "Dial cadence", "icon": ":telephone_receiver:"}}, template="Call #{{vars.n}} to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is.")
+# Tyler, 2026-11-19: no auto-advance and no attempt that did not happen: not dialed, they stay due until Nick dials
+N(id="dial_b", type="wait_for_event", title="Still due: wait for the dial", event="call.logged", match={"eq": ["{{data.direction}}", "outbound"]}, into="dial", respect_send_window=False)
+N(id="rec", type="update_contact", title="Dial made: count it, off the lists until the next one is due", fields=[{"id": F("attempt_count"), "value": "{{vars.n}}"}, {"id": F("last_call_at"), "value": TODAY}], clear=[F("next_call_due")])
+N(id="v_last2", type="set_var", key="last", value="{{now}}", title="The last call is now")
+N(id="v_inc", type="set_var", key="n", value="{{vars.n}}", pick={str(i): str(i + 1) for i in range(1, 13)}, else_value="13", title="Next call")
+E("s_in", "due"); E("due", "dial"); E("dial", "rec", label="event"); E("dial", "cl", label="until"); E("cl", "late"); E("late", "dial_b"); E("dial_b", "rec", label="event")
+E("rec", "v_last2"); E("v_last2", "v_inc"); E("v_inc", "b_next")
 
 cad = {"slug": "dial-cadence", "name": "Dial cadence", "category": "setter", "stage": "nurture", "sort": 40, "origin": "default", "optional": True,
  "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows. Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due when a call is due (the smart lists show it) and counts every dial from GHL; a call not dialed 4 hours after it was due is said to the team once and stays due (no attempt is counted that was not made); booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",

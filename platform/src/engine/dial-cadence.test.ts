@@ -44,11 +44,11 @@ describe.skipIf(!process.env.DATABASE_URL)("D352: dial cadence", () => {
     await fire(id, "tag.added", { tag: "leap-buyer" }); await run(T0);
     expect(await field(id, "cycle_status")).toBe("Active"); expect(await field(id, "entry_reason")).toBe("Never booked");
     expect(await field(id, "attempt_count")).toBe("0"); expect(await field(id, "next_call_due")).toBe("2026-12-02");
-    expect((await runOf(id))[0]).toMatchObject({ status: "waiting", current_node: "dial1" });
+    expect((await runOf(id))[0]).toMatchObject({ status: "waiting", current_node: "dial" });
     await dial(id, T0.plus({ minutes: 3 })); await run(T0.plus({ minutes: 3 }));
     expect(await field(id, "attempt_count")).toBe("1"); expect(await field(id, "next_call_due")).toBeNull(); expect(await field(id, "last_call_at")).toBe("2026-12-02");
     await run(T0.plus({ minutes: 20 })); expect(await field(id, "next_call_due")).toBeNull();   // not yet: 30 minutes from entry
-    await run(T0.plus({ minutes: 31 })); expect(await field(id, "next_call_due")).toBe("2026-12-02"); expect((await runOf(id))[0].current_node).toBe("dial2");
+    await run(T0.plus({ minutes: 31 })); expect(await field(id, "next_call_due")).toBe("2026-12-02"); expect((await runOf(id))[0].current_node).toBe("dial");
     // a repeat purchase never starts a second cycle
     await fire(id, "tag.added", { tag: "leap-buyer" }); await run(T0.plus({ minutes: 32 }));
     expect(await runOf(id)).toHaveLength(1);
@@ -57,7 +57,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D352: dial cadence", () => {
     const said = await asOperator((c) => many<{ rendered_body: string }>(c, "select s.rendered_body from sends s join runs r on r.id=s.run_id where r.contact_id=$1 and s.channel='slack'", [id]));
     expect(said.map((x) => x.rendered_body)).toEqual([expect.stringMatching(/^Call #2 to .* has been due 4 hours and not dialed\. They stay on the list until it is\.$/)]);
     expect(await field(id, "attempt_count")).toBe("1");   // no attempt counted that was not made
-    expect(await field(id, "next_call_due")).toBe("2026-12-02"); expect((await runOf(id))[0].current_node).toBe("dial2b");
+    expect(await field(id, "next_call_due")).toBe("2026-12-02"); expect((await runOf(id))[0].current_node).toBe("dial_b");
   });
 
   it("someone who books: out of the cycle and every list at once; the cadence stops without a 'not dialed' alert", async () => {
@@ -105,6 +105,6 @@ describe.skipIf(!process.env.DATABASE_URL)("D352: dial cadence", () => {
     expect(await res.json()).toMatchObject({ ok: true, would_start: 1 });
     await run(T0); await run(T0.plus({ seconds: 30 }));
     expect(await field(back, "attempt_count")).toBe("7"); expect(await field(back, "next_call_due")).toBe("2026-12-02");
-    expect((await runOf(back))[0].current_node).toBe("dial8");
+    expect((await runOf(back))[0].current_node).toBe("dial");
   });
 });
