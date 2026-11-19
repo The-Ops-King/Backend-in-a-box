@@ -121,6 +121,8 @@ export interface CrmWrite {
   /** D227: one note off a contact (a call summary written on the wrong person). */
   deleteNote?(c: Company, contactId: string, noteId: string): Promise<void>;
   updateAppointment(c: Company, id: string, patch: Partial<Pick<AppointmentSnapshot, "status" | "assignedUserId" | "startTime" | "endTime" | "title">>): Promise<void>;
+  /** D350: a booking made elsewhere (Calendly) put on a CRM calendar, confirmed, so the CRM's own automations see it. Absent: the CRM has no calendars to write. */
+  createAppointment?(c: Company, input: { calendarId: string; contactId: string; assignedUserId: string; startTime: string; endTime: string; title: string; address?: string }): Promise<{ id: string }>;
   updateContact(c: Company, contactId: string, patch: ContactWrite): Promise<void>;
   /** D266: team members (CRM user ids) added as followers of a contact or a card; ones already following stay. Absent: the CRM has no followers. */
   addFollowers?(c: Company, on: "contact" | "opportunity", id: string, userIds: string[]): Promise<void>;
