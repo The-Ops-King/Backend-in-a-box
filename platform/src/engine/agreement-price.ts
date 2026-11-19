@@ -1,5 +1,5 @@
 /**
- * D347: an agreement whose price the closer puts on the contact (Tyler, 2026-11-17: custom-priced enrollments, $7,000 instead of
+ * D351: an agreement whose price the closer puts on the contact (Tyler, 2026-11-17: custom-priced enrollments, $7,000 instead of
  * $12,000, sent from GHL with the contact's Contract Value merged in; "we just cannot risk it going out with no price").
  *
  * The offer names the agreements that take their price from a contact field (`agreements.price_templates`, document names) and the
@@ -83,7 +83,7 @@ export async function planAgreementPrice(c: PoolClient, d: Deps, row: AgreementR
 /**
  * The price of a document priced from the contact: read once when it is out, then the deal's price. Called by the agreements poll
  * for every document of the offer; does nothing for one it does not price, one still a draft, or one already read (`again`: an
- * operator asks for it to be read once more, D347's re-check).
+ * operator asks for it to be read once more, D351's re-check).
  */
 export async function readAgreementPrice(c: PoolClient, d: Deps, row: AgreementRow, opts: { again?: boolean } = {}): Promise<PriceRead | null> {
   if (!row.contact_id || !pricedFromField(row.name, d.bindings) || !isOut(row.status) || (row.price_read_at && !opts.again)) return null;

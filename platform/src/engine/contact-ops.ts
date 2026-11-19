@@ -8,6 +8,7 @@ import { loadCompany } from "./context";
 import { callOutcome } from "./recordings";
 import { testContactSql, testDomains, TEST_DOMAINS_KEY } from "./mode";
 import { standsSql } from "./held";
+import { pickCard, syncCards } from "./cards";
 
 type Fail = { ok: false; status: number; error: string };
 const company = (c: PoolClient, slug: string) => one<{ id: string }>(c, "select id from companies where slug=$1", [slug]);
@@ -338,6 +339,58 @@ export async function callCloser(c: PoolClient, adapters: Adapters, a: { company
     await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'call.closer','appointment',$2,$3,$4)", [co.id, k.id, { closer: k.was }, { closer: to.name, sales_call: k.sales_call, why: a.why }]);
   }
   return { ok: true, dryRun: false, closer: to.name, calls };
+}
+
+/**
+ * D351: who set a call, put right on calls already booked (Tyler: Lia Medley and Claire Morales "should have been linked to Bella";
+ * they booked through Taylor's link). Everywhere Call booked wrote the setter: the booking in the replica (reports and end of day
+ * count it), its Sales Call's Setter, Set Via (when `via` is given) and Booking Source, the person's Setter field and the Setter
+ * Owner on their open setter and closer cards. The link the booking came through stays as Calendly sent it. A dry run (the default)
+ * lists each call and what changes. Audited.
+ */
+export async function callSetter(c: PoolClient, adapters: Adapters, a: { company: string; appointments: string[]; setter: string; via?: string; why: string; dryRun?: boolean }):
+  Promise<{ ok: true; dryRun: boolean; setter: string; via: string | null; calls: { id: string; who: string; when: string; was: string | null; sales_call: string | null; cards?: string[] }[] } | Fail> {
+  if (!a.appointments?.length || !a.setter || !a.why?.trim()) return { ok: false, status: 400, error: "appointments, setter and why are required" };
+  const via = a.via?.trim().toLowerCase() || null;
+  if (via && !["dm", "ghl"].includes(via)) return { ok: false, status: 400, error: "via is dm or ghl" };
+  const co = await company(c, a.company); if (!co) return { ok: false, status: 404, error: "no such company" };
+  const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
+  const to = await one<{ id: string; name: string }>(c, "select id, name from users where company_id=$1 and lower(email)=lower($2) and active", [co.id, a.setter.trim()]);
+  if (!to) return { ok: false, status: 404, error: `${a.setter} is not on this offer's roster` };
+  const object = bindings["crm.object_sales_call"];
+  const calls: { id: string; who: string; when: string; was: string | null; sales_call: string | null; contact: string; ghl_contact: string | null }[] = [];
+  for (const ref of a.appointments) {
+    const ap = await one<{ id: string; who: string; starts_at: Date; was: string | null; slot: string; contact: string; ghl_contact: string | null }>(c, `select a.id, trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')) as who,
+      a.starts_at, a.set_by as was, coalesce(a.slot_key, a.external_id) as slot, ct.id as contact, ct.ghl_contact_id as ghl_contact
+      from appointments a join contacts ct on ct.id=a.contact_id where a.company_id=$1 and (a.id::text=$2 or a.external_id=$2 or a.slot_key=$2)`, [co.id, ref.trim()]);
+    if (!ap) return { ok: false, status: 404, error: `no booking ${ref}` };
+    const rec = object ? await one<{ ghl_record_id: string | null }>(c, "select ghl_record_id from crm_records where company_id=$1 and object_key=$2 and record_key=$3", [co.id, object, ap.slot]) : null;
+    calls.push({ id: ap.id, who: ap.who, when: DateTime.fromJSDate(ap.starts_at).setZone(ac.timezone ?? "UTC").toFormat("ccc LLL d, h:mm a"), was: ap.was, sales_call: rec?.ghl_record_id ?? null, contact: ap.contact, ghl_contact: ap.ghl_contact });
+  }
+  const view = (k: (typeof calls)[number], cards?: string[]) => ({ id: k.id, who: k.who, when: k.when, was: k.was, sales_call: k.sales_call, ...(cards ? { cards } : {}) });
+  if (a.dryRun !== false) return { ok: true, dryRun: true, setter: to.name, via, calls: calls.map((k) => view(k)) };
+  const out: ReturnType<typeof view>[] = [];
+  for (const k of calls) {
+    await c.query("update appointments set set_by=$2, self_booked=false where id=$1", [k.id, to.name]);
+    if (k.sales_call && object) {
+      const props: Record<string, string> = { setter: to.name, booking_source: "setter_set", ...(via ? { set_via: via } : {}) };
+      await adapters.write.updateRecord(ac, object, k.sales_call, props);
+      await c.query("update crm_records set properties = properties || $3::jsonb, updated_at=now() where company_id=$1 and ghl_record_id=$2", [co.id, k.sales_call, JSON.stringify(props)]);
+    }
+    const setterField = bindings["crm.field_contact_setter"];
+    if (setterField && k.ghl_contact) await adapters.write.updateContact(ac, k.ghl_contact, { customFields: [{ id: setterField, field_value: to.name }] });
+    const ownerField = bindings["crm.field_opportunity_setter_owner"], cards: string[] = [];
+    if (ownerField && k.ghl_contact) {
+      await syncCards(c, co, ac, adapters, k.contact, k.ghl_contact);
+      for (const pipe of [bindings["crm.pipeline_setter"], bindings["crm.pipeline_closer"]].filter(Boolean)) {
+        const card = await pickCard(c, co.id, k.contact, pipe);
+        if (card?.ghl_opportunity_id && card.status === "open") { await adapters.write.updateOpportunity(ac, card.ghl_opportunity_id, { customFields: [{ id: ownerField, field_value: to.name }] }); cards.push(card.name); }
+      }
+    }
+    await c.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'call.setter','appointment',$2,$3,$4)", [co.id, k.id, { setter: k.was }, { setter: to.name, via, sales_call: k.sales_call, cards, why: a.why }]);
+    out.push(view(k, cards));
+  }
+  return { ok: true, dryRun: false, setter: to.name, via, calls: out };
 }
 
 /**

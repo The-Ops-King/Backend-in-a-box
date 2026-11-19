@@ -474,7 +474,7 @@ async function pollAgreements(c: PoolClient, co: CompanyRow, ac: Company, adapte
       try { await setDealPrice(c, { companyId: co.id, ac, adapters, bindings, contactId: row.contact_id!, price, source: row.signed_at ? "agreement" : "agreement_sent", what: `"${row.name}"` }); }
       catch (e) { await raise(c, { companyId: co.id, key: `payments:price-read:${row.id}`, level: "warning", source: "engine", text: `Couldn't set the deal's price from "${row.name}": ${String((e as Error).message).slice(0, 160)}` }); }
     }
-    // D347: an agreement priced from the contact's field (agreements.price_templates): read once it is out (a draft is not), kept on
+    // D351: an agreement priced from the contact's field (agreements.price_templates): read once it is out (a draft is not), kept on
     // the agreement, and the deal's price; signing it makes that price the signed agreement's
     if (ours && !isBaseline && row.contact_id) {
       try {
