@@ -12,7 +12,7 @@ import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { decrypt } from "@/engine/crypto";
 import { installCompany, type CalendarMapping, type InstallInput } from "@/engine/install";
-import { templates } from "@/templates";
+import { defaultTemplateSlugs, templates } from "@/templates";
 import { playbookOf } from "@/playbooks";
 import { applyPlaybook, type ApplyResult } from "@/playbooks/apply";
 import { seedFromRelease } from "@/playbooks/template-business";
@@ -50,7 +50,7 @@ export async function installPlan(c: PoolClient, companyId: string): Promise<{ o
     ...(o.intake.recording === "fathom" && b["secret.fathom_api_key"] ? { recording: { source: "fathom", apiKey: b["secret.fathom_api_key"] } } : {}),
     closers: roles.filter(([, x]) => x === "closer").map(([id]) => email(id)),
     roles: Object.fromEntries(roles.filter(([, x]) => x !== "closer" && x !== "none").map(([id, x]) => [email(id), x as "setter" | "manager" | "owner" | "staff"])),
-    templates: templates.map((t) => t.slug).filter((s) => !leftOut.includes(s)),
+    templates: defaultTemplateSlugs().filter((s) => !leftOut.includes(s)),
     enable: false, mode: "ghost", ...(o.kind === "new" ? { smsEnabled: false } : {}),
   };
   return { ok: true, plan: { input, playbook: o.playbook!, params: o.params, leftOut } };

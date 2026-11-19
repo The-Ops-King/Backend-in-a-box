@@ -54,3 +54,24 @@ describe("D193: a reminder after the window closes goes back to just before it, 
     }
   });
 });
+
+describe("D353: calls only in the person's permitted hours and days", () => {
+  const ny = "America/New_York";
+  const at = (nowIso: string, rule: Record<string, unknown>) => computeWaitUntil({ anchor: "now", offset: "+0m", tz: "contact", ...rule } as never, { now: DateTime.fromISO(nowIso, { zone: ny }), contactTz: ny, companyTz: tz, ctx: {} }).at.setZone(ny).toFormat("yyyy-MM-dd HH:mm");
+  const calls = { earliest: "08:00", latest: "20:00", after_latest: "next_day", skip_days: [7], skip_holidays: "us_federal" };
+  it("inside the window: as it is", () => expect(at("2026-11-18T10:15:00", calls)).toBe("2026-11-18 10:15"));
+  it("before 8am: 8am that day; after 8pm: 8am the next day (a call is never pulled earlier)", () => {
+    expect(at("2026-11-18T06:30:00", calls)).toBe("2026-11-18 08:00");
+    expect(at("2026-11-18T21:30:00", calls)).toBe("2026-11-19 08:00");
+  });
+  it("a Sunday moves to Monday 8am; Saturday is a calling day", () => {
+    expect(at("2026-11-22T11:00:00", calls)).toBe("2026-11-23 08:00");   // Sun 22 Nov
+    expect(at("2026-11-21T11:00:00", calls)).toBe("2026-11-21 11:00");   // Sat 21 Nov
+  });
+  it("US federal holidays as observed are skipped: Thanksgiving, Christmas, a Saturday July 4th's Friday", () => {
+    expect(at("2026-11-26T09:00:00", calls)).toBe("2026-11-27 08:00");   // Thanksgiving 2026
+    expect(at("2026-12-24T21:00:00", calls)).toBe("2026-12-26 08:00");   // after 8pm Christmas Eve: Christmas (Fri) skipped, Sat 26
+    expect(at("2026-07-03T09:00:00", calls)).toBe("2026-07-06 08:00");   // Jul 4 2026 is a Saturday: observed Fri 3 and the 4th itself skipped, Sun 5 too
+  });
+  it("a rule without the new options is unchanged: the same-day clamp, never earlier than now", () => expect(at("2026-11-18T21:30:00", { earliest: "08:00", latest: "20:00" })).toBe("2026-11-18 21:30"));
+});

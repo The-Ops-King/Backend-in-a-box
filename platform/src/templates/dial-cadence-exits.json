@@ -1,0 +1,130 @@
+{
+  "slug": "dial-cadence-exits",
+  "name": "Dial cadence: exits",
+  "category": "setter",
+  "stage": "nurture",
+  "sort": 41,
+  "origin": "default",
+  "optional": true,
+  "description": "Takes a person out of their dial cycle the moment they book, pay, or are tagged dq-financial: Cycle Status Removed, Last Outcome said, Next Call Due cleared so they leave every smart list. Someone not in a cycle is left alone.",
+  "definition": {
+    "schema": 1,
+    "reentry": "always",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t_booked",
+        "type": "trigger",
+        "event": "appointment.booked"
+      },
+      {
+        "id": "t_paid",
+        "type": "trigger",
+        "event": "payment.received"
+      },
+      {
+        "id": "t_dq",
+        "type": "trigger",
+        "event": "tag.added",
+        "match": {
+          "eq": [
+            "{{event.tag}}",
+            "dq-financial"
+          ]
+        }
+      },
+      {
+        "id": "v_b",
+        "type": "set_var",
+        "key": "outcome",
+        "value": "Booked"
+      },
+      {
+        "id": "v_p",
+        "type": "set_var",
+        "key": "outcome",
+        "value": ""
+      },
+      {
+        "id": "v_d",
+        "type": "set_var",
+        "key": "outcome",
+        "value": "Financial DQ"
+      },
+      {
+        "id": "c_in",
+        "type": "check",
+        "title": "In a dial cycle now",
+        "when": {
+          "in": [
+            "{{contact.fields.cycle_status | default:}}",
+            [
+              "Active",
+              "Paused"
+            ]
+          ]
+        },
+        "else_exit": "not in a cycle"
+      },
+      {
+        "id": "n_out",
+        "type": "update_contact",
+        "title": "Out of the cycle and off every list",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_cycle_status}}",
+            "value": "Removed"
+          },
+          {
+            "id": "{{crm.field_contact_last_outcome}}",
+            "value": "{{vars.outcome}}"
+          }
+        ],
+        "clear": [
+          "{{crm.field_contact_next_call_due}}"
+        ]
+      },
+      {
+        "id": "x_out",
+        "type": "exit",
+        "reason": "removed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t_booked",
+        "to": "v_b"
+      },
+      {
+        "from": "t_paid",
+        "to": "v_p"
+      },
+      {
+        "from": "t_dq",
+        "to": "v_d"
+      },
+      {
+        "from": "v_b",
+        "to": "c_in"
+      },
+      {
+        "from": "v_p",
+        "to": "c_in"
+      },
+      {
+        "from": "v_d",
+        "to": "c_in"
+      },
+      {
+        "from": "c_in",
+        "to": "n_out"
+      },
+      {
+        "from": "n_out",
+        "to": "x_out"
+      }
+    ]
+  }
+}

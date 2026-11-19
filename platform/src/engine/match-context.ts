@@ -59,6 +59,8 @@ export const MATCH_CONTEXT: Record<string, readonly string[]> = {
   // D342: payments.ts recordPending (webhooks/whop, backfill): the buyer only; a pending payment has no deal yet. pending_resolved starts nothing (a wait_for_event wakes on it)
   "payment.pending": CONTACT,
   "payment.pending_resolved": CONTACT,
+  // D354: /api/admin/workflows/enroll: the person and what the operator said (event.*)
+  "operator.enrolled": CONTACT,
   "payment.paid_in_full": PAYMENT,
   // executor.ts opportunity step
   "opportunity.won": [...CONTACT, "opportunity.id", "opportunity.status"],

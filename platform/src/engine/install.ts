@@ -4,7 +4,7 @@ import { vendorOfBinding, wakePausedOnAuth } from "./failures";
 import { randomBytes } from "node:crypto";
 import { extractManifest, parseDefinition, indexDefinition } from "./definition";
 import { applyWords, loadWords } from "./words";
-import { templates } from "@/templates";
+import { defaultTemplateSlugs, templates } from "@/templates";
 import { bookingFor, type Adapters, type BookingConfig, type BookingMode, type Company } from "@/adapters/types";
 import { calendlyUserByEmail, calendlyWhoAmI } from "@/adapters/calendly/read";
 import { loadCompany } from "./context";
@@ -193,7 +193,7 @@ export const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && 
 export type Inbound = { secret: string; zapierPaymentUrl: string; zapierRecordingUrl: string; whopWebhookUrl: string; fathomWebhookUrl: string; fathomWebhook?: string };
 /** `wentLive` / `wentQuiet`: what the move cleared, when `mode` moved the company up into live or quiet (D56, D132). */
 export async function installCompany(input: InstallInput, adapters: Adapters, typeformApi: TypeformApi = liveTypeform): Promise<{ companyId: string; calendars: string[]; installed: string[]; inbound: Inbound; wentLive?: Cleared; wentQuiet?: Cleared; typeform?: string[] }> {
-  const wanted = input.templates?.length ? input.templates : templates.map((t) => t.slug);
+  const wanted = input.templates?.length ? input.templates : defaultTemplateSlugs();
   // D148: "ignore" is a calendar the company keeps at its source but the engine does not watch (no polling, no health check)
   const ignored = new Set(Object.entries(input.calendars ?? {}).filter(([, v]) => v === "ignore").map(([k]) => k));
   const calMap: Record<string, CalendarMap> = Object.fromEntries(Object.entries(input.calendars ?? {}).filter(([k]) => !ignored.has(k)).map(([k, v]) => [k, typeof v === "string" ? { term: v } : v]));

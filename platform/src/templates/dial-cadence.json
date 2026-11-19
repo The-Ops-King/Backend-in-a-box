@@ -1,0 +1,1066 @@
+{
+  "slug": "dial-cadence",
+  "name": "Dial cadence",
+  "category": "setter",
+  "stage": "nurture",
+  "sort": 40,
+  "origin": "default",
+  "optional": true,
+  "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows. Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due when a call is due (the smart lists show it) and counts every dial from GHL; a call not dialed 4 hours after it was due is said to the team once and stays due (no attempt is counted that was not made); booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_contact",
+    "reentry_key": "{{appointment.id | default:cycle}}",
+    "premise": {
+      "check": "contact_exists"
+    },
+    "nodes": [
+      {
+        "id": "t_leap",
+        "type": "trigger",
+        "event": "tag.added",
+        "match": {
+          "eq": [
+            "{{event.tag}}",
+            "leap-buyer"
+          ]
+        }
+      },
+      {
+        "id": "t_enroll",
+        "type": "trigger",
+        "event": "operator.enrolled"
+      },
+      {
+        "id": "t_noshow",
+        "type": "trigger",
+        "event": "appointment.status_changed",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.status.to}}",
+                "noshow"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "c_once",
+        "type": "check",
+        "title": "Not already in a cycle (a repeat purchase never restarts one)",
+        "when": {
+          "not": {
+            "in": [
+              "{{contact.fields.cycle_status | default:}}",
+              [
+                "Active",
+                "Paused"
+              ]
+            ]
+          }
+        },
+        "else_exit": "already in a cycle"
+      },
+      {
+        "id": "b_resets",
+        "type": "branch",
+        "title": "How many no-show resets already?"
+      },
+      {
+        "id": "v_r1",
+        "type": "set_var",
+        "key": "resets",
+        "value": "1"
+      },
+      {
+        "id": "v_r2",
+        "type": "set_var",
+        "key": "resets",
+        "value": "2"
+      },
+      {
+        "id": "n_cap",
+        "type": "update_contact",
+        "title": "Third no-show: long-term nurture, out of the lists",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_cycle_status}}",
+            "value": "Long-term Nurture"
+          }
+        ],
+        "clear": [
+          "{{crm.field_contact_next_call_due}}"
+        ]
+      },
+      {
+        "id": "g_cap",
+        "type": "tags",
+        "add": "long-term-nurture"
+      },
+      {
+        "id": "x_cap",
+        "type": "exit",
+        "reason": "no-show cap: long-term nurture"
+      },
+      {
+        "id": "n_resets",
+        "type": "update_contact",
+        "title": "Count the no-show reset",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_no_show_resets}}",
+            "value": "{{vars.resets}}"
+          }
+        ]
+      },
+      {
+        "id": "c_booked",
+        "type": "check",
+        "title": "No upcoming booking (booking always overrides dialing)",
+        "when": {
+          "eq": [
+            "{{contact.has_upcoming_call}}",
+            false
+          ]
+        },
+        "else_exit": "booked"
+      },
+      {
+        "id": "c_dq",
+        "type": "check",
+        "title": "Not marked dq-financial",
+        "when": {
+          "not": {
+            "has": [
+              "{{contact.tags}}",
+              "dq-financial"
+            ]
+          }
+        },
+        "else_exit": "dq-financial"
+      },
+      {
+        "id": "v_start",
+        "type": "set_var",
+        "key": "start",
+        "when": {
+          "exists": "event.cycle_start"
+        },
+        "value": "{{event.cycle_start}}",
+        "else_value": "{{now}}",
+        "title": "The cycle starts now (or when the operator's backfill says it did)"
+      },
+      {
+        "id": "v_last",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{vars.start}}",
+        "title": "No call made yet in this cycle"
+      },
+      {
+        "id": "n_enter",
+        "type": "update_contact",
+        "title": "Enter the cycle: status, reason, start, attempts 0",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_cycle_status}}",
+            "value": "Active"
+          },
+          {
+            "id": "{{crm.field_contact_entry_reason}}",
+            "value": "{{vars.reason}}"
+          },
+          {
+            "id": "{{crm.field_contact_cycle_start}}",
+            "value": "{{now | date_company:yyyy-MM-dd}}"
+          },
+          {
+            "id": "{{crm.field_contact_attempt_count}}",
+            "value": "{{event.attempts_done | default:0}}"
+          }
+        ],
+        "clear": [
+          "{{crm.field_contact_next_call_due}}",
+          "{{crm.field_contact_last_outcome}}",
+          "{{crm.field_contact_paused_at}}"
+        ]
+      },
+      {
+        "id": "v_reason",
+        "type": "set_var",
+        "key": "reason",
+        "value": "{{event._type}}",
+        "pick": {
+          "appointment.status_changed": "No-show",
+          "operator.enrolled": "{{event.entry_reason | default:Never booked}}"
+        },
+        "else_value": "Never booked",
+        "title": "Entry reason: no-show, what the operator said, else never booked"
+      },
+      {
+        "id": "v_n",
+        "type": "set_var",
+        "key": "n",
+        "value": "{{event.start_at | default:1}}",
+        "title": "The call they start at (1, or the backfill's)"
+      },
+      {
+        "id": "b_next",
+        "type": "branch",
+        "title": "Which call is next?"
+      },
+      {
+        "id": "w1",
+        "type": "wait",
+        "title": "Call #1: at once, in calling hours",
+        "rule": {
+          "anchor": "now",
+          "offset": "+0m",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "20:00",
+          "after_latest": "next_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "w2a",
+        "type": "wait",
+        "title": "Call #2: 30 minutes after entry",
+        "rule": {
+          "anchor": "vars.start",
+          "offset": "+30m",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "20:00",
+          "after_latest": "next_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "w2b",
+        "type": "wait",
+        "title": "and 25 minutes after the last call",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+25m",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "20:00",
+          "after_latest": "next_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "w3a",
+        "type": "wait",
+        "title": "Call #3: 2 hours after entry",
+        "rule": {
+          "anchor": "vars.start",
+          "offset": "+2h",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "20:00",
+          "after_latest": "next_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "w3b",
+        "type": "wait",
+        "title": "and 90 minutes after the last call",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+90m",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "20:00",
+          "after_latest": "next_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "wd4",
+        "type": "wait",
+        "title": "Call #4: day 2, 8-11am",
+        "rule": {
+          "anchor": "vars.start",
+          "offset": "+1d",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "11:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "wl4",
+        "type": "wait",
+        "title": "and 12 hours after the last call",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+12h",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "11:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "wd5",
+        "type": "wait",
+        "title": "Call #5: day 3, 12-4pm",
+        "rule": {
+          "anchor": "vars.start",
+          "offset": "+2d",
+          "tz": "contact",
+          "earliest": "12:00",
+          "latest": "16:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "wl5",
+        "type": "wait",
+        "title": "and 12 hours after the last call",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+12h",
+          "tz": "contact",
+          "earliest": "12:00",
+          "latest": "16:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "wd6",
+        "type": "wait",
+        "title": "Call #6: day 4, 4-8pm",
+        "rule": {
+          "anchor": "vars.start",
+          "offset": "+3d",
+          "tz": "contact",
+          "earliest": "16:00",
+          "latest": "20:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "wl6",
+        "type": "wait",
+        "title": "and 12 hours after the last call",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+12h",
+          "tz": "contact",
+          "earliest": "16:00",
+          "latest": "20:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "wd7",
+        "type": "wait",
+        "title": "Call #7: day 5, 8-11am",
+        "rule": {
+          "anchor": "vars.start",
+          "offset": "+4d",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "11:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "wl7",
+        "type": "wait",
+        "title": "and 12 hours after the last call",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+12h",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "11:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "ww8",
+        "type": "wait",
+        "title": "Call #8: a week after the last, 8-11am",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+7d",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "11:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "ww9",
+        "type": "wait",
+        "title": "Call #9: a week after the last, 12-4pm",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+7d",
+          "tz": "contact",
+          "earliest": "12:00",
+          "latest": "16:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "ww10",
+        "type": "wait",
+        "title": "Call #10: a week after the last, 4-8pm",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+7d",
+          "tz": "contact",
+          "earliest": "16:00",
+          "latest": "20:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "ww11",
+        "type": "wait",
+        "title": "Call #11: a week after the last, 8-11am",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+7d",
+          "tz": "contact",
+          "earliest": "08:00",
+          "latest": "11:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "ww12",
+        "type": "wait",
+        "title": "Call #12: a week after the last, 12-4pm",
+        "rule": {
+          "anchor": "vars.last",
+          "offset": "+7d",
+          "tz": "contact",
+          "earliest": "12:00",
+          "latest": "16:00",
+          "after_latest": "same_day",
+          "skip_days": [
+            7
+          ],
+          "skip_holidays": "us_federal"
+        }
+      },
+      {
+        "id": "n_done",
+        "type": "update_contact",
+        "title": "12 calls made: completed",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_cycle_status}}",
+            "value": "Completed"
+          }
+        ],
+        "clear": [
+          "{{crm.field_contact_next_call_due}}"
+        ]
+      },
+      {
+        "id": "g_done",
+        "type": "tags",
+        "add": "long-term-nurture"
+      },
+      {
+        "id": "x_done",
+        "type": "exit",
+        "reason": "completed: long-term nurture"
+      },
+      {
+        "id": "s_in",
+        "type": "check",
+        "title": "Still in the cycle",
+        "when": {
+          "not": {
+            "or": [
+              {
+                "in": [
+                  "{{contact.fields.cycle_status | default:}}",
+                  [
+                    "Removed",
+                    "Completed",
+                    "Long-term Nurture"
+                  ]
+                ]
+              },
+              {
+                "eq": [
+                  "{{contact.has_upcoming_call}}",
+                  true
+                ]
+              }
+            ]
+          }
+        },
+        "else_exit": "left the cycle"
+      },
+      {
+        "id": "due",
+        "type": "update_contact",
+        "title": "The call is due: Next Call Due = today",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_next_call_due}}",
+            "value": "{{now | date_company:yyyy-MM-dd}}"
+          }
+        ]
+      },
+      {
+        "id": "dial",
+        "type": "wait_for_event",
+        "title": "Wait for Nick's dial (4 hours)",
+        "event": "call.logged",
+        "match": {
+          "eq": [
+            "{{data.direction}}",
+            "outbound"
+          ]
+        },
+        "until": {
+          "anchor": "now",
+          "offset": "+4h",
+          "tz": "contact"
+        },
+        "into": "dial",
+        "respect_send_window": false
+      },
+      {
+        "id": "cl",
+        "type": "check",
+        "title": "Still in the cycle before saying it is late",
+        "when": {
+          "not": {
+            "or": [
+              {
+                "in": [
+                  "{{contact.fields.cycle_status | default:}}",
+                  [
+                    "Removed",
+                    "Completed",
+                    "Long-term Nurture"
+                  ]
+                ]
+              },
+              {
+                "eq": [
+                  "{{contact.has_upcoming_call}}",
+                  true
+                ]
+              }
+            ]
+          }
+        },
+        "else_exit": "left the cycle"
+      },
+      {
+        "id": "late",
+        "type": "slack_post",
+        "title": "Not dialed 4 hours after it was due: tell the team",
+        "channel": "{{slack.channel.alerts}}",
+        "fallback_channel": "{{slack.channel.bookings}}",
+        "as": {
+          "name": "Dial cadence",
+          "icon": ":telephone_receiver:"
+        },
+        "template": "Call #{{vars.n}} to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
+      },
+      {
+        "id": "dial_b",
+        "type": "wait_for_event",
+        "title": "Still due: wait for the dial",
+        "event": "call.logged",
+        "match": {
+          "eq": [
+            "{{data.direction}}",
+            "outbound"
+          ]
+        },
+        "into": "dial",
+        "respect_send_window": false
+      },
+      {
+        "id": "rec",
+        "type": "update_contact",
+        "title": "Dial made: count it, off the lists until the next one is due",
+        "fields": [
+          {
+            "id": "{{crm.field_contact_attempt_count}}",
+            "value": "{{vars.n}}"
+          },
+          {
+            "id": "{{crm.field_contact_last_call_at}}",
+            "value": "{{now | date_company:yyyy-MM-dd}}"
+          }
+        ],
+        "clear": [
+          "{{crm.field_contact_next_call_due}}"
+        ]
+      },
+      {
+        "id": "v_last2",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "The last call is now"
+      },
+      {
+        "id": "v_inc",
+        "type": "set_var",
+        "key": "n",
+        "value": "{{vars.n}}",
+        "pick": {
+          "1": "2",
+          "2": "3",
+          "3": "4",
+          "4": "5",
+          "5": "6",
+          "6": "7",
+          "7": "8",
+          "8": "9",
+          "9": "10",
+          "10": "11",
+          "11": "12",
+          "12": "13"
+        },
+        "else_value": "13",
+        "title": "Next call"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t_leap",
+        "to": "c_once"
+      },
+      {
+        "from": "t_enroll",
+        "to": "c_once"
+      },
+      {
+        "from": "t_noshow",
+        "to": "b_resets"
+      },
+      {
+        "from": "b_resets",
+        "to": "n_cap",
+        "when": {
+          "gt": [
+            "{{contact.fields.no_show_resets | default:}}",
+            1
+          ]
+        },
+        "label": "2 resets already"
+      },
+      {
+        "from": "n_cap",
+        "to": "g_cap"
+      },
+      {
+        "from": "g_cap",
+        "to": "x_cap"
+      },
+      {
+        "from": "b_resets",
+        "to": "v_r2",
+        "when": {
+          "gt": [
+            "{{contact.fields.no_show_resets | default:}}",
+            0
+          ]
+        },
+        "label": "1 reset"
+      },
+      {
+        "from": "b_resets",
+        "to": "v_r1",
+        "else": true,
+        "label": "first no-show"
+      },
+      {
+        "from": "v_r1",
+        "to": "n_resets"
+      },
+      {
+        "from": "v_r2",
+        "to": "n_resets"
+      },
+      {
+        "from": "c_once",
+        "to": "c_booked"
+      },
+      {
+        "from": "n_resets",
+        "to": "c_booked"
+      },
+      {
+        "from": "c_booked",
+        "to": "c_dq"
+      },
+      {
+        "from": "c_dq",
+        "to": "v_reason"
+      },
+      {
+        "from": "v_reason",
+        "to": "v_start"
+      },
+      {
+        "from": "v_start",
+        "to": "v_last"
+      },
+      {
+        "from": "v_last",
+        "to": "n_enter"
+      },
+      {
+        "from": "n_enter",
+        "to": "v_n"
+      },
+      {
+        "from": "v_n",
+        "to": "b_next"
+      },
+      {
+        "from": "b_next",
+        "to": "w1",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "1"
+          ]
+        },
+        "label": "call #1"
+      },
+      {
+        "from": "b_next",
+        "to": "w2a",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "2"
+          ]
+        },
+        "label": "call #2"
+      },
+      {
+        "from": "b_next",
+        "to": "w3a",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "3"
+          ]
+        },
+        "label": "call #3"
+      },
+      {
+        "from": "w2a",
+        "to": "w2b"
+      },
+      {
+        "from": "w3a",
+        "to": "w3b"
+      },
+      {
+        "from": "b_next",
+        "to": "wd4",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "4"
+          ]
+        },
+        "label": "call #4"
+      },
+      {
+        "from": "wd4",
+        "to": "wl4"
+      },
+      {
+        "from": "b_next",
+        "to": "wd5",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "5"
+          ]
+        },
+        "label": "call #5"
+      },
+      {
+        "from": "wd5",
+        "to": "wl5"
+      },
+      {
+        "from": "b_next",
+        "to": "wd6",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "6"
+          ]
+        },
+        "label": "call #6"
+      },
+      {
+        "from": "wd6",
+        "to": "wl6"
+      },
+      {
+        "from": "b_next",
+        "to": "wd7",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "7"
+          ]
+        },
+        "label": "call #7"
+      },
+      {
+        "from": "wd7",
+        "to": "wl7"
+      },
+      {
+        "from": "b_next",
+        "to": "ww8",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "8"
+          ]
+        },
+        "label": "call #8"
+      },
+      {
+        "from": "b_next",
+        "to": "ww9",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "9"
+          ]
+        },
+        "label": "call #9"
+      },
+      {
+        "from": "b_next",
+        "to": "ww10",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "10"
+          ]
+        },
+        "label": "call #10"
+      },
+      {
+        "from": "b_next",
+        "to": "ww11",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "11"
+          ]
+        },
+        "label": "call #11"
+      },
+      {
+        "from": "b_next",
+        "to": "ww12",
+        "when": {
+          "eq": [
+            "{{vars.n}}",
+            "12"
+          ]
+        },
+        "label": "call #12"
+      },
+      {
+        "from": "b_next",
+        "to": "n_done",
+        "else": true,
+        "label": "12 calls made"
+      },
+      {
+        "from": "n_done",
+        "to": "g_done"
+      },
+      {
+        "from": "g_done",
+        "to": "x_done"
+      },
+      {
+        "from": "w1",
+        "to": "s_in"
+      },
+      {
+        "from": "w2b",
+        "to": "s_in"
+      },
+      {
+        "from": "w3b",
+        "to": "s_in"
+      },
+      {
+        "from": "wl4",
+        "to": "s_in"
+      },
+      {
+        "from": "wl5",
+        "to": "s_in"
+      },
+      {
+        "from": "wl6",
+        "to": "s_in"
+      },
+      {
+        "from": "wl7",
+        "to": "s_in"
+      },
+      {
+        "from": "ww8",
+        "to": "s_in"
+      },
+      {
+        "from": "ww9",
+        "to": "s_in"
+      },
+      {
+        "from": "ww10",
+        "to": "s_in"
+      },
+      {
+        "from": "ww11",
+        "to": "s_in"
+      },
+      {
+        "from": "ww12",
+        "to": "s_in"
+      },
+      {
+        "from": "s_in",
+        "to": "due"
+      },
+      {
+        "from": "due",
+        "to": "dial"
+      },
+      {
+        "from": "dial",
+        "to": "rec",
+        "label": "event"
+      },
+      {
+        "from": "dial",
+        "to": "cl",
+        "label": "until"
+      },
+      {
+        "from": "cl",
+        "to": "late"
+      },
+      {
+        "from": "late",
+        "to": "dial_b"
+      },
+      {
+        "from": "dial_b",
+        "to": "rec",
+        "label": "event"
+      },
+      {
+        "from": "rec",
+        "to": "v_last2"
+      },
+      {
+        "from": "v_last2",
+        "to": "v_inc"
+      },
+      {
+        "from": "v_inc",
+        "to": "b_next"
+      }
+    ]
+  }
+}

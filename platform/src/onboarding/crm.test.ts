@@ -25,7 +25,7 @@ const research = (named?: string): Research => ({ at: "2026-10-18T00:00:00Z", so
 function required(slug: string): string[] {
   const pb = playbookOf(slug), copies = pb.build("x", pb.defaults("X Offer") ?? undefined, { salesCall: { objections: ["price"] }, scopeTag: "x", calendars: {} }).copies;
   const replaced = new Set(copies.map((c) => c.create?.takesOver ?? c.workflow));
-  const defs = [...templates.filter((t) => !replaced.has(t.slug)).map((t) => ({ slug: t.slug, def: t.definition as unknown })), ...copies.map((c) => ({ slug: c.workflow, def: c.definition as unknown }))]
+  const defs = [...templates.filter((t) => !replaced.has(t.slug) && !(t as { optional?: boolean }).optional).map((t) => ({ slug: t.slug, def: t.definition as unknown })), ...copies.map((c) => ({ slug: c.workflow, def: c.definition as unknown }))]
     // D175: Setter call logged on one board is on the build list (it needs a one-board copy), not the setup's to satisfy
     .filter((d) => !(pb.traits.boards === "one" && d.slug === "setter-call-logged"));
   return [...new Set(defs.flatMap((d) => extractManifest(parseDefinition(d.def)).bindings.filter((b) => b.required && b.key.startsWith("crm.")).map((b) => b.key.slice(4))))]

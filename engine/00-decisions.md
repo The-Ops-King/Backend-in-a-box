@@ -7993,3 +7993,34 @@ place Call booked writes the setter said Taylor. D218 corrects a call's closer; 
   Booking Source, the person's Setter field, and the Setter Owner on their open setter and closer cards. The link the booking came
   through stays as Calendly sent it. Audited (`call.setter`).
 - Cause: setters using another setter's link. The links per setter and calendar were sent again, one set each.
+## D353 — Waits that keep to calling hours and days (2026-11-19)
+
+TRC's dial cadence (its Smart List SOP): "Only call between 8am and 8pm in the prospect's local time. Attempts due on a Sunday or US
+federal holiday move to the next permitted day." A wait rule's `earliest`/`latest` moved a late time back to `latest` the same day
+(right for a reminder before an evening call, wrong for a call). New, opt-in on the rule: `after_latest: "next_day"` (after `latest`
+→ the next day's `earliest`), `skip_days` (1 Mon .. 7 Sun) and `skip_holidays: "us_federal"` (New Year's, MLK, Presidents', Memorial,
+Juneteenth, Independence, Labor, Columbus, Veterans, Thanksgiving, Christmas; a fixed-date one skipped on its date and on its
+observed weekday). A skipped day moves to the next at `earliest`. A rule without them computes exactly as before.
+
+## D354 — The dial cadence, and enrolling people already there (2026-11-19)
+
+TRC's Smart List SOP (Jose's draft, Tyler's answers 2026-11-19) as two templates, installed only where asked:
+
+- `dial-cadence`: starts on the `leap-buyer` tag, a closing call's no-show, or an operator's enrollment. One cycle per person (the
+  reentry key is the no-show's booking, else `cycle`: a repeat purchase never restarts it; a no-show starts a fresh one and the old
+  run gives way). Entry needs no upcoming booking and no `dq-financial`; a no-show counts a reset (the third goes to long-term
+  nurture). Twelve calls: at entry, 30 minutes and 2 hours later (and at least 25 / 90 minutes after the previous dial), a day apart
+  for four days in rotating windows (8-11, 12-4, 4-8, 8-11), then weekly for five weeks; always 8am-8pm in the person's zone, never on
+  a Sunday or US federal holiday (D353). When a call is due the engine sets Next Call Due to that day (the smart lists show it);
+  a dial from GHL counts it (Attempt Count, Last Call At) and clears Next Call Due until the next one is due. Not dialed 4 hours
+  after it was due: the team is told once, and the person stays due until Nick dials (Tyler, 2026-11-19: "we don't want to have it be adding ficticious attempt counts"; Speed to lead shows them waiting). The spacing after a call (25 / 90 minutes, 12 hours, a week) is measured from the last dial made. A pause is Nick's (manual, as section 6 has it): the cadence stops only for someone who has left the cycle. After the twelfth: Completed and `long-term-nurture`. It sends the person nothing.
+- `dial-cadence-exits`: booked, paid, or tagged `dq-financial` → Cycle Status Removed, Last Outcome said, Next Call Due cleared.
+- The SOP's "auto-advance as No Answer after 4 hours" is not done, by Tyler's word: a dial counts itself, so the 4 hours are
+  "not dialed", and a call never made is never counted.
+- Backfill: an enrollment may carry `start_at` (the call they are due next), `attempts_done` and `cycle_start` (when their cycle
+  began, for the spacing): they start at that call with that count, from what the operator worked out from their real history.
+- POST /api/admin/workflows/enroll { company, workflow, contacts, data?, why, dryRun = true }: people who were there before a
+  workflow was built start in it as `operator.enrolled` events handed to that workflow only; its reentry holds; out of scope is
+  refused; audited.
+- Built as one loop (2026-11-19): the 12 calls share one body (still in the cycle → due → wait for the dial → count it), and only the
+  waits differ by call; vars.n is the call due next. Twelve copies of the body made a chart the dashboard took ~14 seconds to lay out.
