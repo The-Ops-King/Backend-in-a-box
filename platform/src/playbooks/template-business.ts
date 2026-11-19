@@ -16,7 +16,7 @@
  */
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
-import { templates } from "@/templates";
+import { defaultTemplateSlugs, templates } from "@/templates";
 import { defaultPrompts } from "@/prompts";
 import { canon, installTemplates } from "@/engine/install";
 import { parseDefinition, type Node } from "@/engine/definition";
@@ -88,7 +88,7 @@ export async function ensureTemplateBusiness(c: PoolClient, playbook: string, by
   const params = release?.params ?? pb.defaults("Template") ?? undefined;
   const built = pb.build(slug, params, { calendars: {}, salesCall: { objections: ["price"] } });
   const takenOver = new Set(built.copies.flatMap((x) => (x.create?.takesOver ? [x.create.takesOver] : [])));
-  await installTemplates(c, co.id, templates.map((t) => t.slug).filter((s) => !takenOver.has(s)), { existed: false });
+  await installTemplates(c, co.id, defaultTemplateSlugs().filter((s) => !takenOver.has(s)), { existed: false });
   const r = await applyPlaybook(c, { company: slug, playbook, params, by });
   if (!r.ok) throw new Error(`the ${pb.name} template business could not take its playbook: ${r.why}`);
   await ensureTemplateOnboarding(c, playbook, co.id, by);

@@ -5,6 +5,7 @@
   "stage": "nurture",
   "sort": 41,
   "origin": "default",
+  "optional": true,
   "description": "Takes a person out of their dial cycle the moment they book, pay, or are tagged dq-financial: Cycle Status Removed, Last Outcome said, Next Call Due cleared so they leave every smart list. Someone not in a cycle is left alone.",
   "definition": {
     "schema": 1,
