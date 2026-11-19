@@ -1,4 +1,4 @@
-/** D351: a custom-priced agreement takes its price from the contact's Contract Value, read once it is out, and never goes out unpriced unseen. */
+/** D347: a custom-priced agreement takes its price from the contact's Contract Value, read once it is out, and never goes out unpriced unseen. */
 import { describe, it, expect, beforeAll } from "vitest";
 import { asOperator, one } from "@/db/client";
 import { migrate } from "@/db/migrate";
@@ -16,7 +16,7 @@ const bindings: Record<string, string> = {
   "payments.price_from": "agreement, eod", "payments.full_by": "billing_reason", "payments.full_reasons": "one_time", "payments.price_slack": "3",
 };
 
-describe("D351: which agreements, which prices", () => {
+describe("D347: which agreements, which prices", () => {
   it("names the offer's own templates, whatever the case or spacing; others are not priced from the contact", () => {
     expect(pricedFromField("Beauty Moguls Service Agreement", bindings)).toBe(true);
     expect(pricedFromField("  beauty moguls  service agreement (guarantee) ", bindings)).toBe(true);
@@ -41,7 +41,7 @@ describe("D351: which agreements, which prices", () => {
   });
 });
 
-describe.skipIf(!process.env.DATABASE_URL)("D351: the price an agreement went out at", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D347: the price an agreement went out at", () => {
   const field: Record<string, unknown> = {};
   const posts: string[] = [];
   const base = fakeAdapters();
@@ -66,7 +66,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D351: the price an agreement went ou
   beforeAll(async () => {
     await migrate();
     await asOperator(async (c) => {
-      co = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('D351',$1,'America/New_York') returning id", [`d347-${Date.now()}`]))!.id;
+      co = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone) values ('D347',$1,'America/New_York') returning id", [`d347-${Date.now()}`]))!.id;
       for (const [k, v] of Object.entries(bindings)) await c.query("insert into bindings (company_id,key,kind,value) values ($1,$2,'text',$3)", [co, k, Buffer.from(v)]);
       await c.query("insert into slack_connections (company_id, team_id, bot_token, channels) values ($1,'T1',$2,'{}')", [co, encrypt("xoxb-fake")]);
       await c.query("insert into users (company_id, email, name, role, ghl_user_id, slack_user_id, active) values ($1,'jose@x.test','Jose','closer','GU-JOSE','UJOSE',true)", [co]);

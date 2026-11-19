@@ -8,7 +8,7 @@ import type { AgreementRow } from "@/engine/agreements";
 export const dynamic = "force-dynamic"; export const maxDuration = 60;
 
 /**
- * D351: POST { company, agreement: <GHL document id or ours>, why, dryRun = true }: read the price one agreement priced from the
+ * D347: POST { company, agreement: <GHL document id or ours>, why, dryRun = true }: read the price one agreement priced from the
  * contact went out at, again, as the poll does the first time (a contract fixed after it went out, or a test). The dry run says what
  * it would read and post, writing nothing; live, it keeps the price, sets the deal's, posts the line and raises any alert. Audited.
  * Authorization: Bearer $CRON_SECRET.
