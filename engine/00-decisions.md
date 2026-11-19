@@ -7982,3 +7982,14 @@ appointments when a call is booked?"
 - `GET /api/admin/calendars/ghl-mirror?company=` lists the GHL calendars (id, name, team), the map, and a dry run of the next pass.
 - The settings live under `booking.`, not `calendar.`: every `calendar.*` setting is read as a calendar a workflow can name.
 - Engine code for every offer; an offer without `booking.ghl_mirror` is untouched. PMU only.
+
+## D351 — Who set a call can be put right on calls already booked (2026-11-19)
+
+Tyler: Lia Medley and Claire Morales "should have been linked to Bella"; they booked through Taylor's GHL setter link, so every
+place Call booked writes the setter said Taylor. D218 corrects a call's closer; nothing corrected its setter.
+
+- `POST /api/admin/appointments/setter { company, appointments, setter: email, via?: dm | ghl, why, dryRun = true }`
+  (contact-ops `callSetter`): the booking's setter in the replica (reports and end of day), its Sales Call's Setter, Set Via and
+  Booking Source, the person's Setter field, and the Setter Owner on their open setter and closer cards. The link the booking came
+  through stays as Calendly sent it. Audited (`call.setter`).
+- Cause: setters using another setter's link. The links per setter and calendar were sent again, one set each.
