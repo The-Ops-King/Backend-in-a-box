@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
 import { dispatchEvent, emitEvent, type EventRow } from "./dispatch";
-import { companyScopeTag, inScope } from "./scope";
+import { companyScopeTags, inScope } from "./scope";
 import { nameThePayment, saysDeposit } from "./deposit-names";
 import type { Adapters, Company, ObjectRecord } from "@/adapters/types";
 import { SETTING_DEFAULTS } from "./setting-defaults";
@@ -158,7 +158,7 @@ async function companyDepositProducts(c: PoolClient, companyId: string): Promise
 /** One unambiguous match or nothing. */
 export async function resolvePayer(c: PoolClient, companyId: string, p: Pick<PaymentInput, "email" | "phone" | "memberId">): Promise<{ contactId: string; by: string } | null> {
   const hit = await ladder(c, companyId, p);
-  return hit && (await inScope(c, hit.contactId, await companyScopeTag(c, companyId))) ? hit : null;
+  return hit && (await inScope(c, hit.contactId, await companyScopeTags(c, companyId))) ? hit : null;
 }
 async function ladder(c: PoolClient, companyId: string, p: Pick<PaymentInput, "email" | "phone" | "memberId">): Promise<{ contactId: string; by: string } | null> {
   if (p.memberId) {
@@ -235,7 +235,7 @@ export async function resolvePayerGhl(c: PoolClient, companyId: string, g: GhlPa
     const { upsertContact, boundFieldIds } = await import("./poll");
     contactId = (await upsertContact(c, companyId, g.tz, snap, boundFieldIds(g.bindings))).id;
   }
-  return (await inScope(c, contactId, await companyScopeTag(c, companyId))) ? { contactId, ghlId, by } : null;
+  return (await inScope(c, contactId, await companyScopeTags(c, companyId))) ? { contactId, ghlId, by } : null;
 }
 /**
  * What this person paid before, from the offer's payment records in GHL (theirs by contact, Whop user or email), this transaction left

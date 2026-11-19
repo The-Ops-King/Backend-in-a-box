@@ -7946,3 +7946,14 @@ them is its own route, dry run first.
 TRC's Smart List SOP needs dropdowns on the contact (Cycle Status, Entry Reason, Last Outcome, Assigned Rep) so a smart list's filter
 matches exactly. A contact or opportunity field in a setup may carry `options: [labels]`; it is made with them. An existing field is
 never changed (as before).
+
+## D349 — More tags can make a person an offer's: scope.also_tags (2026-11-19)
+
+TRC's dial cadence (its Smart List SOP) works Leap buyers who never booked; TRC's scope (D117) was `trc-lead` or a booking, so the
+engine never saw them. Tyler: "it would need to see leap buyer".
+
+- `scope.also_tags` (comma or line separated) lists more tags that make a person the offer's. Read only: the engine writes the scope
+  tag alone (bookers, applicants). Every "is this person ours" check reads the scope tag or any of these: the contacts poll (one
+  tagged search per tag, each person once), replies and calls, agreements, payments, event dispatch, ledger drift's pull, backfill.
+- Who is a lead in the numbers stays the scope tag or a booking (ghl-metrics, ghl-graph): a Leap buyer is the offer's, not a new lead.
+- An offer without the setting, or without a scope tag, behaves as before. TRC: `leap-buyer`.

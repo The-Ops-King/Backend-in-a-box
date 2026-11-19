@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { one } from "@/db/client";
+import { many, one } from "@/db/client";
 import type { Adapters, Company } from "@/adapters/types";
 import type { CompanyRow } from "./context";
 import { emitEvent } from "./dispatch";
@@ -16,20 +16,36 @@ import { raise } from "./alerts";
 export const SCOPE_KEY = "scope.tag";
 export const scopeTag = (bindings: Record<string, string>): string | null => bindings[SCOPE_KEY]?.trim().toLowerCase() || null;
 export const carriesTag = (tags: string[] | null | undefined, tag: string) => (tags ?? []).some((t) => t.trim().toLowerCase() === tag);
+/**
+ * D349 (TRC, 2026-11-19: "it would need to see leap buyer"): `scope.also_tags` (comma or line separated) are more tags that make a
+ * person the company's, read only: the engine only ever writes `scope.tag` (bookers, new applicants). Who is the company's is the
+ * scope tag or any of these; who counts as a lead in the numbers stays the scope tag alone (ghl-metrics, ghl-graph).
+ * Null when the company has no scope tag: everyone is, as before.
+ */
+export const ALSO_KEY = "scope.also_tags";
+const alsoOf = (raw: string | undefined) => (raw ?? "").split(/[,\n]/).map((t) => t.trim().toLowerCase()).filter(Boolean);
+export const scopeTags = (bindings: Record<string, string>): string[] | null => { const p = scopeTag(bindings); return p ? [...new Set([p, ...alsoOf(bindings[ALSO_KEY])])] : null; };
+export const carriesAny = (tags: string[] | null | undefined, list: string[]) => list.some((t) => carriesTag(tags, t));
 /** The rule in SQL over a contacts row aliased `ct`; `tag` is a text parameter (null: no scope, everyone passes). */
 /** D122: someone who submitted one of the company's own forms is its person too, like a booker (in ghost the tag is only what would have been written). */
-export const scopeSql = (ct: string, tag: string) =>
-  `(${tag}::text is null or exists (select 1 from unnest(${ct}.tags) st(t) where lower(st.t) = ${tag}::text) or exists (select 1 from appointments sa where sa.contact_id=${ct}.id)
+export const scopeSql = (ct: string, tags: string) =>
+  `(${tags}::text[] is null or exists (select 1 from unnest(${ct}.tags) st(t) where lower(st.t) = any(${tags}::text[])) or exists (select 1 from appointments sa where sa.contact_id=${ct}.id)
     or exists (select 1 from events sf where sf.company_id=${ct}.company_id and sf.contact_id=${ct}.id and sf.event_type='form.submitted'))`;
+
+/** D349: every tag that makes a person the company's (the scope tag first), read alone; null without a scope tag. */
+export const companyScopeTags = async (c: PoolClient, companyId: string): Promise<string[] | null> => {
+  const rows = await many<{ key: string; value: Buffer }>(c, "select key, value from bindings where company_id=$1 and key in ($2,$3)", [companyId, SCOPE_KEY, ALSO_KEY]);
+  return scopeTags(Object.fromEntries(rows.map((r) => [r.key, r.value.toString("utf8")])));
+};
 
 /** The company's scope tag read alone, for a path that has no bindings in hand. */
 export const companyScopeTag = async (c: PoolClient, companyId: string): Promise<string | null> =>
   (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key=$2", [companyId, SCOPE_KEY]))?.value.toString("utf8").trim().toLowerCase() || null;
 
 /** The replica's answer: tagged as last seen, or booked. */
-export async function inScope(c: PoolClient, contactId: string, tag: string | null): Promise<boolean> {
-  if (!tag) return true;
-  return !!(await one(c, `select 1 from contacts ct where ct.id=$1 and ${scopeSql("ct", "$2")}`, [contactId, tag]));
+export async function inScope(c: PoolClient, contactId: string, tags: string[] | null): Promise<boolean> {
+  if (!tags?.length) return true;
+  return !!(await one(c, `select 1 from contacts ct where ct.id=$1 and ${scopeSql("ct", "$2")}`, [contactId, tags]));
 }
 
 /**
@@ -38,20 +54,20 @@ export async function inScope(c: PoolClient, contactId: string, tag: string | nu
  * this person again, so nothing is swallowed), `scope.left` is recorded, and nothing starts. Nothing is deleted. A booker needs
  * no read; a CRM that does not answer leaves the replica's word standing.
  */
-export async function stillInScope(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, contactId: string, tag: string | null): Promise<boolean> {
-  if (!tag) return true;
-  const row = await one<{ ghl: string | null; tagged: boolean; booked: boolean }>(c, `select ct.ghl_contact_id as ghl, exists (select 1 from unnest(ct.tags) st(t) where lower(st.t)=$2) as tagged,
+export async function stillInScope(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, contactId: string, tags: string[] | null): Promise<boolean> {
+  if (!tags?.length) return true;
+  const row = await one<{ ghl: string | null; tagged: boolean; booked: boolean }>(c, `select ct.ghl_contact_id as ghl, exists (select 1 from unnest(ct.tags) st(t) where lower(st.t) = any($2::text[])) as tagged,
     exists (select 1 from appointments sa where sa.contact_id=ct.id) or exists (select 1 from events sf where sf.company_id=ct.company_id and sf.contact_id=ct.id and sf.event_type='form.submitted') as booked
-    from contacts ct where ct.id=$1`, [contactId, tag]);
+    from contacts ct where ct.id=$1`, [contactId, tags]);
   if (!row) return false;
   if (row.booked) return true;
   if (!row.tagged) return false;
   if (!row.ghl) return true;
   let live: Awaited<ReturnType<Adapters["read"]["getContact"]>>;
   try { live = await adapters.read.getContact(ac, row.ghl); } catch { return true; }
-  if (!live || carriesTag(live.tags, tag)) return true;
+  if (!live || carriesAny(live.tags, tags)) return true;
   await c.query("update contacts set tags=$2, updated_at=now() where id=$1", [contactId, live.tags]);
-  await emitEvent(c, { company_id: co.id, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "scope.left", source: "ghl_poll", data: { tag, by: "tag_removed" } });
+  await emitEvent(c, { company_id: co.id, contact_id: contactId, opportunity_id: null, appointment_id: null, event_type: "scope.left", source: "ghl_poll", data: { tag: tags.join(", "), by: "tag_removed" } });
   return false;
 }
 
