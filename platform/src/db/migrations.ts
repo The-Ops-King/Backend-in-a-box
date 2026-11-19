@@ -144,4 +144,8 @@ export const MIGRATIONS: Migration[] = [
       await t.query("update agreements set price_read_at = now() where price_read_at is null");
     });
   } },
+  // D350: the CRM appointment the engine made for a booking from another source (Calendly), and what it last told the CRM
+  { id: "0018-appointment-crm-copy", run: async (c) => {
+    await c.query("alter table appointments add column if not exists crm_appointment_id text, add column if not exists crm_status text, add column if not exists crm_starts_at timestamptz");
+  } },
 ];
