@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic"; export const maxDuration = 300;
 /** POST { company, days? | from?, to?, steps? } with Authorization: Bearer $CRON_SECRET: pulls history into the ledger (rows only, no workflow starts) and rolls the days up. Safe to re-run; keep a window to ~2 weeks per call (300 s limit). */
 export async function POST(req: Request) {
   if (!operatorAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await req.json()) as { company?: string; days?: number; from?: string; to?: string; steps?: string[] };
+  const body = (await req.json()) as { company?: string; days?: number; from?: string; to?: string; steps?: string[]; contacts_by_tag?: string[] };
   const only = body.steps?.length ? (body.steps.filter((s): s is BackfillStep => (BACKFILL_STEPS as string[]).includes(s))) : undefined;
   if (!body.company) return NextResponse.json({ error: "company is required" }, { status: 400 });
   const to = body.to ? new Date(body.to) : new Date();
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     const r = await asOperator(async (c) => {
       const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [body.company]); if (!co) throw new Error("company not found");
       const { row, adapterCompany, bindings } = await loadCompany(c, co.id);
-      return backfillCompany(c, row, adapterCompany, liveAdapters, bindings, { from, to }, undefined, only);
+      return backfillCompany(c, row, adapterCompany, liveAdapters, bindings, { from, to }, undefined, only, { contactsByTag: body.contacts_by_tag });   // D349
     });
     return NextResponse.json({ ok: true, ...r });
   } catch (e) { return NextResponse.json({ ok: false, error: String((e as Error).message) }, { status: 500 }); }

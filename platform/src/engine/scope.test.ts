@@ -12,6 +12,7 @@ import { installCompany } from "@/engine/install";
 import { loadCompany } from "@/engine/context";
 import { pollCompany } from "@/engine/poll";
 import { ledgerDrift } from "@/engine/ledger-drift";
+import { backfillCompany } from "@/engine/backfill";
 import { getMetric } from "@/engine/metric-registry";
 import { recordPayment } from "@/engine/payments";
 import { paymentOf } from "@/engine/ghl-metrics";
@@ -166,6 +167,16 @@ describe.skipIf(!process.env.DATABASE_URL)("a company's scope tag (D117)", () =>
     const r = await asOperator((c) => getMetric(c, companyId, { metric: "leads", period: { from, to, label: "since yesterday", name: "since yesterday" }, now: NOW.toJSDate() }, reads([person("L2", ["leap-buyer"]), person("T4", ["dating"])])));
     expect(r.value).toBe(1);   // the Leap buyer is the company's, not a lead
     expect(tagged.filter((t) => t.tag !== "dating")).toEqual([]);
+    // the people already carrying the tag come in by a tagged backfill: replica rows only, nothing announced
+    searched.length = 0; updated = [person("L5", ["leap-buyer"]), person("U7", ["hair-client"])];
+    const window = { from: NOW.minus({ years: 3 }).toJSDate(), to: NOW.toJSDate() };
+    const rep = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, fake, bindings, window, undefined, ["contacts"], { contactsByTag: ["leap-buyer"] }); });
+    expect(searched).toEqual(["leap-buyer"]);
+    expect(rep.contacts).toBe(1); expect(await contactOf("L5")).not.toBeNull(); expect(await contactOf("U7")).toBeNull();
+    const l5 = (await contactOf("L5"))!.id;
+    expect((await events("lead.created")).filter((e) => e.contact_id === l5)).toEqual([]);
+    const refused = await asOperator(async (c) => { const { row, adapterCompany, bindings } = await loadCompany(c, companyId); return backfillCompany(c, row, adapterCompany, fake, bindings, window, undefined, ["contacts"], { contactsByTag: ["hair-client"] }); });
+    expect(refused.errors.join(" ")).toMatch(/none of hair-client is one of this offer's scope tags/);
     await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='scope.also_tags'", [companyId]));
     updated = [];
   });
