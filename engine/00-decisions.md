@@ -7960,3 +7960,25 @@ engine never saw them. Tyler: "it would need to see leap buyer".
 - Backfill (2026-11-19): `contacts_by_tag: [tags]` (each one of the offer's scope tags) pulls everyone carrying them by GHL's tagged
   search since `from`, instead of every contact the location added in the window. Replica rows only, nothing announced: how TRC's
   existing Leap buyers come in once `leap-buyer` is one of its tags.
+
+## D350 — A Calendly booking is put on the matching GHL calendar, so GHL's own automations see it (2026-11-19)
+
+Tyler: "nobody has been getting precall workflows". PMU's GHL pre-call workflow triggers on a confirmed appointment on "The Beauty
+Moguls Consultation RR (Calendly)". GHL's Calendly integration made those appointments and stopped around Oct 27; nothing noticed,
+and three weeks of first calls got no reminders. Demo Call bookings were never in the trigger at all. "Can you create the ghl
+appointments when a call is booked?"
+
+- `booking.ghl_mirror` maps a booking calendar (the Calendly event type's id) to a GHL calendar id; `booking.ghl_mirror_from` (an
+  ISO time) is the first booking it covers. Each minute, right after the bookings are read (poll entity `ghl_mirror`):
+  - a booking still to come (new or confirmed), booked since then, whose person is in GHL and that has no GHL appointment yet, gets
+    one: confirmed, at its time, titled with the person and calendar, the meeting link as its address, assigned to the booking's
+    closer when they are on the GHL calendar's team, else the team's first member (GHL refuses a user not on the team). One GHL
+    already holds for that person within two minutes of that time is adopted, never doubled (the integration, if it comes back).
+  - a booking cancelled at the source has its GHL appointment cancelled; one moved has it moved, still confirmed (read, then
+    written with its status: a GHL PUT without the status resets it, ghl/02-api-facts.md).
+  - Shows and no-shows are not copied: what GHL automations do on them stays the offer's call.
+- What it made is kept on the booking (`crm_appointment_id`, `crm_status`, `crm_starts_at`, migration 0018). A GHL refusal raises
+  one warning per GHL calendar ("GHL's pre-call automations won't see it"), retried every minute, cleared by the next success.
+- `GET /api/admin/calendars/ghl-mirror?company=` lists the GHL calendars (id, name, team), the map, and a dry run of the next pass.
+- The settings live under `booking.`, not `calendar.`: every `calendar.*` setting is read as a calendar a workflow can name.
+- Engine code for every offer; an offer without `booking.ghl_mirror` is untouched. PMU only.

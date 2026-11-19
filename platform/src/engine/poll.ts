@@ -15,6 +15,7 @@ import { listSetting } from "./payments";
 import { applyDocument, facts as agreementFacts, isSigned } from "./agreements";
 import { priceFrom, priceFromName, setDealPrice } from "./deal-price";
 import { readAgreementPrice } from "./agreement-price";
+import { mirrorToGhl } from "./ghl-mirror";
 import { foldCard } from "./cards";
 import { handMoved } from "./card-moves";
 import { carriesAny, carriesTag, companyScopeTag, inScope, scopeTag, scopeTags, stillInScope, tagIntoScope } from "./scope";
@@ -566,6 +567,13 @@ export async function pollCompany(adapters: Adapters, companyId: string, rep: Po
   const entities: [string, EntityPoll][] = [
     ["contacts", pollContacts],
     ...cals.map((cal): [string, EntityPoll] => [`appointments:${cal.external_id}`, (c, co, ac, adapters, rep) => pollCalendar(c, co, ac, adapters, rep, cal.external_id)]),
+    // D350: the offer's Calendly bookings put on its GHL calendars (booking.ghl_mirror), right after they are read, so GHL's own
+    // automations (pre-call reminders) see them; cancels and moves follow
+    ["ghl_mirror", async (c, co, ac, adapters, rep, bindings) => {
+      if (!bindings["booking.ghl_mirror"]) return;
+      const r = await mirrorToGhl(c, { companyId: co.id, ac, adapters, bindings });
+      if (r.errors) rep.errors.push({ company: co.slug, entity: "ghl_mirror", error: r.actions.filter((x) => x.error).slice(0, 3).map((x) => `${x.who}: ${x.error}`).join("; ") });
+    }],
     ["conversations", pollInbound],
     ["unfinished calls", pollUnfinishedCalls],
     ["calls", pollPendingCalls],

@@ -253,6 +253,9 @@ create table appointments (
   meeting_url          text,                                       -- D144: the join link itself, as the source gives it, for a message to carry ({{appointment.meeting_url}})
   cancel_reason        text,
   booked_at            timestamptz not null,
+  crm_appointment_id   text,                                       -- D350: the CRM appointment the engine made for a booking from another source (Calendly)
+  crm_status           text,                                       -- D350: the status the engine last gave it (confirmed | cancelled)
+  crm_starts_at        timestamptz,                                -- D350: the start time the engine last gave it
   -- replica of the booking source's state (GHL vocabulary; Calendly active/canceled maps onto it)
   status               text not null check (status in ('new','confirmed','cancelled','showed','noshow','invalid')),
   source_updated_at    timestamptz,

@@ -67,6 +67,17 @@ export const ghlWrite: CrmWrite = {
    * READ THEN WRITE, ALWAYS. A PUT that omits appointmentStatus silently resets it to "confirmed"
    * (verified, ghl/02-api-facts.md). So we fetch the current record and re-send every field.
    */
+  /** D350: POST /calendars/events/appointments (verified 2026-10: needs assignedUserId on the calendar's team, and
+   *  ignoreFreeSlotValidation to book whatever the calendar's own hours say; ghl/02-api-facts.md). */
+  async createAppointment(c, input) {
+    const r = await ghl<{ id?: string; appointment?: { id?: string }; event?: { id?: string } }>(c.pit, "POST", "/calendars/events/appointments", { version: "2021-04-15", body: {
+      locationId: c.locationId, calendarId: input.calendarId, contactId: input.contactId, assignedUserId: input.assignedUserId,
+      startTime: input.startTime, endTime: input.endTime, title: input.title, appointmentStatus: "confirmed", ignoreFreeSlotValidation: true,
+      ...(input.address ? { address: input.address } : {}) } });
+    const id = r.id ?? r.appointment?.id ?? r.event?.id;
+    if (!id) throw new Error("GHL created no appointment id");
+    return { id };
+  },
   async updateAppointment(c, id, patch) {
     const cur = await ghl<{ appointment?: Record<string, unknown>; event?: Record<string, unknown> }>(c.pit, "GET", `/calendars/events/appointments/${id}`, { version: "2021-04-15" });
     const a = (cur.appointment ?? cur.event ?? {}) as Record<string, unknown>;
