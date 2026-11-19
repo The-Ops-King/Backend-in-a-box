@@ -7957,3 +7957,6 @@ engine never saw them. Tyler: "it would need to see leap buyer".
   tagged search per tag, each person once), replies and calls, agreements, payments, event dispatch, ledger drift's pull, backfill.
 - Who is a lead in the numbers stays the scope tag or a booking (ghl-metrics, ghl-graph): a Leap buyer is the offer's, not a new lead.
 - An offer without the setting, or without a scope tag, behaves as before. TRC: `leap-buyer`.
+- Backfill (2026-11-19): `contacts_by_tag: [tags]` (each one of the offer's scope tags) pulls everyone carrying them by GHL's tagged
+  search since `from`, instead of every contact the location added in the window. Replica rows only, nothing announced: how TRC's
+  existing Leap buyers come in once `leap-buyer` is one of its tags.

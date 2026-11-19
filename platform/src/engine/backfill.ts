@@ -31,7 +31,7 @@ export type BackfillStep = "contacts" | "calls" | "appointments" | "recordings" 
 export const BACKFILL_STEPS: BackfillStep[] = ["contacts", "calls", "appointments", "recordings", "outcomes", "won", "payments"];
 
 /** `only` narrows the pass (a payments-only pull after a key is bound, say); the rollup always runs. */
-export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, window: { from: Date; to: Date }, payments?: PaymentsSource, only?: BackfillStep[]): Promise<BackfillReport> {
+export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, bindings: Record<string, string>, window: { from: Date; to: Date }, payments?: PaymentsSource, only?: BackfillStep[], opts: { contactsByTag?: string[] } = {}): Promise<BackfillReport> {
   const rep: BackfillReport = { from: window.from.toISOString(), to: window.to.toISOString(), contacts: 0, calls: 0, callsWithTranscript: 0, appointments: 0, recordings: 0, recordingsUnlinked: 0, outcomes: 0, outcomesUnmatched: 0, won: 0, payments: 0, paymentsUnlinked: 0, days: 0, errors: [] };
   const step = async (name: BackfillStep | "rollups", fn: () => Promise<void>) => { if (name !== "rollups" && only && !only.includes(name)) return; try { await fn(); } catch (e) { rep.errors.push(`${name}: ${String((e as Error).message).slice(0, 300)}`); } };
 
@@ -39,7 +39,13 @@ export async function backfillCompany(c: PoolClient, co: CompanyRow, ac: Company
   const tag = scopeTag(bindings), tags = scopeTags(bindings);   // D349: tag says scoped; tags says whose
   await step("contacts", async () => {
     const keep = boundFieldIds(bindings);
-    for (const s of await adapters.read.contactsAddedBetween(ac, window.from, window.to)) { if (tags && !carriesAny(s.tags, tags)) continue; await upsertContact(c, co.id, co.timezone, s, keep); rep.contacts++; }
+    // D349: everyone carrying these tags (each one of the offer's scope tags), by GHL's tagged search since `from`, instead of every contact
+    // the location added in the window: a location shared with another business holds tens of thousands. Replica rows only, as ever.
+    const byTag = opts.contactsByTag?.map((t) => t.trim().toLowerCase()).filter((t) => tags?.includes(t)) ?? [];
+    if (opts.contactsByTag && !byTag.length) throw new Error(`contacts_by_tag: none of ${opts.contactsByTag.join(", ")} is one of this offer's scope tags`);
+    const source = byTag.length ? [...new Map((await Promise.all(byTag.map((t) => adapters.read.contactsChangedSince(ac, window.from.toISOString(), t)))).flat().map((s) => [s.id, s])).values()]
+      : await adapters.read.contactsAddedBetween(ac, window.from, window.to);
+    for (const s of source) { if (tags && !carriesAny(s.tags, tags)) continue; await upsertContact(c, co.id, co.timezone, s, keep); rep.contacts++; }
   });
 
   await step("calls", async () => {
