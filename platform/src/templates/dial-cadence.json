@@ -6,7 +6,7 @@
   "sort": 40,
   "origin": "default",
   "optional": true,
-  "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows. Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due on the day a call is due (the smart lists show it) and counts every dial from GHL; booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
+  "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows. Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due when a call is due (the smart lists show it) and counts every dial from GHL; a call not dialed 4 hours after it was due is said to the team once and stays due (no attempt is counted that was not made); booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_contact",
@@ -151,8 +151,19 @@
         "id": "v_start",
         "type": "set_var",
         "key": "start",
-        "value": "{{now}}",
-        "title": "The cycle starts now"
+        "when": {
+          "exists": "event.cycle_start"
+        },
+        "value": "{{event.cycle_start}}",
+        "else_value": "{{now}}",
+        "title": "The cycle starts now (or when the operator's backfill says it did)"
+      },
+      {
+        "id": "v_last",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{vars.start}}",
+        "title": "No call made yet in this cycle"
       },
       {
         "id": "n_enter",
@@ -173,7 +184,7 @@
           },
           {
             "id": "{{crm.field_contact_attempt_count}}",
-            "value": "0"
+            "value": "{{event.attempts_done | default:0}}"
           }
         ],
         "clear": [
@@ -193,6 +204,11 @@
         },
         "else_value": "Never booked",
         "title": "Entry reason: no-show, what the operator said, else never booked"
+      },
+      {
+        "id": "b_start",
+        "type": "branch",
+        "title": "Which call do they start at?"
       },
       {
         "id": "w1a",
@@ -292,12 +308,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #1 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #1 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial1b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -305,18 +321,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d1",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale1",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl1",
@@ -365,6 +371,13 @@
         ]
       },
       {
+        "id": "last1",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #1 done (dialed or missed)"
+      },
+      {
         "id": "w2a",
         "type": "wait",
         "title": "Call #2 not before cycle start +30m",
@@ -384,9 +397,9 @@
       {
         "id": "w2b",
         "type": "wait",
-        "title": "Call #2 not before d1 +25m",
+        "title": "Call #2 not before the last call +25m",
         "rule": {
-          "anchor": "vars.d1.at",
+          "anchor": "vars.last",
           "offset": "+25m",
           "tz": "contact",
           "earliest": "08:00",
@@ -479,12 +492,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #2 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #2 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial2b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -492,18 +505,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d2",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale2",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl2",
@@ -552,6 +555,13 @@
         ]
       },
       {
+        "id": "last2",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #2 done (dialed or missed)"
+      },
+      {
         "id": "w3a",
         "type": "wait",
         "title": "Call #3 not before cycle start +2h",
@@ -571,9 +581,9 @@
       {
         "id": "w3b",
         "type": "wait",
-        "title": "Call #3 not before d2 +90m",
+        "title": "Call #3 not before the last call +90m",
         "rule": {
-          "anchor": "vars.d2.at",
+          "anchor": "vars.last",
           "offset": "+90m",
           "tz": "contact",
           "earliest": "08:00",
@@ -666,12 +676,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #3 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #3 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial3b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -679,18 +689,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d3",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale3",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl3",
@@ -739,6 +739,13 @@
         ]
       },
       {
+        "id": "last3",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #3 done (dialed or missed)"
+      },
+      {
         "id": "w4a",
         "type": "wait",
         "title": "Call #4 not before cycle start +1d",
@@ -758,9 +765,9 @@
       {
         "id": "w4b",
         "type": "wait",
-        "title": "Call #4 not before d3 +12h",
+        "title": "Call #4 not before the last call +12h",
         "rule": {
-          "anchor": "vars.d3.at",
+          "anchor": "vars.last",
           "offset": "+12h",
           "tz": "contact",
           "earliest": "08:00",
@@ -853,12 +860,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #4 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #4 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial4b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -866,18 +873,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d4",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale4",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl4",
@@ -926,6 +923,13 @@
         ]
       },
       {
+        "id": "last4",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #4 done (dialed or missed)"
+      },
+      {
         "id": "w5a",
         "type": "wait",
         "title": "Call #5 not before cycle start +2d",
@@ -945,9 +949,9 @@
       {
         "id": "w5b",
         "type": "wait",
-        "title": "Call #5 not before d4 +12h",
+        "title": "Call #5 not before the last call +12h",
         "rule": {
-          "anchor": "vars.d4.at",
+          "anchor": "vars.last",
           "offset": "+12h",
           "tz": "contact",
           "earliest": "12:00",
@@ -1040,12 +1044,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #5 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #5 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial5b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -1053,18 +1057,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d5",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale5",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl5",
@@ -1113,6 +1107,13 @@
         ]
       },
       {
+        "id": "last5",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #5 done (dialed or missed)"
+      },
+      {
         "id": "w6a",
         "type": "wait",
         "title": "Call #6 not before cycle start +3d",
@@ -1132,9 +1133,9 @@
       {
         "id": "w6b",
         "type": "wait",
-        "title": "Call #6 not before d5 +12h",
+        "title": "Call #6 not before the last call +12h",
         "rule": {
-          "anchor": "vars.d5.at",
+          "anchor": "vars.last",
           "offset": "+12h",
           "tz": "contact",
           "earliest": "16:00",
@@ -1227,12 +1228,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #6 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #6 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial6b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -1240,18 +1241,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d6",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale6",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl6",
@@ -1300,6 +1291,13 @@
         ]
       },
       {
+        "id": "last6",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #6 done (dialed or missed)"
+      },
+      {
         "id": "w7a",
         "type": "wait",
         "title": "Call #7 not before cycle start +4d",
@@ -1319,9 +1317,9 @@
       {
         "id": "w7b",
         "type": "wait",
-        "title": "Call #7 not before d6 +12h",
+        "title": "Call #7 not before the last call +12h",
         "rule": {
-          "anchor": "vars.d6.at",
+          "anchor": "vars.last",
           "offset": "+12h",
           "tz": "contact",
           "earliest": "08:00",
@@ -1414,12 +1412,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #7 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #7 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial7b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -1427,18 +1425,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d7",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale7",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl7",
@@ -1487,11 +1475,18 @@
         ]
       },
       {
+        "id": "last7",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #7 done (dialed or missed)"
+      },
+      {
         "id": "w8a",
         "type": "wait",
-        "title": "Call #8 not before d7 +7d",
+        "title": "Call #8 not before the last call +7d",
         "rule": {
-          "anchor": "vars.d7.at",
+          "anchor": "vars.last",
           "offset": "+7d",
           "tz": "contact",
           "earliest": "08:00",
@@ -1584,12 +1579,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #8 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #8 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial8b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -1597,18 +1592,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d8",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale8",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl8",
@@ -1657,11 +1642,18 @@
         ]
       },
       {
+        "id": "last8",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #8 done (dialed or missed)"
+      },
+      {
         "id": "w9a",
         "type": "wait",
-        "title": "Call #9 not before d8 +7d",
+        "title": "Call #9 not before the last call +7d",
         "rule": {
-          "anchor": "vars.d8.at",
+          "anchor": "vars.last",
           "offset": "+7d",
           "tz": "contact",
           "earliest": "12:00",
@@ -1754,12 +1746,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #9 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #9 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial9b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -1767,18 +1759,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d9",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale9",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl9",
@@ -1827,11 +1809,18 @@
         ]
       },
       {
+        "id": "last9",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #9 done (dialed or missed)"
+      },
+      {
         "id": "w10a",
         "type": "wait",
-        "title": "Call #10 not before d9 +7d",
+        "title": "Call #10 not before the last call +7d",
         "rule": {
-          "anchor": "vars.d9.at",
+          "anchor": "vars.last",
           "offset": "+7d",
           "tz": "contact",
           "earliest": "16:00",
@@ -1924,12 +1913,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #10 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #10 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial10b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -1937,18 +1926,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d10",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale10",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl10",
@@ -1997,11 +1976,18 @@
         ]
       },
       {
+        "id": "last10",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #10 done (dialed or missed)"
+      },
+      {
         "id": "w11a",
         "type": "wait",
-        "title": "Call #11 not before d10 +7d",
+        "title": "Call #11 not before the last call +7d",
         "rule": {
-          "anchor": "vars.d10.at",
+          "anchor": "vars.last",
           "offset": "+7d",
           "tz": "contact",
           "earliest": "08:00",
@@ -2094,12 +2080,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #11 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #11 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial11b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -2107,18 +2093,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d11",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale11",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl11",
@@ -2167,11 +2143,18 @@
         ]
       },
       {
+        "id": "last11",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #11 done (dialed or missed)"
+      },
+      {
         "id": "w12a",
         "type": "wait",
-        "title": "Call #12 not before d11 +7d",
+        "title": "Call #12 not before the last call +7d",
         "rule": {
-          "anchor": "vars.d11.at",
+          "anchor": "vars.last",
           "offset": "+7d",
           "tz": "contact",
           "earliest": "12:00",
@@ -2264,12 +2247,12 @@
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #12 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list."
+        "template": "Call #12 to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
       },
       {
         "id": "dial12b",
         "type": "wait_for_event",
-        "title": "Still due: wait for the dial (up to 14 days)",
+        "title": "Still due: wait for the dial",
         "event": "call.logged",
         "match": {
           "eq": [
@@ -2277,18 +2260,8 @@
             "outbound"
           ]
         },
-        "until": {
-          "anchor": "now",
-          "offset": "+14d",
-          "tz": "contact"
-        },
         "into": "d12",
         "respect_send_window": false
-      },
-      {
-        "id": "x_stale12",
-        "type": "exit",
-        "reason": "not dialed for 14 days"
       },
       {
         "id": "cl12",
@@ -2335,6 +2308,13 @@
         "clear": [
           "{{crm.field_contact_next_call_due}}"
         ]
+      },
+      {
+        "id": "last12",
+        "type": "set_var",
+        "key": "last",
+        "value": "{{now}}",
+        "title": "Call #12 done (dialed or missed)"
       },
       {
         "id": "n_done",
@@ -2440,11 +2420,21 @@
       },
       {
         "from": "v_start",
+        "to": "v_last"
+      },
+      {
+        "from": "v_last",
         "to": "n_enter"
       },
       {
         "from": "n_enter",
-        "to": "w1a"
+        "to": "b_start"
+      },
+      {
+        "from": "b_start",
+        "to": "w1a",
+        "else": true,
+        "label": "call #1"
       },
       {
         "from": "w1a",
@@ -2528,12 +2518,22 @@
         "label": "event"
       },
       {
-        "from": "dial1b",
-        "to": "x_stale1",
-        "label": "until"
+        "from": "rec1",
+        "to": "last1"
       },
       {
-        "from": "rec1",
+        "from": "b_start",
+        "to": "w2a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            2
+          ]
+        },
+        "label": "backfilled: call #2"
+      },
+      {
+        "from": "last1",
         "to": "w2a"
       },
       {
@@ -2622,12 +2622,22 @@
         "label": "event"
       },
       {
-        "from": "dial2b",
-        "to": "x_stale2",
-        "label": "until"
+        "from": "rec2",
+        "to": "last2"
       },
       {
-        "from": "rec2",
+        "from": "b_start",
+        "to": "w3a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            3
+          ]
+        },
+        "label": "backfilled: call #3"
+      },
+      {
+        "from": "last2",
         "to": "w3a"
       },
       {
@@ -2716,12 +2726,22 @@
         "label": "event"
       },
       {
-        "from": "dial3b",
-        "to": "x_stale3",
-        "label": "until"
+        "from": "rec3",
+        "to": "last3"
       },
       {
-        "from": "rec3",
+        "from": "b_start",
+        "to": "w4a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            4
+          ]
+        },
+        "label": "backfilled: call #4"
+      },
+      {
+        "from": "last3",
         "to": "w4a"
       },
       {
@@ -2810,12 +2830,22 @@
         "label": "event"
       },
       {
-        "from": "dial4b",
-        "to": "x_stale4",
-        "label": "until"
+        "from": "rec4",
+        "to": "last4"
       },
       {
-        "from": "rec4",
+        "from": "b_start",
+        "to": "w5a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            5
+          ]
+        },
+        "label": "backfilled: call #5"
+      },
+      {
+        "from": "last4",
         "to": "w5a"
       },
       {
@@ -2904,12 +2934,22 @@
         "label": "event"
       },
       {
-        "from": "dial5b",
-        "to": "x_stale5",
-        "label": "until"
+        "from": "rec5",
+        "to": "last5"
       },
       {
-        "from": "rec5",
+        "from": "b_start",
+        "to": "w6a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            6
+          ]
+        },
+        "label": "backfilled: call #6"
+      },
+      {
+        "from": "last5",
         "to": "w6a"
       },
       {
@@ -2998,12 +3038,22 @@
         "label": "event"
       },
       {
-        "from": "dial6b",
-        "to": "x_stale6",
-        "label": "until"
+        "from": "rec6",
+        "to": "last6"
       },
       {
-        "from": "rec6",
+        "from": "b_start",
+        "to": "w7a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            7
+          ]
+        },
+        "label": "backfilled: call #7"
+      },
+      {
+        "from": "last6",
         "to": "w7a"
       },
       {
@@ -3092,12 +3142,22 @@
         "label": "event"
       },
       {
-        "from": "dial7b",
-        "to": "x_stale7",
-        "label": "until"
+        "from": "rec7",
+        "to": "last7"
       },
       {
-        "from": "rec7",
+        "from": "b_start",
+        "to": "w8a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            8
+          ]
+        },
+        "label": "backfilled: call #8"
+      },
+      {
+        "from": "last7",
         "to": "w8a"
       },
       {
@@ -3182,12 +3242,22 @@
         "label": "event"
       },
       {
-        "from": "dial8b",
-        "to": "x_stale8",
-        "label": "until"
+        "from": "rec8",
+        "to": "last8"
       },
       {
-        "from": "rec8",
+        "from": "b_start",
+        "to": "w9a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            9
+          ]
+        },
+        "label": "backfilled: call #9"
+      },
+      {
+        "from": "last8",
         "to": "w9a"
       },
       {
@@ -3272,12 +3342,22 @@
         "label": "event"
       },
       {
-        "from": "dial9b",
-        "to": "x_stale9",
-        "label": "until"
+        "from": "rec9",
+        "to": "last9"
       },
       {
-        "from": "rec9",
+        "from": "b_start",
+        "to": "w10a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            10
+          ]
+        },
+        "label": "backfilled: call #10"
+      },
+      {
+        "from": "last9",
         "to": "w10a"
       },
       {
@@ -3362,12 +3442,22 @@
         "label": "event"
       },
       {
-        "from": "dial10b",
-        "to": "x_stale10",
-        "label": "until"
+        "from": "rec10",
+        "to": "last10"
       },
       {
-        "from": "rec10",
+        "from": "b_start",
+        "to": "w11a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            11
+          ]
+        },
+        "label": "backfilled: call #11"
+      },
+      {
+        "from": "last10",
         "to": "w11a"
       },
       {
@@ -3452,12 +3542,22 @@
         "label": "event"
       },
       {
-        "from": "dial11b",
-        "to": "x_stale11",
-        "label": "until"
+        "from": "rec11",
+        "to": "last11"
       },
       {
-        "from": "rec11",
+        "from": "b_start",
+        "to": "w12a",
+        "when": {
+          "eq": [
+            "{{event.start_at | default:1}}",
+            12
+          ]
+        },
+        "label": "backfilled: call #12"
+      },
+      {
+        "from": "last11",
         "to": "w12a"
       },
       {
@@ -3542,12 +3642,11 @@
         "label": "event"
       },
       {
-        "from": "dial12b",
-        "to": "x_stale12",
-        "label": "until"
+        "from": "rec12",
+        "to": "last12"
       },
       {
-        "from": "rec12",
+        "from": "last12",
         "to": "n_done"
       },
       {

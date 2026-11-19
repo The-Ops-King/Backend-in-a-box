@@ -30,32 +30,39 @@ E("v_r1", "n_resets"); E("v_r2", "n_resets")
 N(id="c_booked", type="check", title="No upcoming booking (booking always overrides dialing)", when={"eq": ["{{contact.has_upcoming_call}}", False]}, else_exit="booked")
 N(id="c_dq", type="check", title="Not marked dq-financial", when={"not": {"has": ["{{contact.tags}}", "dq-financial"]}}, else_exit="dq-financial")
 E("c_once", "c_booked"); E("n_resets", "c_booked"); E("c_booked", "c_dq")
-N(id="v_start", type="set_var", key="start", value="{{now}}", title="The cycle starts now")
+N(id="v_start", type="set_var", key="start", when={"exists": "event.cycle_start"}, value="{{event.cycle_start}}", else_value="{{now}}", title="The cycle starts now (or when the operator's backfill says it did)")
+N(id="v_last", type="set_var", key="last", value="{{vars.start}}", title="No call made yet in this cycle")
 N(id="n_enter", type="update_contact", title="Enter the cycle: status, reason, start, attempts 0",
-  fields=[{"id": F("cycle_status"), "value": "Active"}, {"id": F("entry_reason"), "value": "{{vars.reason}}"}, {"id": F("cycle_start"), "value": TODAY}, {"id": F("attempt_count"), "value": "0"}],
+  fields=[{"id": F("cycle_status"), "value": "Active"}, {"id": F("entry_reason"), "value": "{{vars.reason}}"}, {"id": F("cycle_start"), "value": TODAY}, {"id": F("attempt_count"), "value": "{{event.attempts_done | default:0}}"}],
   clear=[F("next_call_due"), F("last_outcome"), F("paused_at")])
 N(id="v_reason", type="set_var", key="reason", value="{{event._type}}", pick={"appointment.status_changed": "No-show", "operator.enrolled": "{{event.entry_reason | default:Never booked}}"}, else_value="Never booked", title="Entry reason: no-show, what the operator said, else never booked")
-E("c_dq", "v_reason"); E("v_reason", "v_start"); E("v_start", "n_enter")
+E("c_dq", "v_reason"); E("v_reason", "v_start"); E("v_start", "v_last"); E("v_last", "n_enter")
 
 # ---- the 12 attempts: (waits before it is due)
 sched = {
  1: [("now", "+0m", CALLS)],
- 2: [("vars.start", "+30m", CALLS), ("vars.d1.at", "+25m", CALLS)],
- 3: [("vars.start", "+2h", CALLS), ("vars.d2.at", "+90m", CALLS)],
- 4: [("vars.start", "+1d", MORN), ("vars.d3.at", "+12h", MORN)],
- 5: [("vars.start", "+2d", AFT), ("vars.d4.at", "+12h", AFT)],
- 6: [("vars.start", "+3d", EVE), ("vars.d5.at", "+12h", EVE)],
- 7: [("vars.start", "+4d", MORN), ("vars.d6.at", "+12h", MORN)],
+ 2: [("vars.start", "+30m", CALLS), ("vars.last", "+25m", CALLS)],
+ 3: [("vars.start", "+2h", CALLS), ("vars.last", "+90m", CALLS)],
+ 4: [("vars.start", "+1d", MORN), ("vars.last", "+12h", MORN)],
+ 5: [("vars.start", "+2d", AFT), ("vars.last", "+12h", AFT)],
+ 6: [("vars.start", "+3d", EVE), ("vars.last", "+12h", EVE)],
+ 7: [("vars.start", "+4d", MORN), ("vars.last", "+12h", MORN)],
 }
 weekly = [MORN, AFT, EVE, MORN, AFT]
-for i, n in enumerate(range(8, 13)): sched[n] = [("vars.d%d.at" % (n - 1), "+7d", weekly[i])]
-prev = "n_enter"
+for i, n in enumerate(range(8, 13)): sched[n] = [("vars.last", "+7d", weekly[i])]
+N(id="b_start", type="branch", title="Which call do they start at?")
+E("n_enter", "b_start")
+prev = None
 for n in range(1, 13):
   waits = sched[n]
   for k, (anchor, off, rule) in enumerate(waits):
     wid = "w%d%s" % (n, "abc"[k])
-    N(id=wid, type="wait", title="Call #%d not before %s %s" % (n, "entry" if anchor == "now" else anchor.replace("vars.", "").replace(".at", "").replace("start", "cycle start"), off), rule={"anchor": anchor, "offset": off, "tz": "contact", **rule})
-    E(prev, wid); prev = wid
+    if k == 0:
+      if n == 1: E("b_start", wid, **{"else": True, "label": "call #1"})
+      else: E("b_start", wid, when={"eq": ["{{event.start_at | default:1}}", n]}, label="backfilled: call #%d" % n)
+    N(id=wid, type="wait", title="Call #%d not before %s %s" % (n, {"now": "entry", "vars.start": "cycle start", "vars.last": "the last call"}[anchor], off), rule={"anchor": anchor, "offset": off, "tz": "contact", **rule})
+    if prev: E(prev, wid)
+    prev = wid
   sid, pid = "s%d" % n, "p%d" % n
   N(id=sid, type="branch", title="Still in the cycle for call #%d?" % n)
   N(id="x_left%d" % n, type="exit", reason="left the cycle")
@@ -71,20 +78,23 @@ for n in range(1, 13):
   eid, aid, e2 = "dial%d" % n, "late%d" % n, "dial%db" % n
   N(id=eid, type="wait_for_event", title="Wait for Nick's dial #%d (4 hours)" % n, event="call.logged", match={"eq": ["{{data.direction}}", "outbound"]}, until={"anchor": "now", "offset": "+4h", "tz": "contact"}, into="d%d" % n, respect_send_window=False)
   N(id=aid, type="slack_post", title="Not dialed 4 hours after it was due: tell the team", channel="{{slack.channel.alerts}}", fallback_channel="{{slack.channel.bookings}}",
-    **{"as": {"name": "Dial cadence", "icon": ":telephone_receiver:"}}, template="Call #%d to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list." % n)
-  N(id=e2, type="wait_for_event", title="Still due: wait for the dial (up to 14 days)", event="call.logged", match={"eq": ["{{data.direction}}", "outbound"]}, until={"anchor": "now", "offset": "+14d", "tz": "contact"}, into="d%d" % n, respect_send_window=False)
-  N(id="x_stale%d" % n, type="exit", reason="not dialed for 14 days")
+    **{"as": {"name": "Dial cadence", "icon": ":telephone_receiver:"}}, template="Call #%d to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is." % n)
+  # Tyler, 2026-11-19: no auto-advance and no attempt that did not happen: not dialed, they stay due (Speed to lead shows them waiting) until Nick dials
+  N(id=e2, type="wait_for_event", title="Still due: wait for the dial", event="call.logged", match={"eq": ["{{data.direction}}", "outbound"]}, into="d%d" % n, respect_send_window=False)
   N(id="cl%d" % n, type="check", title="Still in the cycle before saying it is late", when={"not": LEFT}, else_exit="left the cycle")
-  E(did, eid); E(eid, "rec%d" % n, label="event"); E(eid, "cl%d" % n, label="until"); E("cl%d" % n, aid); E(aid, e2); E(e2, "rec%d" % n, label="event"); E(e2, "x_stale%d" % n, label="until")
+  E(did, eid); E(eid, "rec%d" % n, label="event"); E(eid, "cl%d" % n, label="until"); E("cl%d" % n, aid); E(aid, e2); E(e2, "rec%d" % n, label="event")
   N(id="rec%d" % n, type="update_contact", title="Dial #%d made: count it, off the lists until the next one is due" % n,
     fields=[{"id": F("attempt_count"), "value": str(n)}, {"id": F("last_call_at"), "value": TODAY}], clear=[F("next_call_due")])
-  prev = "rec%d" % n
+  lid = "last%d" % n
+  N(id=lid, type="set_var", key="last", value="{{now}}", title="Call #%d done (dialed or missed)" % n)
+  E("rec%d" % n, lid)
+  prev = lid
 N(id="n_done", type="update_contact", title="12 calls made: completed", fields=[{"id": F("cycle_status"), "value": "Completed"}], clear=[F("next_call_due")])
 N(id="g_done", type="tags", add="long-term-nurture"); N(id="x_done", type="exit", reason="completed: long-term nurture")
 E(prev, "n_done"); E("n_done", "g_done"); E("g_done", "x_done")
 
 cad = {"slug": "dial-cadence", "name": "Dial cadence", "category": "setter", "stage": "nurture", "sort": 40, "origin": "default", "optional": True,
- "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows. Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due on the day a call is due (the smart lists show it) and counts every dial from GHL; booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
+ "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows. Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due when a call is due (the smart lists show it) and counts every dial from GHL; a call not dialed 4 hours after it was due is said to the team once and stays due (no attempt is counted that was not made); booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
  "definition": {"schema": 1, "reentry": "once_per_contact", "reentry_key": "{{appointment.id | default:cycle}}", "premise": {"check": "contact_exists"}, "nodes": nodes, "edges": edges}}
 
 # ---- exits

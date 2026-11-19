@@ -55,7 +55,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D352: dial cadence", () => {
     // not dialed 4 hours after it was due: the team is told once, and they stay on the list
     await run(T0.plus({ minutes: 31, hours: 4, seconds: 30 }));
     const said = await asOperator((c) => many<{ rendered_body: string }>(c, "select s.rendered_body from sends s join runs r on r.id=s.run_id where r.contact_id=$1 and s.channel='slack'", [id]));
-    expect(said.map((x) => x.rendered_body)).toEqual([expect.stringMatching(/^Call #2 to .* has been due 4 hours and not dialed\. They stay on the list\.$/)]);
+    expect(said.map((x) => x.rendered_body)).toEqual([expect.stringMatching(/^Call #2 to .* has been due 4 hours and not dialed\. They stay on the list until it is\.$/)]);
+    expect(await field(id, "attempt_count")).toBe("1");   // no attempt counted that was not made
     expect(await field(id, "next_call_due")).toBe("2026-12-02"); expect((await runOf(id))[0].current_node).toBe("dial2b");
   });
 
@@ -97,5 +98,13 @@ describe.skipIf(!process.env.DATABASE_URL)("D352: dial cadence", () => {
     await run(T0);
     expect(await field(old, "cycle_status")).toBe("Active"); expect(await field(old, "next_call_due")).toBe("2026-12-02");
     expect(await (await call(true)).json()).toMatchObject({ would_start: 0, rows: [{ starts: false, why: "already in it" }] });
+    // the backfill: someone who came in 30 days ago starts at call #8 (Weekly), 7 calls behind them, due at once
+    const back = await person("BACK1");
+    const res = await enroll(new Request("http://x/api/admin/workflows/enroll", { method: "POST", headers: { authorization: `Bearer ${KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ company: slug, workflow: "dial-cadence", contacts: [back], data: { entry_reason: "Never booked", start_at: 8, attempts_done: 7, cycle_start: T0.minus({ days: 30 }).toISO() }, why: "backfill test", dryRun: false }) }));
+    expect(await res.json()).toMatchObject({ ok: true, would_start: 1 });
+    await run(T0); await run(T0.plus({ seconds: 30 }));
+    expect(await field(back, "attempt_count")).toBe("7"); expect(await field(back, "next_call_due")).toBe("2026-12-02");
+    expect((await runOf(back))[0].current_node).toBe("dial8");
   });
 });

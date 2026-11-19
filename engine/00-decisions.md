@@ -8003,11 +8003,13 @@ TRC's Smart List SOP (Jose's draft, Tyler's answers 2026-11-19) as two templates
   for four days in rotating windows (8-11, 12-4, 4-8, 8-11), then weekly for five weeks; always 8am-8pm in the person's zone, never on
   a Sunday or US federal holiday (D351). When a call is due the engine sets Next Call Due to that day (the smart lists show it);
   a dial from GHL counts it (Attempt Count, Last Call At) and clears Next Call Due until the next one is due. Not dialed 4 hours
-  after it was due: the team is told once, and the person stays on the list (up to 14 days). Paused (set by hand) resumes 24 hours
+  after it was due: the team is told once, and the person stays due until Nick dials (Tyler, 2026-11-19: "we don't want to have it be adding ficticious attempt counts"; Speed to lead shows them waiting). The spacing after a call (25 / 90 minutes, 12 hours, a week) is measured from the last dial made. Paused (set by hand) resumes 24 hours
   later. After the twelfth: Completed and `long-term-nurture`. It sends the person nothing.
 - `dial-cadence-exits`: booked, paid, or tagged `dq-financial` → Cycle Status Removed, Last Outcome said, Next Call Due cleared.
-- The SOP's "auto-advance as No Answer after 4 hours" is not done: a dial counts itself, so the 4 hours are "not dialed", and a call
-  never made is not counted as one.
+- The SOP's "auto-advance as No Answer after 4 hours" is not done, by Tyler's word: a dial counts itself, so the 4 hours are
+  "not dialed", and a call never made is never counted.
+- Backfill: an enrollment may carry `start_at` (the call they are due next), `attempts_done` and `cycle_start` (when their cycle
+  began, for the spacing): they start at that call with that count, from what the operator worked out from their real history.
 - POST /api/admin/workflows/enroll { company, workflow, contacts, data?, why, dryRun = true }: people who were there before a
   workflow was built start in it as `operator.enrolled` events handed to that workflow only; its reentry holds; out of scope is
   refused; audited.
