@@ -79,7 +79,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D354: dial cadence", () => {
     await fire(id, "appointment.status_changed", { status: { to: "noshow" } }, ctx, a1); await run(T0);
     expect(await field(id, "entry_reason")).toBe("No-show"); expect(await field(id, "no_show_resets")).toBe("1"); expect(await field(id, "next_call_due")).toBe("2026-12-02");
     await asOperator((c) => c.query("update contacts set ghl_fields = ghl_fields || '{\"F-no_show_resets\":\"2\"}'::jsonb where id=$1", [id]));
-    await fire(id, "appointment.status_changed", { status: { to: "noshow" } }, ctx, a2); await run(T0.plus({ minutes: 1 }));
+    await fire(id, "appointment.outcome", { outcome: "noshow", by: "disposition" }, ctx, a2); await run(T0.plus({ minutes: 1 }));   // the second filed on the end of day
     expect(await field(id, "cycle_status")).toBe("Long-term Nurture"); expect(await field(id, "next_call_due")).toBeNull();
   });
 
