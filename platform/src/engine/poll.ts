@@ -1,3 +1,4 @@
+import { switchOn } from "./setting-defaults";
 import { DateTime } from "luxon";
 import { setContactZone } from "./timezone";
 import type { PoolClient } from "pg";
@@ -198,7 +199,7 @@ export async function setterFromLink(c: PoolClient, companyId: string, tracking?
 }
 
 /**
- * D355: whether the call happened on a slot a booking is moving away from. Only a slot whose start has passed can have held a call;
+ * D357: whether the call happened on a slot a booking is moving away from. Only a slot whose start has passed can have held a call;
  * then any of: the engine's outcome for the booking is showed (an end of day filed it, or Call recorded read it), a recording
  * linked to this booking began within 90 minutes of the old start, or the Sales Call for the old slot carries a recording or a
  * call length (Call recorded wrote it).
@@ -212,6 +213,34 @@ export async function slotHeld(c: PoolClient, companyId: string, appointmentId: 
                  and (coalesce(k.properties->>'recording_url','') <> '' or coalesce(k.properties->>'duration_min','') not in ('','0')))
     ) as held`, [companyId, appointmentId, slot, startedAt]);
   return !!r?.held;
+}
+
+/** D358: whether this offer keeps a held call as its own row when its booking moves on (TRC first; off by default). */
+async function keepHeldCall(c: PoolClient, companyId: string): Promise<boolean> {
+  const v = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='booking.keep_held_call'", [companyId]))?.value.toString("utf8");
+  return switchOn(v === undefined ? {} : { "booking.keep_held_call": v }, "booking.keep_held_call");
+}
+
+/**
+ * D358: the call that happened on `slot` is copied off the booking as its own row (held_from = the booking), as it stood before the
+ * move: its time, status, outcome, call outcome, filing and pitched. Its recordings and the filings made for it go with it. The
+ * booking keeps its id (the source's) and is cleared of that outcome, since its next call has not happened. Once per slot.
+ */
+export async function keepHeld(c: PoolClient, companyId: string, appointmentId: string, slot: string): Promise<string | null> {
+  const was = await one<{ id: string }>(c, "select id from appointments where company_id=$1 and held_from=$2 and slot_key=$3", [companyId, appointmentId, slot]);
+  if (was) return was.id;
+  const row = await one<{ id: string; starts_at: Date }>(c, `insert into appointments (company_id, contact_id, opportunity_id, source, external_id, calendar_id, appointment_term, assigned_user_id, reassigned_at, reassigned_by,
+      starts_at, ends_at, self_booked, set_by, answers, tracking, slot_key, meeting_key, meeting_url, booked_at, status, source_updated_at,
+      outcome_term, call_outcome_term, disposition_id, dispositioned_at, dispositioned_by, pitched, held_from)
+    select company_id, contact_id, opportunity_id, source, external_id || '#held@' || to_char(starts_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), calendar_id, appointment_term, assigned_user_id, reassigned_at, reassigned_by,
+      starts_at, ends_at, self_booked, set_by, answers, tracking, $3, meeting_key, meeting_url, booked_at, status, source_updated_at,
+      outcome_term, call_outcome_term, disposition_id, dispositioned_at, dispositioned_by, pitched, id
+    from appointments where id=$2 and company_id=$1 returning id, starts_at`, [companyId, appointmentId, slot]);
+  if (!row) return null;
+  await c.query("update recordings set appointment_id=$2 where company_id=$1 and appointment_id=$3 and abs(extract(epoch from started_at - $4::timestamptz)) <= 5400", [companyId, row.id, appointmentId, row.starts_at]);
+  await c.query("update form_submissions set appointment_id=$2 where company_id=$1 and appointment_id=$3", [companyId, row.id, appointmentId]);
+  await c.query("update appointments set outcome_term=null, call_outcome_term=null, disposition_id=null, dispositioned_at=null, dispositioned_by=null, pitched=null where id=$1", [appointmentId]);
+  return row.id;
 }
 
 export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
@@ -288,6 +317,12 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (Math.abs(existing.starts_at.getTime() - new Date(s.startTime).getTime()) > 60e3) changes.starts_at = { from: existing.starts_at.toISOString(), to: s.startTime };
   if (!Object.keys(changes).length) return;
   if (baseline) { await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, source_updated_at=$5 where id=$1", [existing.id, s.status, s.startTime, s.endTime, s.dateUpdated ?? new Date()]); if (rep) rep.baselined++; return; }
+  // D357: a move away from a slot whose call already happened; D358: an offer that keeps that call (booking.keep_held_call) copies it
+  // off as its own row before the booking moves on, with its outcome, recordings and filings, so the end of day and its Sales Call
+  // still have it. The booking itself moves on as before, starting clean (its next call has not happened).
+  const movedFrom = changes.starts_at ? existing.repointed_from ?? existing.slot_key ?? existing.external_id : null;
+  const held = movedFrom ? await slotHeld(c, co.id, existing.id, movedFrom, existing.starts_at) : false;
+  if (held && (await keepHeldCall(c, co.id))) await keepHeld(c, co.id, existing.id, movedFrom!);
   // D254: a call a person handed to another closer stays theirs; the calendar's host decides only a call nobody reassigned
   await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, assigned_user_id=case when reassigned_at is null then coalesce($5,assigned_user_id) else assigned_user_id end, source_updated_at=$6, cancelled_by=coalesce($7,cancelled_by), cancel_reason=coalesce($8,cancel_reason) where id=$1",
     [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date(), s.cancellation?.by ?? null, s.cancellation?.reason ?? null]);
@@ -297,10 +332,10 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     const from = existing.repointed_from ?? existing.slot_key ?? existing.external_id;
     const to = existing.repointed_from ? existing.external_id : `${existing.external_id}@${new Date(s.startTime).toISOString()}`;
     await c.query("update appointments set slot_key=$2 where id=$1", [existing.id, to]);
-    // D355 (Tyler, 2026-11-20: a closer who held the call and then moved the booking to set the follow-up): the slot the call left
+    // D357 (Tyler, 2026-11-20: a closer who held the call and then moved the booking to set the follow-up): the slot the call left
     // already had its call, so its Sales Call is not a reschedule. Said on the event (`held`) only when it is true, so every move
     // the engine has seen before reads as it did; Call booked's steps that log the old slot rescheduled skip a held one.
-    changes.slot = (await slotHeld(c, co.id, existing.id, from, existing.starts_at)) ? { from, to, held: true } : { from, to };
+    changes.slot = held ? { from, to, held: true } : { from, to };
   }
   // runs parked on this appointment wake now: a wait anchored to it recomputes from the new start, and a run whose premise
   // no longer holds (reminder for a cancelled call) exits moot immediately instead of at its old wake time

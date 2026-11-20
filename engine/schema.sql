@@ -266,12 +266,14 @@ create table appointments (
   dispositioned_at     timestamptz,
   dispositioned_by     uuid references users(id),
   pitched              boolean,                                    -- D226: the closer pitched them (end of day); null: no call, or not said
+  held_from            uuid references appointments(id),           -- D358: a call that happened, kept apart when its booking moved on (the booking it came from)
   created_at           timestamptz not null default now(),
   unique (company_id, source, external_id)
 );
 create index on appointments (company_id, starts_at);
 create index on appointments (company_id, assigned_user_id, starts_at);
 create index on appointments (company_id, meeting_key) where meeting_key is not null;
+create index on appointments (held_from) where held_from is not null;
 
 -- The ledger. A payment is a fact even when nobody matched it: contact_id is null and link_status is 'unlinked'
 -- until the identity ladder (member id → email → phone) or a person links it. Refunds are negative rows.
@@ -373,7 +375,7 @@ insert into event_types values
   ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('setter_call.filed','call'), ('call.closing','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'), ('agreement.requested','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('card.moved','crm'), ('scope.left','crm'),
-  ('schedule','clock'), ('eod.filed','report'), ('eod.disagreement','report'), ('slack.reaction','slack'),
+  ('schedule','clock'), ('eod.filed','report'), ('eod.disagreement','report'), ('eod.call_answers','report'), ('slack.reaction','slack'),
   ('alert.raised','engine'), ('alert.repeated','engine'), ('alert.resolved','engine'),
   ('drift.found','engine'), ('drift.sales_call_cancelled','engine'), ('drift.sales_call_unlinked','engine'),
   ('run.started','engine'), ('run.exited','engine'), ('send.suppressed','engine');

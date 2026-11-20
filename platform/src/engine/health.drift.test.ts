@@ -333,7 +333,7 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     }
   });
 
-  it("D355: a Sales Call left on its old time whose call was recorded there (the closer moved the booking to set the follow-up) is never marked rescheduled nor asked about", async () => {
+  it("D357: a Sales Call left on its old time whose call was recorded there (the closer moved the booking to set the follow-up) is never marked rescheduled nor asked about", async () => {
     const wf = await asOperator(async (c) => {
       const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
       const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
@@ -353,6 +353,26 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     } finally {
       records.splice(records.findIndex((r) => r.id === "R35"), 1);
       await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id='AP35'", [companyId]); await c.query("delete from workflows where id=$1", [wf]); });
+    }
+  });
+
+  it("D358: a Sales Call for a time its booking moved away from, filed rescheduled, never becomes the moved booking's outcome", async () => {
+    const appt = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      await c.query("update bindings set value=$2 where company_id=$1 and key='sales_call.outcomes'", [companyId, Buffer.from(JSON.stringify({ showed: "showed", no_show: "noshow", cancelled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" }))]);
+      return (await one<{ id: string }>(c, "insert into appointments (company_id, contact_id, source, external_id, slot_key, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'ghl','AP36',$3,$4,$5,$5,$6,'confirmed') returning id",
+        [companyId, k1, `AP36@${ago({ days: 1, hours: 7 }).startOf("minute").toUTC().toISO()}`, closing, ago({ days: 1, hours: 7 }).startOf("minute").toJSDate(), ago({ days: 6 }).toJSDate()]))!.id;
+    });
+    const old = ago({ days: 3, hours: 7 }).startOf("minute");
+    records.push(sc("R36", "AP36", "G-K1", old, "rescheduled"));
+    try {
+      await sweep();
+      const a = await asOperator((c) => one<{ outcome: string | null }>(c, "select ot.category as outcome from appointments a left join company_terms ot on ot.id=a.outcome_term where a.id=$1", [appt]));
+      expect(a?.outcome ?? null).toBeNull();
+    } finally {
+      records.splice(records.findIndex((r) => r.id === "R36"), 1);
+      await asOperator((c) => c.query("delete from appointments where id=$1", [appt]));
     }
   });
 

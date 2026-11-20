@@ -4,7 +4,7 @@ import { asOperator, many } from "@/db/client";
 import { fail, ok, readJson } from "@/api/http";
 import { loadCompany } from "@/engine/context";
 import { reassignOn } from "@/engine/reassign";
-import { closerByToken, loadEodForm, prefill, reportFor, submitEod, todayFor, DAY_FMT, type EodAnswers, type EodPrefill, type CallEntry } from "@/engine/eod";
+import { closerByToken, loadEodForm, formFor, reportFor, submitEod, todayFor, DAY_FMT, type EodAnswers, type EodPrefill, type CallEntry } from "@/engine/eod";
 import { outcomesOf, dayFields, totalsOf, type CallOutcome } from "@/engine/eod-form";
 import { heldCount } from "@/engine/eod";
 import { switchOn } from "@/engine/setting-defaults";
@@ -18,7 +18,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     const { row: company, bindings } = await loadCompany(c, closer.company_id);
     const day = q && DateTime.fromFormat(q, DAY_FMT).isValid ? q : todayFor(company.timezone);
     const filed = await reportFor(c, company.id, closer.id, day);
-    const pre = await prefill(c, company, closer, day, DateTime.now());
+    const pre = await formFor(c, company, closer, day, DateTime.now());
     const fields = await loadEodForm(c, company.id);
     const shown: EodPrefill = filed?.answers ? { ...pre, ...pickAnswers(filed.answers, pre) } : pre;
     const d = DateTime.fromFormat(day, DAY_FMT, { zone: company.timezone });
@@ -42,7 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const extraKeys = fields.filter((x) => x.scope === "call" && !x.builtin).map((x) => x.key);
     const calls: CallEntry[] = body.calls!.map((x) => ({ appointment_id: String(x.appointment_id), contact_id: String(x.contact_id ?? ""), contact: String(x.contact ?? ""), starts_at: String(x.starts_at ?? ""), href_contact: null, recording_url: null,
       outcome: String(x.outcome ?? "") as CallOutcome, revenue: num(x.revenue), cash: num(x.cash), next_date: x.next_date ? String(x.next_date) : null, next_steps: String(x.next_steps ?? ""), dq_reason: String(x.dq_reason ?? ""), dq_note: String(x.dq_note ?? ""), lost_reason: String(x.lost_reason ?? ""), pitched: String(x.pitched ?? ""), about: String(x.about ?? ""), notes: String(x.notes ?? ""),
-      extra: Object.fromEntries(extraKeys.map((k) => [k, String((x.extra ?? {})[k] ?? "")]).filter(([, v]) => v !== "")) }));
+      extra: Object.fromEntries(extraKeys.map((k) => [k, String((x.extra ?? {})[k] ?? "")]).filter(([, v]) => v !== "")), ...(x.carried_from ? { carried_from: String(x.carried_from) } : {}) }));
     const t = totalsOf(calls, fields);
     const dayKeys = dayFields(fields).map((f) => f.key);
     const day_answers = Object.fromEntries(Object.entries(body.day_answers ?? {}).filter(([k, v]) => dayKeys.includes(k) && String(v) !== "").map(([k, v]) => [k, String(v)]));

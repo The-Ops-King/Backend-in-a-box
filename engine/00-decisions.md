@@ -8054,3 +8054,36 @@ Tyler, onboarding Summer as a closer: "I know you can add her as a dropdown fiel
 so her Sales Calls couldn't name her. `POST /api/admin/ghl/field-option` { company, object, field, key, label, why, dryRun = true }
 adds one option to a dropdown on a custom object: every option already there is sent back as it is (GHL's update replaces the list),
 a key already there changes nothing, and the field is read back. Audited. Map the option to the person in `sales_call.closer_options`.
+
+## D357 — A slot the call happened on is never logged rescheduled (2026-11-20)
+
+Tyler, on TRC's sales tracker: Nick held Julie's and Pamela's calls, then moved the GHL booking to set the follow-up, and the engine
+overwrote the held slot's Sales Call to rescheduled. Tyler: "everything we have should work based on the engine".
+- The poll says `held: true` on `appointment.rescheduled`'s slot when the old start has passed and the call happened there: the
+  booking's outcome is showed, a recording linked to it began within 90 minutes of the old start, or the old slot's Sales Call has a
+  recording or a call length (`slotHeld`, poll.ts). Every other move's event is as before.
+- The `crm_record` step drops a write of the rescheduled outcome onto a held slot's record, whatever the offer's saved workflow asks,
+  so no workflow needed saving. Ledger drift's D289/D294 `moved_marked` leaves such a record too (recording, length, disposition, or
+  the engine's showed or recording): it is the end of day's to file.
+- Every offer (Tyler: "fix that"). Tests: remake.test.ts (recorded then moved, filed then moved, a plain move still rescheduled),
+  health.drift.test.ts; each fails without the change.
+
+## D358 — Calls stay on the end of day until complete; held calls kept; answers onto the Sales Call; package from Whop (2026-11-20)
+
+Tyler: "Held calls shouldn't disappear from the eod ever. If the data we need is empty, it should show up on the eod." And: "EOD marks
+a call complete. All fields that need to be filled with a given outcome need to be filled." TRC first ("just trc for this").
+- `booking.keep_held_call` (switch, off): a booking moved after its call happened copies that call off as its own appointment row
+  (`held_from` = the booking, migration 0020): its time, status, outcome, filing, pitched, recordings and form submissions. The
+  booking keeps the source's id, moves on and starts clean. A Sales Call keyed by that slot belongs to the held row, never to the
+  booking that kept the id (`ownsKey`, held-call.ts); with no held rows matching reads as before.
+- `eod.carry_over_from` (yyyy-MM-dd, off when blank): today's form carries each earlier closing call from that day that is not complete,
+  in "Still missing from earlier days", saying what it still needs. Complete is the closer's filing, or an outcome the call got another
+  way (a payment, a person, the operator), with every field the form requires for that outcome filled; a pre-filled guess is never a
+  filing. Carried calls are never that day's numbers, and one still unfinished never holds back the day.
+- Ledger drift: a Sales Call for a time its booking moved away from is that slot's; its outcome no longer becomes the moved booking's
+  (it made the booking's own call read as filed: TRC's Razia, Pamela and Julie). Every offer; the test fails first.
+- `eod.call_answers`: each closing call filed carries what the closer answered, only the fields its outcome asks for, every time it is
+  filed. The optional template EOD: answers onto the Sales Call writes next step, next follow-up date, cash, contract value and package
+  onto its Sales Call ("Call outcome filed" writes only outcome, disposition and pitched).
+- `eod.package_from_product` ([[regex, package], ...]): the first rule a product of the call's payments matches pre-fills the Package
+  answer (Tyler: "we should be able to read which package from whop"). TRC's lists the bundles before their parts.

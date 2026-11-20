@@ -152,4 +152,14 @@ export const MIGRATIONS: Migration[] = [
   { id: "0019-operator-enrolled", run: async (c) => {
     await c.query("insert into event_types values ('operator.enrolled','crm') on conflict do nothing");
   } },
+  // D358: a call that happened and whose booking then moved on (a closer setting the follow-up by moving it) is kept as its own row,
+  // pointing at the booking it came from, so the end of day and the Sales Call for that slot still have it
+  { id: "0020-held-call-kept", run: async (c) => {
+    await c.tx(async (t) => {
+      await t.query("alter table appointments add column if not exists held_from uuid references appointments(id)");
+      await t.query("create index if not exists appointments_held_from_idx on appointments (held_from) where held_from is not null");
+    });
+    // D358: each closing call filed on the end of day, with what the closer answered (EOD: answers onto the Sales Call writes them)
+    await c.query("insert into event_types values ('eod.call_answers','report') on conflict do nothing");
+  } },
 ];

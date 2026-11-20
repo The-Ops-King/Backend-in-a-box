@@ -1,3 +1,4 @@
+import { ownsKey } from "./held-call";
 import { DateTime } from "luxon";
 import type { PoolClient } from "pg";
 import { many } from "@/db/client";
@@ -110,7 +111,7 @@ export type SalesCall = { id: string; ext: string; ghl: string; name: string; te
   /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string;
   /** D226: whether the closer pitched them: the end of day's answer on the booking, else the record's Pitched field; null when nobody said */ pitched: boolean | null;
   /** D76: the record's links as GHL holds them: its contact_id field, whether the contact came only from the association, its opportunity_id field */ links: { contact_field: boolean; opportunity: string };
-  /** D355: the record carries a recording link or a call length (the call was recorded on this slot) */ recorded: boolean };
+  /** D357: the record carries a recording link or a call length (the call was recorded on this slot) */ recorded: boolean };
 type Call = SalesCall;
 export type GhlCtx = {
   c: PoolClient; companyId: string; ac: Company; bindings: Record<string, string>; reads: GhlReads; tz: string; start: Date; end: Date; now: Date;
@@ -262,11 +263,11 @@ async function calls(x: GhlCtx): Promise<Call[]> {
     type Hit = { rid: string; by_ext: boolean; id: string; contact_id: string; status: string; source: string; outcome: string | null; starts_at: Date; cancelled_at: Date | null; name: string | null; test: boolean; pitched: boolean | null };
     // a record names its booking by the slot key it was written under (D120: a Calendly re-make keeps it while the event id moves on)
     // the cancel time: the earliest of the source's own update stamp and the poll's status change to cancelled, both at or after it
-    const hits = due.length ? await many<Hit>(x.c, `select x.rid, (a.external_id = x.ext or a.slot_key = x.ext) as by_ext, a.id::text as id, a.contact_id::text as contact_id, a.status, a.source, ot.category as outcome, a.starts_at,
+    const hits = due.length ? await many<Hit>(x.c, `select x.rid, ${ownsKey("a", "x.ext")} as by_ext, a.id::text as id, a.contact_id::text as contact_id, a.status, a.source, ot.category as outcome, a.starts_at,
         case when a.status='cancelled' then least(a.source_updated_at, (select min(e.occurred_at) from events e where e.company_id=a.company_id and e.appointment_id=a.id and e.event_type='appointment.status_changed' and e.data->'status'->>'to'='cancelled')) end as cancelled_at,
         nullif(trim(coalesce(ct.first_name,'')||' '||coalesce(ct.last_name,'')),'') as name, ${testContactSql("ct", "$6")} as test, a.pitched
       from unnest($2::text[], $3::text[], $4::text[], $5::timestamptz[], $8::text[]) as x(rid, ext, ghl, at, day)
-      join appointments a on a.company_id=$1 and (a.external_id = x.ext or a.slot_key = x.ext or ((case when x.at is not null then date_trunc('minute', a.starts_at) = date_trunc('minute', x.at) else (a.starts_at at time zone $7)::date = x.day::date end)
+      join appointments a on a.company_id=$1 and (${ownsKey("a", "x.ext")} or ((case when x.at is not null then date_trunc('minute', a.starts_at) = date_trunc('minute', x.at) else (a.starts_at at time zone $7)::date = x.day::date end)
         and a.contact_id in (select ct2.id from contacts ct2 where ct2.company_id=$1 and (ct2.ghl_contact_id=x.ghl or ct2.id in (select i.contact_id from contact_identifiers i where i.company_id=$1 and i.kind='ghl_contact' and i.value=x.ghl)))))
       join contacts ct on ct.id=a.contact_id left join company_terms ot on ot.id=a.outcome_term`,
       [x.companyId, due.map((d) => d.r.id), due.map((d) => String(d.r.properties.external_id ?? "")), due.map((d) => String(d.r.properties.contact_id ?? "")), due.map((d) => (d.exact ? d.at.toJSDate() : null)), x.domains, x.tz, due.map((d) => d.at.toISODate())]) : [];

@@ -83,8 +83,11 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
     </div>;
   }
   const indexed = calls.map((c, i) => ({ c, i }));
-  const groups = [{ title: "Discovery calls", rows: indexed.filter((x) => isSetterCall(x.c.kind)) }, { title: "Closing calls", rows: indexed.filter((x) => !isSetterCall(x.c.kind)) }]
+  // D358: earlier days' calls still missing what their outcome needs come first, in their own section, and are never this day's numbers
+  const today = indexed.filter((x) => !x.c.carried_from);
+  const groups = [{ title: "Still missing from earlier days", rows: indexed.filter((x) => !!x.c.carried_from) }, { title: "Discovery calls", rows: today.filter((x) => isSetterCall(x.c.kind)) }, { title: "Closing calls", rows: today.filter((x) => !isSetterCall(x.c.kind)) }]
     .filter((g) => g.rows.length).map((g) => ({ ...g, left: g.rows.filter((x) => !complete(x.c)).length }));
+  const dayOf = (ymd: string) => new Date(`${ymd}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   // D305: every send reaches the engine (noValidate): it names what is missing on the form and logs it, so a closer is never stopped by the browser with no trace
   return <form className="eodx-form" onSubmit={submit} noValidate>
     {err ? <div className="eodx-banner warn"><strong>That didn't save.</strong> {err}. Your answers are still here, so fix that and send it again.</div> : null}
@@ -110,7 +113,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
       </div>}
     </section>
     {/* Tyler: one person can set and close the same day; their calls come in two sections, "Discovery calls" and "Closing calls" */}
-    {calls.length === 0 ? <><h2 className="eodx-h2 out">Your calls</h2><div className="eodx-empty">No calls on your calendar this day.</div></> : null}
+    {today.length === 0 ? <><h2 className="eodx-h2 out">Your calls</h2><div className="eodx-empty">No calls on your calendar this day.</div></> : null}
     {groups.map((g) => <div key={g.title}>
       <h2 className="eodx-h2 out">{g.title} <small>{g.left ? `${g.left} to go` : "all set"}</small></h2>
       {g.rows.map(({ c, i }, n) => { const after = c.outcome === TAKEN ? [] : fieldsFor(d.fields, c.outcome, c.kind), choices = c.kind === "triage" ? TRIAGE_OUTCOMES : c.kind === "dial" ? DIAL_OUTCOMES : d.outcomes;
@@ -119,7 +122,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
       return <section key={c.appointment_id} className={`eodx-call${done_ ? " done" : ""}`}>
         <button type="button" className="eodx-call-hd" onClick={() => done_ && setOpen((o) => ({ ...o, [c.appointment_id]: !o[c.appointment_id] }))} aria-expanded={!!shown}>
           <span className="eodx-dot" aria-hidden>{done_ ? "✓" : n + 1}</span>
-          <span className="eodx-who"><b>{c.contact}</b><small>{time(c.starts_at)}{kind ? ` · ${kind}` : ""}</small></span>
+          <span className="eodx-who"><b>{c.contact}</b><small>{c.carried_from ? `${dayOf(c.carried_from)} · ` : ""}{time(c.starts_at)}{kind ? ` · ${kind}` : ""}</small></span>
           {done_ ? <span className="eodx-pill">{c.outcome === TAKEN ? `Taken by ${takenBy(c) ?? "someone else"}` : outcomeLabel(c.outcome, d.fields, c.kind)}</span> : null}
           {done_ ? <span className="eodx-edit">{shown ? "Close" : "Edit"}</span> : null}
         </button>
@@ -127,6 +130,7 @@ function Form({ token, d, onFiled }: { token: string; d: Page; onFiled: () => vo
           {c.href_contact || c.recording_url ? <div className="eodx-links">{c.href_contact ? <a href={c.href_contact} target="_blank" rel="noreferrer">Open contact ↗</a> : null}{c.recording_url ? <a href={c.recording_url} target="_blank" rel="noreferrer">Recording ↗</a> : null}</div> : null}
           <label className="eodx-field"><span>{outcomeField.label}{outcomeField.required ? <em> *</em> : null}</span><select value={c.outcome} required={outcomeField.required} onChange={(e) => set(i, { outcome: e.target.value as CallOutcome })}><option value="">Choose one</option>{choices.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}{d.team.length ? <option value={TAKEN}>{TAKEN_LABEL}…</option> : null}</select></label>
           {c.outcome === TAKEN ? <label className="eodx-field"><span>Who took it?<em> *</em><small> It moves to their end of day, and they fill in how it went.</small></span><select value={c.taken_by ?? ""} required onChange={(e) => set(i, { taken_by: e.target.value || undefined })}><option value="">Choose one</option>{d.team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label> : null}
+          {c.carried_from && c.missing?.length ? <p className="eodx-hint warn">Still needed: {c.missing.join(", ")}.</p> : null}
           {c.hint && !c.outcome ? <p className="eodx-hint">{c.hint}</p> : null}
           {c.moved ? <p className="eodx-hint warn">{c.moved}</p> : null}
           {after.length ? <div className="eodx-after">{after.map((f) => <Field key={f.key} f={f} value={valueOf(c, f.key)} onChange={(v) => setField(i, f.key, v)} />)}</div> : null}

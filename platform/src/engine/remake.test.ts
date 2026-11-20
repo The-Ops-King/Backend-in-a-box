@@ -17,6 +17,7 @@ import { recordRecording } from "./recordings";
 import { dispatchEvent } from "./dispatch";
 import { tick } from "./runner";
 import { backfillSalesCalls } from "./sales-call-backfill";
+import { prefill } from "./eod";
 import { fakeAdapters } from "./test-install";
 import type { Adapters, AppointmentSnapshot, Classification } from "@/adapters/types";
 
@@ -236,7 +237,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D120: a call Calendly re-makes at th
     expect(recs.find((r) => r.external_id === slot)).toMatchObject({ outcome: "showed", disposition: "follow_up" });
   });
 
-  // D355 (Tyler, 2026-11-20): the closer held the call, then moved the booking to set the follow-up (GHL keeps the id). The slot
+  // D357 (Tyler, 2026-11-20): the closer held the call, then moved the booking to set the follow-up (GHL keeps the id). The slot
   // the call left had its call: its Sales Call keeps what the call wrote and is not logged rescheduled; the new slot gets its own.
   it("a call recorded and then moved: the old slot is held, not rescheduled, and the follow-up slot gets its own record", async () => {
     const who = await person(ghl, "Julia");
@@ -280,5 +281,42 @@ describe.skipIf(!process.env.DATABASE_URL)("D120: a call Calendly re-makes at th
     expect(moved.data.slot).not.toHaveProperty("held");
     await run(ghl);
     expect(inCrm(who).find((r) => r.external_id === "R-APPT")).toMatchObject({ outcome: "rescheduled" });
+  });
+
+  // D358: an offer that keeps held calls (booking.keep_held_call) copies the call that happened off the booking when it moves on: the
+  // end of day for that day still has it, and the old slot's Sales Call is matched to it, not to the booking that moved
+  it("D358: with booking.keep_held_call on, a call held and then moved stays its own row on its day, and its Sales Call follows it", async () => {
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'booking.keep_held_call','text',$2) on conflict (company_id,key) do update set value=excluded.value", [ghl, Buffer.from("on")]));
+    try {
+      const who = await person(ghl, "Hana");
+      await poll(ghl, event(who, "H-APPT", START, {}, true));
+      await run(ghl);
+      await file(ghl, who, "showed", "follow_up");
+      const tomorrow = START.plus({ days: 1 });
+      await poll(ghl, event(who, "H-APPT", tomorrow, {}, true));
+      await run(ghl);
+      const rows = await asOperator((c) => many<{ id: string; external_id: string; slot_key: string; starts_at: Date; held_from: string | null; outcome: string | null }>(c,
+        "select a.id, a.external_id, a.slot_key, a.starts_at, a.held_from, ot.category as outcome from appointments a left join company_terms ot on ot.id=a.outcome_term where a.company_id=$1 and a.contact_id=$2 order by a.starts_at", [ghl, who.ct]));
+      expect(rows).toHaveLength(2);
+      const [heldRow, booking] = rows;
+      expect(heldRow).toMatchObject({ slot_key: "H-APPT", outcome: "showed" });
+      expect(heldRow.held_from).toBe(booking.id);
+      expect(heldRow.starts_at.getTime()).toBe(START.toMillis());
+      expect(booking).toMatchObject({ external_id: "H-APPT", slot_key: `H-APPT@${tomorrow.toUTC().toISO()}`, outcome: null, held_from: null });
+      // the end of day for the held call's day still lists it, filed
+      const pre = await asOperator(async (c) => { const { row } = await loadCompany(c, ghl); const u = (await one<{ id: string; name: string; email: string }>(c, "select id, name, email from users where company_id=$1 and email='casey@remake.test'", [ghl]))!;
+        return prefill(c, row, u, START.setZone(TZ).toFormat("yyyy-LL-dd")); });
+      expect(pre.calls.map((x) => x.appointment_id)).toContain(heldRow.id);
+      // GHL: the old slot's record keeps the call, the new slot has its own
+      const recs = inCrm(who);
+      expect(recs.find((r) => r.external_id === "H-APPT")).toMatchObject({ outcome: "showed", disposition: "follow_up" });
+      expect(recs.find((r) => r.external_id === `H-APPT@${tomorrow.toUTC().toISO()}`)).toMatchObject({ outcome: "scheduled" });
+      // moving again keeps one held row for that slot
+      await poll(ghl, event(who, "H-APPT", tomorrow.plus({ hours: 2 }), {}, true));
+      const held = await asOperator((c) => many(c, "select 1 from appointments where company_id=$1 and contact_id=$2 and held_from is not null", [ghl, who.ct]));
+      expect(held).toHaveLength(1);
+    } finally {
+      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='booking.keep_held_call'", [ghl]));
+    }
   });
 });
