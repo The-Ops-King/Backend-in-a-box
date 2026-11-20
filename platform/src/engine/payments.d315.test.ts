@@ -12,7 +12,7 @@ import type { Adapters, ContactSnapshot, ObjectRecord } from "@/adapters/types";
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const SLUG = `d315-${Date.now()}`;
 const person = (id: string, email: string): ContactSnapshot => ({ id, firstName: id, lastName: "Buyer", email, phone: null as never, tags: [], customFields: {}, dateUpdated: "2026-11-01T00:00:00Z", dateAdded: "2026-11-01T00:00:00Z" });
-const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com"), person("G-DEE", "dee@x.com"), person("G-EVE", "eve@x.com"), person("G-FAY", "fay@x.com"), person("G-GIL", "gil@x.com")];
+const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com"), person("G-DEE", "dee@x.com"), person("G-EVE", "eve@x.com"), person("G-FAY", "fay@x.com"), person("G-GIL", "gil@x.com"), person("G-HAL", "hal@x.com")];
 const base = fakeAdapters();
 const ghl: Adapters = { ...base, read: { ...base.read, objectRecords: async (_c, key) => (key === "custom_objects.cash" ? cash.filter((r) => paid.has(String(r.properties.transaction_id))) : []), findDuplicate: async (_c, by) => ("email" in by ? PEOPLE.find((p) => p.email === by.email) ?? null : null), getContact: async (_c, id) => PEOPLE.find((p) => p.id === id) ?? null } };
 // the deposit as Payment recorded writes it to GHL's Cash records (what was paid before is read from there)
@@ -104,6 +104,12 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
     const a = await asOperator((c) => answerPaymentKind(c, ghl, co, "UOP", `first:${r.payment.id}`));
     expect(a.text).toContain("is the first payment of a plan, not a deposit");
     expect(await asOperator((c) => one(c, "select kind from payments where id=$1", [r.payment.id]))).toEqual({ kind: "installment" });
+    // D363: an offer whose question anyone may answer: a press by someone not on the roster is taken, and says who
+    const any = await asOperator((c) => recordPayment(c, co, { providerPaymentId: "p_hal", amount: 1200, status: "succeeded", paidAt: new Date(), email: "hal@x.com", raw: { billing_reason: "one_time", product_name: "Beauty Moguls Method" } }, undefined, { dispatch: false, ghl: g }));
+    if (any.outcome !== "linked") throw new Error("not linked");
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'payments.ask_answered_by','text',$2)", [co, Buffer.from("anyone")]));
+    expect(await asOperator((c) => answerPaymentKind(c, ghl, co, "USOMEONE", `deposit:${any.payment.id}`))).toMatchObject({ text: expect.stringContaining("<@USOMEONE>") });
+    await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='payments.ask_answered_by'", [co]));
     expect(parseKindAnswer("deposit:abc")).toEqual({ answer: "deposit", payment: "abc" });
     expect(parseKindAnswer("nope")).toBeNull();
   });
