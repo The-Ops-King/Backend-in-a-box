@@ -191,4 +191,16 @@ export const MIGRATIONS: Migration[] = [
       }
     });
   } },
+  // D358 data fix, TRC only: Daneza Socarras's Nov 23 booking was given "rescheduled" at 15:01 UTC on 2026-11-20 by ledger drift from the
+  // Sales Call of the Nov 20 slot it moved away from, just before D358's drift fix went out; her Nov 23 call would have read as filed and
+  // never come to Nick's end of day. Cleared only while it is still the outcome that repair set (nobody has filed it since).
+  { id: "0022-trc-stale-rescheduled", run: async (c) => {
+    await c.tx(async (t) => {
+      const a = (await t.query(`select a.id, a.company_id from appointments a join company_terms ot on ot.id=a.outcome_term
+        where a.id='43b46256-665b-45a8-81fc-64149a99b641' and ot.category='rescheduled' and a.disposition_id is null and a.dispositioned_at is null`)).rows[0] as { id: string; company_id: string } | undefined;
+      if (!a) return;
+      await t.query("update appointments set outcome_term=null where id=$1", [a.id]);
+      await t.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'appointment.outcome_cleared','appointment',$2,$3,$4)", [a.company_id, a.id, { outcome: "rescheduled", by: "ledger drift (ghl_outcome) from the Nov 20 slot's Sales Call" }, { outcome: null, by: "migration 0022", why: "a moved-away slot's outcome is not the booking's (D358)" }]);
+    });
+  } },
 ];
