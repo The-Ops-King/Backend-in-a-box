@@ -235,4 +235,24 @@ export const MIGRATIONS: Migration[] = [
       await t.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'appointment.held_kept','appointment',$2,$3)", [b.company_id, row.id, { held_from: booking, slot, at, by: "migration 0024", why: "a slot left after its time is kept for the end of day (D358)" }]);
     });
   } },
+  // D358 data fix, TRC only: the last two slots left after their time before the keep rule shipped (2026-11-20): Christy Ensley's 9 AM
+  // (moved at 9:10) and Anthony Monreal's 11 AM (moved at 11:09), each kept as its own blank row for Nick to file. Once, by booking id.
+  { id: "0025-trc-kept-nov20", run: async (c) => {
+    const kept = [
+      { booking: "91a9fdda-1398-40f5-832f-af10f5722df6", slot: "gOvOCVmV9mEHY7v4LgHh@2026-11-20T17:00:00.000Z", at: "2026-11-20T17:00:00.000Z" },
+      { booking: "5cd05bac-751f-4997-b2b9-15f7455ff7cc", slot: "KrrmHjIitpImvwOwsMmY", at: "2026-11-20T19:00:00.000Z" },
+    ];
+    await c.tx(async (t) => {
+      for (const k of kept) {
+        const b = (await t.query("select id, company_id from appointments where id=$1", [k.booking])).rows[0] as { id: string; company_id: string } | undefined;
+        if (!b || (await t.query("select 1 from appointments where held_from=$1 and slot_key=$2", [k.booking, k.slot])).rows.length) continue;
+        const row = (await t.query(`insert into appointments (company_id, contact_id, opportunity_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, tracking,
+            slot_key, meeting_key, meeting_url, booked_at, status, source_updated_at, held_from)
+          select company_id, contact_id, opportunity_id, source, external_id || '#held@' || $3, calendar_id, appointment_term, assigned_user_id, $3::timestamptz, $3::timestamptz + interval '1 hour', self_booked, set_by, answers, tracking,
+            $2, meeting_key, meeting_url, booked_at, 'confirmed', source_updated_at, id
+          from appointments where id=$1 returning id`, [k.booking, k.slot, k.at])).rows[0] as { id: string };
+        await t.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'appointment.held_kept','appointment',$2,$3)", [b.company_id, row.id, { held_from: k.booking, slot: k.slot, at: k.at, by: "migration 0025", why: "a slot left after its time is kept for the end of day (D358)" }]);
+      }
+    });
+  } },
 ];
