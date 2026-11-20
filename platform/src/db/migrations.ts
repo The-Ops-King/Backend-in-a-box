@@ -162,4 +162,33 @@ export const MIGRATIONS: Migration[] = [
     // D358: each closing call filed on the end of day, with what the closer answered (EOD: answers onto the Sales Call writes them)
     await c.query("insert into event_types values ('eod.call_answers','report') on conflict do nothing");
   } },
+  // D358 data fix (Tyler, 2026-11-20), TRC only: the three calls Nick held and then moved before booking.keep_held_call existed get
+  // their held rows, so the end of day carries them and their Sales Calls follow them: Razia's Nov 16 noon call (she closed; "she
+  // closed on the 16th for half, then paid the rest the next day"), Pamela's Nov 17 call and Julie's Nov 19 call (recorded; left for
+  // Nick to file: "leave them blank so they appear on the eod"). The bookings themselves lose the stale outcome a moved-away slot
+  // gave them (D358's drift fix), except Razia's Nov 17 slot, which Nick filed as rescheduled. No-op where these bookings do not exist.
+  { id: "0021-trc-held-calls", run: async (c) => {
+    const held: Array<{ booking: string; slot: string; at: string; outcome: string | null; call: string | null; pitched: boolean | null; clear: boolean }> = [
+      { booking: "1c4369a1-5cc4-49b6-94c5-88c05dc4539a", slot: "pkeC7HVL2O7tMd7s434b@2026-11-16T20:00:00.000Z", at: "2026-11-16T20:00:00.000Z", outcome: "showed", call: "closed", pitched: true, clear: false },
+      { booking: "0d800df3-11c1-4171-8658-5c5ddf22b80d", slot: "FaKyg2ziENmzdPTuLeRY", at: "2026-11-17T20:00:00.000Z", outcome: null, call: null, pitched: null, clear: true },
+      { booking: "d690e94e-7fe9-4674-9b32-7dc1e425b932", slot: "zKxulGK7HFJ8AF6lQuUn", at: "2026-11-19T22:00:00.000Z", outcome: "showed", call: null, pitched: null, clear: true },
+    ];
+    await c.tx(async (t) => {
+      for (const h of held) {
+        const b = (await t.query("select id, company_id, external_id from appointments where id=$1", [h.booking])).rows[0] as { id: string; company_id: string; external_id: string } | undefined;
+        if (!b) continue;
+        if ((await t.query("select 1 from appointments where held_from=$1 and slot_key=$2", [h.booking, h.slot])).rows.length) continue;
+        const term = async (domain: string, cat: string | null) => cat ? ((await t.query("select id from company_terms where company_id=$1 and domain=$2 and category=$3 and active order by is_default desc, sort limit 1", [b.company_id, domain, cat])).rows[0] as { id: string } | undefined)?.id ?? null : null;
+        const row = (await t.query(`insert into appointments (company_id, contact_id, opportunity_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, tracking,
+            slot_key, meeting_key, meeting_url, booked_at, status, source_updated_at, outcome_term, call_outcome_term, dispositioned_at, pitched, held_from)
+          select company_id, contact_id, opportunity_id, source, external_id || '#held@' || $3, calendar_id, appointment_term, assigned_user_id, $3::timestamptz, $3::timestamptz + interval '1 hour', self_booked, set_by, answers, tracking,
+            $2, meeting_key, meeting_url, booked_at, 'confirmed', source_updated_at, $4, $5, case when $4::uuid is null then null else now() end, $6, id
+          from appointments where id=$1 returning id`, [h.booking, h.slot, h.at, await term("appointment_outcome", h.outcome), await term("call_outcome", h.call), h.pitched])).rows[0] as { id: string };
+        await t.query("update recordings set appointment_id=$2 where appointment_id=$1 and abs(extract(epoch from started_at - $3::timestamptz)) <= 5400", [h.booking, row.id, h.at]);
+        if (h.call) await t.query("update appointments set call_outcome_term=null where id=$1", [h.booking]);
+        if (h.clear) await t.query("update appointments set outcome_term=null, call_outcome_term=null, dispositioned_at=null, pitched=null where id=$1", [h.booking]);
+        await t.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'appointment.held_kept','appointment',$2,$3)", [b.company_id, row.id, { held_from: h.booking, slot: h.slot, at: h.at, outcome: h.outcome, call_outcome: h.call, by: "migration 0021", why: "Tyler 2026-11-20: Nick's calls held and then moved before D358" }]);
+      }
+    });
+  } },
 ];
