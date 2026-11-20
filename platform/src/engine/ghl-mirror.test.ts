@@ -30,6 +30,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D350: putting bookings on GHL", () =
   const adapters: Adapters = { ...base,
     booking: { ...base.booking, ghl: { ...base.booking.ghl,
       listCalendars: async () => [{ id: "GCAL-RR", name: "The Beauty Moguls Consultation RR (Calendly)", teamMemberIds: ["G-MARY", "G-JOSE"] }],
+      calendarTeam: async (_c: Company, id: string) => (id === "GCAL-HIDDEN" ? ["G-MARY"] : []),
       appointmentsInWindow: async () => existing } },
     write: { ...base.write,
       createAppointment: async (_c: Company, input: (typeof created)[number]) => { if (refuse) throw new Error(refuse); created.push(input); return { id: `GA-${created.length}` }; },
@@ -122,6 +123,14 @@ describe.skipIf(!process.env.DATABASE_URL)("D350: putting bookings on GHL", () =
     await run();
     expect((await appt(a))!.crm_appointment_id).toBe("GA-1");
     expect(await alert()).toBeFalsy();
+  });
+
+  it("a calendar GHL's list leaves out (a Calendly integration's): its team read by its id", async () => {
+    await asOperator((c) => c.query("update bindings set value=$2 where company_id=$1 and key='booking.ghl_mirror'", [co, Buffer.from('{"EVT-RR":"GCAL-HIDDEN"}')]));
+    const hidden = () => asOperator((c) => mirrorToGhl(c, { companyId: co, ac, adapters, bindings: { ...bindings(), "booking.ghl_mirror": '{"EVT-RR":"GCAL-HIDDEN"}' } }));
+    await booking({ first: "Hid", closer: jose });
+    expect((await hidden()).errors).toBe(0);
+    expect(created).toEqual([expect.objectContaining({ calendarId: "GCAL-HIDDEN", assignedUserId: "G-MARY" })]);
   });
 
   it("a dry run says what it would do and writes nothing", async () => {

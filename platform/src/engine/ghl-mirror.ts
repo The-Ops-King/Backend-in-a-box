@@ -62,7 +62,9 @@ export async function mirrorToGhl(c: PoolClient, d: Deps, opts: { dryRun?: boole
 
   const teams = new Map<string, string[]>();
   const team = async (ghlCal: string) => {
-    if (!teams.has(ghlCal)) for (const k of await d.adapters.booking.ghl.listCalendars(d.ac)) teams.set(k.id, k.teamMemberIds ?? []);
+    if (!teams.size) for (const k of await d.adapters.booking.ghl.listCalendars(d.ac)) teams.set(k.id, k.teamMemberIds ?? []);
+    // the list leaves some calendars out (a Calendly integration's): read that one by its id
+    if (!teams.has(ghlCal) && d.adapters.booking.ghl.calendarTeam) teams.set(ghlCal, await d.adapters.booking.ghl.calendarTeam(d.ac, ghlCal));
     return teams.get(ghlCal) ?? [];
   };
   const failed = new Map<string, string>(), worked = new Set<string>();
