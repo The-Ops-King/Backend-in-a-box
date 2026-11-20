@@ -8,6 +8,7 @@ import type { Finding } from "./health";
 import { effectiveMode, handlerMode, isTestContact, testContactSql, testDomains, MODES, runMode, type Mode } from "./mode";
 import { RELIES } from "./golive-deps";
 import { paymentRecords, salesCallConfig, salesCallsFor, type Payment, type SalesCall } from "./ghl-metrics";
+import { slotHeld } from "./poll";
 import { carriesAny, scopeTag, scopeTags } from "./scope";
 
 /**
@@ -257,7 +258,10 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
     }
     // D289: a record for a time the booking has moved away from, never marked (a move while the workflow that marks it was off):
     // its call never happened at that time, so it is not the closer's to file, and the end of day would ask for it for ever
-    if (!k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000) {
+    // D355: unless the call happened at that time and the booking moved after it (the closer set the follow-up by moving it): that
+    // record is the held call's, the end of day's to file, never a reschedule
+    const movedAway = !k.filed && a.starts_at && Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) > 60_000;
+    if (movedAway && !(k.recorded || !!k.disposition || await slotHeld(c, company.id, a.id, k.ext || k.id, k.at.toJSDate()))) {
       const nowAt = DateTime.fromJSDate(new Date(a.starts_at)).setZone(company.timezone).toFormat("ccc LLL d 'at' h:mm a");
       const value = Object.entries(cfg!.outcomes).find(([, m]) => m === "rescheduled")?.[0];
       if (repairsWrite && value) await guarded(async () => {

@@ -197,6 +197,23 @@ export async function setterFromLink(c: PoolClient, companyId: string, tracking?
   return hits.length === 1 ? { link: true, name: hits[0].name } : { link: true };
 }
 
+/**
+ * D355: whether the call happened on a slot a booking is moving away from. Only a slot whose start has passed can have held a call;
+ * then any of: the engine's outcome for the booking is showed (an end of day filed it, or Call recorded read it), a recording
+ * linked to this booking began within 90 minutes of the old start, or the Sales Call for the old slot carries a recording or a
+ * call length (Call recorded wrote it).
+ */
+export async function slotHeld(c: PoolClient, companyId: string, appointmentId: string, slot: string, startedAt: Date): Promise<boolean> {
+  if (startedAt.getTime() > Date.now()) return false;
+  const r = await one<{ held: boolean }>(c, `select (
+      exists (select 1 from appointments a join company_terms t on t.id=a.outcome_term where a.id=$2 and t.category='showed')
+      or exists (select 1 from recordings r where r.company_id=$1 and r.appointment_id=$2 and abs(extract(epoch from r.started_at - $4::timestamptz)) <= 5400)
+      or exists (select 1 from crm_records k where k.company_id=$1 and k.record_key=$3
+                 and (coalesce(k.properties->>'recording_url','') <> '' or coalesce(k.properties->>'duration_min','') not in ('','0')))
+    ) as held`, [companyId, appointmentId, slot, startedAt]);
+  return !!r?.held;
+}
+
 export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Company, adapters: Adapters, s: AppointmentSnapshot, rep?: PollReport, baseline = false): Promise<void> {
   const source = ac.booking.source;
   const calRow = await one<{ id: string; appointment_term: string; self_booked: boolean | null; config: { booking?: BookingMode; owner?: string } }>(c, "select id, appointment_term, self_booked, config from calendars where company_id=$1 and source=$2 and external_id=$3", [co.id, source, s.calendarId]);
@@ -280,7 +297,10 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     const from = existing.repointed_from ?? existing.slot_key ?? existing.external_id;
     const to = existing.repointed_from ? existing.external_id : `${existing.external_id}@${new Date(s.startTime).toISOString()}`;
     await c.query("update appointments set slot_key=$2 where id=$1", [existing.id, to]);
-    changes.slot = { from, to };
+    // D355 (Tyler, 2026-11-20: a closer who held the call and then moved the booking to set the follow-up): the slot the call left
+    // already had its call, so its Sales Call is not a reschedule. Said on the event (`held`) only when it is true, so every move
+    // the engine has seen before reads as it did; Call booked's steps that log the old slot rescheduled skip a held one.
+    changes.slot = (await slotHeld(c, co.id, existing.id, from, existing.starts_at)) ? { from, to, held: true } : { from, to };
   }
   // runs parked on this appointment wake now: a wait anchored to it recomputes from the new start, and a run whose premise
   // no longer holds (reminder for a cancelled call) exits moot immediately instead of at its old wake time

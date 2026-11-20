@@ -479,6 +479,37 @@
               "label": "No"
             }
           ]
+        },
+        {
+          "key": "package",
+          "name": "Package",
+          "type": "SINGLE_OPTIONS",
+          "options": [
+            {
+              "key": "leap",
+              "label": "Leap"
+            },
+            {
+              "key": "ignite",
+              "label": "Ignite"
+            },
+            {
+              "key": "4m",
+              "label": "4M"
+            },
+            {
+              "key": "ignite_4m_bundle",
+              "label": "Ignite + 4M bundle"
+            },
+            {
+              "key": "4m_6mo_ignite",
+              "label": "4M Mastermind + 6 Month Ignite Coaching"
+            },
+            {
+              "key": "ignite_mlo_4m",
+              "label": "Ignite MLO Academy + 4M Mastermind"
+            }
+          ]
         }
       ]
     },

@@ -109,7 +109,8 @@ export type SalesCall = { id: string; ext: string; ghl: string; name: string; te
   /** D94: the setter who booked it: the record's setter on the roster (else the name as written), blank when nobody set it or the record says self-booked (a self-booked link is never a set, D87) */ setter: string;
   /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string;
   /** D226: whether the closer pitched them: the end of day's answer on the booking, else the record's Pitched field; null when nobody said */ pitched: boolean | null;
-  /** D76: the record's links as GHL holds them: its contact_id field, whether the contact came only from the association, its opportunity_id field */ links: { contact_field: boolean; opportunity: string } };
+  /** D76: the record's links as GHL holds them: its contact_id field, whether the contact came only from the association, its opportunity_id field */ links: { contact_field: boolean; opportunity: string };
+  /** D355: the record carries a recording link or a call length (the call was recorded on this slot) */ recorded: boolean };
 type Call = SalesCall;
 export type GhlCtx = {
   c: PoolClient; companyId: string; ac: Company; bindings: Record<string, string>; reads: GhlReads; tz: string; start: Date; end: Date; now: Date;
@@ -299,6 +300,7 @@ async function calls(x: GhlCtx): Promise<Call[]> {
         match: cand.length === 1 ? "one" : cand.length ? "many" : "none", appt: a ? { id: a.id, contact_id: a.contact_id, status: a.status, source: a.source, outcome: a.outcome, starts_at: a.starts_at, cancelled_at: a.cancelled_at } : null,
         closer: salesCloserOf(String(p.closer ?? "")), setter: setterOf(p), utm: facts.get(ghlId)?.utm ?? null, booking_source: a?.source === "calendly" ? "Calendly" : "the GHL calendar", booked: String(p.booking_source ?? ""),
         links: { contact_field: ownField.has(r.id), opportunity: String(p.opportunity_id ?? "").trim() },
+        recorded: !!String(p.recording_url ?? "").trim() || Number(p.duration_min ?? 0) > 0,
         pitched: a?.pitched ?? (norm(answerText(p.pitched)) === "yes" ? true : norm(answerText(p.pitched)) === "no" ? false : null) });
     }
     return out.sort((a, b) => a.at.toMillis() - b.at.toMillis());
