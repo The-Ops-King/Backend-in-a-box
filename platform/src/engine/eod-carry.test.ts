@@ -88,6 +88,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D358: earlier days' unfinished calls
     expect([...by.keys()].sort()).toEqual([appt.BLANK, appt.FU].sort());
     expect(by.get(appt.BLANK)!.carried_from).toBe(day(2).toFormat("yyyy-MM-dd"));
     expect(by.get(appt.BLANK)!.missing).toEqual(["What happened on the call?"]);
+    // no guess is pre-filled on a carried call (the day form guesses a no-show for want of a recording): the closer picks
+    expect(by.get(appt.BLANK)!.outcome).toBe("");
+    expect(by.get(appt.BLANK)!.hint).toBe("Nothing filed for this call yet.");
     // the follow-up's outcome came from outside the end of day: it still needs what a follow-up asks for
     expect(by.get(appt.FU)!.missing).toEqual(expect.arrayContaining(["Next follow-up", "Next steps", "Did you pitch them?"]));
   });

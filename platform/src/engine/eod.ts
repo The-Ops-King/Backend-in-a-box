@@ -324,7 +324,11 @@ export async function carriedCalls(c: PoolClient, company: CompanyRow, closer: {
       const missing = stillNeeded(asFiled, fields);
       if (!missing.length) continue;
       const shown = f ? { ...call, ...f, extra: { ...call.extra, ...(f.extra ?? {}) }, href_contact: call.href_contact, recording_url: call.recording_url } : call;
-      out.push({ ...shown, kind: "closing", outcome: outcome || call.outcome, carried_from: d, missing });
+      // a carried call opens with only what is known (filed, or got some other way): never the form's guess (a no-show for want of a
+      // recording, the AI's read), which one send would file as fact; the AI's read stays beside it as a hint (Pamela, 2026-11-20: Zoom
+      // saw her, the form had guessed a no-show)
+      const read = call.ai_read?.read ? `The AI's read of the recording: ${call.ai_read.read}. Check it.` : "";
+      out.push({ ...shown, kind: "closing", outcome, carried_from: d, missing, hint: outcome ? undefined : read || "Nothing filed for this call yet." });
     }
   }
   return out;
