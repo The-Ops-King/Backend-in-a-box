@@ -7982,6 +7982,16 @@ appointments when a call is booked?"
 - `GET /api/admin/calendars/ghl-mirror?company=` lists the GHL calendars (id, name, team), the map, and a dry run of the next pass.
 - The settings live under `booking.`, not `calendar.`: every `calendar.*` setting is read as a calendar a workflow can name.
 - Engine code for every offer; an offer without `booking.ghl_mirror` is untouched. PMU only.
+- 2026-11-20 addendum: GHL refuses appointments on a Calendly integration's calendar ("Calendly calendars are not supported for this
+  operation"), whoever is on its team. So the mirror writes to normal GHL calendars made for it, and the offer's GHL workflows
+  trigger on those. `POST /api/admin/calendars/ghl-create` makes one (round robin, the team given, no open hours so nobody books on
+  it directly; dry run first). A calendar GHL's list hides has its team read by id.
+- 2026-11-20 addendum (Tyler: "make sure you're mirroring everything"): an offer that mirrors gets a warning naming any active booking
+  calendar the engine watches that `booking.ghl_mirror` doesn't map (a new closer's calendar), since its calls would get no GHL
+  appointment and no GHL pre-call workflow; cleared once every one is mapped. PMU maps all of them: first calls to Consultation RR
+  (Engine), Demo to Demo Call (Engine), follow-ups to Follow-up (Engine).
+- 2026-11-20: `POST /api/admin/calendars/ghl-team` adds people to a mirrored GHL calendar's team (Summer on PMU's three), the
+  schedule sent back unchanged; dry run first.
 
 ## D351 — Who set a call can be put right on calls already booked (2026-11-19)
 
@@ -8027,10 +8037,6 @@ TRC's Smart List SOP (Jose's draft, Tyler's answers 2026-11-19) as two templates
 - A no-show enters from either door (2026-11-19): GHL's status (appointment.status_changed to noshow) or the closer's end of day
   (appointment.outcome noshow, Call outcome filed's own event). TRC never marks GHL's status: of its 126 closing bookings in the last
   60 days none is a no-show there. Both carry the booking, so one no-show starts one cycle.
-- 2026-11-20 addendum: GHL refuses appointments on a Calendly integration's calendar ("Calendly calendars are not supported for this
-  operation"), whoever is on its team. So the mirror writes to normal GHL calendars made for it, and the offer's GHL workflows
-  trigger on those. `POST /api/admin/calendars/ghl-create` makes one (round robin, the team given, no open hours so nobody books on
-  it directly; dry run first). A calendar GHL's list hides has its team read by id.
 
 ## D355 — The dial cadence writes Next Call Due when someone enters (2026-11-20)
 
@@ -8043,10 +8049,6 @@ on Created = Today, so a lead in at 9 PM, held to 8 AM, would never have shown t
 - Calling hours still hold the call itself: the 4-hour "not dialed" clock starts when the call is due in calling hours, not at entry.
 - After a dial the field is cleared until the next call is due, as before (D354).
 - Template and TRC's copy only; no engine code changed. Test: a lead in at 6:32 AM is on the lists at once and its call waits for 8 AM.
-- 2026-11-20 addendum (Tyler: "make sure you're mirroring everything"): an offer that mirrors gets a warning naming any active booking
-  calendar the engine watches that `booking.ghl_mirror` doesn't map (a new closer's calendar), since its calls would get no GHL
-  appointment and no GHL pre-call workflow; cleared once every one is mapped. PMU maps all of them: first calls to Consultation RR
-  (Engine), Demo to Demo Call (Engine), follow-ups to Follow-up (Engine).
 
 ## D356 — A dropdown option added to a custom object field from here (2026-11-20)
 
@@ -8087,3 +8089,10 @@ a call complete. All fields that need to be filled with a given outcome need to 
   onto its Sales Call ("Call outcome filed" writes only outcome, disposition and pitched).
 - `eod.package_from_product` ([[regex, package], ...]): the first rule a product of the call's payments matches pre-fills the Package
   answer (Tyler: "we should be able to read which package from whop"). TRC's lists the bundles before their parts.
+
+## D359 — An offer's GHL setup run from here, on its own stored key (2026-11-20)
+
+Tyler: TRC's dial cadence for PMU, "first add the contact fields so i can update the smart lists". PMU's GHL was never built from a
+setup file, and scripts/provision-ghl.ts needs the offer's GHL key on the machine running it. `POST /api/admin/ghl/provision`
+{ company, setup, why, apply = false } runs the same additive setup engine-side on the offer's stored key: it creates what is
+missing and never changes or deletes what is there; without `apply` it only says the plan. Unset parts of the setup are empty.
