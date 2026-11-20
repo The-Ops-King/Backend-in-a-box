@@ -9,7 +9,7 @@ import { callTime, dispositionMeaning, dispositionValues, filedMeaning, closerNa
 import { outcomeTermFor, recordDisposition } from "./disposition";
 import { dispatchEvent, emitEvent } from "./dispatch";
 import { reassignOn, requestReassign } from "./reassign";
-import { TAKEN, stillNeeded, mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, pitchedOf, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
+import { TAKEN, stillNeeded, fieldsFor, mergeEodFields, missingAnswers, impossibleAnswers, totalsOf, outcomeLabel, isMoney, isRevenueOutcome, isSetterCall, choiceOf, valueFor, pitchedOf, TRIAGE_RESULT, type CallEntry, type CallMeaning, type DayTotals, type EodField } from "./eod-form";
 import { priceFrom, setDealPrice } from "./deal-price";
 import { raise } from "./alerts";
 import { SETTING_DEFAULTS, switchOn } from "./setting-defaults";
@@ -180,6 +180,7 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   const loc = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='crm.location_id'", [company.id]))?.v.toString("utf8");
   const href = (ghl: string | null) => (loc && ghl ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${ghl}` : null);
   const price = num(company.contract_value_default);
+  const packageRules = await packageRulesFor(c, company.id);
   const reads = (await setterCallsOn(c, company.id)) ? await setterReads(c, company.id, tz, closer.id, from, to) : [];
   const triaged = new Set(appts.filter((a) => a.term_cat === "first_call").map((a) => a.contact_id));
   const dqOption = (label: string) => (label && fields.find((f) => f.key === "dq_reason")?.options?.includes(label) ? label : "");
@@ -221,6 +222,9 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const pay = await one<{ total: string; all_deposit: boolean }>(c, "select coalesce(sum(amount),0)::text as total, coalesce(bool_and(kind='deposit'),false) as all_deposit from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4", [company.id, a.contact_id, win.from, win.to]);
     const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, win.from, win.to]);
     const paid = num(pay?.total), contract = won?.v ? num(won.v) : price;
+    // D356: the package, from what they bought (the products of the payments this call's money window holds)
+    const products = packageRules.length ? (await many<{ n: string }>(c, "select distinct raw->>'product_name' as n from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4 and coalesce(raw->>'product_name','') <> ''", [company.id, a.contact_id, win.from, win.to])).map((r) => r.n) : [];
+    const pkg = packageOf(products, packageRules);
     const disp = str(notes.disposition);
     // D265: the AI's own read of how the call ended and how sure it was (0-1 on the recording, a percent here), for the end of day's disagreement check
     const aiDisp = (rec?.analysis?.outcome as { disposition?: { value?: unknown; confidence?: unknown } } | undefined)?.disposition;
@@ -245,7 +249,7 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const aboutParts = [str(notes.summary), str(notes.pain) && `Pains: ${str(notes.pain)}`, str(notes.desire) && `Goals: ${str(notes.desire)}`, str(notes.objections) && `Objections: ${str(notes.objections)}`].filter(Boolean);
     calls.push({ appointment_id: a.id, contact_id: a.contact_id, contact: a.contact || "—", starts_at: a.starts_at.toISOString(), href_contact: loc && a.ghl_contact_id ? `https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${a.ghl_contact_id}` : null, recording_url: rec?.share_url ?? null,
       kind: "closing", outcome, ...(noShowGuess ? { hint: "No recording and no call of 5 minutes or more with them, so this is set as a no-show. Change it if they showed." } : over && !held && !outcome ? { hint: "No recording found for this call." } : {}), ...(moved ? { moved } : {}), revenue: contracted ? contract || paid || null : null, cash: money ? paid || null : null,
-      next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: {},
+      next_date: str(notes.next_step_date) || null, next_steps: str(notes.next_step), dq_reason: "", dq_note: "", lost_reason: "", about: aboutParts.join("\n"), notes: a.notes ?? "", extra: pkg ? { package: pkg } : {},
       // D226: what was filed, else the call review's read of the transcript (the closer confirms it)
       pitched: a.pitched === true ? "Yes" : a.pitched === false ? "No" : notes.pitched === true ? "Yes" : notes.pitched === false ? "No" : "",
       ...(str(aiDisp?.value) ? { ai_read: { read: str(aiDisp?.value), confidence: aiConf } } : {}) });
@@ -264,6 +268,15 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   calls.sort((x, y) => x.starts_at.localeCompare(y.starts_at));
   return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls, fields), calls };
 }
+
+/** D356: the offer's product-name rules for the Package answer (`eod.package_from_product`), each [regex, package]; a bad rule is skipped. */
+export async function packageRulesFor(c: PoolClient, companyId: string): Promise<Array<[RegExp, string]>> {
+  const v = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='eod.package_from_product'", [companyId]))?.v.toString("utf8") ?? "[]";
+  let list: unknown; try { list = JSON.parse(v); } catch { return []; }
+  return Array.isArray(list) ? list.flatMap((r) => { if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[1] !== "string") return []; try { return [[new RegExp(r[0], "i"), r[1]] as [RegExp, string]]; } catch { return []; } }) : [];
+}
+/** D356: the package the products say, the first rule any product matches (rules in order, so a bundle can be listed before its parts). */
+export const packageOf = (products: string[], rules: Array<[RegExp, string]>): string => rules.find(([re]) => products.some((p) => re.test(p)))?.[1] ?? "";
 
 /** The form for a day: its own calls (prefill) and, on today's form, the earlier days' calls still unfinished (D356), after them. */
 export async function formFor(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string, now: DateTime = DateTime.now()): Promise<EodPrefill> {
@@ -310,7 +323,7 @@ export async function carriedCalls(c: PoolClient, company: CompanyRow, closer: {
       const asFiled: CallEntry = { ...call, ...(f ?? { revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: "", dq_note: "", lost_reason: "", pitched: "", extra: {} }), outcome, kind: "closing" };
       const missing = stillNeeded(asFiled, fields);
       if (!missing.length) continue;
-      const shown = f ? { ...call, ...f, extra: f.extra ?? {}, href_contact: call.href_contact, recording_url: call.recording_url } : call;
+      const shown = f ? { ...call, ...f, extra: { ...call.extra, ...(f.extra ?? {}) }, href_contact: call.href_contact, recording_url: call.recording_url } : call;
       out.push({ ...shown, kind: "closing", outcome: outcome || call.outcome, carried_from: d, missing });
     }
   }
@@ -512,6 +525,17 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   for (const call of args.answers.calls.filter((x) => x.outcome !== TAKEN)) {
     const r = call.kind === "dial" ? await fileDial(c, company.id, fields, call, closer) : await fileCall(c, company.id, fields, call, closer.id, inGhl.get(call.appointment_id));
     if (r.status !== "skipped") recorded++;
+    // D356: what the closer answered for a closing call, every time it is filed (also when GHL already shows its outcome, so a field
+    // filled on a later day reaches the Sales Call): EOD: answers onto the Sales Call writes it, for an offer that has that workflow
+    if (call.outcome && BOOKING_ID.test(call.appointment_id) && !isSetterCall(call.kind)) {
+      const asked = new Set(fieldsFor(fields, call.outcome, call.kind).map((f) => f.key)), said = (k: string, v: string) => (asked.has(k) ? v : "");
+      const ans = await emitEvent(c, { company_id: company.id, contact_id: call.contact_id || null, opportunity_id: null, appointment_id: call.appointment_id, event_type: "eod.call_answers", source: "user",
+        data: { user_id: closer.id, day: args.day, carried_from: call.carried_from ?? "", outcome: call.outcome, meaning: choiceOf(call.outcome, fields, call.kind)?.call_outcome ?? choiceOf(call.outcome, fields, call.kind)?.attendance ?? null,
+          next_steps: said("next_steps", call.next_steps ?? ""), next_date: said("next_date", call.next_date ?? ""), cash: said("cash", call.cash != null ? String(call.cash) : ""), revenue: said("revenue", call.revenue != null ? String(call.revenue) : ""),
+          package: said("package", String(call.extra?.package ?? "")), pitched: pitchedOf(call, fields) === null ? "" : pitchedOf(call, fields) ? "yes" : "no" } });
+      const term = await one<{ category: string; name: string }>(c, "select t.category, t.name from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [call.appointment_id]);
+      await dispatchEvent(c, ans, { contact: { id: ans.contact_id }, appointment: { id: call.appointment_id, term } });
+    }
   }
   const wasFiled = (await one<{ submitted_at: Date | null }>(c, "select submitted_at from eod_reports where company_id=$1 and user_id=$2 and day=$3", [company.id, closer.id, args.day]))?.submitted_at ?? null;
   const row = await one<{ id: string }>(c, `insert into eod_reports (company_id, user_id, day, prefill, answers, changes, submitted_at) values ($1,$2,$3,$4,$5,$6,now())

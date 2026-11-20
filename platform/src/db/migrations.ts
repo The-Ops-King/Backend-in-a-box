@@ -159,5 +159,7 @@ export const MIGRATIONS: Migration[] = [
       await t.query("alter table appointments add column if not exists held_from uuid references appointments(id)");
       await t.query("create index if not exists appointments_held_from_idx on appointments (held_from) where held_from is not null");
     });
+    // D356: each closing call filed on the end of day, with what the closer answered (EOD: answers onto the Sales Call writes them)
+    await c.query("insert into event_types values ('eod.call_answers','report') on conflict do nothing");
   } },
 ];

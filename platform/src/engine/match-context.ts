@@ -35,6 +35,8 @@ export const MATCH_CONTEXT: Record<string, readonly string[]> = {
   "appointment.status_changed": [...CONTACT, "appointment.id", "appointment.starts_at", "appointment.status", ...TERM, "appointment.self_booked"],
   // disposition.ts
   "appointment.outcome": [...CONTACT, "appointment.id", ...TERM],
+  // D356: each closing call filed on the end of day, with the closer's answers
+  "eod.call_answers": [...CONTACT, "appointment.id", ...TERM],
   "call.held": [...CONTACT, "appointment.id", ...TERM],
   // reassign.ts, executor.ts update_appointment
   "appointment.reassign_requested": [...CONTACT, "appointment.id", "appointment.starts_at", "appointment.status", ...TERM],

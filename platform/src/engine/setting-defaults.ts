@@ -50,6 +50,9 @@ export const SETTING_DEFAULTS = {
   "booking.keep_held_call": { kind: "switch", default: "off" },
   // D356: the day from which a closer's calls stay on every end of day until each has what the form asks for its outcome ("" = off)
   "eod.carry_over_from": { kind: "text", default: "" },
+  // D356 (Tyler: "we should be able to read which package from whop"): [[pattern, package], ...] read in order against the product names
+  // of the call's payments (case-insensitive regex); the first that matches pre-fills the end of day's Package answer. [] = none
+  "eod.package_from_product": { kind: "json", default: "[]" },
   "eod.totals_from_calls": { kind: "switch", default: "off" },   // D309: the day's numbers are the calls' answers added up, shown, not typed (PMU on)   // D207, D239: every offer; a setter's blank triage calls are in the operator's ping
   "slack.live": { kind: "switch", default: "off" },
   "reports.quiet_when_empty": { kind: "switch", default: "off" },

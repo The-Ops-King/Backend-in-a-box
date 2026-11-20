@@ -12,9 +12,15 @@ import { carriedCalls, formFor, loadEodForm, submitEod, tokenFor } from "./eod";
 import { valueFor } from "./eod-form";
 import { recordDisposition } from "./disposition";
 import { loadCompany } from "./context";
+import { installTemplateForTest, fakeAdapters } from "./test-install";
+import { tick } from "./runner";
+import type { Adapters } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const TZ = "America/Los_Angeles";
+const written: { id: string; properties: Record<string, unknown> }[] = [];
+const f0 = fakeAdapters();
+const fake: Adapters = { ...f0, write: { ...f0.write, updateRecord: async (_c, _o, id, properties) => { written.push({ id, properties: { ...properties } }); } } };
 let co: string, closer: { id: string; name: string; email: string }, term: string, cal: string;
 const appt: Record<string, string> = {};
 const now = DateTime.now().setZone(TZ);
@@ -35,7 +41,8 @@ describe.skipIf(!process.env.DATABASE_URL)("D356: earlier days' unfinished calls
       const old = await one<{ id: string }>(c, "select id from companies where slug='eod-carry'");
       if (old) {
         await c.query("delete from run_steps where run_id in (select id from runs where company_id=$1)", [old.id]);
-        for (const t of ["eod_reports", "events", "runs", "form_submissions", "forms", "appointments", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [old.id]);
+        await c.query("delete from workflow_versions where workflow_id in (select id from workflows where company_id=$1)", [old.id]);
+        for (const t of ["eod_reports", "crm_records", "step_effects", "runs", "events", "workflow_triggers", "workflows", "form_submissions", "forms", "appointments", "calendars", "contact_identifiers", "contacts", "users", "company_terms", "bindings", "audit_log"]) await c.query(`delete from ${t} where company_id=$1`, [old.id]);
         await c.query("delete from companies where id=$1", [old.id]);
       }
       co = (await one<{ id: string }>(c, "insert into companies (name, slug, timezone, mode) values ('Carry Co','eod-carry',$1,'live') returning id", [TZ]))!.id;
@@ -65,6 +72,13 @@ describe.skipIf(!process.env.DATABASE_URL)("D356: earlier days' unfinished calls
         JSON.stringify({ calls_count: 0, closes: 0, deposits: 0, cash: 0, revenue: 0, day_answers: {}, calls: [{ appointment_id: appt.DONE, contact_id: "", contact: "Dora Lee", starts_at: day(1).toISO(), href_contact: null, recording_url: null, kind: "closing", outcome: noshow, revenue: null, cash: null, next_date: null, next_steps: "", dq_reason: "", dq_note: "", extra: {} }] })]);
     });
     await setFrom(day(5).toFormat("yyyy-MM-dd"));
+    // EOD: answers onto the Sales Call, and Finn's Sales Call as the engine made it (keyed by his booking)
+    await asOperator(async (c) => {
+      await installTemplateForTest(c, co, "eod-answers");
+      await c.query("insert into bindings (company_id,key,kind,value) values ($1,'crm.object_sales_call','text',$2)", [co, Buffer.from("custom_objects.sales_call")]);
+      const finn = (await one<{ contact_id: string }>(c, "select contact_id from appointments where id=$1", [appt.FU]))!.contact_id;
+      await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,'custom_objects.sales_call','FU','SC-FINN',$2,'{}')", [co, finn]);
+    });
   });
 
   it("carries the unfiled call and the follow-up missing its fields; not the complete one, not one before the start", async () => {
@@ -98,6 +112,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D356: earlier days' unfinished calls
     const r = await asOperator((c) => submitEod(c, { token, day: now.toFormat("yyyy-MM-dd"), answers: { calls_count: 1, closes: 0, deposits: 0, cash: 0, revenue: 0, calls, day_answers: {} } }));
     expect(r.ok).toBe(true);
     expect((await carried()).map((x) => x.appointment_id)).toEqual([appt.BLANK]);
+    // what Nina answered for Finn reaches his Sales Call
+    for (let i = 0; i < 3; i++) await tick(fake, DateTime.now() as DateTime<true>, co);
+    expect(written.find((w) => w.id === "SC-FINN")?.properties).toMatchObject({ next_step: "Call back Monday", next_step_date: now.plus({ days: 3 }).toFormat("yyyy-MM-dd") });
   });
 
   it("off (unset) carries nothing", async () => {

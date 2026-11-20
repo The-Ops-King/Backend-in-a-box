@@ -10,6 +10,7 @@ import paymentFailed from "./payment-failed.json";
 import paymentPending from "./payment-pending.json";
 import dialCadence from "./dial-cadence.json";
 import dialCadenceExits from "./dial-cadence-exits.json";
+import eodAnswers from "./eod-answers.json";
 import reactivation from "./reactivation.json";
 import newLead from "./new-lead.json";
 import callBooked from "./call-booked.json";
@@ -36,7 +37,7 @@ import recordingUnlinked from "./recording-unlinked.json";
 import cardMoved from "./card-moved.json";
 import ledgerDrift from "./ledger-drift.json";
 import weeklyLeaderboard from "./weekly-leaderboard.json";
-export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentFailed, paymentPending, dialCadence, dialCadenceExits, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, setterCallFiled, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, eodDisagreement, healthCheck, calendarAvailability, dailyWrapUp, weeklyWrapUp, monthlyWrapUp, callOutcome, paymentUnlinked, recordingUnlinked, cardMoved, ledgerDrift, weeklyLeaderboard, reassignRequest, callReassigned, differentCloser] as const;
+export const templates = [preCall, speedToLead, noShow, cancellation, postCall, paymentFailed, paymentPending, dialCadence, dialCadenceExits, reactivation, newLead, callBooked, callCancelled, paymentRecorded, callRecorded, setterCallLogged, setterCallFiled, agreementSendManually, agreementSigned, dealClosed, agreementChase, eodReminder, eodFiled, eodDisagreement, eodAnswers, healthCheck, calendarAvailability, dailyWrapUp, weeklyWrapUp, monthlyWrapUp, callOutcome, paymentUnlinked, recordingUnlinked, cardMoved, ledgerDrift, weeklyLeaderboard, reassignRequest, callReassigned, differentCloser] as const;
 
 /** D354: an optional template (`optional: true`) is installed only where it is named (TRC's dial cadence); every other one is part of a new offer's default set. */
 export const defaultTemplateSlugs = (): string[] => templates.filter((t) => !(t as { optional?: boolean }).optional).map((t) => t.slug);
