@@ -51,6 +51,20 @@ describe.skipIf(!process.env.DATABASE_URL)("D309: one offer's end-of-day form", 
     expect(await asOperator((c) => submitEod(c, { token, day: todayFor(TZ), answers: { calls_count: 1, closes: 0, deposits: 0, cash: 0, revenue: 0, calls: [call as never], day_answers: {} } }))).toMatchObject({ ok: true });
   });
 
+  it("D358: a question of the offer's own added (Package after a close, deposit or pending): dry run first, then saved on that offer only", async () => {
+    const add = { key: "package", label: "Which package?", type: "select", options: ["Leap", "Ignite"], required: true, follows: ["closed", "deposit", "pending"] };
+    const dry = await (await admin({ company: `${slug}-b`, add, why: "test" })).json();
+    expect(dry).toMatchObject({ ok: true, dryRun: true, add: { key: "package", scope: "call", required: true, options: ["Leap", "Ignite"] } });
+    expect(dry.add.when.length).toBeGreaterThan(0);
+    expect((await asOperator((c) => loadEodForm(c, co))).some((f) => f.key === "package")).toBe(false);
+    expect((await admin({ company: `${slug}-b`, add, why: "test", dryRun: false })).status).toBe(200);
+    const pkg = (await asOperator((c) => loadEodForm(c, other))).find((f) => f.key === "package")!;
+    expect(pkg).toMatchObject({ label: "Which package?", required: true, builtin: false });
+    expect(pkg.when).toEqual(expect.arrayContaining(["closed", "deposit"]));
+    expect((await asOperator((c) => loadEodForm(c, co))).some((f) => f.key === "package")).toBe(false);
+    expect((await admin({ company: `${slug}-b`, add, why: "again", dryRun: false })).status).toBe(400);
+  });
+
   it("eod.totals_from_calls on: the form says so, and a typed number is replaced by the calls' answers added up", async () => {
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'eod.totals_from_calls','text',convert_to('on','UTF8'))", [co]));
     const token = await asOperator((c) => tokenFor(c, closer));
