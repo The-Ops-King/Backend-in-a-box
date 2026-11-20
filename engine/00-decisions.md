@@ -8096,3 +8096,8 @@ Tyler: TRC's dial cadence for PMU, "first add the contact fields so i can update
 setup file, and scripts/provision-ghl.ts needs the offer's GHL key on the machine running it. `POST /api/admin/ghl/provision`
 { company, setup, why, apply = false } runs the same additive setup engine-side on the offer's stored key: it creates what is
 missing and never changes or deletes what is there; without `apply` it only says the plan. Unset parts of the setup are empty.
+- 2026-11-20 addendum (Liz Puga's Nov 19 slot vanished when her booking moved a day after it): with `booking.keep_held_call`, a slot
+  the booking leaves after its time has passed is kept as its own row whatever happened on it (the event says `kept: true`, and the
+  rescheduled write is dropped as for a held slot); the end of day asks what happened. Only a move made before the call's time is a
+  reschedule. Data fixes 0021-0024 (TRC): the held rows for Razia (Nov 13, Nov 16), Pamela (Nov 17), Julie (Nov 19), Liz (Nov 19),
+  and Daneza's stale rescheduled cleared. `GET /api/admin/eod/preview` shows a closer's form as their link does, read only.

@@ -753,12 +753,12 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       for (const k of Object.keys(cleared)) if (MONEY_TYPES.has(String(known?.get(k) ?? "").toUpperCase())) (cleared as Record<string, unknown>)[k] = { currency: "default", value: 0 };
       // D357 (Tyler, 2026-11-20: "everything should work based on the engine"): a booking moved after its call happened (the poll says
       // event.slot.held) never has that slot's record logged rescheduled, whatever the offer's own workflow asks: the call happened there
-      const moved = (d.ctx.event as { slot?: { from?: unknown; held?: unknown } } | undefined)?.slot;
+      const moved = (d.ctx.event as { slot?: { from?: unknown; held?: unknown; kept?: unknown } } | undefined)?.slot;
       const rescheduledValue = (d.ctx.picklist as { sales_call_outcome?: { rescheduled?: string } } | undefined)?.sales_call_outcome?.rescheduled;
-      const heldKept = !!(moved?.held === true && key && key === moved.from && rescheduledValue && String(properties.outcome ?? "") === rescheduledValue);
+      const heldKept = !!((moved?.held === true || moved?.kept === true) && key && key === moved.from && rescheduledValue && String(properties.outcome ?? "") === rescheduledValue);
       if (heldKept) {
         delete properties.outcome;
-        if (!Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: "the call happened on this slot before the booking moved, so its Sales Call is not logged rescheduled (D357)" } };
+        if (!Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: "the call happened on this slot (or its time had passed) before the booking moved, so its Sales Call is not logged rescheduled (D357)" } };
       }
       // D302: a value its choice field does not offer is left out, so the rest of the record is still written
       const notAnOption = offOptions(properties, fieldOptions(d, objectKey));
