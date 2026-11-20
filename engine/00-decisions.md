@@ -8128,3 +8128,9 @@ manager, so only Tyler) replaced the whole message with "Only a manager can answ
 from everyone. A refusal (not allowed, a broken button, a payment not on the offer, a change that failed) is now said to the one who
 pressed only (ephemeral); the question stays. A real answer still replaces it with who answered what. Platform behaviour (Slack works
 the same on every offer); no saved workflow changes.
+
+## D363 — Who may answer "full first payment or deposit?" is the offer's setting (2026-11-20)
+
+Tyler, PMU: "Anybody who sees it should be able to answer." `payments.ask_answered_by`: "anyone" lets whoever sees D331's question
+answer it (the answer still names who, in Slack and the audit); unset or "managers" keeps it to the offer's managers and its operator,
+as before. Only this question: the other money buttons (link a payment, a recording) stay managers'. PMU: "anyone".

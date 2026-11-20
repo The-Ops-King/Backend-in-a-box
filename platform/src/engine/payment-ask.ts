@@ -5,7 +5,8 @@
  *   - Full first payment: it is the first payment of a plan (an installment), not a deposit. The ledger, the deal, the GHL Cash record,
  *     the closer card and the payment's event are put right (`setPaymentKind`), and the workflows that took the payment run again for
  *     it, quietly (D326: they write, they tell no one), so the deal is won and tagged as a plan's first payment would have made it.
- * Only the offer's managers and its operator (`bot.escalate_to`) answer, as for the other money buttons (D200).
+ * Only the offer's managers and its operator (`bot.escalate_to`) answer, as for the other money buttons (D200); D363: or anyone who sees
+ * it, when the offer's `payments.ask_answered_by` is "anyone".
  */
 import type { PoolClient } from "pg";
 import { many, one } from "@/db/client";
@@ -26,7 +27,10 @@ export function parseKindAnswer(value: string): { answer: KindAnswer; payment: s
 export async function answerPaymentKind(c: PoolClient, adapters: Adapters, companyId: string, user: string, value: string): Promise<{ text: string; replayed: string[]; refused?: boolean }> {
   const a = parseKindAnswer(value);
   if (!a) return { text: "That button doesn't name a payment.", replayed: [], refused: true };
-  const allowed = await one(c, `select 1 where exists (select 1 from users where company_id=$1 and slack_user_id=$2 and active and role in ('owner','manager'))
+  // D363: `payments.ask_answered_by` "anyone" (Tyler, PMU: "Anybody who sees it should be able to answer"): whoever sees the question
+  // answers it, and the answer says who; unset or "managers": the offer's managers and its operator, as the other money buttons (D200)
+  const anyone = await one(c, "select 1 from bindings where company_id=$1 and key='payments.ask_answered_by' and lower(trim(convert_from(value,'utf8')))='anyone'", [companyId]);
+  const allowed = anyone || await one(c, `select 1 where exists (select 1 from users where company_id=$1 and slack_user_id=$2 and active and role in ('owner','manager'))
     or exists (select 1 from bindings where company_id=$1 and key='bot.escalate_to' and convert_from(value,'utf8')=$2)`, [companyId, user]);
   if (!allowed) return { text: "Only a manager can answer this one.", replayed: [], refused: true };
   const p = await one<{ id: string; amount: string; kind: string | null; contact: string | null }>(c,
