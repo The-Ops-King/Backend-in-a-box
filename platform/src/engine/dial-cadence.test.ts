@@ -60,6 +60,17 @@ describe.skipIf(!process.env.DATABASE_URL)("D354: dial cadence", () => {
     expect(await field(id, "next_call_due")).toBe("2026-12-02"); expect((await runOf(id))[0].current_node).toBe("dial_b");
   });
 
+  it("D355: a lead in before calling hours is on the lists at once (Next Call Due today); the call's clock waits for 8 AM", async () => {
+    const id = await person("EARLY1");
+    const early = T0.set({ hour: 6, minute: 32 });
+    await fire(id, "tag.added", { tag: "leap-buyer" }, {}, null, early); await run(early);
+    expect(await field(id, "attempt_count")).toBe("0"); expect(await field(id, "next_call_due")).toBe("2026-12-02");
+    expect((await runOf(id))[0]).toMatchObject({ status: "waiting", current_node: "w1" });
+    await run(T0.set({ hour: 8, minute: 1 }));
+    expect((await runOf(id))[0]).toMatchObject({ status: "waiting", current_node: "dial" });
+    expect(await field(id, "next_call_due")).toBe("2026-12-02");
+  });
+
   it("someone who books: out of the cycle and every list at once; the cadence stops without a 'not dialed' alert", async () => {
     const id = await person("BOOK1");
     await fire(id, "tag.added", { tag: "leap-buyer" }); await run(T0);
