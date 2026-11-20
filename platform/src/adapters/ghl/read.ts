@@ -301,6 +301,10 @@ export const ghlBooking: BookingRead = {
     // the CRM says "not found" with a 404 on this endpoint and a 400 on others; either way the record is gone, not an outage
     catch (e) { if ((e as { status?: number }).status === 404 || /\bcontact (with id \S+ )?not found\b/i.test(String((e as Error).message))) return null; throw e; }
   },
+  async calendarTeam(c, calendarId) {
+    const r = await ghl<{ calendar?: { teamMembers?: { userId: string }[] } }>(c.pit, "GET", `/calendars/${encodeURIComponent(calendarId)}`, { version: "2021-04-15" });
+    return [...new Set((r.calendar?.teamMembers ?? []).map((t) => t.userId).filter(Boolean))];
+  },
   async listCalendars(c) {
     const r = await ghl<{ calendars: { id: string; name: string; teamMembers?: { userId: string }[] }[] }>(c.pit, "GET", `/calendars/?locationId=${c.locationId}`);
     return r.calendars.map((k): CalendarSnapshot => ({ id: k.id, name: k.name, teamMemberIds: (k.teamMembers ?? []).map((t) => t.userId) }));

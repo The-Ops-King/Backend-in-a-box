@@ -107,6 +107,8 @@ export interface BookingRead {
    */
   appointmentsInWindow(c: Company, calendarId: string, from: Date, to: Date, delta?: { known?: Record<string, string>; seen: Record<string, string> }): Promise<AppointmentSnapshot[]>;
   getAppointment(c: Company, id: string): Promise<AppointmentSnapshot | null>;
+  /** D350: one calendar's team read by its id (a calendar the list leaves out, such as a Calendly integration's, still has one). Absent: the list is all there is. */
+  calendarTeam?(c: Company, calendarId: string): Promise<string[]>;
   /** D196: cancel the booking at the source (Calendly: the invitee is told by Calendly). Absent: the source's bookings are not ours to cancel. */
   cancel?(c: Company, id: string, reason: string): Promise<void>;
 }
