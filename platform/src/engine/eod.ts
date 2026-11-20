@@ -536,7 +536,10 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
       const ans = await emitEvent(c, { company_id: company.id, contact_id: call.contact_id || null, opportunity_id: null, appointment_id: call.appointment_id, event_type: "eod.call_answers", source: "user",
         data: { user_id: closer.id, day: args.day, carried_from: call.carried_from ?? "", outcome: call.outcome, meaning: choiceOf(call.outcome, fields, call.kind)?.call_outcome ?? choiceOf(call.outcome, fields, call.kind)?.attendance ?? null,
           next_steps: said("next_steps", call.next_steps ?? ""), next_date: said("next_date", call.next_date ?? ""), cash: said("cash", call.cash != null ? String(call.cash) : ""), revenue: said("revenue", call.revenue != null ? String(call.revenue) : ""),
-          package: said("package", String(call.extra?.package ?? "")), pitched: pitchedOf(call, fields) === null ? "" : pitchedOf(call, fields) ? "yes" : "no" } });
+          package: said("package", String(call.extra?.package ?? "")),
+          // why a DQ (its reason, then the note) and why lost, as the closer gave them (D358, Tyler: "DQ reason should of course reach GHL")
+          dq_reason: said("dq_reason", [call.dq_reason, asked.has("dq_note") ? call.dq_note : ""].map((x) => (x ?? "").trim()).filter(Boolean).join(" - ")),
+          lost_reason: said("lost_reason", (call.lost_reason ?? "").trim()), pitched: pitchedOf(call, fields) === null ? "" : pitchedOf(call, fields) ? "yes" : "no" } });
       const term = await one<{ category: string; name: string }>(c, "select t.category, t.name from appointments a join company_terms t on t.id=a.appointment_term where a.id=$1", [call.appointment_id]);
       await dispatchEvent(c, ans, { contact: { id: ans.contact_id }, appointment: { id: call.appointment_id, term } });
     }

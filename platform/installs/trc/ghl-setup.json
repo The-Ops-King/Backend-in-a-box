@@ -411,6 +411,16 @@
           ]
         },
         {
+          "key": "dq_reason",
+          "name": "DQ Reason",
+          "type": "TEXT"
+        },
+        {
+          "key": "lost_reason",
+          "name": "Lost Reason",
+          "type": "TEXT"
+        },
+        {
           "key": "call_type",
           "name": "Call Type",
           "type": "SINGLE_OPTIONS",
