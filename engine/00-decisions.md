@@ -8027,3 +8027,7 @@ TRC's Smart List SOP (Jose's draft, Tyler's answers 2026-11-19) as two templates
 - A no-show enters from either door (2026-11-19): GHL's status (appointment.status_changed to noshow) or the closer's end of day
   (appointment.outcome noshow, Call outcome filed's own event). TRC never marks GHL's status: of its 126 closing bookings in the last
   60 days none is a no-show there. Both carry the booking, so one no-show starts one cycle.
+- 2026-11-20 addendum: GHL refuses appointments on a Calendly integration's calendar ("Calendly calendars are not supported for this
+  operation"), whoever is on its team. So the mirror writes to normal GHL calendars made for it, and the offer's GHL workflows
+  trigger on those. `POST /api/admin/calendars/ghl-create` makes one (round robin, the team given, no open hours so nobody books on
+  it directly; dry run first). A calendar GHL's list hides has its team read by id.
