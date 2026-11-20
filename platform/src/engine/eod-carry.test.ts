@@ -140,4 +140,21 @@ describe.skipIf(!process.env.DATABASE_URL)("D358: earlier days' unfinished calls
       expect((await preview(new Request("http://x/api/admin/eod/preview?company=eod-carry&closer=nina@carry.test"))).status).toBe(401);
     } finally { if (prev === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = prev; }
   });
+
+  it("a DQ filed on the end of day writes its reason (and note) onto the call's Sales Call", async () => {
+    await asOperator(async (c) => {
+      const bea = (await one<{ contact_id: string }>(c, "select contact_id from appointments where id=$1", [appt.BLANK]))!.contact_id;
+      await c.query("insert into crm_records (company_id, object_key, record_key, ghl_record_id, contact_id, properties) values ($1,'custom_objects.sales_call','BLANK','SC-BEA',$2,'{}') on conflict do nothing", [co, bea]);
+    });
+    const token = await asOperator((c) => tokenFor(c, closer.id));
+    const fields = await asOperator((c) => loadEodForm(c, co));
+    const dq = valueFor(fields, { call_outcome: "unqualified" });
+    const reason = fields.find((f) => f.key === "dq_reason")!.options![0]!;
+    const f = await asOperator(async (c) => formFor(c, (await loadCompany(c, co)).row, closer, now.toFormat("yyyy-MM-dd"), now));
+    const calls = f.calls.map((x) => x.appointment_id === appt.BLANK ? { ...x, outcome: dq, dq_reason: reason, dq_note: "Can't fund it until spring", pitched: "No" } : { ...x, outcome: x.outcome || valueFor(fields, { attendance: "noshow" }) });
+    const r = await asOperator((c) => submitEod(c, { token, day: now.toFormat("yyyy-MM-dd"), answers: { calls_count: 0, closes: 0, deposits: 0, cash: 0, revenue: 0, calls, day_answers: {} } }));
+    expect(r.ok).toBe(true);
+    for (let i = 0; i < 3; i++) await tick(fake, DateTime.now() as DateTime<true>, co);
+    expect(written.filter((w) => w.id === "SC-BEA").at(-1)?.properties).toMatchObject({ dq_reason: `${reason} - Can't fund it until spring` });
+  });
 });
