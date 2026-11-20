@@ -8047,3 +8047,10 @@ on Created = Today, so a lead in at 9 PM, held to 8 AM, would never have shown t
   calendar the engine watches that `booking.ghl_mirror` doesn't map (a new closer's calendar), since its calls would get no GHL
   appointment and no GHL pre-call workflow; cleared once every one is mapped. PMU maps all of them: first calls to Consultation RR
   (Engine), Demo to Demo Call (Engine), follow-ups to Follow-up (Engine).
+
+## D356 — A dropdown option added to a custom object field from here (2026-11-20)
+
+Tyler, onboarding Summer as a closer: "I know you can add her as a dropdown field." The Sales Call Closer field had no option for her,
+so her Sales Calls couldn't name her. `POST /api/admin/ghl/field-option` { company, object, field, key, label, why, dryRun = true }
+adds one option to a dropdown on a custom object: every option already there is sent back as it is (GHL's update replaces the list),
+a key already there changes nothing, and the field is read back. Audited. Map the option to the person in `sales_call.closer_options`.
