@@ -751,6 +751,15 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       // D245: GHL refuses an empty money field ("Cash Collected is missing a currency code") and with it the whole write (Renee G's
       // no-show, 2026-10-26); a money field is emptied as no money, which it takes
       for (const k of Object.keys(cleared)) if (MONEY_TYPES.has(String(known?.get(k) ?? "").toUpperCase())) (cleared as Record<string, unknown>)[k] = { currency: "default", value: 0 };
+      // D355 (Tyler, 2026-11-20: "everything should work based on the engine"): a booking moved after its call happened (the poll says
+      // event.slot.held) never has that slot's record logged rescheduled, whatever the offer's own workflow asks: the call happened there
+      const moved = (d.ctx.event as { slot?: { from?: unknown; held?: unknown } } | undefined)?.slot;
+      const rescheduledValue = (d.ctx.picklist as { sales_call_outcome?: { rescheduled?: string } } | undefined)?.sales_call_outcome?.rescheduled;
+      const heldKept = !!(moved?.held === true && key && key === moved.from && rescheduledValue && String(properties.outcome ?? "") === rescheduledValue);
+      if (heldKept) {
+        delete properties.outcome;
+        if (!Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: "the call happened on this slot before the booking moved, so its Sales Call is not logged rescheduled (D355)" } };
+      }
       // D302: a value its choice field does not offer is left out, so the rest of the record is still written
       const notAnOption = offOptions(properties, fieldOptions(d, objectKey));
       if (dropped.length && !Object.keys(properties).length && !Object.keys(cleared).length) return { status: "skipped", next, result: { kind: "noop", why: `nothing to write: the ${objectKey} object has no ${dropped.join(", ")} field yet`, not_on_object: dropped } };

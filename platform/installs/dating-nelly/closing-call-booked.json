@@ -325,12 +325,7 @@
     "properties": {
      "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
     },
-    "title": "The Sales Call for the old time: logged as rescheduled, unless the call happened there first (D355)",
-    "only_if": {
-     "not": {
-      "exists": "event.slot.held"
-     }
-    }
+    "title": "The Sales Call for the old time: logged as rescheduled"
    },
    {
     "id": "k4",
@@ -576,20 +571,11 @@
     "properties": {
      "outcome": "{{picklist.sales_call_outcome.rescheduled}}"
     },
-    "title": "The Sales Call for the old time: logged as rescheduled, unless the call happened there first (D355)",
+    "title": "The Sales Call for the old time: logged as rescheduled",
     "only_if": {
-     "and": [
-      {
-       "eq": [
-        "{{event._type}}",
-        "appointment.rescheduled"
-       ]
-      },
-      {
-       "not": {
-        "exists": "event.slot.held"
-       }
-      }
+     "eq": [
+      "{{event._type}}",
+      "appointment.rescheduled"
      ]
     }
    },

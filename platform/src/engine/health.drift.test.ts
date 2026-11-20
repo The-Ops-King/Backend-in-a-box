@@ -333,6 +333,29 @@ describe.skipIf(!process.env.DATABASE_URL)("health: the ledger follows GHL (D73)
     }
   });
 
+  it("D355: a Sales Call left on its old time whose call was recorded there (the closer moved the booking to set the follow-up) is never marked rescheduled nor asked about", async () => {
+    const wf = await asOperator(async (c) => {
+      const closing = (await one<{ id: string }>(c, "select id from company_terms where company_id=$1 and domain='appointment_type' and category='closing'", [companyId]))!.id;
+      const k1 = (await one<{ id: string }>(c, "select id from contacts where company_id=$1 and ghl_contact_id='G-K1'", [companyId]))!.id;
+      await c.query("insert into appointments (company_id, contact_id, source, external_id, slot_key, appointment_term, starts_at, ends_at, booked_at, status) values ($1,$2,'calendly','AP35','AP35',$3,$4,$4,$5,'confirmed')",
+        [companyId, k1, closing, ago({ days: 1, hours: 7 }).startOf("minute").toJSDate(), ago({ days: 6 }).toJSDate()]);
+      await c.query("update bindings set value=$2 where company_id=$1 and key='sales_call.outcomes'", [companyId, Buffer.from(JSON.stringify({ showed: "showed", no_show: "noshow", cancelled: "cancelled", late_cancel: "cancelled", rescheduled: "rescheduled" }))]);
+      return (await one<{ id: string }>(c, "insert into workflows (company_id, name, reentry_policy, enabled, mode) values ($1,'Closing call booked','always',true,'live') returning id", [companyId]))!.id;
+    });
+    const old = ago({ days: 3, hours: 7 }).startOf("minute");
+    records.push({ ...sc("R35", "AP35", "G-K1", old, ""), properties: { external_id: "AP35", contact_id: "G-K1", scheduled_at: old.toUTC().toISO(), closer: "Cara Closer", recording_url: "https://fathom.video/share/x", duration_min: 46 } });
+    const w = writes.length;
+    try {
+      const fs = (await sweep()).findings;
+      expect(asked(fs).filter((q) => q.kind === "moved_not_marked")).toEqual([]);
+      expect(drift(fs).some((f) => f.item === "repair:R35:moved")).toBe(false);
+      expect(writes.slice(w)).toEqual([]);
+    } finally {
+      records.splice(records.findIndex((r) => r.id === "R35"), 1);
+      await asOperator(async (c) => { await c.query("delete from appointments where company_id=$1 and external_id='AP35'", [companyId]); await c.query("delete from workflows where id=$1", [wf]); });
+    }
+  });
+
   it("D291: when what makes the offer's Sales Calls writes to GHL, the sweep makes a missing one itself (blank, for the end of day) and says it repaired it; while it runs in test it only asks", async () => {
     const created: Record<string, unknown>[] = [];
     const before = fake.write.createRecord;
