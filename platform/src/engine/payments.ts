@@ -327,7 +327,8 @@ async function settle(c: PoolClient, companyId: string, contactId: string, payme
       // D270: whether its billing reason is one the offer counts for a purchase in full (a deposit's balance paid up front, not a renewal)
       full_reason: ruled ? fullReason(reasonOf(payment.raw), rules) : null,
       // D331: a deposit told only by its amount (no "deposit" in the product): the offer asks someone which it is
-      ask_kind: !!(rules.askDeposit && kind === "deposit" && !depositByName && payment.status === "succeeded") } });
+      // D361: only the gray zone is asked about: at or under payments.deposit_up_to is plainly a deposit (Bailey Fuller's $100 was asked)
+      ask_kind: !!(rules.askDeposit && kind === "deposit" && !depositByName && payment.status === "succeeded" && !(rules.depositUpTo !== null && amount <= rules.depositUpTo + 0.001)) } });
   if (payment.status === "succeeded") {
     // D88 (A9): the opportunity is won by Payment recorded's update_opportunity step, where the company decides on which payment
     if (isCleared) {

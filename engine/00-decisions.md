@@ -8111,3 +8111,11 @@ before and stay the default. Engine code for every offer; no saved workflow chan
 PMU's own Dial cadence (its copy only): the 4-hour "not dialed" deadline is pushed into 7am-7pm Arizona, the next morning when it
 falls after 7pm, so a dial overnight still counts and nothing is said at night. Assigned Rep is no longer set on entry (Tyler: "I
 don't think it should be assigned a rep at all yet").
+
+## D361 — A payment at or under the deposit line is never asked about (2026-11-20)
+
+Tyler, on Bailey Fuller's $100 (PMU, "Beauty Moguls Method", one-time): "that is a deposit and it should have been marked as such from
+the beginning." It was recorded a deposit at once (D315's `payments.deposit_up_to`, $500), but D331's "full first payment or deposit?"
+question was still posted, because the question looked only at the product's name, not the amount. Now only the gray zone is asked:
+a first payment over `payments.deposit_up_to` and under `payments.deposit_under`, its product not saying deposit. At or under the
+line it is a deposit and nothing is asked. Engine code; only offers with `payments.ask_deposit` (PMU) ask at all. Test first fails.

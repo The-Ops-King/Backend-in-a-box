@@ -12,7 +12,7 @@ import type { Adapters, ContactSnapshot, ObjectRecord } from "@/adapters/types";
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
 const SLUG = `d315-${Date.now()}`;
 const person = (id: string, email: string): ContactSnapshot => ({ id, firstName: id, lastName: "Buyer", email, phone: null as never, tags: [], customFields: {}, dateUpdated: "2026-11-01T00:00:00Z", dateAdded: "2026-11-01T00:00:00Z" });
-const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com"), person("G-DEE", "dee@x.com"), person("G-EVE", "eve@x.com"), person("G-FAY", "fay@x.com")];
+const PEOPLE = [person("G-ANA", "ana@x.com"), person("G-BEA", "bea@x.com"), person("G-CY", "cy@x.com"), person("G-DEE", "dee@x.com"), person("G-EVE", "eve@x.com"), person("G-FAY", "fay@x.com"), person("G-GIL", "gil@x.com")];
 const base = fakeAdapters();
 const ghl: Adapters = { ...base, read: { ...base.read, objectRecords: async (_c, key) => (key === "custom_objects.cash" ? cash.filter((r) => paid.has(String(r.properties.transaction_id))) : []), findDuplicate: async (_c, by) => ("email" in by ? PEOPLE.find((p) => p.email === by.email) ?? null : null), getContact: async (_c, id) => PEOPLE.find((p) => p.id === id) ?? null } };
 // the deposit as Payment recorded writes it to GHL's Cash records (what was paid before is read from there)
@@ -96,6 +96,10 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
     expect(r.event.data).toMatchObject({ ask_kind: true });
     const named = await asOperator((c) => recordPayment(c, co, { providerPaymentId: "p_fay", amount: 1500, status: "succeeded", paidAt: new Date(), email: "fay@x.com", raw: { billing_reason: "one_time", product_name: "Beauty Moguls Deposit" } }, undefined, { dispatch: false, ghl: g }));
     expect(named.outcome === "linked" && named.event.data).toMatchObject({ ask_kind: false });
+    // D361: $500 and under is plainly a deposit, never asked (Bailey Fuller's $100)
+    const small = await asOperator((c) => recordPayment(c, co, { providerPaymentId: "p_gil", amount: 100, status: "succeeded", paidAt: new Date(), email: "gil@x.com", raw: { billing_reason: "one_time", product_name: "Beauty Moguls Method" } }, undefined, { dispatch: false, ghl: g }));
+    expect(small).toMatchObject({ outcome: "linked", payment: { kind: "deposit" } });
+    expect(small.outcome === "linked" && small.event.data).toMatchObject({ ask_kind: false });
     expect((await asOperator((c) => answerPaymentKind(c, ghl, co, "USOMEONE", `first:${r.payment.id}`))).text).toBe("Only a manager can answer this one.");
     const a = await asOperator((c) => answerPaymentKind(c, ghl, co, "UOP", `first:${r.payment.id}`));
     expect(a.text).toContain("is the first payment of a plan, not a deposit");
