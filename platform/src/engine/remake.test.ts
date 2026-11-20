@@ -235,4 +235,50 @@ describe.skipIf(!process.env.DATABASE_URL)("D120: a call Calendly re-makes at th
     expect(recs.find((r) => r.external_id === "G-APPT")).toMatchObject({ outcome: "rescheduled" });
     expect(recs.find((r) => r.external_id === slot)).toMatchObject({ outcome: "showed", disposition: "follow_up" });
   });
+
+  // D355 (Tyler, 2026-11-20): the closer held the call, then moved the booking to set the follow-up (GHL keeps the id). The slot
+  // the call left had its call: its Sales Call keeps what the call wrote and is not logged rescheduled; the new slot gets its own.
+  it("a call recorded and then moved: the old slot is held, not rescheduled, and the follow-up slot gets its own record", async () => {
+    const who = await person(ghl, "Julia");
+    await poll(ghl, event(who, "J-APPT", START, {}, true));
+    await run(ghl);
+    await record(ghl, who, "fathom-julia");
+    const tomorrow = START.plus({ days: 1 });
+    await poll(ghl, event(who, "J-APPT", tomorrow, {}, true));
+    const moved = (await asOperator((c) => one<{ data: { slot: Record<string, unknown> } }>(c, "select data from events where company_id=$1 and contact_id=$2 and event_type='appointment.rescheduled'", [ghl, who.ct])))!;
+    expect(moved.data.slot).toEqual({ from: "J-APPT", to: `J-APPT@${tomorrow.toUTC().toISO()}`, held: true });
+    await run(ghl);
+    const recs = inCrm(who);
+    expect(recs).toHaveLength(2);
+    const old = recs.find((r) => r.external_id === "J-APPT")!;
+    expect(old.outcome).not.toBe("rescheduled");
+    expect(old.recording_url).toBe("https://fathom.video/share/fathom-julia");
+    expect(recs.find((r) => r.external_id === `J-APPT@${tomorrow.toUTC().toISO()}`)).toMatchObject({ outcome: "scheduled" });
+    expect(await lastStep(ghl, who, "call-booked", "fu_rs").then((s) => s ?? lastStep(ghl, who, "call-booked", "k5"))).toMatchObject({ status: "skipped" });
+  });
+
+  it("a call filed showed on the end of day and then moved: its Sales Call stays showed", async () => {
+    const who = await person(ghl, "Pam");
+    await poll(ghl, event(who, "P-APPT", START, {}, true));
+    await run(ghl);
+    await file(ghl, who, "showed", "follow_up");
+    const tomorrow = START.plus({ days: 1 });
+    await poll(ghl, event(who, "P-APPT", tomorrow, {}, true));
+    await run(ghl);
+    const recs = inCrm(who);
+    expect(recs.find((r) => r.external_id === "P-APPT")).toMatchObject({ outcome: "showed", disposition: "follow_up" });
+    expect(recs.find((r) => r.external_id === `P-APPT@${tomorrow.toUTC().toISO()}`)).toMatchObject({ outcome: "scheduled" });
+  });
+
+  it("a move before anything happened on the old slot is a reschedule as before (no held on the event)", async () => {
+    const who = await person(ghl, "Rae");
+    const soon = DateTime.now().plus({ hours: 3 }).set({ second: 0, millisecond: 0 });
+    await poll(ghl, event(who, "R-APPT", soon, {}, true));
+    await run(ghl);
+    await poll(ghl, event(who, "R-APPT", soon.plus({ days: 1 }), {}, true));
+    const moved = (await asOperator((c) => one<{ data: { slot: Record<string, unknown> } }>(c, "select data from events where company_id=$1 and contact_id=$2 and event_type='appointment.rescheduled'", [ghl, who.ct])))!;
+    expect(moved.data.slot).not.toHaveProperty("held");
+    await run(ghl);
+    expect(inCrm(who).find((r) => r.external_id === "R-APPT")).toMatchObject({ outcome: "rescheduled" });
+  });
 });
