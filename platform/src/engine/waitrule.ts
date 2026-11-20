@@ -23,7 +23,7 @@ function applyOffset(anchor: DateTime, offset: string, tz: string): DateTime {
 
 /** D14: anchor + offset in a timezone, with a guarded fallback. Never returns a time in the past. */
 export function computeWaitUntil(rule: WaitRule, t: TimeCtx): { at: DateTime; usedFallback: boolean } {
-  const tz = rule.tz === "company" ? t.companyTz : t.contactTz;
+  const tz = rule.tz === "company" ? t.companyTz : rule.tz === "contact" || !rule.tz ? t.contactTz : rule.tz;   // D360: or a named zone
   const anchor = anchorOf(rule, t);
   let at = applyOffset(anchor, rule.offset, tz);
   let usedFallback = false;

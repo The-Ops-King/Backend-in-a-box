@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DateTime } from "luxon";
 
 // ---- predicate tree ---------------------------------------------------------
 export type Predicate =
@@ -20,7 +21,8 @@ export const Predicate: z.ZodType<Predicate> = z.lazy(() =>
 export const WaitRule = z.object({
   anchor: z.string(),                       // "now" | "appointment.starts_at" | any datetime path
   offset: z.string(),                       // "+4h" | "-1d" | "day_of@08:00" | "day_before@19:00" | "day_after@09:00"
-  tz: z.enum(["contact", "company"]).default("contact"),
+  // D360: or a named zone (an IANA name such as "America/Phoenix"): where the team is, when that is neither the person's nor the offer's
+  tz: z.union([z.enum(["contact", "company"]), z.string().refine((v) => /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)+$/.test(v) && DateTime.local().setZone(v).isValid, "a time zone: contact, company or an IANA name")]).default("contact"),
   guard: z.object({ min_lead: z.string(), fallback: z.string() }).optional(),
   // a daily window in that zone: a computed time before `earliest` moves later to it (the same day); after `latest`, earlier to it. "Four hours before a 7am call" lands at 8am, not 3am.
   earliest: z.string().regex(/^\d{2}:\d{2}$/).optional(),

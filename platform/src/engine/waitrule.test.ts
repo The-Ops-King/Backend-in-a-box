@@ -75,3 +75,23 @@ describe("D353: calls only in the person's permitted hours and days", () => {
   });
   it("a rule without the new options is unchanged: the same-day clamp, never earlier than now", () => expect(at("2026-11-18T21:30:00", { earliest: "08:00", latest: "20:00" })).toBe("2026-11-18 21:30"));
 });
+
+describe("D360: a wait in a named time zone (the team's, neither the person's nor the offer's)", () => {
+  // the offer keeps New York time, the team is in Arizona: "not dialed" is said only 7am-7pm Arizona time
+  const ny = DateTime.fromISO("2026-11-20T23:30:00", { zone: "America/New_York" });   // 9:30pm Phoenix
+  const tc = { now: ny, contactTz: "America/Los_Angeles", companyTz: "America/New_York", ctx: {} };
+  const rule = { anchor: "now", offset: "+0m", tz: "America/Phoenix", earliest: "07:00", latest: "19:00", after_latest: "next_day" as const };
+  it("after 7pm Arizona: the next morning at 7am Arizona", () => {
+    expect(computeWaitUntil(rule, tc).at.setZone("America/Phoenix").toFormat("yyyy-MM-dd HH:mm")).toBe("2026-11-21 07:00");
+  });
+  it("inside the window: now", () => {
+    const noon = { ...tc, now: DateTime.fromISO("2026-11-20T12:00:00", { zone: "America/Phoenix" }) };
+    expect(computeWaitUntil(rule, noon).at.setZone("America/Phoenix").toFormat("HH:mm")).toBe("12:00");
+  });
+  it("the rule accepts an IANA name and refuses a made-up one", async () => {
+    const { WaitRule } = await import("./definition");
+    expect(WaitRule.safeParse({ anchor: "now", offset: "+1h", tz: "America/Phoenix" }).success).toBe(true);
+    expect(WaitRule.safeParse({ anchor: "now", offset: "+1h", tz: "Mars/Olympus" }).success).toBe(false);
+    expect(WaitRule.safeParse({ anchor: "now", offset: "+1h" }).data?.tz).toBe("contact");
+  });
+});

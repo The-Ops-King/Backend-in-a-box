@@ -8101,3 +8101,13 @@ missing and never changes or deletes what is there; without `apply` it only says
   rescheduled write is dropped as for a held slot); the end of day asks what happened. Only a move made before the call's time is a
   reschedule. Data fixes 0021-0024 (TRC): the held rows for Razia (Nov 13, Nov 16), Pamela (Nov 17), Julie (Nov 19), Liz (Nov 19),
   and Daneza's stale rescheduled cleared. `GET /api/admin/eod/preview` shows a closer's form as their link does, read only.
+
+## D360 — A wait in a named time zone (2026-11-20)
+
+Tyler, on PMU's dial cadence: "4 hours sounds good. however it shouldn't do that outside of 7am - 7pm or so." The "not dialed" post is
+for the team (Arizona); PMU keeps New York time and its leads are everywhere, so neither `contact` nor `company` time says 7am-7pm
+for the person reading it. A wait rule's `tz` may now also be an IANA name ("America/Phoenix"); `contact` and `company` work as
+before and stay the default. Engine code for every offer; no saved workflow changes (a rule without a named zone computes as before).
+PMU's own Dial cadence (its copy only): the 4-hour "not dialed" deadline is pushed into 7am-7pm Arizona, the next morning when it
+falls after 7pm, so a dial overnight still counts and nothing is said at night. Assigned Rep is no longer set on entry (Tyler: "I
+don't think it should be assigned a rep at all yet").
