@@ -14,6 +14,7 @@ import { recordDisposition } from "./disposition";
 import { loadCompany } from "./context";
 import { installTemplateForTest, fakeAdapters } from "./test-install";
 import { tick } from "./runner";
+import { GET as preview } from "../../app/api/admin/eod/preview/route";
 import type { Adapters } from "@/adapters/types";
 
 process.env.BINDINGS_KEY ??= Buffer.alloc(32, 7).toString("base64");
@@ -120,5 +121,20 @@ describe.skipIf(!process.env.DATABASE_URL)("D358: earlier days' unfinished calls
   it("off (unset) carries nothing", async () => {
     await setFrom(null);
     try { expect(await carried()).toEqual([]); } finally { await setFrom(day(5).toFormat("yyyy-MM-dd")); }
+  });
+
+  it("the operator's preview shows today's form as the closer's link would, carried calls and what each needs; nothing is filed", async () => {
+    const prev = process.env.CRON_SECRET; process.env.CRON_SECRET = "carry-key";
+    try {
+      const before = await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from eod_reports where company_id=$1", [co]));
+      const res = await preview(new Request("http://x/api/admin/eod/preview?company=eod-carry&closer=nina@carry.test", { headers: { authorization: "Bearer carry-key" } }));
+      const body = await res.json() as { ok: boolean; calls: Array<{ appointment_id: string; carried_from: string | null; missing: string[] | null }> };
+      expect(body.ok).toBe(true);
+      expect(body.calls.filter((x) => x.carried_from).map((x) => x.appointment_id)).toContain(appt.BLANK);
+      expect(body.calls.find((x) => x.appointment_id === appt.BLANK)!.missing).toEqual(["What happened on the call?"]);
+      const after = await asOperator((c) => one<{ n: number }>(c, "select count(*)::int as n from eod_reports where company_id=$1", [co]));
+      expect(after!.n).toBe(before!.n);
+      expect((await preview(new Request("http://x/api/admin/eod/preview?company=eod-carry&closer=nina@carry.test"))).status).toBe(401);
+    } finally { if (prev === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = prev; }
   });
 });
