@@ -15,6 +15,8 @@ LEFT = {"or": [{"in": [FV("cycle_status"), ["Removed", "Completed", "Long-term N
 N(id="t_leap", type="trigger", event="tag.added", match={"eq": ["{{event.tag}}", "leap-buyer"]})
 N(id="t_enroll", type="trigger", event="operator.enrolled")
 N(id="t_noshow", type="trigger", event="appointment.status_changed", match={"and": [{"eq": ["{{event.status.to}}", "noshow"]}, {"eq": ["{{appointment.term.category}}", "closing"]}]})
+# a no-show filed on the end of day (Call outcome filed's event): TRC never marks GHL's status (D354)
+N(id="t_noshow_eod", type="trigger", event="appointment.outcome", match={"and": [{"eq": ["{{event.outcome}}", "noshow"]}, {"eq": ["{{appointment.term.category}}", "closing"]}]})
 N(id="c_once", type="check", title="Not already in a cycle (a repeat purchase never restarts one)", when={"not": {"in": [FV("cycle_status"), ["Active", "Paused"]]}}, else_exit="already in a cycle")
 E("t_leap", "c_once"); E("t_enroll", "c_once")
 N(id="b_resets", type="branch", title="How many no-show resets already?")
@@ -22,7 +24,7 @@ N(id="v_r1", type="set_var", key="resets", value="1"); N(id="v_r2", type="set_va
 N(id="n_cap", type="update_contact", title="Third no-show: long-term nurture, out of the lists", fields=[{"id": F("cycle_status"), "value": "Long-term Nurture"}], clear=[F("next_call_due")])
 N(id="g_cap", type="tags", add="long-term-nurture")
 N(id="x_cap", type="exit", reason="no-show cap: long-term nurture")
-E("t_noshow", "b_resets")
+E("t_noshow", "b_resets"); E("t_noshow_eod", "b_resets")
 E("b_resets", "n_cap", when={"gt": [FV("no_show_resets"), 1]}, label="2 resets already"); E("n_cap", "g_cap"); E("g_cap", "x_cap")
 E("b_resets", "v_r2", when={"gt": [FV("no_show_resets"), 0]}, label="1 reset"); E("b_resets", "v_r1", **{"else": True, "label": "first no-show"})
 N(id="n_resets", type="update_contact", title="Count the no-show reset", fields=[{"id": F("no_show_resets"), "value": "{{vars.resets}}"}])
@@ -35,7 +37,7 @@ N(id="v_last", type="set_var", key="last", value="{{vars.start}}", title="No cal
 N(id="n_enter", type="update_contact", title="Enter the cycle: status, reason, start, attempts 0",
   fields=[{"id": F("cycle_status"), "value": "Active"}, {"id": F("entry_reason"), "value": "{{vars.reason}}"}, {"id": F("cycle_start"), "value": TODAY}, {"id": F("attempt_count"), "value": "{{event.attempts_done | default:0}}"}],
   clear=[F("next_call_due"), F("last_outcome"), F("paused_at")])
-N(id="v_reason", type="set_var", key="reason", value="{{event._type}}", pick={"appointment.status_changed": "No-show", "operator.enrolled": "{{event.entry_reason | default:Never booked}}"}, else_value="Never booked", title="Entry reason: no-show, what the operator said, else never booked")
+N(id="v_reason", type="set_var", key="reason", value="{{event._type}}", pick={"appointment.status_changed": "No-show", "appointment.outcome": "No-show", "operator.enrolled": "{{event.entry_reason | default:Never booked}}"}, else_value="Never booked", title="Entry reason: no-show, what the operator said, else never booked")
 E("c_dq", "v_reason"); E("v_reason", "v_start"); E("v_start", "v_last"); E("v_last", "n_enter")
 
 # ---- the 12 calls as one loop: vars.n is the call due next; only the waits differ by call (D354: one shared body keeps the chart small)
@@ -83,7 +85,7 @@ E("s_in", "due"); E("due", "dial"); E("dial", "rec", label="event"); E("dial", "
 E("rec", "v_last2"); E("v_last2", "v_inc"); E("v_inc", "b_next")
 
 cad = {"slug": "dial-cadence", "name": "Dial cadence", "category": "setter", "stage": "nurture", "sort": 40, "origin": "default", "optional": True,
- "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows. Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due when a call is due (the smart lists show it) and counts every dial from GHL; a call not dialed 4 hours after it was due is said to the team once and stays due (no attempt is counted that was not made); booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
+ "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows (GHL's status, or the closer's end of day). Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due when a call is due (the smart lists show it) and counts every dial from GHL; a call not dialed 4 hours after it was due is said to the team once and stays due (no attempt is counted that was not made); booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
  "definition": {"schema": 1, "reentry": "once_per_contact", "reentry_key": "{{appointment.id | default:cycle}}", "premise": {"check": "contact_exists"}, "nodes": nodes, "edges": edges}}
 
 # ---- exits

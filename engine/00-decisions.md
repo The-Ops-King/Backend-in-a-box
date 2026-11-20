@@ -8024,3 +8024,6 @@ TRC's Smart List SOP (Jose's draft, Tyler's answers 2026-11-19) as two templates
   refused; audited.
 - Built as one loop (2026-11-19): the 12 calls share one body (still in the cycle → due → wait for the dial → count it), and only the
   waits differ by call; vars.n is the call due next. Twelve copies of the body made a chart the dashboard took ~14 seconds to lay out.
+- A no-show enters from either door (2026-11-19): GHL's status (appointment.status_changed to noshow) or the closer's end of day
+  (appointment.outcome noshow, Call outcome filed's own event). TRC never marks GHL's status: of its 126 closing bookings in the last
+  60 days none is a no-show there. Both carry the booking, so one no-show starts one cycle.

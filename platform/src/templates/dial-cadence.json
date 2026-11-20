@@ -6,7 +6,7 @@
   "sort": 40,
   "origin": "default",
   "optional": true,
-  "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows. Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due when a call is due (the smart lists show it) and counts every dial from GHL; a call not dialed 4 hours after it was due is said to the team once and stays due (no attempt is counted that was not made); booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
+  "description": "Calls for people who have not booked: Leap buyers who never booked (or anyone the operator enrolls) and closing-call no-shows (GHL's status, or the closer's end of day). Each gets up to 12 calls: one at once, 30 minutes and 2 hours later, one a day for four days in rotating windows, then one a week for five weeks, only 8am to 8pm in their time and never on a Sunday or US federal holiday. The engine sets Next Call Due when a call is due (the smart lists show it) and counts every dial from GHL; a call not dialed 4 hours after it was due is said to the team once and stays due (no attempt is counted that was not made); booking, a purchase or dq-financial takes them out (Dial cadence: exits). A no-show restarts the cycle, at most twice; the third goes to long-term nurture. Nothing is sent to the person.",
   "definition": {
     "schema": 1,
     "reentry": "once_per_contact",
@@ -40,6 +40,27 @@
             {
               "eq": [
                 "{{event.status.to}}",
+                "noshow"
+              ]
+            },
+            {
+              "eq": [
+                "{{appointment.term.category}}",
+                "closing"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "t_noshow_eod",
+        "type": "trigger",
+        "event": "appointment.outcome",
+        "match": {
+          "and": [
+            {
+              "eq": [
+                "{{event.outcome}}",
                 "noshow"
               ]
             },
@@ -200,6 +221,7 @@
         "value": "{{event._type}}",
         "pick": {
           "appointment.status_changed": "No-show",
+          "appointment.outcome": "No-show",
           "operator.enrolled": "{{event.entry_reason | default:Never booked}}"
         },
         "else_value": "Never booked",
@@ -718,6 +740,10 @@
       },
       {
         "from": "t_noshow",
+        "to": "b_resets"
+      },
+      {
+        "from": "t_noshow_eod",
         "to": "b_resets"
       },
       {

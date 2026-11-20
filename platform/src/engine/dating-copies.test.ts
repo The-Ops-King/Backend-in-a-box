@@ -251,7 +251,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D118: Dating Nelly's copies on a com
     const done = runs.find((r) => r.exit_reason === "closed");
     expect(done, JSON.stringify(runs)).toBeTruthy();
     const steps = await asOperator((c) => many<{ node_id: string; status: string }>(c, "select node_id, status from run_steps where run_id=$1", [done!.id]));
-    expect(steps.filter((s) => ["e1", "e2"].includes(s.node_id))).toEqual([{ node_id: "e1", status: "skipped" }, { node_id: "e2", status: "skipped" }]);
+    expect(steps.filter((s) => ["e1", "e2"].includes(s.node_id)).sort((a, b) => a.node_id.localeCompare(b.node_id))).toEqual([{ node_id: "e1", status: "skipped" }, { node_id: "e2", status: "skipped" }]);   // the rows come back in no set order
     expect(steps.find((s) => s.node_id === "g1")).toMatchObject({ status: "ok" });
     expect(sent).toEqual([]);
     expect(await asOperator((c) => many(c, "select 1 from sends where company_id=$1 and channel in ('sms','email')", [co]))).toEqual([]);
