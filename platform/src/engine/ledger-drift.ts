@@ -272,6 +272,11 @@ export async function ledgerDrift(c: PoolClient, company: CompanyRow, ac: Compan
       else ask("moved_not_marked", { label, now_at: nowAt, record_id: k.id });
       continue;
     }
+    // D356: a Sales Call for a time the booking has moved away from is that slot's, not the booking's: what it says (rescheduled, or
+    // the call held there) never becomes the moved booking's outcome, whose own call has not been filed (it read as filed, and the
+    // end of day never asked for it: TRC's Razia, Pamela and Julie, 2026-11-20)
+    const sameSlot = !a.starts_at || Math.abs(new Date(a.starts_at).getTime() - k.at.toMillis()) <= 60_000;
+    if (!sameSlot) continue;
     if (k.filed && a.outcome !== k.filed) { await guarded(() => setLedgerOutcome(k, k.filed!, "ghl_outcome"), ledgerFailed); }
     await guarded(() => followResult(k), ledgerFailed);
     // D302 (Tyler: "it shouldn't alert me that there's an issue if we've planned for it. like the eod"): a Sales Call with no outcome in
