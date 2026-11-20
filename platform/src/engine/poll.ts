@@ -322,7 +322,12 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   // still have it. The booking itself moves on as before, starting clean (its next call has not happened).
   const movedFrom = changes.starts_at ? existing.repointed_from ?? existing.slot_key ?? existing.external_id : null;
   const held = movedFrom ? await slotHeld(c, co.id, existing.id, movedFrom, existing.starts_at) : false;
-  if (held && (await keepHeldCall(c, co.id))) await keepHeld(c, co.id, existing.id, movedFrom!);
+  // D358 (Liz Puga, 2026-11-20: moved a day after her slot with no recording, and the slot vanished from the end of day): for an offer
+  // that keeps held calls, a slot the booking leaves after its time has passed is kept too, whatever happened on it (a no-show, or a call
+  // nothing recorded); the end of day asks the closer which. Only a move made before the call's time is a reschedule.
+  const keep = movedFrom ? await keepHeldCall(c, co.id) : false;
+  const kept = keep && (held || existing.starts_at.getTime() <= Date.now());
+  if (kept) await keepHeld(c, co.id, existing.id, movedFrom!);
   // D254: a call a person handed to another closer stays theirs; the calendar's host decides only a call nobody reassigned
   await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, assigned_user_id=case when reassigned_at is null then coalesce($5,assigned_user_id) else assigned_user_id end, source_updated_at=$6, cancelled_by=coalesce($7,cancelled_by), cancel_reason=coalesce($8,cancel_reason) where id=$1",
     [existing.id, s.status, s.startTime, s.endTime, userId, s.dateUpdated ?? new Date(), s.cancellation?.by ?? null, s.cancellation?.reason ?? null]);
@@ -335,7 +340,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     // D357 (Tyler, 2026-11-20: a closer who held the call and then moved the booking to set the follow-up): the slot the call left
     // already had its call, so its Sales Call is not a reschedule. Said on the event (`held`) only when it is true, so every move
     // the engine has seen before reads as it did; Call booked's steps that log the old slot rescheduled skip a held one.
-    changes.slot = held ? { from, to, held: true } : { from, to };
+    changes.slot = { from, to, ...(held ? { held: true } : {}), ...(kept ? { kept: true } : {}) };
   }
   // runs parked on this appointment wake now: a wait anchored to it recomputes from the new start, and a run whose premise
   // no longer holds (reminder for a cancelled call) exits moot immediately instead of at its old wake time

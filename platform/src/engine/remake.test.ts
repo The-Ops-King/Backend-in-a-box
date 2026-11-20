@@ -319,4 +319,31 @@ describe.skipIf(!process.env.DATABASE_URL)("D120: a call Calendly re-makes at th
       await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='booking.keep_held_call'", [ghl]));
     }
   });
+
+  it("D358: with booking.keep_held_call on, a slot left after its time passed is kept even with nothing recorded (a no-show to file); a move before the time is a reschedule", async () => {
+    await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'booking.keep_held_call','text',$2) on conflict (company_id,key) do update set value=excluded.value", [ghl, Buffer.from("on")]));
+    try {
+      const who = await person(ghl, "Lizzy");
+      await poll(ghl, event(who, "L-APPT", START, {}, true));        // two hours ago; nobody recorded, nobody filed
+      await run(ghl);
+      const later = START.plus({ days: 2 });
+      await poll(ghl, event(who, "L-APPT", later, {}, true));
+      await run(ghl);
+      const rows = await asOperator((c) => many<{ slot_key: string; held_from: string | null; outcome: string | null }>(c,
+        "select a.slot_key, a.held_from, ot.category as outcome from appointments a left join company_terms ot on ot.id=a.outcome_term where a.company_id=$1 and a.contact_id=$2 order by a.starts_at", [ghl, who.ct]));
+      expect(rows.map((r) => [r.slot_key, !!r.held_from, r.outcome])).toEqual([["L-APPT", true, null], [`L-APPT@${later.toUTC().toISO()}`, false, null]]);
+      expect(inCrm(who).find((r) => r.external_id === "L-APPT")).toMatchObject({ outcome: "scheduled" });
+      // a move before the call's time: the old slot is a reschedule, no row kept
+      const who2 = await person(ghl, "Ravi");
+      const soon = DateTime.now().plus({ hours: 3 }).set({ second: 0, millisecond: 0 });
+      await poll(ghl, event(who2, "R2-APPT", soon, {}, true));
+      await run(ghl);
+      await poll(ghl, event(who2, "R2-APPT", soon.plus({ days: 1 }), {}, true));
+      await run(ghl);
+      expect((await asOperator((c) => many(c, "select 1 from appointments where company_id=$1 and contact_id=$2 and held_from is not null", [ghl, who2.ct])))).toHaveLength(0);
+      expect(inCrm(who2).find((r) => r.external_id === "R2-APPT")).toMatchObject({ outcome: "rescheduled" });
+    } finally {
+      await asOperator((c) => c.query("delete from bindings where company_id=$1 and key='booking.keep_held_call'", [ghl]));
+    }
+  });
 });
