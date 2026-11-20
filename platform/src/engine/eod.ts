@@ -1,3 +1,4 @@
+import { ownsKey } from "./held-call";
 import type { PoolClient } from "pg";
 import { randomBytes } from "node:crypto";
 import { DateTime } from "luxon";
@@ -97,10 +98,10 @@ export async function closerSalesCalls(c: PoolClient, adapters: Adapters, adapte
   }
   if (!recs.length) return [];
   const ours = await many<{ rec: string; appt: string | null }>(c, `select cr.ghl_record_id as rec, a.id::text as appt from crm_records cr
-      left join appointments a on a.company_id=cr.company_id and (a.external_id=cr.record_key or a.slot_key=cr.record_key)
+      left join appointments a on a.company_id=cr.company_id and ${ownsKey("a", "cr.record_key")}
       where cr.company_id=$1 and cr.object_key=$2 and cr.ghl_record_id = any($3::text[])`, [companyId, object, recs.map((r) => r.id)]);
   const ext = recs.map((r) => r.ext).filter(Boolean);
-  const booked = await many<{ k: string; appt: string }>(c, "select external_id as k, id::text as appt from appointments where company_id=$1 and external_id = any($2::text[]) union all select slot_key, id::text from appointments where company_id=$1 and slot_key = any($2::text[])", [companyId, ext]);
+  const booked = await many<{ k: string; appt: string }>(c, `select external_id as k, id::text as appt from appointments a where company_id=$1 and external_id = any($2::text[]) and not exists (select 1 from appointments h where h.held_from=a.id and h.slot_key=a.external_id) union all select slot_key, id::text from appointments where company_id=$1 and slot_key = any($2::text[])`, [companyId, ext]);
   const people = [...new Set(recs.map((r) => r.ghl_contact_id).filter((x): x is string => !!x))];
   const theirs = await many<{ ghl: string; appt: string; starts_at: Date }>(c, `select x.ghl, a.id::text as appt, a.starts_at from appointments a join (select id as contact_id, ghl_contact_id as ghl from contacts where company_id=$1 and ghl_contact_id = any($2::text[])
       union select contact_id, value from contact_identifiers where company_id=$1 and kind='ghl_contact' and value = any($2::text[])) x on x.contact_id=a.contact_id where a.company_id=$1`, [companyId, people]);
