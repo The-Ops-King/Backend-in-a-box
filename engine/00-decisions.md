@@ -8043,3 +8043,7 @@ on Created = Today, so a lead in at 9 PM, held to 8 AM, would never have shown t
 - Calling hours still hold the call itself: the 4-hour "not dialed" clock starts when the call is due in calling hours, not at entry.
 - After a dial the field is cleared until the next call is due, as before (D354).
 - Template and TRC's copy only; no engine code changed. Test: a lead in at 6:32 AM is on the lists at once and its call waits for 8 AM.
+- 2026-11-20 addendum (Tyler: "make sure you're mirroring everything"): an offer that mirrors gets a warning naming any active booking
+  calendar the engine watches that `booking.ghl_mirror` doesn't map (a new closer's calendar), since its calls would get no GHL
+  appointment and no GHL pre-call workflow; cleared once every one is mapped. PMU maps all of them: first calls to Consultation RR
+  (Engine), Demo to Demo Call (Engine), follow-ups to Follow-up (Engine).

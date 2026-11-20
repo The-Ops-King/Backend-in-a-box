@@ -133,6 +133,15 @@ describe.skipIf(!process.env.DATABASE_URL)("D350: putting bookings on GHL", () =
     expect(created).toEqual([expect.objectContaining({ calendarId: "GCAL-HIDDEN", assignedUserId: "G-MARY" })]);
   });
 
+  it("a watched booking calendar nobody mapped: an alert naming it, cleared once it is mapped", async () => {
+    const unmapped = () => asOperator((c) => one<{ text: string }>(c, "select text from alerts where company_id=$1 and key='appointments:ghl-mirror-unmapped' and resolved_at is null", [co]));
+    await asOperator((c) => c.query("update calendars set source='calendly' where id=$1", [other]));
+    await run();
+    expect((await unmapped())!.text).toContain('"Beauty Moguls Strategy" isn\'t put on a GHL calendar');
+    await asOperator((c) => mirrorToGhl(c, { companyId: co, ac, adapters, bindings: { ...bindings(), "booking.ghl_mirror": '{"EVT-RR":"GCAL-RR","EVT-STRAT":"GCAL-RR"}' } }));
+    expect(await unmapped()).toBeFalsy();
+  });
+
   it("a dry run says what it would do and writes nothing", async () => {
     const a = await booking({ first: "Dry" });
     expect((await run(true)).actions).toEqual([expect.objectContaining({ action: "create", who: "Dry Doe", assignee: "G-MARY" })]);

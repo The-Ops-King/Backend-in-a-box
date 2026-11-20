@@ -110,6 +110,13 @@ export async function mirrorToGhl(c: PoolClient, d: Deps, opts: { dryRun?: boole
   }
 
   if (!dryRun) {
+    // a booking calendar the engine watches but nobody mapped (a new closer's) would leave its calls out of GHL unseen
+    const unmapped = await many<{ name: string }>(c, "select name from calendars where company_id=$1 and source=$2 and active and not (external_id = any($3::text[])) order by name",
+      [d.companyId, d.ac.booking.source, cals]);
+    if (unmapped.length)
+      await raise(c, { companyId: d.companyId, key: "appointments:ghl-mirror-unmapped", level: "warning", source: "engine",
+        text: `${unmapped.map((k) => `"${k.name}"`).join(", ")} ${unmapped.length === 1 ? "isn't" : "aren't"} put on a GHL calendar (booking.ghl_mirror), so ${unmapped.length === 1 ? "its" : "their"} calls get no GHL appointment and no GHL pre-call workflow.` });
+    else await resolve(c, d.companyId, "appointments:ghl-mirror-unmapped");
     for (const [ghlCal, error] of failed)
       await raise(c, { companyId: d.companyId, key: `appointments:ghl-mirror:${ghlCal}`, level: "warning", source: "engine",
         text: `Couldn't put a booking on GHL calendar ${ghlCal}, so GHL's pre-call automations won't see it: ${error}. Retried every minute.`, detail: { ghl_calendar: ghlCal } });
