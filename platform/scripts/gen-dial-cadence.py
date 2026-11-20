@@ -34,9 +34,12 @@ N(id="c_dq", type="check", title="Not marked dq-financial", when={"not": {"has":
 E("c_once", "c_booked"); E("n_resets", "c_booked"); E("c_booked", "c_dq")
 N(id="v_start", type="set_var", key="start", when={"exists": "event.cycle_start"}, value="{{event.cycle_start}}", else_value="{{now}}", title="The cycle starts now (or when the operator's backfill says it did)")
 N(id="v_last", type="set_var", key="last", value="{{vars.start}}", title="No call made yet in this cycle")
-N(id="n_enter", type="update_contact", title="Enter the cycle: status, reason, start, attempts 0",
-  fields=[{"id": F("cycle_status"), "value": "Active"}, {"id": F("entry_reason"), "value": "{{vars.reason}}"}, {"id": F("cycle_start"), "value": TODAY}, {"id": F("attempt_count"), "value": "{{event.attempts_done | default:0}}"}],
-  clear=[F("next_call_due"), F("last_outcome"), F("paused_at")])
+# D355 (Tyler, 2026-11-20: "they're not in the speed to lead so something is broken"): Next Call Due is written the moment they enter,
+# so the smart lists show them at once. Calling hours only hold when the call's 4-hour "not dialed" clock starts; a lead in at 9 PM
+# held for 8 AM would miss Speed to lead (Created = Today) altogether.
+N(id="n_enter", type="update_contact", title="Enter the cycle: status, reason, start, attempts, call due today",
+  fields=[{"id": F("cycle_status"), "value": "Active"}, {"id": F("entry_reason"), "value": "{{vars.reason}}"}, {"id": F("cycle_start"), "value": TODAY}, {"id": F("attempt_count"), "value": "{{event.attempts_done | default:0}}"}, {"id": F("next_call_due"), "value": TODAY}],
+  clear=[F("last_outcome"), F("paused_at")])
 N(id="v_reason", type="set_var", key="reason", value="{{event._type}}", pick={"appointment.status_changed": "No-show", "appointment.outcome": "No-show", "operator.enrolled": "{{event.entry_reason | default:Never booked}}"}, else_value="Never booked", title="Entry reason: no-show, what the operator said, else never booked")
 E("c_dq", "v_reason"); E("v_reason", "v_start"); E("v_start", "v_last"); E("v_last", "n_enter")
 

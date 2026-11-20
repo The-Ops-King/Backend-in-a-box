@@ -8031,3 +8031,15 @@ TRC's Smart List SOP (Jose's draft, Tyler's answers 2026-11-19) as two templates
   operation"), whoever is on its team. So the mirror writes to normal GHL calendars made for it, and the offer's GHL workflows
   trigger on those. `POST /api/admin/calendars/ghl-create` makes one (round robin, the team given, no open hours so nobody books on
   it directly; dry run first). A calendar GHL's list hides has its team read by id.
+
+## D355 — The dial cadence writes Next Call Due when someone enters (2026-11-20)
+
+Tyler, testing with his own contact at 6:32 AM Arizona: "they're not in the speed to lead so something is broken." The cadence held
+Next Call Due until calling hours opened (8 AM, the contact's zone), and TRC's smart lists need it filled. Speed to lead also filters
+on Created = Today, so a lead in at 9 PM, held to 8 AM, would never have shown there at all.
+
+- Entering the cycle (`n_enter`) writes Next Call Due = today with the status, reason, start and attempt count. The lists show the
+  person at once.
+- Calling hours still hold the call itself: the 4-hour "not dialed" clock starts when the call is due in calling hours, not at entry.
+- After a dial the field is cleared until the next call is due, as before (D354).
+- Template and TRC's copy only; no engine code changed. Test: a lead in at 6:32 AM is on the lists at once and its call waits for 8 AM.

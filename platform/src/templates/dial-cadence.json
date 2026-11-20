@@ -189,7 +189,7 @@
       {
         "id": "n_enter",
         "type": "update_contact",
-        "title": "Enter the cycle: status, reason, start, attempts 0",
+        "title": "Enter the cycle: status, reason, start, attempts, call due today",
         "fields": [
           {
             "id": "{{crm.field_contact_cycle_status}}",
@@ -206,10 +206,13 @@
           {
             "id": "{{crm.field_contact_attempt_count}}",
             "value": "{{event.attempts_done | default:0}}"
+          },
+          {
+            "id": "{{crm.field_contact_next_call_due}}",
+            "value": "{{now | date_company:yyyy-MM-dd}}"
           }
         ],
         "clear": [
-          "{{crm.field_contact_next_call_due}}",
           "{{crm.field_contact_last_outcome}}",
           "{{crm.field_contact_paused_at}}"
         ]
