@@ -203,4 +203,21 @@ export const MIGRATIONS: Migration[] = [
       await t.query("insert into audit_log (company_id, action, target_type, target_id, before, after) values ($1,'appointment.outcome_cleared','appointment',$2,$3,$4)", [a.company_id, a.id, { outcome: "rescheduled", by: "ledger drift (ghl_outcome) from the Nov 20 slot's Sales Call" }, { outcome: null, by: "migration 0022", why: "a moved-away slot's outcome is not the booking's (D358)" }]);
     });
   } },
+  // D358 data fix, TRC only (Tyler, 2026-11-20: "yes that's correct"): Razia Sultana's first call, Nov 13 at 10 AM Pacific, held on
+  // Zoom before the engine wrote Sales Calls, is kept as its own row of her booking: showed, a follow-up (she closed on the Nov 16
+  // follow-up), pitched. Its next step and date are Nick's to give on the end of day. Once, by booking id; a no-op elsewhere.
+  { id: "0023-trc-razia-first-call", run: async (c) => {
+    const booking = "1c4369a1-5cc4-49b6-94c5-88c05dc4539a", slot = "pkeC7HVL2O7tMd7s434b@2026-11-13T18:00:00.000Z", at = "2026-11-13T18:00:00.000Z";
+    await c.tx(async (t) => {
+      const b = (await t.query("select id, company_id from appointments where id=$1", [booking])).rows[0] as { id: string; company_id: string } | undefined;
+      if (!b || (await t.query("select 1 from appointments where held_from=$1 and slot_key=$2", [booking, slot])).rows.length) return;
+      const term = async (domain: string, cat: string) => ((await t.query("select id from company_terms where company_id=$1 and domain=$2 and category=$3 and active order by is_default desc, sort limit 1", [b.company_id, domain, cat])).rows[0] as { id: string } | undefined)?.id ?? null;
+      const row = (await t.query(`insert into appointments (company_id, contact_id, opportunity_id, source, external_id, calendar_id, appointment_term, assigned_user_id, starts_at, ends_at, self_booked, set_by, answers, tracking,
+          slot_key, meeting_key, meeting_url, booked_at, status, source_updated_at, outcome_term, call_outcome_term, dispositioned_at, pitched, held_from)
+        select company_id, contact_id, opportunity_id, source, external_id || '#held@' || $3, calendar_id, appointment_term, assigned_user_id, $3::timestamptz, $3::timestamptz + interval '1 hour', self_booked, set_by, answers, tracking,
+          $2, meeting_key, meeting_url, booked_at, 'confirmed', source_updated_at, $4, $5, now(), true, id
+        from appointments where id=$1 returning id`, [booking, slot, at, await term("appointment_outcome", "showed"), await term("call_outcome", "follow_up")])).rows[0] as { id: string };
+      await t.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'appointment.held_kept','appointment',$2,$3)", [b.company_id, row.id, { held_from: booking, slot, at, outcome: "showed", call_outcome: "follow_up", pitched: true, by: "migration 0023", why: "Tyler 2026-11-20: Razia's first call (Nov 13), before Sales Calls existed; she closed on the Nov 16 follow-up" }]);
+    });
+  } },
 ];
