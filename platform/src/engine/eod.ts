@@ -222,7 +222,7 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
     const pay = await one<{ total: string; all_deposit: boolean }>(c, "select coalesce(sum(amount),0)::text as total, coalesce(bool_and(kind='deposit'),false) as all_deposit from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4", [company.id, a.contact_id, win.from, win.to]);
     const won = await one<{ v: string | null }>(c, "select contract_value::text as v from opportunities where company_id=$1 and contact_id=$2 and status='won' and won_at between $3 and $4 order by won_at desc limit 1", [company.id, a.contact_id, win.from, win.to]);
     const paid = num(pay?.total), contract = won?.v ? num(won.v) : price;
-    // D356: the package, from what they bought (the products of the payments this call's money window holds)
+    // D358: the package, from what they bought (the products of the payments this call's money window holds)
     const products = packageRules.length ? (await many<{ n: string }>(c, "select distinct raw->>'product_name' as n from payments where company_id=$1 and contact_id=$2 and status='succeeded' and paid_at between $3 and $4 and coalesce(raw->>'product_name','') <> ''", [company.id, a.contact_id, win.from, win.to])).map((r) => r.n) : [];
     const pkg = packageOf(products, packageRules);
     const disp = str(notes.disposition);
@@ -269,16 +269,16 @@ export async function prefill(c: PoolClient, company: CompanyRow, closer: { id: 
   return { day, closer, company: { id: company.id, name: company.name, slug: company.slug, timezone: tz }, ...totalsOf(calls, fields), calls };
 }
 
-/** D356: the offer's product-name rules for the Package answer (`eod.package_from_product`), each [regex, package]; a bad rule is skipped. */
+/** D358: the offer's product-name rules for the Package answer (`eod.package_from_product`), each [regex, package]; a bad rule is skipped. */
 export async function packageRulesFor(c: PoolClient, companyId: string): Promise<Array<[RegExp, string]>> {
   const v = (await one<{ v: Buffer }>(c, "select value as v from bindings where company_id=$1 and key='eod.package_from_product'", [companyId]))?.v.toString("utf8") ?? "[]";
   let list: unknown; try { list = JSON.parse(v); } catch { return []; }
   return Array.isArray(list) ? list.flatMap((r) => { if (!Array.isArray(r) || typeof r[0] !== "string" || typeof r[1] !== "string") return []; try { return [[new RegExp(r[0], "i"), r[1]] as [RegExp, string]]; } catch { return []; } }) : [];
 }
-/** D356: the package the products say, the first rule any product matches (rules in order, so a bundle can be listed before its parts). */
+/** D358: the package the products say, the first rule any product matches (rules in order, so a bundle can be listed before its parts). */
 export const packageOf = (products: string[], rules: Array<[RegExp, string]>): string => rules.find(([re]) => products.some((p) => re.test(p)))?.[1] ?? "";
 
-/** The form for a day: its own calls (prefill) and, on today's form, the earlier days' calls still unfinished (D356), after them. */
+/** The form for a day: its own calls (prefill) and, on today's form, the earlier days' calls still unfinished (D358), after them. */
 export async function formFor(c: PoolClient, company: CompanyRow, closer: { id: string; name: string; email: string }, day: string, now: DateTime = DateTime.now()): Promise<EodPrefill> {
   const pre = await prefill(c, company, closer, day, now);
   if (day !== now.setZone(company.timezone).toFormat(DAY_FMT)) return pre;
@@ -287,7 +287,7 @@ export async function formFor(c: PoolClient, company: CompanyRow, closer: { id: 
 }
 
 /**
- * D356 (Tyler, 2026-11-20: "EOD marks a call complete. All fields that need to be filled with a given outcome need to be filled"):
+ * D358 (Tyler, 2026-11-20: "EOD marks a call complete. All fields that need to be filled with a given outcome need to be filled"):
  * a closer's closing calls from `eod.carry_over_from` up to the day before `day` that are not complete. Complete is the closer's own
  * filing (or an outcome the call got some other way: a payment, a person in GHL, the operator) with every field the form requires
  * for that outcome filled; a pre-filled guess is never a filing. Each comes back as that day's form row with what was filed over it,
@@ -496,7 +496,7 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   // D305: a refused day is written down with its exact reason (the closer's own words for what they were told), so a closer who
   // says it "won't go through" is never a guess; it is not an alert (they see the reason on the form)
   const refused = async (why: string) => { await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'eod.refused','user',$2,$3)", [company.id, closer.id, { day: args.day, why, calls: args.answers.calls.length }]); return { ok: false as const, why }; };
-  // D356: today's form carries earlier days' unfinished calls; one still unfinished never holds back the day (it is carried again)
+  // D358: today's form carries earlier days' unfinished calls; one still unfinished never holds back the day (it is carried again)
   const pre = await formFor(c, company, closer, args.day, DateTime.now());
   const carried = new Map(pre.calls.filter((x) => x.carried_from).map((x) => [x.appointment_id, x.carried_from!]));
   args = { ...args, answers: { ...args.answers, calls: args.answers.calls.map((x) => { const { carried_from: _drop, missing: _m, ...rest } = x; void _drop; void _m; return carried.has(x.appointment_id) ? { ...rest, carried_from: carried.get(x.appointment_id) } : rest; }) } };
@@ -525,7 +525,7 @@ export async function submitEod(c: PoolClient, args: { token: string; day: strin
   for (const call of args.answers.calls.filter((x) => x.outcome !== TAKEN)) {
     const r = call.kind === "dial" ? await fileDial(c, company.id, fields, call, closer) : await fileCall(c, company.id, fields, call, closer.id, inGhl.get(call.appointment_id));
     if (r.status !== "skipped") recorded++;
-    // D356: what the closer answered for a closing call, every time it is filed (also when GHL already shows its outcome, so a field
+    // D358: what the closer answered for a closing call, every time it is filed (also when GHL already shows its outcome, so a field
     // filled on a later day reaches the Sales Call): EOD: answers onto the Sales Call writes it, for an offer that has that workflow
     if (call.outcome && BOOKING_ID.test(call.appointment_id) && !isSetterCall(call.kind)) {
       const asked = new Set(fieldsFor(fields, call.outcome, call.kind).map((f) => f.key)), said = (k: string, v: string) => (asked.has(k) ? v : "");

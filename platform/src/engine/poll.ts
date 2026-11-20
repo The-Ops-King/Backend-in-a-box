@@ -199,7 +199,7 @@ export async function setterFromLink(c: PoolClient, companyId: string, tracking?
 }
 
 /**
- * D355: whether the call happened on a slot a booking is moving away from. Only a slot whose start has passed can have held a call;
+ * D357: whether the call happened on a slot a booking is moving away from. Only a slot whose start has passed can have held a call;
  * then any of: the engine's outcome for the booking is showed (an end of day filed it, or Call recorded read it), a recording
  * linked to this booking began within 90 minutes of the old start, or the Sales Call for the old slot carries a recording or a
  * call length (Call recorded wrote it).
@@ -215,14 +215,14 @@ export async function slotHeld(c: PoolClient, companyId: string, appointmentId: 
   return !!r?.held;
 }
 
-/** D356: whether this offer keeps a held call as its own row when its booking moves on (TRC first; off by default). */
+/** D358: whether this offer keeps a held call as its own row when its booking moves on (TRC first; off by default). */
 async function keepHeldCall(c: PoolClient, companyId: string): Promise<boolean> {
   const v = (await one<{ value: Buffer }>(c, "select value from bindings where company_id=$1 and key='booking.keep_held_call'", [companyId]))?.value.toString("utf8");
   return switchOn(v === undefined ? {} : { "booking.keep_held_call": v }, "booking.keep_held_call");
 }
 
 /**
- * D356: the call that happened on `slot` is copied off the booking as its own row (held_from = the booking), as it stood before the
+ * D358: the call that happened on `slot` is copied off the booking as its own row (held_from = the booking), as it stood before the
  * move: its time, status, outcome, call outcome, filing and pitched. Its recordings and the filings made for it go with it. The
  * booking keeps its id (the source's) and is cleared of that outcome, since its next call has not happened. Once per slot.
  */
@@ -317,7 +317,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
   if (Math.abs(existing.starts_at.getTime() - new Date(s.startTime).getTime()) > 60e3) changes.starts_at = { from: existing.starts_at.toISOString(), to: s.startTime };
   if (!Object.keys(changes).length) return;
   if (baseline) { await c.query("update appointments set status=$2, starts_at=$3, ends_at=$4, source_updated_at=$5 where id=$1", [existing.id, s.status, s.startTime, s.endTime, s.dateUpdated ?? new Date()]); if (rep) rep.baselined++; return; }
-  // D355: a move away from a slot whose call already happened; D356: an offer that keeps that call (booking.keep_held_call) copies it
+  // D357: a move away from a slot whose call already happened; D358: an offer that keeps that call (booking.keep_held_call) copies it
   // off as its own row before the booking moves on, with its outcome, recordings and filings, so the end of day and its Sales Call
   // still have it. The booking itself moves on as before, starting clean (its next call has not happened).
   const movedFrom = changes.starts_at ? existing.repointed_from ?? existing.slot_key ?? existing.external_id : null;
@@ -332,7 +332,7 @@ export async function applyAppointment(c: PoolClient, co: CompanyRow, ac: Compan
     const from = existing.repointed_from ?? existing.slot_key ?? existing.external_id;
     const to = existing.repointed_from ? existing.external_id : `${existing.external_id}@${new Date(s.startTime).toISOString()}`;
     await c.query("update appointments set slot_key=$2 where id=$1", [existing.id, to]);
-    // D355 (Tyler, 2026-11-20: a closer who held the call and then moved the booking to set the follow-up): the slot the call left
+    // D357 (Tyler, 2026-11-20: a closer who held the call and then moved the booking to set the follow-up): the slot the call left
     // already had its call, so its Sales Call is not a reschedule. Said on the event (`held`) only when it is true, so every move
     // the engine has seen before reads as it did; Call booked's steps that log the old slot rescheduled skip a held one.
     changes.slot = held ? { from, to, held: true } : { from, to };

@@ -1,5 +1,5 @@
 /**
- * D356 (Tyler, 2026-11-20: "EOD marks a call complete. All fields that need to be filled with a given outcome need to be filled"):
+ * D358 (Tyler, 2026-11-20: "EOD marks a call complete. All fields that need to be filled with a given outcome need to be filled"):
  * from `eod.carry_over_from`, a closer's closing call stays on today's end of day, in its own section, until it has an outcome and
  * every field the form requires for it. A pre-filled guess is never a filing; an outcome the call got some other way still needs its
  * fields. Carried calls are never today's numbers, and one still unfinished never holds back today's filing.
@@ -34,7 +34,7 @@ const carried = () => asOperator(async (c) => carriedCalls(c, (await loadCompany
 const setFrom = (v: string | null) => asOperator((c) => v === null ? c.query("delete from bindings where company_id=$1 and key='eod.carry_over_from'", [co])
   : c.query("insert into bindings (company_id,key,kind,value) values ($1,'eod.carry_over_from','text',$2) on conflict (company_id,key) do update set value=excluded.value", [co, Buffer.from(v)]));
 
-describe.skipIf(!process.env.DATABASE_URL)("D356: earlier days' unfinished calls stay on the end of day", () => {
+describe.skipIf(!process.env.DATABASE_URL)("D358: earlier days' unfinished calls stay on the end of day", () => {
   beforeAll(async () => {
     await migrate();
     await asOperator(async (c) => {

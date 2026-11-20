@@ -266,7 +266,7 @@ create table appointments (
   dispositioned_at     timestamptz,
   dispositioned_by     uuid references users(id),
   pitched              boolean,                                    -- D226: the closer pitched them (end of day); null: no call, or not said
-  held_from            uuid references appointments(id),           -- D356: a call that happened, kept apart when its booking moved on (the booking it came from)
+  held_from            uuid references appointments(id),           -- D358: a call that happened, kept apart when its booking moved on (the booking it came from)
   created_at           timestamptz not null default now(),
   unique (company_id, source, external_id)
 );

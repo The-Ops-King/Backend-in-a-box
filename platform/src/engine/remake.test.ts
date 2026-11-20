@@ -237,7 +237,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D120: a call Calendly re-makes at th
     expect(recs.find((r) => r.external_id === slot)).toMatchObject({ outcome: "showed", disposition: "follow_up" });
   });
 
-  // D355 (Tyler, 2026-11-20): the closer held the call, then moved the booking to set the follow-up (GHL keeps the id). The slot
+  // D357 (Tyler, 2026-11-20): the closer held the call, then moved the booking to set the follow-up (GHL keeps the id). The slot
   // the call left had its call: its Sales Call keeps what the call wrote and is not logged rescheduled; the new slot gets its own.
   it("a call recorded and then moved: the old slot is held, not rescheduled, and the follow-up slot gets its own record", async () => {
     const who = await person(ghl, "Julia");
@@ -283,9 +283,9 @@ describe.skipIf(!process.env.DATABASE_URL)("D120: a call Calendly re-makes at th
     expect(inCrm(who).find((r) => r.external_id === "R-APPT")).toMatchObject({ outcome: "rescheduled" });
   });
 
-  // D356: an offer that keeps held calls (booking.keep_held_call) copies the call that happened off the booking when it moves on: the
+  // D358: an offer that keeps held calls (booking.keep_held_call) copies the call that happened off the booking when it moves on: the
   // end of day for that day still has it, and the old slot's Sales Call is matched to it, not to the booking that moved
-  it("D356: with booking.keep_held_call on, a call held and then moved stays its own row on its day, and its Sales Call follows it", async () => {
+  it("D358: with booking.keep_held_call on, a call held and then moved stays its own row on its day, and its Sales Call follows it", async () => {
     await asOperator((c) => c.query("insert into bindings (company_id,key,kind,value) values ($1,'booking.keep_held_call','text',$2) on conflict (company_id,key) do update set value=excluded.value", [ghl, Buffer.from("on")]));
     try {
       const who = await person(ghl, "Hana");

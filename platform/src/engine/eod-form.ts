@@ -164,8 +164,8 @@ export type CallEntry = {
   outcome: CallOutcome;
   taken_by?: string;                                   // D254: with outcome TAKEN, the team member (user id) who took the call
   hint?: string;                                       // why the outcome is blank (no evidence to pre-fill from)
-  carried_from?: string;                               // D356: an earlier day's call still missing what its outcome asks for (yyyy-MM-dd); not in this day's numbers
-  missing?: string[];                                  // D356: on a carried call, the labels of what it still needs
+  carried_from?: string;                               // D358: an earlier day's call still missing what its outcome asks for (yyyy-MM-dd); not in this day's numbers
+  missing?: string[];                                  // D358: on a carried call, the labels of what it still needs
   moved?: string;                                      // A1 (D88): a card dragged in the CRM filed this outcome; the form says so and asks why
   revenue: number | null; cash: number | null;        // cash: closed, deposit; revenue: closed only (D119)
   next_date: string | null; next_steps: string;        // follow up
@@ -178,7 +178,7 @@ export type CallEntry = {
 };
 export type DayTotals = { calls_count: number; closes: number; deposits: number; cash: number; revenue: number };
 /** The day's totals by what each answer means: a close is a closed call outcome (never pending, D83), a deposit its own count. */
-/** The day's numbers from its calls. D356: a call carried from an earlier day is that day's, never this one's. */
+/** The day's numbers from its calls. D358: a call carried from an earlier day is that day's, never this one's. */
 export const totalsOf = (all: CallEntry[], fields?: EodField[] | null): DayTotals => { const calls = all.filter((c) => !c.carried_from); return {
   calls_count: calls.length,
   closes: calls.filter((c) => !isSetterCall(c.kind) && choiceOf(c.outcome, fields)?.call_outcome === "closed").length,
@@ -187,7 +187,7 @@ export const totalsOf = (all: CallEntry[], fields?: EodField[] | null): DayTotal
   revenue: calls.reduce((s, c) => s + (isRevenueOutcome(c.outcome, fields, c.kind) ? Number(c.revenue ?? 0) : 0), 0),
 }; };
 
-/** D356: what a call still needs for its outcome, by the form's labels: the outcome itself when there is none, else each required field left blank. */
+/** D358: what a call still needs for its outcome, by the form's labels: the outcome itself when there is none, else each required field left blank. */
 export function stillNeeded(call: CallEntry, fields: EodField[]): string[] {
   if (!call.outcome) return [fields.find((f) => f.key === "outcome")?.label ?? "Outcome"];
   if (call.outcome === TAKEN) return call.taken_by ? [] : ["Who took the call"];

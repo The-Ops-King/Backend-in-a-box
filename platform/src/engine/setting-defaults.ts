@@ -46,11 +46,11 @@ export const SETTING_DEFAULTS = {
   "setter_result.act": { kind: "switch", default: "off" },
   "eod.setter_calls": { kind: "switch", default: "on" },   // D239: every offer; a caller's setting calls with no booking are on their end of day
   "eod.triage_overdue": { kind: "switch", default: "on" },
-  // D356 (Tyler, 2026-11-20, TRC first): a booking moved after its call happened keeps that call as its own row (held_from)
+  // D358 (Tyler, 2026-11-20, TRC first): a booking moved after its call happened keeps that call as its own row (held_from)
   "booking.keep_held_call": { kind: "switch", default: "off" },
-  // D356: the day from which a closer's calls stay on every end of day until each has what the form asks for its outcome ("" = off)
+  // D358: the day from which a closer's calls stay on every end of day until each has what the form asks for its outcome ("" = off)
   "eod.carry_over_from": { kind: "text", default: "" },
-  // D356 (Tyler: "we should be able to read which package from whop"): [[pattern, package], ...] read in order against the product names
+  // D358 (Tyler: "we should be able to read which package from whop"): [[pattern, package], ...] read in order against the product names
   // of the call's payments (case-insensitive regex); the first that matches pre-fills the end of day's Package answer. [] = none
   "eod.package_from_product": { kind: "json", default: "[]" },
   "eod.totals_from_calls": { kind: "switch", default: "off" },   // D309: the day's numbers are the calls' answers added up, shown, not typed (PMU on)   // D207, D239: every offer; a setter's blank triage calls are in the operator's ping

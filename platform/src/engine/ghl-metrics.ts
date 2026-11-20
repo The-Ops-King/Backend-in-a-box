@@ -111,7 +111,7 @@ export type SalesCall = { id: string; ext: string; ghl: string; name: string; te
   /** the record's own booking_source value (setter or direct), as GHL keeps it */ booked: string;
   /** D226: whether the closer pitched them: the end of day's answer on the booking, else the record's Pitched field; null when nobody said */ pitched: boolean | null;
   /** D76: the record's links as GHL holds them: its contact_id field, whether the contact came only from the association, its opportunity_id field */ links: { contact_field: boolean; opportunity: string };
-  /** D355: the record carries a recording link or a call length (the call was recorded on this slot) */ recorded: boolean };
+  /** D357: the record carries a recording link or a call length (the call was recorded on this slot) */ recorded: boolean };
 type Call = SalesCall;
 export type GhlCtx = {
   c: PoolClient; companyId: string; ac: Company; bindings: Record<string, string>; reads: GhlReads; tz: string; start: Date; end: Date; now: Date;

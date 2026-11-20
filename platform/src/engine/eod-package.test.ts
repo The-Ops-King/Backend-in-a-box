@@ -1,4 +1,4 @@
-/** D356: the end of day's Package answer, read from the products of the call's payments by the offer's rules, first match wins. */
+/** D358: the end of day's Package answer, read from the products of the call's payments by the offer's rules, first match wins. */
 import { describe, it, expect } from "vitest";
 import { packageOf } from "./eod";
 
@@ -9,7 +9,7 @@ const RULES: Array<[RegExp, string]> = [
   [/ignite/i, "Ignite"], [/4M|mastermind/i, "4M"], [/leap/i, "Leap"],
 ];
 
-describe("D356: package from Whop", () => {
+describe("D358: package from Whop", () => {
   it("names the package by the first rule a product matches", () => {
     expect(packageOf(["**Ignite MLO Academy **"], RULES)).toBe("Ignite");
     expect(packageOf(["**Ignite MLO Academy + 4M Mastermind **"], RULES)).toBe("Ignite MLO Academy + 4M Mastermind");
