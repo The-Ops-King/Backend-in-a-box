@@ -100,7 +100,7 @@ describe.skipIf(!process.env.DATABASE_URL)("D315: paid in full by billing reason
     const small = await asOperator((c) => recordPayment(c, co, { providerPaymentId: "p_gil", amount: 100, status: "succeeded", paidAt: new Date(), email: "gil@x.com", raw: { billing_reason: "one_time", product_name: "Beauty Moguls Method" } }, undefined, { dispatch: false, ghl: g }));
     expect(small).toMatchObject({ outcome: "linked", payment: { kind: "deposit" } });
     expect(small.outcome === "linked" && small.event.data).toMatchObject({ ask_kind: false });
-    expect((await asOperator((c) => answerPaymentKind(c, ghl, co, "USOMEONE", `first:${r.payment.id}`))).text).toBe("Only a manager can answer this one.");
+    expect(await asOperator((c) => answerPaymentKind(c, ghl, co, "USOMEONE", `first:${r.payment.id}`))).toMatchObject({ text: "Only a manager can answer this one.", refused: true });
     const a = await asOperator((c) => answerPaymentKind(c, ghl, co, "UOP", `first:${r.payment.id}`));
     expect(a.text).toContain("is the first payment of a plan, not a deposit");
     expect(await asOperator((c) => one(c, "select kind from payments where id=$1", [r.payment.id]))).toEqual({ kind: "installment" });

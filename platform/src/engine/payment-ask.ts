@@ -23,15 +23,15 @@ export function parseKindAnswer(value: string): { answer: KindAnswer; payment: s
   return m ? { answer: m[1] as KindAnswer, payment: m[2] } : null;
 }
 
-export async function answerPaymentKind(c: PoolClient, adapters: Adapters, companyId: string, user: string, value: string): Promise<{ text: string; replayed: string[] }> {
+export async function answerPaymentKind(c: PoolClient, adapters: Adapters, companyId: string, user: string, value: string): Promise<{ text: string; replayed: string[]; refused?: boolean }> {
   const a = parseKindAnswer(value);
-  if (!a) return { text: "That button doesn't name a payment.", replayed: [] };
+  if (!a) return { text: "That button doesn't name a payment.", replayed: [], refused: true };
   const allowed = await one(c, `select 1 where exists (select 1 from users where company_id=$1 and slack_user_id=$2 and active and role in ('owner','manager'))
     or exists (select 1 from bindings where company_id=$1 and key='bot.escalate_to' and convert_from(value,'utf8')=$2)`, [companyId, user]);
-  if (!allowed) return { text: "Only a manager can answer this one.", replayed: [] };
+  if (!allowed) return { text: "Only a manager can answer this one.", replayed: [], refused: true };
   const p = await one<{ id: string; amount: string; kind: string | null; contact: string | null }>(c,
     "select p.id, p.amount, p.kind, coalesce(nullif(trim(concat_ws(' ', ct.first_name, ct.last_name)), ''), 'them') as contact from payments p left join contacts ct on ct.id=p.contact_id where p.company_id=$1 and p.id::text=$2", [companyId, a.payment]);
-  if (!p) return { text: "That payment isn't on this offer.", replayed: [] };
+  if (!p) return { text: "That payment isn't on this offer.", replayed: [], refused: true };
   const money = `$${Number(p.amount).toLocaleString("en-US")}`;
   const kind = PAYMENT_KIND_ANSWERS[a.answer];
   if (a.answer === "deposit" || p.kind === kind) {
@@ -40,7 +40,7 @@ export async function answerPaymentKind(c: PoolClient, adapters: Adapters, compa
   }
   const { adapterCompany: ac, bindings } = await loadCompany(c, companyId);
   const r = await setPaymentKind(c, { companyId, ac, adapters, bindings, payment: p.id, kind, why: `Slack: <@${user}> answered "full first payment"`, dryRun: false });
-  if (!r.ok) return { text: `Couldn't change it: ${r.error}`, replayed: [] };
+  if (!r.ok) return { text: `Couldn't change it: ${r.error}`, replayed: [], refused: true };
   const replayed = await replayQuietly(c, companyId, p.id, `Slack: <@${user}> answered "full first payment"`);
   await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'payment.kind_answered','payment',$2,$3)", [companyId, p.id, { answer: a.answer, by: `slack:${user}`, was: p.kind, now: kind, replayed }]);
   return { text: `✅ <@${user}>: ${p.contact}'s ${money} is the first payment of a plan, not a deposit. Recorded and the deal updated.`, replayed };
