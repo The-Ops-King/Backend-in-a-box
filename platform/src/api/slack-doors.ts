@@ -263,7 +263,9 @@ export async function interactionsDoor(req: Request, key: DoorKey): Promise<Resp
   if (res.kind === "paykind") {
     const url = res.url, user = res.user, value = res.value;
     after(() => asOperator((c) => answerPaymentKind(c, liveAdapters, companyId, user, value))
-      .then((r) => (url ? respondToSlack(url, { replace_original: true, text: r.text }) : undefined))
+      // D362: a refusal is said to the one who pressed only; the question and its buttons stay for everyone else (Bailey Fuller's
+      // $100: a press by someone not allowed replaced the whole question with "Only a manager can answer this one.")
+      .then((r) => (url ? respondToSlack(url, r.refused ? { response_type: "ephemeral", replace_original: false, text: r.text } : { replace_original: true, text: r.text }) : undefined))
       .catch((e) => console.error("slack payment kind:", e)).then(() => runCompanyNow(companyId)));
     return new Response(null, { status: 200 });
   }

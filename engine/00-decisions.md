@@ -8119,3 +8119,12 @@ the beginning." It was recorded a deposit at once (D315's `payments.deposit_up_t
 question was still posted, because the question looked only at the product's name, not the amount. Now only the gray zone is asked:
 a first payment over `payments.deposit_up_to` and under `payments.deposit_under`, its product not saying deposit. At or under the
 line it is a deposit and nothing is asked. Engine code; only offers with `payments.ask_deposit` (PMU) ask at all. Test first fails.
+
+## D362 — Pressing a money button you can't answer tells only you (2026-11-20)
+
+Tyler: the "full first payment or deposit?" question on Bailey Fuller's $100 "didn't come with any way for me to confirm". It had both
+buttons, but a press by someone not allowed to answer (only PMU's owner/managers and `bot.escalate_to` may; PMU's roster has no
+manager, so only Tyler) replaced the whole message with "Only a manager can answer this one.", taking the question and its buttons
+from everyone. A refusal (not allowed, a broken button, a payment not on the offer, a change that failed) is now said to the one who
+pressed only (ephemeral); the question stays. A real answer still replaces it with who answered what. Platform behaviour (Slack works
+the same on every offer); no saved workflow changes.
