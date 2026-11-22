@@ -60,6 +60,26 @@ Not entry points: database reactivation, existing clients (renewals, second offe
 - **First response** is the workflow's choice: a post whoever grabs, an @setters ping, or an assigned owner.
 - **The new-lead post:** basic information, every form they filled in, and the source; configurable per workflow.
 
+## Setting / triage (batches 4 and 5)
+
+- **Triage kinds:** inbound, outbound, interception, cold calls, old-list reactivation.
+- **Channels:** a dialer (all offers use GHL's today; Aloware, Close or Kixie possible), texts, DMs. No personal phones: every call
+  must be in a system the engine can read.
+- **Outcomes:** set, follow up, not a good time, not a good fit, not financially qualified, not qualified (other), wrong number, DND.
+- **DND:** every workflow checks DND and stops for anyone who has it: a standard first check in every flow, and the send step itself
+  refuses a DND contact as a safety net.
+- **The end of day** lists only real conversations over a set length (per offer). Calls shorter than that need nothing, unless they
+  were DND or a wrong number. A confirmation call must be told from a setting call better: a call to someone with an upcoming
+  booking is almost always a confirmation.
+- **Cadences** are per stage (new lead, no-show, follow-up, unresponsive …) and configurable (high, medium, low or none; text, email,
+  calls). Tyler's default for a new lead: 3 calls on day 1, 2 on day 2, then 1 a day for the rest of the week. Setters work people
+  who have not booked; confirmation calls are not a cadence.
+- **Interception** (rare, per offer): a booking made straight from traffic gets a setter call to confirm they belong on the
+  calendar; kept, or removed (the booking cancelled and counted as a DQ, not as the prospect cancelling).
+- **Hot swap** (a setter hands a live lead to a closer): a setter SOP, not automation. It needs a calendar that can be booked for
+  right now (no minimum notice).
+- **Setter credit:** the setter who set the call the person showed up to. A no-show rebooked by another setter credits that setter.
+
 ## Direction (Tyler, 2026-11-22)
 
 - **Evolve, not rebuild:** "I have a plan to rebuild but I want it fully functional first." The live offers are consolidated one
