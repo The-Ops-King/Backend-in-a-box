@@ -80,6 +80,22 @@ Not entry points: database reactivation, existing clients (renewals, second offe
   right now (no minimum notice).
 - **Setter credit:** the setter who set the call the person showed up to. A no-show rebooked by another setter credits that setter.
 
+## Before the call (batch 8)
+
+- **Pre-call is a workflow**, not a setting: it sends its own texts, or starts the offer's GHL workflow through a step. Either way
+  the health check confirms each expected reminder reached the person, and flags a call where one did not.
+- **Confirmation** (reply YES, click) is optional per offer: steps in its workflow. Nothing is ever cancelled for not confirming.
+- **Pre-call content** goes through tracked links (a short link the engine logs), so the booking card says who opened what and when.
+  Watch percentage needs the video host's own data (Wistia, Vidalytics …): an optional connector, later.
+- **Reschedules** (recommended, pending Tyler's yes): moved more than 24 hours ahead is a normal reschedule; within 24 hours is noted
+  on the booking post as short notice; within 1 hour or after the start, with the link, is a late reschedule, counted on its own as a
+  soft no-show so show rate stays honest, and the closer is told. A second reschedule of the same call is flagged as lower intent
+  and gets a setter confirmation call; a third moves the card to At risk for the closer to keep or release. Never cancelled by the
+  engine. The setter keeps the credit, the closer stays (Calendly's same-host setting), and reschedule rate is reported per closer,
+  setter and source.
+- **A day ahead,** every call is checked: a meeting link, an active closer on the roster, no double-booking on the closer's calendar,
+  the person not DND. A failure goes to the closer and the alerts channel with its fix; a closer who is out has their calls reassigned.
+
 ## The close (batches 6 and 7)
 
 Already built, and it stays: a close is the first payment beyond a deposit **and** the agreement signed, in either order (Deal
