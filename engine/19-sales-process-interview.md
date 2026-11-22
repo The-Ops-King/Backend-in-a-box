@@ -80,6 +80,29 @@ Not entry points: database reactivation, existing clients (renewals, second offe
   right now (no minimum notice).
 - **Setter credit:** the setter who set the call the person showed up to. A no-show rebooked by another setter credits that setter.
 
+## The close (batches 6 and 7)
+
+Already built, and it stays: a close is the first payment beyond a deposit **and** the agreement signed, in either order (Deal
+closed fires on whichever comes second, once); a deposit is intent, never a close, sends no agreement and starts no chase (D119);
+paid in full, deposit + balance, a payment plan, deposit + payment plan and split cards are told from what came before (D119, D322,
+D329); a paid, unsigned agreement is chased daily; `/agreement` picks the agreement and the person (D202).
+
+To build:
+
+- **At the close:** card → Closed - Won, the Sales Call's outcome, every sales sequence stopped. The welcome (congrats, thank you,
+  community invites …) is the offer's GHL workflow: a step adds the person to it through GHL's API, and the health check confirms its
+  first message went out. An offer may run its own welcome workflow instead.
+- **Agreements carry their adjustments:** "signed" is the agreement signed with whatever was added to it (scope, a lower price to
+  get the deal across, add-ons). The adjustments are stored on the deal; the deal's contract value is what that agreement says.
+- **Signed but not paid** is chased like paid-but-unsigned: a DM every 24 hours until the closer taps Pause or Cancel; Cancel asks
+  where they stand, long-term nurture or lost. Both chases get the same two buttons.
+- **Financing closes at funds sent:** through the business's own checkout (Klarna via Stripe or Whop is a normal payment), or a
+  lender paying the business directly (ClarityPay). Approval alone is close pending.
+- **Close pending** is a state with a date: paid and not signed, or signed and not paid. The owner is reminded on the date; past it,
+  it is in the health digest.
+- **After the close:** a refund soon after → Lost (refunded), and the closer's credit comes off; a failed installment → still
+  closed, into collections.
+
 ## Direction (Tyler, 2026-11-22)
 
 - **Evolve, not rebuild:** "I have a plan to rebuild but I want it fully functional first." The live offers are consolidated one
