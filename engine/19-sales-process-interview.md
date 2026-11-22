@@ -60,6 +60,21 @@ Not entry points: database reactivation, existing clients (renewals, second offe
 - **First response** is the workflow's choice: a post whoever grabs, an @setters ping, or an assigned owner.
 - **The new-lead post:** basic information, every form they filled in, and the source; configurable per workflow.
 
+## Direction (Tyler, 2026-11-22)
+
+- **Evolve, not rebuild:** "I have a plan to rebuild but I want it fully functional first." The live offers are consolidated one
+  at a time onto standard flows run by settings (an offer spec), not per-offer copies; each move is a dry run showing the offer's
+  workflows behave the same.
+- **No new installs for now.** The goal is TRC (Tiffany), PMU and the others fully live.
+- **Reporting:** each client sees only their own numbers, and can change what they see: a client login per offer, a dashboard
+  they arrange.
+- **Ad spend** can be connected per offer (Meta, Google); nothing depends on it.
+- **GHL workflows are allowed** for jobs Tyler prefers there (pre-call reminders, for one). The offer spec names which job a GHL
+  workflow does, and the health check watches those too: the workflow exists and is published, and its outcome happened (for
+  each upcoming call, the reminder it should have sent is in the conversation).
+- **Autonomous health:** a problem is fixed when it can be; otherwise Tyler is alerted. Every fix is complete and improves the
+  whole system, not one offer (CLAUDE.md, "Every alert fix prevents the next one").
+
 ## Later
 
 - A Zoom integration: know a recording happened, and check it against Fathom.
