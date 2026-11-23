@@ -114,6 +114,18 @@ parts is one call, a call handed to another closer is theirs (D254).
   straight after a close (onboarding) is never a sales call; a business partner the prospect brings is added as a contact, and the call
   stays the booked person's.
 
+## Not closed on the call (batch 10)
+
+- **Follow-ups:** booked on the closer's own calendar; a follow-up date is not required.
+- **Lost and DQ reasons** are recorded, but every lost person gets the same path: nothing branches on the reason.
+- **Long-term nurture** is an email sequence, normally the offer's GHL workflow (today it is only a stage). The engine adds people to
+  it and raises "warm again" to the setter or closer when someone replies, clicks, books or fills a form.
+- **Downsell:** almost every offer has one, cheaper with fewer things: its own offer, so its own deal, price and payments, never
+  counted as a main-offer close.
+- **Failed payments:** the payment processor retries the card (Stripe, Whop …), not the engine. Every failure posts in the payments
+  channel tagging the closer; a later success posts "recovered" in the same thread; still failed after the processor's last retry is
+  past due, posted again and in the digest; a chargeback or dispute posts at once and alerts Tyler.
+
 ## The close (batches 6 and 7)
 
 Already built, and it stays: a close is the first payment beyond a deposit **and** the agreement signed, in either order (Deal
