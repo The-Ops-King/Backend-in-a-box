@@ -96,6 +96,24 @@ Not entry points: database reactivation, existing clients (renewals, second offe
 - **A day ahead,** every call is checked: a meeting link, an active closer on the roster, no double-booking on the closer's calendar,
   the person not DND. A failure goes to the closer and the alerts channel with its fix; a closer who is out has their calls reassigned.
 
+## The call (batch 9)
+
+Already decided: which person a recording is (D273, D306), a booking cancelled after its start is still the call (D276), a call in
+parts is one call, a call handed to another closer is theirs (D254).
+
+- **"Did X show?"**: 15 minutes after the start, with no recording and no host activity, the closer gets a DM with Showed / No-show.
+  A tap starts no-show recovery at once; silence leaves it to the end of day. Nothing is written to the CRM until a person says so.
+  On/off per offer.
+- **No-show recovery:** a "missed you, rebook here" text and a setter rebook cadence (configurable). After a second no-show, nurture.
+  A rebook by a setter credits that setter.
+- **No recording** (Fathom forgotten, a phone call): the end of day asks the closer for three lines (outcome, what they want, next
+  step) in place of the AI review; the call counts as "no recording", and repeated misses by a closer show in the digest.
+- **Call reviews** go to the call-review channel, and whoever is in it sees them: each call's review, and a weekly per-closer trend
+  (rubric scores, top objections, pain and goal groups). No DMs.
+- **Odd calls:** a spouse or partner joining is still one call, one person; a manager who takes the call gets the credit; a call booked
+  straight after a close (onboarding) is never a sales call; a business partner the prospect brings is added as a contact, and the call
+  stays the booked person's.
+
 ## The close (batches 6 and 7)
 
 Already built, and it stays: a close is the first payment beyond a deposit **and** the agreement signed, in either order (Deal
