@@ -149,6 +149,21 @@ To build:
 - **After the close:** a refund soon after → Lost (refunded), and the closer's credit comes off; a failed installment → still
   closed, into collections.
 
+## The client's reporting (batch 11)
+
+- **A dashboard per offer**, which the client can rearrange (hide, add, move). Defaults: the funnel (leads → booked → showed → pitched
+  → closed → cash, by source and lead type); a setter scorecard (dials, conversations, sets, show rate of their sets, speed to lead);
+  a closer scorecard (show, pitch and close rate, cash per call, deal size, top objections, pain and goal groups); money (collected vs
+  contracted, balances owed, past due, refunds); marketing (cost per lead, booking, show and sale, only with ad spend connected);
+  the pipeline (close pending, follow-ups, open deal value).
+- **Logins:** the client (everything), a marketing lead (funnel and marketing) and a sales lead (setters, closers, pipeline). No
+  closer or setter logins.
+- **Targets** per metric: green or red against the goal, and against the previous period.
+- **Delivery:** the dashboard and the Slack wrap-ups. No email.
+- **The numbers never disagree:** GHL is the truth (D73) and the engine's numbers a copy of it. A difference is a bug, not a state:
+  repaired automatically (the 10-minute comparison, D297), logged, and root-caused so that kind cannot come back. The dashboard says
+  when it last synced; between syncs a number can lag by up to 10 minutes, never differ.
+
 ## Direction (Tyler, 2026-11-22)
 
 - **Evolve, not rebuild:** "I have a plan to rebuild but I want it fully functional first." The live offers are consolidated one
