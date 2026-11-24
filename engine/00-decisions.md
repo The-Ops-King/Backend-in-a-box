@@ -8148,3 +8148,19 @@ meeting settings: Tiffany's Zoom connection. Every booking on it became a meetin
 - GHL's calendar PUT resets what it is not sent (open hours, slot length): a direct PUT with only `teamMembers` wiped Nick's hours
   for about a minute before they were sent back. Change a calendar's team through `/api/admin/calendars/ghl-team`, which sends the
   schedule back, never a bare PUT.
+
+## D365 — Zoom says whether a booked call happened (2026-11-24)
+
+Tyler: "if the recording doesn't exist we should assume it's a no-show, because anywhere from 40-60% are going to be no-shows ... but we
+really want to make sure we're not falsely inputting them." On Nov 19-23 Zoom showed the prospect on 8 of Nick's calls and Fathom had 6:
+one the D364 calendar bug, one unexplained. A missing recording is not a no-show; Zoom's participants are the evidence.
+
+- An offer's Zoom "Webhook only" app posts to `/api/webhooks/zoom/<company id>` (secret.zoom_webhook, the app's Secret Token): URL
+  validation answered, Zoom's signature required, every participant joined / left kept once (`zoom_events`).
+- On meeting ended, the booking it was for (the appointment's `meeting_key`, nearest start within 3 hours) gets a verdict, fired as
+  `zoom.meeting_ended` (source engine): held (a prospect there 5 minutes or more), no_show (only the team, by email or name, and
+  note-taker bots), unclear (a prospect only popped in). The same rule as the TRC dashboard's Sales tracker.
+- Optional template "Zoom: call with no recording" (zoom-call-check): on held, waits up to 2 hours for a recording on the booking
+  (`appointment.has_recording`, new in the run's context) and, with none, tells the team in the alerts channel that the call happened
+  and is not a no-show. Waits on the recording event so it neither holds to the send window nor alerts after the recording came.
+- Not yet: the end of day showing Zoom's verdict next to each call. Nothing is filed from Zoom on its own.

@@ -372,7 +372,7 @@ insert into event_types values
   ('call.held','call'),
   ('message.sent','message'), ('message.received','message'), ('reply.classified','message'), ('intent.reviewed','message'), ('intent.unanswered','message'), ('intent.unanswered_no_show','message'),
   ('payment.received','payment'), ('payment.failed','payment'), ('payment.paid_in_full','payment'), ('payment.refunded','payment'), ('payment.unlinked','payment'), ('payment.linked','payment'), ('payment.pending','payment'), ('payment.pending_resolved','payment'), ('operator.enrolled','crm'),
-  ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('setter_call.filed','call'), ('call.closing','call'),
+  ('recording.received','call'), ('recording.unlinked','call'), ('recording.linked','call'), ('call.analyzed','call'), ('call.logged','call'), ('setter_call.result','call'), ('setter_call.filed','call'), ('call.closing','call'), ('zoom.meeting_ended','call'),
   ('agreement.sent','agreement'), ('agreement.signed','agreement'), ('agreement.requested','agreement'),
   ('tag.added','crm'), ('tag.removed','crm'), ('card.moved','crm'), ('scope.left','crm'),
   ('schedule','clock'), ('eod.filed','report'), ('eod.disagreement','report'), ('eod.call_answers','report'), ('slack.reaction','slack'),
@@ -820,3 +820,21 @@ create table bot_threads (
   updated_at  timestamptz not null default now(),
   unique (company_id, channel, thread_ts)
 );
+
+-- D365: every join and leave of an offer's Zoom meetings (its Webhook-only app), kept once; a meeting's end gives its booking a verdict
+create table zoom_events (
+  id              bigserial primary key,
+  company_id      uuid not null references companies(id),
+  meeting_id      text not null,
+  instance_uuid   text not null,
+  kind            text not null check (kind in ('joined','left','ended')),
+  participant_key text not null default '',
+  email           text,
+  name            text,
+  at              timestamptz not null,
+  topic           text,
+  meeting_start   timestamptz,
+  received_at     timestamptz not null default now(),
+  unique (company_id, instance_uuid, kind, participant_key, at)
+);
+create index zoom_events_meeting_idx on zoom_events (company_id, meeting_id, at);

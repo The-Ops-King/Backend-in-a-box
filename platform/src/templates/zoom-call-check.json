@@ -1,0 +1,120 @@
+{
+  "slug": "zoom-call-check",
+  "name": "Zoom: call with no recording",
+  "category": "calls",
+  "stage": "call",
+  "sort": 15,
+  "origin": "default",
+  "optional": true,
+  "description": "Zoom decides whether a booked call happened; the recording is only what was said. When Zoom shows the prospect on the call for 5 minutes or more and no recording has reached the booking 2 hours after the meeting ended, the team is told in the alerts channel, so a call is never taken for a no-show because the notetaker missed it. A call Zoom shows nobody joined is left alone. The client hears nothing.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_contact",
+    "reentry_key": "{{event.instance_uuid}}",
+    "nodes": [
+      {
+        "id": "t1",
+        "type": "trigger",
+        "event": "zoom.meeting_ended",
+        "match": {
+          "eq": [
+            "{{event.verdict}}",
+            "held"
+          ]
+        }
+      },
+      {
+        "id": "c0",
+        "type": "check",
+        "title": "No recording on the booking yet",
+        "when": {
+          "not": {
+            "eq": [
+              "{{appointment.has_recording}}",
+              true
+            ]
+          }
+        },
+        "else_exit": "the recording was already there"
+      },
+      {
+        "id": "w1",
+        "type": "wait_for_event",
+        "title": "Wait up to 2 hours for the recording",
+        "event": "recording.received",
+        "about": "appointment",
+        "until": {
+          "anchor": "now",
+          "offset": "+2h",
+          "tz": "company"
+        },
+        "into": "rec",
+        "respect_send_window": false
+      },
+      {
+        "id": "c1",
+        "type": "check",
+        "title": "Still no recording on the booking",
+        "when": {
+          "not": {
+            "eq": [
+              "{{appointment.has_recording}}",
+              true
+            ]
+          }
+        },
+        "else_exit": "the recording arrived"
+      },
+      {
+        "id": "s1",
+        "type": "slack_post",
+        "channel": "{{slack.channel.alerts}}",
+        "fallback_channel": "{{slack.channel.ops}}",
+        "title": "Tell the team: the call happened and nothing recorded it",
+        "as": {
+          "name": "Call check",
+          "icon": ":movie_camera:"
+        },
+        "template": "*Call happened, no recording:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}>, {{appointment.starts_at | date_company}} with {{appointment.closer.name | default:the closer}}.\nZoom shows them on the call for {{event.prospect_minutes}} minutes, and no recording reached the booking 2 hours after it ended. It is not a no-show. Check the notetaker was let in, and file the outcome by hand."
+      },
+      {
+        "id": "x1",
+        "type": "exit",
+        "reason": "told the team"
+      },
+      {
+        "id": "x_ok",
+        "type": "exit",
+        "reason": "the recording arrived"
+      }
+    ],
+    "edges": [
+      {
+        "from": "t1",
+        "to": "c0"
+      },
+      {
+        "from": "c0",
+        "to": "w1"
+      },
+      {
+        "from": "w1",
+        "to": "x_ok",
+        "label": "event"
+      },
+      {
+        "from": "w1",
+        "to": "c1",
+        "label": "until"
+      },
+      {
+        "from": "c1",
+        "to": "s1"
+      },
+      {
+        "from": "s1",
+        "to": "x1"
+      }
+    ]
+  }
+}

@@ -46,6 +46,8 @@ export const MATCH_CONTEXT: Record<string, readonly string[]> = {
   "slack.reaction": [...CONTACT, "appointment.id"],
   // recordings.ts:450, inbound.ts: the meeting and the booking it fits; no closer (a branch reads recording.closer)
   "recording.received": [...CONTACT, ...APPT_ROW, ...MEETING],
+  // zoom.ts meetingEnded (D365): the booking the meeting was for, and its person when it has one
+  "zoom.meeting_ended": [...CONTACT, ...APPT_ROW],
   // poll.ts:408: a phone call with what the dialer knew
   "call.logged": [...CONTACT, ...PHONE],
   // poll.ts:466, webhooks/agreement-request.ts
