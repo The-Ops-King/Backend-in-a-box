@@ -13,16 +13,34 @@ const SERVER_OWNED = new Set(["id", "_id", "slug", "widgetSlug", "dateAdded", "d
 export const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
 type TeamMember = Record<string, unknown> & { userId?: string; priority?: number; isPrimary?: boolean };
+/** What says which person a member is on the calendar; everything else on a member is how their meetings are held. */
+const MEMBER_OWN = new Set(["userId", "priority", "isPrimary", "selected"]);
+const meetingOf = (m: TeamMember) => Object.fromEntries(Object.entries(m).filter(([k]) => !MEMBER_OWN.has(k)));
+/** A connected account (Zoom, Google, Teams) anywhere in a member's meeting settings: the meetings are made in that account. */
+const OAUTH = /OauthId$/;
+export const accountsIn = (m: TeamMember): string[] => {
+  const out = new Set<string>();
+  const walk = (v: unknown) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { if (OAUTH.test(k) && typeof x === "string" && x.trim()) out.add(x); else walk(x); } };
+  walk(meetingOf(m)); return [...out];
+};
+
 /**
- * The body that makes the copy: everything the original was set up with, its team replaced by `userIds` (each takes the original
- * first member's meeting settings, so a Zoom or Meet location stays the same kind), a new name and booking link.
+ * The body that makes the copy: everything the original was set up with, its team replaced by `userIds`, a new name and booking link.
+ * D356 (TRC, 2026-11-24): each person keeps their OWN meeting settings (`own`, read from a calendar they are already on). The
+ * original's first member's settings are used only when they name no connected account (a phone, a fixed address). Copied with
+ * Tiffany's Zoom connection, Nick's calendar made every call a meeting in Tiffany's Zoom, and his Fathom recorded none of them.
  */
-export function cloneBody(src: Record<string, unknown>, o: { name: string; userIds: string[]; locationId: string }): Record<string, unknown> {
+export function cloneBody(src: Record<string, unknown>, o: { name: string; userIds: string[]; locationId: string; own?: Record<string, TeamMember> }): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(src)) if (!SERVER_OWNED.has(k) && v !== undefined) body[k] = v;
-  const model: TeamMember = { ...(((src.teamMembers as TeamMember[] | undefined) ?? []).find((t) => t.isPrimary) ?? ((src.teamMembers as TeamMember[] | undefined) ?? [])[0] ?? {}) };
-  delete model.userId;
-  body.teamMembers = o.userIds.map((userId, i) => ({ ...model, userId, priority: 0.5, isPrimary: i === 0 }));
+  const members = (src.teamMembers as TeamMember[] | undefined) ?? [];
+  const model: TeamMember = members.find((t) => t.isPrimary) ?? members[0] ?? {};
+  const borrowed = accountsIn(model);
+  body.teamMembers = o.userIds.map((userId, i) => {
+    const own = o.own?.[userId];
+    if (!own && borrowed.length) throw new Error(`${userId} is on no calendar here with their own meeting connection, and the original's meetings are made in another person's account (${borrowed.join(", ")}). Connect their Zoom/Google in GHL and add them to a calendar first, or copy a calendar they are already on.`);
+    return { ...meetingOf(own ?? model), userId, priority: 0.5, isPrimary: i === 0 };
+  });
   body.name = o.name; body.locationId = o.locationId;
   body.slug = slugOf(o.name); body.widgetSlug = slugOf(o.name);
   return body;
@@ -37,9 +55,19 @@ export async function cloneCalendar(http: Http, locationId: string, o: { from: s
   if (!o.userIds.length) throw new Error("a calendar needs at least one team member");
   const src = ((await http("GET", `/calendars/${encodeURIComponent(o.from)}`, CAL)) as { calendar?: Record<string, unknown> }).calendar;
   if (!src) throw new Error(`GHL has no calendar ${o.from}`);
-  const all = ((await http("GET", `/calendars/?locationId=${locationId}`, CAL)) as { calendars?: { id: string; name: string }[] }).calendars ?? [];
+  const all = ((await http("GET", `/calendars/?locationId=${locationId}`, CAL)) as { calendars?: { id: string; name: string; teamMembers?: TeamMember[] }[] }).calendars ?? [];
   const same = all.find((c) => c.name.trim().toLowerCase() === o.name.trim().toLowerCase());
-  let body = cloneBody(src, { name: o.name, userIds: o.userIds, locationId });
+  // each person's own meeting settings: from the original when they are on it, else from another calendar they are on
+  const own: Record<string, TeamMember> = {};
+  for (const m of (src.teamMembers as TeamMember[] | undefined) ?? []) if (m.userId && o.userIds.includes(m.userId)) own[m.userId] = m;
+  for (const id of o.userIds.filter((u) => !own[u])) {
+    for (const c of all) {
+      const full = c.teamMembers ? c : ((await http("GET", `/calendars/${encodeURIComponent(c.id)}`, CAL)) as { calendar?: { teamMembers?: TeamMember[] } }).calendar;
+      const m = full?.teamMembers?.find((t) => t.userId === id && accountsIn(t).length);
+      if (m) { own[id] = m; break; }
+    }
+  }
+  let body = cloneBody(src, { name: o.name, userIds: o.userIds, locationId, own });
   const base = { from: { id: o.from, name: String(src.name ?? o.from) }, name: o.name, team: o.userIds, left_out: [] as string[], copied: Object.keys(body).sort() };
   if (same) return { ...base, would: "exists", created: { id: same.id } };   // made already: never a second one
   if (!o.apply) return { ...base, would: "create" };
