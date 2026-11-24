@@ -26,7 +26,7 @@ export const accountsIn = (m: TeamMember): string[] => {
 
 /**
  * The body that makes the copy: everything the original was set up with, its team replaced by `userIds`, a new name and booking link.
- * D356 (TRC, 2026-11-24): each person keeps their OWN meeting settings (`own`, read from a calendar they are already on). The
+ * D364 (TRC, 2026-11-24): each person keeps their OWN meeting settings (`own`, read from a calendar they are already on). The
  * original's first member's settings are used only when they name no connected account (a phone, a fixed address). Copied with
  * Tiffany's Zoom connection, Nick's calendar made every call a meeting in Tiffany's Zoom, and his Fathom recorded none of them.
  */

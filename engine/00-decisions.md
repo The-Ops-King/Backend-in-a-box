@@ -8135,7 +8135,7 @@ Tyler, PMU: "Anybody who sees it should be able to answer." `payments.ask_answer
 answer it (the answer still names who, in Slack and the audit); unset or "managers" keeps it to the offer's managers and its operator,
 as before. Only this question: the other money buttons (link a payment, a recording) stay managers'. PMU: "anyone".
 
-## D356 — A copied calendar keeps each person's own meeting connection (2026-11-24)
+## D364 — A copied calendar keeps each person's own meeting connection (2026-11-24)
 
 Tyler: "are Nick and Tiffany's fathom connected and recording?" Nick's Fathom recorded 6 of 13 calls on the shared Leap Welcome Calls
 and 0 of 7 on "Leap Welcome Call - Nick". That calendar was made by the D344 copy, which gave Nick the original's first member's

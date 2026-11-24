@@ -45,11 +45,11 @@ describe("D344: clone a GHL calendar", () => {
     expect(again.posts).toHaveLength(0);
   });
 
-  // D356: the shape TRC's Leap Welcome Calls had: each member's meetings made in their own Zoom connection
+  // D364: the shape TRC's Leap Welcome Calls had: each member's meetings made in their own Zoom connection
   const zoom = (id: string) => ({ isZoomAdded: "true", zoomOauthId: id, locationConfigurations: [{ kind: "zoom_conference", zoomOauthId: id, meetingId: "zoom_conference_0" }] });
   const ZSRC = { ...SRC, teamMembers: [{ userId: "TIFF", priority: 1, isPrimary: true, ...zoom("Z-TIFF") }, { userId: "NICK", priority: 1, ...zoom("Z-NICK") }] };
 
-  it("D356: each person keeps their own Zoom; nobody's calls are made in someone else's account", () => {
+  it("D364: each person keeps their own Zoom; nobody's calls are made in someone else's account", () => {
     expect(accountsIn(ZSRC.teamMembers[0])).toEqual(["Z-TIFF"]);
     const b = cloneBody(ZSRC, { name: "Nick", userIds: ["NICK"], locationId: "LOC", own: { NICK: ZSRC.teamMembers[1] } });
     expect(JSON.stringify(b.teamMembers)).not.toContain("Z-TIFF");
@@ -58,7 +58,7 @@ describe("D344: clone a GHL calendar", () => {
     expect(() => cloneBody(ZSRC, { name: "Nick", userIds: ["NEW"], locationId: "LOC" })).toThrow(/NEW is on no calendar here with their own meeting connection.*Z-TIFF/);
   });
 
-  it("D356: the copy finds the person's own Zoom on the original, else on another calendar they are on; refused when there is none", async () => {
+  it("D364: the copy finds the person's own Zoom on the original, else on another calendar they are on; refused when there is none", async () => {
     const posts: Record<string, unknown>[] = [];
     const http = async (method: string, path: string, o?: { body?: unknown }) => {
       if (method === "GET" && path === "/calendars/CAL1") return { calendar: ZSRC };
