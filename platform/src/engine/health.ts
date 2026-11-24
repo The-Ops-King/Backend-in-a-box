@@ -28,6 +28,7 @@ import { ghlWorkflows } from "@/adapters/ghl/catalog";
 import { isOn, type Filters } from "@/onboarding/filters";
 import { formsOf, publicBase, TF_TAG_KEY, TF_TOKEN_KEY, typeformWebhookUrl, unboundOf } from "./typeform";
 import { slackBot } from "./slack-conn";
+import { OFF_ON_PURPOSE_KEY, workflowsOffWithWork, type OffWithWork } from "./workflows-off";
 
 /**
  * D33. The hourly sweep: a read-only look at every connection a company runs on. Its own automation, with its own
@@ -60,6 +61,7 @@ export const CHECKS: { id: string; label: string; about: string }[] = [
   { id: "fathom_webhook", label: "Fathom webhook", about: "the recording webhook is still registered (or, when Fathom cannot list webhooks, that deliveries keep arriving)" },
   { id: "typeform_webhook", label: "Typeform webhook", about: "on every form the company maps, the engine's own webhook is still there, on, sending form responses to this engine (not somewhere else); gone, off or pointing elsewhere is an alert with a button that puts it back" },
   { id: "their_workflows", label: "Their GHL workflows", about: "the company's own GHL workflows, read every hour against the marks made when they were checked (D180): one published since then and not marked, or one marked off that GHL says is on, is said once, until it is marked or turned off (D192). Nothing is said before the list was first marked" },
+  { id: "workflows_off", label: "Workflows off with work to do", about: "opt-in (D366): a workflow that is off while the events it starts on keep happening (the last 7 days, its trigger's match included); one left off on purpose is named in health.off_on_purpose" },
   { id: "slack", label: "Slack", about: "the bot token is alive and the bot is in every channel the workflows post to" },
   { id: "anthropic", label: "Anthropic key", about: "the AI key still answers (the company's, else the server's)" },
   { id: "jev", label: "Jev (reply reading)", about: "the TypeSafe AI key still answers; without it every reply goes to a person" },
@@ -264,6 +266,17 @@ export async function sweep(c: PoolClient, company: CompanyRow, adapters: Adapte
         if (!flagged) ok("their_workflows", `${list.length} GHL workflows, every published one marked.`);
       } catch (e) { bad("their_workflows", "warning", `Cannot read their GHL workflows: ${String((e as Error).message).slice(0, 160)}`); }
     }
+  }
+
+  // D366: a workflow off while its work keeps arriving. Opt-in: only an offer whose Health check turns it on is told.
+  if (row.checks.workflows_off === true) {
+    try {
+      const found = await workflowsOffWithWork(c, company.id, bindings, now.toJSDate());
+      const say = (w: OffWithWork) => `"${w.name}" is off, and ${w.events} event${w.events === 1 ? "" : "s"} in the last 7 days would have started it (the last ${DateTime.fromJSDate(w.latest).setZone(company.timezone).toFormat("ccc LLL d, h:mm a")}).`;
+      if (found.length > THEIR_WORKFLOWS_EACH) bad("workflows_off", "warning", `${found.length} workflows are off while their work keeps happening: ${found.map((w) => `${w.name} (${w.events})`).join(", ")}. Turn on the ones that should run; name the rest in ${OFF_ON_PURPOSE_KEY}.`, "many");
+      else for (const w of found) bad("workflows_off", "warning", `${say(w)} Turn it on, or name it in ${OFF_ON_PURPOSE_KEY} if it is off on purpose.`, w.id, { events: w.events, types: w.types });
+      if (!found.length) ok("workflows_off", "No workflow is off while its work keeps happening.");
+    } catch (e) { bad("workflows_off", "warning", `Cannot check the workflows that are off: ${String((e as Error).message).slice(0, 160)}`); }
   }
 
   // Typeform (D122, open item 34): the engine's webhook on each mapped form, as Typeform has it now

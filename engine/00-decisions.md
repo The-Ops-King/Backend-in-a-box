@@ -8164,3 +8164,15 @@ one the D364 calendar bug, one unexplained. A missing recording is not a no-show
   (`appointment.has_recording`, new in the run's context) and, with none, tells the team in the alerts channel that the call happened
   and is not a no-show. Waits on the recording event so it neither holds to the send window nor alerts after the recording came.
 - Not yet: the end of day showing Zoom's verdict next to each call. Nothing is filed from Zoom on its own.
+
+## D366 — A workflow off while its work keeps arriving is said (2026-11-24)
+
+Tyler: "Setter call logged ... should have been fucking live since the beginning." TRC's dialer logged 62 of Nick's connected calls
+from Nov 18 to Nov 24 while the workflow that reviews them was off, and nothing said so.
+
+- Health check `workflows_off`: every workflow of the offer that is OFF, with the events of its trigger types in the last 7 days that
+  its triggers would take (the match included, as the replay's dry run reads them, `workflowTakes`). One warning per workflow with
+  the count and the last one; more than 5 are one grouped warning. Clock and operator events are not work.
+- A workflow left off on purpose is named in the offer's `health.off_on_purpose` setting (slugs or names) and never flagged.
+- Opt-in: only an offer whose Health check step sets `workflows_off: true` runs it, so no other offer starts hearing about its
+  deliberately-off workflows. TRC first, with its on-purpose list set before it is turned on.
