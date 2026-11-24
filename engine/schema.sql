@@ -788,6 +788,7 @@ create table slack_posts (
   ts         text not null,
   run_id     uuid references runs(id) on delete set null,
   posted_at  timestamptz not null default now(),
+  lines      jsonb not null default '[]',               -- D367: a digest post's lines
   unique (company_id, tag)
 );
 
