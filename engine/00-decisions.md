@@ -8176,3 +8176,17 @@ from Nov 18 to Nov 24 while the workflow that reviews them was off, and nothing 
 - A workflow left off on purpose is named in the offer's `health.off_on_purpose` setting (slugs or names) and never flagged.
 - Opt-in: only an offer whose Health check step sets `workflows_off: true` runs it, so no other offer starts hearing about its
   deliberately-off workflows. TRC first, with its on-purpose list set before it is turned on.
+
+## D367 — Alerts that land together are one message (2026-11-24)
+
+Tyler: "I just got 50 messages saying the person needs to dial. Better is if they come in before 8am we get one message that says 'all
+these people came in last night'." PMU's dial cadence went live with 24 people due overnight; at 7am Eastern each "not dialed" alert
+was its own post.
+
+- A `slack_post` may carry `digest: { key, title }`. Every post whose rendered key is the same adds its line to one Slack message
+  under the title, with the count, edited in place (no new ping per line); the first posts it. Lines are kept on the post
+  (`slack_posts.lines`, migration 0027), past 60 shown as "…and N more". A post with buttons or in a thread is never digested.
+- The dial cadence's "not dialed" alert is a digest by the hour: `dial-late-<day>-<hour>` (the offer's time zone). The overnight
+  backlog arrives as one message at the start of the alert window, and after that at most one new message an hour.
+- Platform behaviour (CLAUDE.md, Slack works the same on every offer): the template changes, and each offer's own Dial cadence
+  copy (PMU, TRC) is changed by name, dry run first, only that step. Test fails first (three alerts → one message).

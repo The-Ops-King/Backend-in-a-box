@@ -573,6 +573,27 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
       const token = decrypt(conn.bot_token);
       const shown = `${route ? route.prefix : ""}${text}`, body = !parentTs ? `${modePrefix(d, node.label)}${shown}` : shown;
       // D76: a post that says where a thing stands (a call's filed outcome, the day's report) is edited in place when it is said again, never repeated
+      // D367: a digest post adds its line to the one post its key names, under its title; the first of them posts it
+      if (node.digest && !parentTs && !(node.buttons ?? []).length) {
+        const key = `digest:${render(node.digest.key, d.ctx, env(d))}`, title = render(node.digest.title, d.ctx, env(d));
+        const lock = await d.c.query<{ k: string }>("select pg_advisory_lock(hashtextextended($1 || $2, 0))::text as k", [d.company.id, key]);
+        try {
+          const had = await one<{ channel: string; ts: string; lines: string[] }>(d.c, "select channel, ts, lines from slack_posts where company_id=$1 and tag=$2", [d.company.id, key]);
+          const lines = [...(had?.lines ?? []), shown];
+          const MAX = 60, shownLines = lines.length > MAX ? [...lines.slice(0, MAX), `…and ${lines.length - MAX} more`] : lines;
+          const dBody = `${modePrefix(d, node.label)}${title} (${lines.length})\n${shownLines.join("\n")}`;
+          const r = had && d.adapters.notifier.update
+            ? await slackPostOrFail(d, send.id, async () => { await d.adapters.notifier.update!(token, had.channel, had.ts, dBody); return { ts: had.ts, channel: had.channel }; })
+            : await slackPostOrFail(d, send.id, () => d.adapters.notifier.post(token, postTo, dBody, persona(d, node.as)));
+          if ("refused" in r) return { status: "skipped", next, result: { kind: "blocked", why: `Slack refused the post: ${r.refused}`, would_post: text.slice(0, 160) } };
+          const at = (r as { channel?: string }).channel || postTo;
+          await d.c.query(`insert into slack_posts (company_id, tag, channel, ts, run_id, lines) values ($1,$2,$3,$4,$5,$6)
+            on conflict (company_id, tag) do update set lines=excluded.lines, channel=excluded.channel, ts=excluded.ts`, [d.company.id, key, at, r.ts, d.run.id, JSON.stringify(lines)]);
+          await d.c.query("update sends set status=$2, external_id=$3, sent_at=now() where id=$1", [send.id, ghost(d) ? "ghost" : "sent", r.ts]);
+          setPath(d.ctx, `vars.__slack.${node.id}`, r.ts);
+          return { status: "ok", next, result: { ...(ghost(d) ? { ghost: true } : {}), ...(route ? { redirected_to: route.to } : {}), ts: r.ts, digest: key, lines: lines.length, ...(had ? { edited: had.ts } : {}) } };
+        } finally { await d.c.query("select pg_advisory_unlock(hashtextextended($1 || $2, 0))", [d.company.id, key]); void lock; }
+      }
       const prior = node.edit && node.tag ? await one<{ channel: string; ts: string }>(d.c, "select channel, ts from slack_posts where company_id=$1 and tag=$2", [d.company.id, render(node.tag, d.ctx, env(d))]) : null;
       const update = d.adapters.notifier.update;
       // D93: buttons whose condition holds, under the same words; the text stays the notification and the fallback

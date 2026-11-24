@@ -273,4 +273,8 @@ export const MIGRATIONS: Migration[] = [
     await c.query("create index if not exists zoom_events_meeting_idx on zoom_events (company_id, meeting_id, at)");
     await c.query("insert into event_types values ('zoom.meeting_ended','call') on conflict do nothing");
   } },
+  // D367: the lines a digest post holds (one message for many alerts)
+  { id: "0027-slack-digest-lines", run: async (c) => {
+    await c.query("alter table slack_posts add column if not exists lines jsonb not null default '[]'");
+  } },
 ];

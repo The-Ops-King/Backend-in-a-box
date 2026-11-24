@@ -661,14 +661,18 @@
       {
         "id": "late",
         "type": "slack_post",
-        "title": "Not dialed 4 hours after it was due: tell the team",
+        "title": "Not dialed 4 hours after it was due: add them to this hour's list for the team",
         "channel": "{{slack.channel.alerts}}",
         "fallback_channel": "{{slack.channel.bookings}}",
         "as": {
           "name": "Dial cadence",
           "icon": ":telephone_receiver:"
         },
-        "template": "Call #{{vars.n}} to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}> has been due 4 hours and not dialed. They stay on the list until it is."
+        "template": "• Call #{{vars.n}} to <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:someone}}>",
+        "digest": {
+          "key": "dial-late-{{now | date_company:yyyy-MM-dd-HH}}",
+          "title": ":telephone_receiver: *Due 4+ hours and not dialed yet*"
+        }
       },
       {
         "id": "dial_b",
