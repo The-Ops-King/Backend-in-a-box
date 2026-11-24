@@ -255,4 +255,22 @@ export const MIGRATIONS: Migration[] = [
       }
     });
   } },
+  // D365: every join and leave of an offer's Zoom meetings (its Webhook-only app), kept once, and the verdict event a meeting's end
+  // fires for the booking it was for (held / no_show / unclear), so a missing recording is never taken for a no-show on its own
+  { id: "0026-zoom-attendance", run: async (c) => {
+    await c.query(`create table if not exists zoom_events (
+      id bigserial primary key,
+      company_id uuid not null references companies(id),
+      meeting_id text not null,
+      instance_uuid text not null,
+      kind text not null check (kind in ('joined','left','ended')),
+      participant_key text not null default '',
+      email text, name text,
+      at timestamptz not null,
+      topic text, meeting_start timestamptz,
+      received_at timestamptz not null default now(),
+      unique (company_id, instance_uuid, kind, participant_key, at))`);
+    await c.query("create index if not exists zoom_events_meeting_idx on zoom_events (company_id, meeting_id, at)");
+    await c.query("insert into event_types values ('zoom.meeting_ended','call') on conflict do nothing");
+  } },
 ];

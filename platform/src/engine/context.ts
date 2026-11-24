@@ -153,7 +153,9 @@ export async function buildContext(c: PoolClient, run: RunRow, company: CompanyR
              exists (select 1 from appointments p join company_terms pt on pt.id=p.appointment_term left join company_terms po on po.id=p.outcome_term
                 where p.company_id=a.company_id and p.contact_id=a.contact_id and p.id<>a.id and pt.category='closing' and ${standsSql("p")} and p.status<>'noshow'
                   and p.starts_at < coalesce(a.booked_at, now()) and coalesce(po.category,'') not in ('noshow','cancelled','rescheduled')) as follows_call,
-             ot.category as outcome, cot.category as call_outcome
+             ot.category as outcome, cot.category as call_outcome,
+             -- D365: a meeting recording (Fathom, not a dialer call) is on this booking
+             exists (select 1 from recordings rr where rr.appointment_id=a.id and rr.provider<>'ghl') as has_recording
       from appointments a left join company_terms t on t.id=a.appointment_term left join users u on u.id=a.assigned_user_id
            left join company_terms ot on ot.id=a.outcome_term left join company_terms cot on cot.id=a.call_outcome_term
       where a.id=$1`, [run.appointment_id, callSetting(bindings, "calls.transcript_wait_min")]);
