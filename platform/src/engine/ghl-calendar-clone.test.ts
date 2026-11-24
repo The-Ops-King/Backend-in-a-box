@@ -1,6 +1,6 @@
 /** D344: a calendar copied whole with its own team; the offer's document templates. */
 import { describe, it, expect } from "vitest";
-import { cloneBody, cloneCalendar, documentTemplates } from "./ghl-calendar-clone";
+import { accountsIn, cloneBody, cloneCalendar, documentTemplates } from "./ghl-calendar-clone";
 
 const SRC = { id: "CAL1", locationId: "LOC", name: "Leap Welcome Calls", slug: "leap-welcome", widgetSlug: "leap-welcome", dateAdded: "x", calendarType: "round_robin", slotDuration: 30, slotDurationUnit: "mins",
   openHours: [{ daysOfTheWeek: [1], hours: [{ openHour: 9, openMinute: 0, closeHour: 17, closeMinute: 0 }] }], formId: "FORM1", notifications: [{ type: "email" }], locationConfigurations: [{ kind: "zoom_conference" }],
@@ -43,6 +43,34 @@ describe("D344: clone a GHL calendar", () => {
     const again = fakeHttp({ existing: ["leap welcome call - nick"] });
     expect(await cloneCalendar(again.http, "LOC", { from: "CAL1", name: "Leap Welcome Call - Nick", userIds: ["NICK"], apply: true })).toMatchObject({ would: "exists", created: { id: "E0" } });
     expect(again.posts).toHaveLength(0);
+  });
+
+  // D364: the shape TRC's Leap Welcome Calls had: each member's meetings made in their own Zoom connection
+  const zoom = (id: string) => ({ isZoomAdded: "true", zoomOauthId: id, locationConfigurations: [{ kind: "zoom_conference", zoomOauthId: id, meetingId: "zoom_conference_0" }] });
+  const ZSRC = { ...SRC, teamMembers: [{ userId: "TIFF", priority: 1, isPrimary: true, ...zoom("Z-TIFF") }, { userId: "NICK", priority: 1, ...zoom("Z-NICK") }] };
+
+  it("D364: each person keeps their own Zoom; nobody's calls are made in someone else's account", () => {
+    expect(accountsIn(ZSRC.teamMembers[0])).toEqual(["Z-TIFF"]);
+    const b = cloneBody(ZSRC, { name: "Nick", userIds: ["NICK"], locationId: "LOC", own: { NICK: ZSRC.teamMembers[1] } });
+    expect(JSON.stringify(b.teamMembers)).not.toContain("Z-TIFF");
+    expect(b.teamMembers).toEqual([{ ...zoom("Z-NICK"), userId: "NICK", priority: 0.5, isPrimary: true }]);
+    // with no connection of their own, the copy is refused rather than borrowing the original's
+    expect(() => cloneBody(ZSRC, { name: "Nick", userIds: ["NEW"], locationId: "LOC" })).toThrow(/NEW is on no calendar here with their own meeting connection.*Z-TIFF/);
+  });
+
+  it("D364: the copy finds the person's own Zoom on the original, else on another calendar they are on; refused when there is none", async () => {
+    const posts: Record<string, unknown>[] = [];
+    const http = async (method: string, path: string, o?: { body?: unknown }) => {
+      if (method === "GET" && path === "/calendars/CAL1") return { calendar: ZSRC };
+      if (method === "GET" && path.startsWith("/calendars/?")) return { calendars: [{ id: "CAL1", name: "Leap Welcome Calls" }, { id: "CAL2", name: "Sales Calls" }] };
+      if (method === "GET" && path === "/calendars/CAL2") return { calendar: { id: "CAL2", teamMembers: [{ userId: "JOSE", ...zoom("Z-JOSE") }] } };
+      if (method === "POST" && path === "/calendars/") { posts.push(o!.body as Record<string, unknown>); return { calendar: { id: "NEW1" } }; }
+      throw new Error(`unexpected ${method} ${path}`);
+    };
+    await cloneCalendar(http, "LOC", { from: "CAL1", name: "Nick only", userIds: ["NICK"], apply: true });
+    await cloneCalendar(http, "LOC", { from: "CAL1", name: "Jose only", userIds: ["JOSE"], apply: true });
+    expect(posts.map((p) => (p.teamMembers as { zoomOauthId: string }[])[0].zoomOauthId)).toEqual(["Z-NICK", "Z-JOSE"]);
+    await expect(cloneCalendar(http, "LOC", { from: "CAL1", name: "Nobody", userIds: ["NOBODY"], apply: false })).rejects.toThrow(/own meeting connection/);
   });
 
   it("lists the offer's document templates", async () => {

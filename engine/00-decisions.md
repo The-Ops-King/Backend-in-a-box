@@ -8134,3 +8134,17 @@ the same on every offer); no saved workflow changes.
 Tyler, PMU: "Anybody who sees it should be able to answer." `payments.ask_answered_by`: "anyone" lets whoever sees D331's question
 answer it (the answer still names who, in Slack and the audit); unset or "managers" keeps it to the offer's managers and its operator,
 as before. Only this question: the other money buttons (link a payment, a recording) stay managers'. PMU: "anyone".
+
+## D364 — A copied calendar keeps each person's own meeting connection (2026-11-24)
+
+Tyler: "are Nick and Tiffany's fathom connected and recording?" Nick's Fathom recorded 6 of 13 calls on the shared Leap Welcome Calls
+and 0 of 7 on "Leap Welcome Call - Nick". That calendar was made by the D344 copy, which gave Nick the original's first member's
+meeting settings: Tiffany's Zoom connection. Every booking on it became a meeting in Tiffany's Zoom, which Nick's Fathom never joins.
+
+- The copy takes each person's OWN meeting settings: from the original when they are on it, else from another calendar in the
+  location they are on with a connected account. The original's settings are copied only when they name no account (a phone, an
+  address). With no connection of their own, the copy is refused and says so; it never borrows someone else's Zoom/Google/Teams.
+- Put right for TRC: Nick's calendar now uses his own Zoom (GHL, 2026-11-24). Bookings made before keep Tiffany's Zoom links.
+- GHL's calendar PUT resets what it is not sent (open hours, slot length): a direct PUT with only `teamMembers` wiped Nick's hours
+  for about a minute before they were sent back. Change a calendar's team through `/api/admin/calendars/ghl-team`, which sends the
+  schedule back, never a bare PUT.
