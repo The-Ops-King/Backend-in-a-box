@@ -35,7 +35,7 @@ export const EVENT_LABELS: Record<string, string> = {
   "call.held": "The call happened", "message.received": "They replied (text or email)", "tag.added": "Tag added", "tag.removed": "Tag removed", "card.moved": "Someone moved a card by hand in GHL",
   "payment.received": "Payment received", "payment.failed": "Payment failed", "payment.refunded": "Payment refunded", "payment.paid_in_full": "They have paid in full",
   "recording.received": "Fathom recording received", "run.started": "Another workflow started for them", "run.exited": "Another workflow stopped early for them", "send.suppressed": "A message was held back", "recording.unlinked": "A recording matched nobody", "recording.linked": "A recording was matched to a contact", "call.analyzed": "AI finished reading a call", "call.logged": "A dialer call came in from GHL", "call.closing": "Jev read a dialer call as a closing call", "agreement.sent": "Agreement sent", "intent.unanswered": "Nobody answered the team's question in time", "intent.unanswered_no_show": "A no-show after an unanswered cancel or reschedule read", "payment.unlinked": "A payment matched nobody", "agreement.signed": "Agreement signed",
-  "opportunity.opened": "A deal was opened", "opportunity.won": "A deal was won", "opportunity.lost": "A deal was lost", "form.submitted": "A form was submitted",
+  "opportunity.opened": "A deal was opened", "opportunity.won": "A deal was won", "opportunity.lost": "A deal was lost", "form.submitted": "A form was submitted", "application.received": "An application came in (finished or left partway)",
 };
 const PATHS: Record<string, string> = {
   "contact.phone": "phone number", "contact.is_lead": "they are a lead", "contact.email": "email address", "contact.first_name": "first name", "contact.last_name": "last name", "contact.name": "full name", "contact.tags": "tags", "contact.timezone": "time zone", "contact.fetched_at": "when the CRM was last read for them", "contact.stale": "why the engine's copy stood in",
@@ -293,6 +293,7 @@ export const untilWords = (rule: WaitRule) => { const w = waitWords(rule); retur
 /** `from`: the step the edge leaves, when its labels mean something of their own (an event wait's `event` and `until`, D85). */
 export function edgeWords(e: Edge, from?: Node): string {
   if (from?.type === "wait_for_event" && (e.label === "event" || e.label === "until")) return e.label === "event" ? eventWords(from.event) : `no ${eventWords(from.event)} in time`;
+  if (from?.type === "check" && e.label === "timeout") return "not in time: go on anyway";
   if (e.label === "timeout") return "no reply in time";
   if (e.label === "tap") return "a team member taps";
   if (e.label === "until") return "nobody tapped in time";

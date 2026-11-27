@@ -277,4 +277,8 @@ export const MIGRATIONS: Migration[] = [
   { id: "0027-slack-digest-lines", run: async (c) => {
     await c.query("alter table slack_posts add column if not exists lines jsonb not null default '[]'");
   } },
+  // D368: an application (finished or left partway) seen by the ten-minute pass, once it is ten minutes old
+  { id: "0028-application-received", run: async (c) => {
+    await c.query("insert into event_types values ('application.received','lead') on conflict do nothing");
+  } },
 ];

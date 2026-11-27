@@ -53,6 +53,7 @@ export const STEP_DOCS: Record<Node["type"], StepDoc> = {
 export const EVENT_SOURCES: Record<string, string> = {
   "lead.created": "the contacts poll (a new person in scope), a booking that brought a new person, the ledger check pulling someone in, a record step with start",
   "form.submitted": "a Typeform application (the webhook, or an import)",
+  "application.received": "an application, finished or left partway, ten minutes after it came in (the ten-minute Typeform pass, D368)",
   "appointment.booked": "the bookings poll (GHL or Calendly), a replay",
   "appointment.rescheduled": "the bookings poll (the start moved)",
   "appointment.status_changed": "the bookings poll; an update_appointment step",

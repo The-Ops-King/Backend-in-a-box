@@ -8190,3 +8190,32 @@ was its own post.
   backlog arrives as one message at the start of the alert window, and after that at most one new message an hour.
 - Platform behaviour (CLAUDE.md, Slack works the same on every offer): the template changes, and each offer's own Dial cadence
   copy (PMU, TRC) is changed by name, dry run first, only that step. Test fails first (three alerts → one message).
+
+## D368 — Partials: an application with no call booked ten minutes later is posted (2026-11-27)
+
+Tyler, for Jay (PMU's CMO), replacing the Zap's "New Leads" post: "read the type form, wait for 10 minutes, check if there is a call
+booked, if there's no call booked, post to that channel"; a partial is "come in as a lead and not booked"; once per person per day;
+a ✅ on the post if they book later. Jay had asked why the "leads" post (the Zap's, every submission, bookers included) differed from
+the booking card.
+
+- **`application.received`** (new event, migration 0028). The ten-minute applications pass (D330) already reads every finished and
+  half-finished response of `typeform.application_forms`; it now records each response once it is ten minutes past its submission
+  (or, half-finished, its start) and no older than two hours, about the person the engine has for its email, else its phone. The
+  event carries the form (`form_name` from `typeform.form_tags`), finished or not, the person's name, email and phone, every answer
+  as the form asked it in the form's order (`answers`, and `answers_text` as Slack lines; name, email, phone and the booking step
+  are not answers), and the UTMs. Once per response (`webhook_deliveries`, typeform_application). A person the engine does not have
+  yet is looked for again next pass. Nothing is written to GHL. Typeform's own form is read once a pass for the question words.
+- **Partial applicant** (optional template, PMU only): on `application.received`, a check that they have no closing call ahead
+  (`contact.has_upcoming_call`, else exit `booked`), then one post to `slack.channel.partials` tagged `partial:<contact>`: who, how
+  far they got, every answer, source and the ad's campaign / ad set / ad ids, when they came in. Once per person per day
+  (`once_per_contact_per_window`, 1d). The pass runs every ten minutes, so the post lands 10 to 20 minutes after they came in.
+- **A check may go on when its time is up.** A `check` with `retry` and an outgoing edge labelled `timeout` follows that edge once
+  the time runs out instead of exiting (the reply wait's convention). Without such an edge nothing changes, so no saved workflow
+  of any offer behaves differently. PMU's Call booked uses it to hold its card until the form's answers reach GHL (the booking happens
+  inside the form, before the Zap writes them: Brittany Baumer's card went up blank on Nov 25 and was filled in 29 seconds later,
+  after Jay had looked), up to three minutes, then post as before.
+- PMU's own copies (one offer, dry run first): Call booked waits for the answers before posting; its card gains Email, the form
+  (VSL A / B) and the ad ids, and loses Ad budget (no longer asked on either form; last filled Nov 5) and Qualified (the Zap that
+  tagged MQL / DQ stopped Oct 25); a booking by someone posted as a partial puts "booked" under that post with a ✅.
+- Fixed with it: the dial cadence test still expected the one-post-per-alert text D367 replaced, and `workflows_off` (D366) had no
+  short words on the workflow page. Both failed on main.
