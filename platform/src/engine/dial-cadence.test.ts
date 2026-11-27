@@ -52,10 +52,10 @@ describe.skipIf(!process.env.DATABASE_URL)("D354: dial cadence", () => {
     // a repeat purchase never starts a second cycle
     await fire(id, "tag.added", { tag: "leap-buyer" }); await run(T0.plus({ minutes: 32 }));
     expect(await runOf(id)).toHaveLength(1);
-    // not dialed 4 hours after it was due: the team is told once, and they stay on the list
+    // not dialed 4 hours after it was due: the team is told once (a line in that hour's one message, D367), and they stay on the list
     await run(T0.plus({ minutes: 31, hours: 4, seconds: 30 }));
     const said = await asOperator((c) => many<{ rendered_body: string }>(c, "select s.rendered_body from sends s join runs r on r.id=s.run_id where r.contact_id=$1 and s.channel='slack'", [id]));
-    expect(said.map((x) => x.rendered_body)).toEqual([expect.stringMatching(/^Call #2 to .* has been due 4 hours and not dialed\. They stay on the list until it is\.$/)]);
+    expect(said.map((x) => x.rendered_body)).toEqual([expect.stringMatching(/^• Call #2 to <https:\/\/app\.gohighlevel\.com\/.*\|.*>$/)]);
     expect(await field(id, "attempt_count")).toBe("1");   // no attempt counted that was not made
     expect(await field(id, "next_call_due")).toBe("2026-12-02"); expect((await runOf(id))[0].current_node).toBe("dial_b");
   });

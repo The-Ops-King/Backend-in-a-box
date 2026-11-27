@@ -1,0 +1,34 @@
+{
+  "slug": "partial-applicant",
+  "name": "Partial applicant",
+  "category": "lead_intake",
+  "stage": "lead",
+  "sort": 15,
+  "origin": "default",
+  "optional": true,
+  "description": "Someone who came in through the application and has no call booked ten minutes later, finished the form or left partway: one post to the partials channel with who they are, every answer they gave, and the ad that brought them. Once per person per day. If they book later, Call booked marks the post.",
+  "definition": {
+    "schema": 1,
+    "reentry": "once_per_contact_per_window",
+    "reentry_window": "1d",
+    "premise": { "check": "contact_exists" },
+    "nodes": [
+      { "id": "t1", "type": "trigger", "event": "application.received", "title": "An application came in, ten minutes ago" },
+      { "id": "v_how", "type": "set_var", "key": "how", "title": "Finished the form, or left partway",
+        "when": { "eq": ["{{event.finished}}", true] }, "value": "finished the form", "else_value": "left the form partway" },
+      { "id": "c_booked", "type": "check", "title": "No call booked",
+        "when": { "not": { "eq": ["{{contact.has_upcoming_call}}", true] } }, "else_exit": "booked" },
+      { "id": "n_post", "type": "slack_post", "title": "Post them in the partials channel",
+        "channel": "{{slack.channel.partials}}", "tag": "partial:{{contact.id}}",
+        "as": { "name": "Partial application", "icon": ":hourglass_flowing_sand:" },
+        "template": "*Partial: {{contact.name | default:Unknown}}* ({{event.form_name | default:Typeform | upper}}, {{vars.how}}, no call booked)\n*Name:* <https://app.gohighlevel.com/v2/location/{{crm.location_id}}/contacts/detail/{{contact.ghl_contact_id | default:}}|{{contact.name | default:Unknown}}>\n*Email:* {{event.email | default:—}}\n*Phone:* {{contact.phone | default:—}}\n{{event.answers_text | default:_No answers yet_}}\n*Source:* {{event.utm.source | default:—}} · {{event.utm.medium | default:—}}\n*Ad IDs:* campaign {{event.utm.campaign | default:—}} · ad set {{event.utm.term | default:—}} · ad {{event.utm.content | default:—}}\n*Came in:* {{event.landed_at | date_company}}" },
+      { "id": "x1", "type": "exit", "reason": "posted" }
+    ],
+    "edges": [
+      { "from": "t1", "to": "v_how" },
+      { "from": "v_how", "to": "c_booked" },
+      { "from": "c_booked", "to": "n_post" },
+      { "from": "n_post", "to": "x1" }
+    ]
+  }
+}

@@ -11,6 +11,8 @@ import { simTag, simulate } from "./simulate";
 import { callOutcome, callsNow, finishPhoneCall, meetingKey, pendingPhoneCalls, phoneFacts, recordPhoneCall, settlePhoneCall, unfinishedPhoneCalls, UNFINISHED_CALL, type RecordingRow } from "./recordings";
 import { callSetting } from "./call-settings";
 import { applicationTags } from "./application-tags";
+import { recordApplications } from "./applications";
+import { liveTypeform } from "@/adapters/typeform/client";
 import { TF_TOKEN_KEY } from "./typeform";
 import { listSetting } from "./payments";
 import { applyDocument, facts as agreementFacts, isSigned } from "./agreements";
@@ -655,8 +657,15 @@ export async function pollCompany(adapters: Adapters, companyId: string, rep: Po
       const key = `applications_read:${co.id}`;
       const last = await one<{ at: string }>(c, "select value->>'at' as at from engine_state where key=$1", [key]);
       if (last?.at && Date.now() - Date.parse(last.at) < APPLICATIONS_EVERY_MS) return;
-      const r = await applicationTags(c, adapters, { company: co.slug, forms, why: "D330: the ten-minute applications pass", dryRun: false, since: new Date(Date.now() - 24 * 3600e3).toISOString(), concurrency: 2 });
+      const r = await applicationTags(c, adapters, { company: co.slug, forms, why: "D330: the ten-minute applications pass", dryRun: false, since: new Date(Date.now() - 24 * 3600e3).toISOString(), concurrency: 2, keepResponses: true });
       if (!r.ok) throw new Error(r.error);
+      // D368: each application, once it is ten minutes old, recorded about its person (application.received) for the workflows on it
+      let formTags: Record<string, string> = {};
+      try { formTags = JSON.parse(bindings["typeform.form_tags"] || "{}") as Record<string, string>; } catch { /* unset */ }
+      // its own savepoint: a failure here (the form unreadable) is reported and leaves the tags already written standing
+      await c.query("savepoint applications_recorded");
+      try { await recordApplications(c, { companyId: co.id, token: bindings[TF_TOKEN_KEY], tf: liveTypeform, formTags }, r.responses ?? []); await c.query("release savepoint applications_recorded"); }
+      catch (e) { await c.query("rollback to savepoint applications_recorded"); rep.errors.push({ company: co.slug, entity: "applications", error: `recording applications: ${String((e as Error).message).slice(0, 200)}` }); }
       if (r.errors.length) rep.errors.push({ company: co.slug, entity: "applications", error: r.errors.slice(0, 3).map((x) => `${x.who}: ${x.error}`).join("; ") });
       await c.query("insert into engine_state (key, value, updated_at) values ($1,$2,now()) on conflict (key) do update set value=$2, updated_at=now()", [key, { at: new Date().toISOString(), changed: r.changes.length }]);
     }],

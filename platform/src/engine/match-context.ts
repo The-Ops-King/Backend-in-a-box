@@ -27,6 +27,8 @@ export const MATCH_CONTEXT: Record<string, readonly string[]> = {
   "tag.added": [...CONTACT_POLLED, ...FORM],
   "tag.removed": CONTACT_POLLED,
   "form.submitted": FORM,
+  // D368: applications.ts, the ten-minute pass: the person as the engine has them, the form and the response
+  "application.received": [...CONTACT_POLLED, "form.id", "form.name", "form.response_id"],
   "message.received": CONTACT,
   // poll.ts:253 (and replay.ts:62): the booking as the poll saw it; no closer
   "appointment.booked": [...CONTACT, "appointment.id", "appointment.starts_at", "appointment.status", ...TERM, "appointment.self_booked", "appointment.set_by", "opportunity.id"],

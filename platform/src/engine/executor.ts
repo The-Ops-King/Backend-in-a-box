@@ -660,6 +660,9 @@ async function executeStep(d: ExecDeps, node: Node): Promise<StepOutcome> {
         if (!deadline) { deadline = d.now.plus(parseDuration(node.retry.for)).toISO()!; setPath(d.ctx, `vars.${key}`, deadline); }
         if (d.now < DateTime.fromISO(deadline)) return { status: "waiting", until: d.now.plus(parseDuration(node.retry.every)), stay: true, result: { deadline, why: `not yet: ${predicateWords(node.when)}; looking again every ${durationWords(node.retry.every)} until ${deadline}` } };
       }
+      // D368: a check that waited with an edge labelled `timeout` goes on along it once the time is up (post anyway); without one, the gate closes as before
+      const timedOut = node.retry ? d.edgesFrom(node.id).find((e) => e.label === "timeout") : undefined;
+      if (timedOut) return { status: "ok", next: timedOut.to, result: { timed_out: true, why: `still not after ${durationWords(node.retry!.for)}: ${predicateWords(node.when)}` } };
       if (node.else_pause) return { status: "failed", error: `check ${node.id}: ${node.else_pause}` };
       return { status: "exit", reason: node.else_exit, gate: true };
     }

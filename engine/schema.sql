@@ -365,7 +365,7 @@ create table event_types (
   category text not null
 );
 insert into event_types values
-  ('lead.created','lead'), ('form.submitted','lead'),
+  ('lead.created','lead'), ('form.submitted','lead'), ('application.received','lead'),
   ('opportunity.opened','opportunity'), ('opportunity.won','opportunity'), ('opportunity.lost','opportunity'),
   ('appointment.booked','appointment'), ('appointment.rescheduled','appointment'),
   ('appointment.status_changed','appointment'), ('appointment.outcome','appointment'), ('appointment.reassign_requested','appointment'), ('appointment.reassigned','appointment'),

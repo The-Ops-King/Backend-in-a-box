@@ -33,6 +33,8 @@ export type AppTagsResult = {
   created: { who: string; ghl_contact_id: string | null; tags: string[]; dryRun: boolean }[];
   errors: { who: string; error: string }[];
   totals: Record<string, number>;
+  /** D368: the responses read, when asked for (`keepResponses`): the ten-minute pass records the applications from them. */
+  responses?: { r: TfResponse; status: Status; form: string }[];
 };
 export type CalendlyLookup = (token: string, organization: string, email: string) => Promise<boolean>;
 const liveCalendly: CalendlyLookup = async (token, organization, email) =>
@@ -76,7 +78,7 @@ async function eachLimited<T>(xs: T[], n: number, fn: (x: T) => Promise<void>) {
   await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (i < xs.length) await fn(xs[i++]); }));
 }
 
-export async function applicationTags(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; skip?: string[]; tf?: TypeformApi; cal?: CalendlyLookup; concurrency?: number; since?: string; createPartials?: boolean }): Promise<AppTagsResult | { ok: false; status: number; error: string }> {
+export async function applicationTags(c: PoolClient, adapters: Adapters, a: { company: string; forms: string[]; why: string; dryRun?: boolean; skip?: string[]; tf?: TypeformApi; cal?: CalendlyLookup; concurrency?: number; since?: string; createPartials?: boolean; keepResponses?: boolean }): Promise<AppTagsResult | { ok: false; status: number; error: string }> {
   if (!a.forms?.length || !a.why?.trim()) return { ok: false, status: 400, error: "company, forms (Typeform form ids) and why are required" };
   const co = await one<{ id: string }>(c, "select id from companies where slug=$1", [a.company]); if (!co) return { ok: false, status: 404, error: "no such company" };
   const { adapterCompany: ac, bindings } = await loadCompany(c, co.id);
@@ -144,6 +146,6 @@ export async function applicationTags(c: PoolClient, adapters: Adapters, a: { co
   for (const ch of changes) { for (const t of ch.add) totals[`+${t}`] = (totals[`+${t}`] ?? 0) + 1; for (const t of ch.remove) totals[`-${t}`] = (totals[`-${t}`] ?? 0) + 1; }
   if (!dryRun && changes.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.application_tags','company',$2,$3)", [co.id, co.id, { forms: a.forms, why: a.why, totals, skipped: a.skip ?? [], changes: changes.map((x) => ({ ghl_contact_id: x.ghl_contact_id, add: x.add, remove: x.remove })) }]);
   if (!dryRun && created.length) await c.query("insert into audit_log (company_id, action, target_type, target_id, after) values ($1,'contact.application_created','company',$2,$3)", [co.id, co.id, { forms: a.forms, why: a.why, created }]);
-  return { ok: true, dryRun, forms, people: people.length, unidentified, changes, unchanged, skipped, notInGhl, created, errors, totals };
+  return { ok: true, dryRun, forms, people: people.length, unidentified, changes, unchanged, skipped, notInGhl, created, errors, totals, ...(a.keepResponses ? { responses: all } : {}) };
 }
 
